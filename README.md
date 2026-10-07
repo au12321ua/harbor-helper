@@ -14,13 +14,22 @@ export HARBOR_HELPER_STATE=/path/to/team
 .venv/bin/harbor-helper doctor
 ```
 
-`doctor` 检查 Python 内的 Harbor 版本、Docker、Compose、Hub metadata 权限、本机 runtime 镜像和模型配置；不会发模型请求。未配置模型会返回退出码 1 并明确提示 A10 未验证，但仍可提交默认 oracle。Hub 权限不足时用本项目 `.venv/bin/harbor auth login` 登录，联系数据集所有者授权。
+`doctor` 检查 Python 内的 Harbor 版本、Docker、Compose、Hub metadata 权限、本机 runtime 镜像和模型配置；不会发模型请求。默认 doctor 按 oracle 必需条件判断；未配置模型作为可选能力提示 A10 未验证，不影响 oracle 就绪。`doctor --preset model` 才要求维护者模型配置并在缺失时返回退出码 1。Hub 权限不足时用本项目 `.venv/bin/harbor auth login` 登录，联系数据集所有者授权。
 
-配置文件为 `$HARBOR_HELPER_STATE/team.json`。只保存非秘密配置。示例 runtime 为本机已有 CAD runtime；其他机器需由维护者构建或载入符合 CAD 任务契约的 runtime，不能把本地 image ID 当成 registry digest。提交时解析 image ID、创建本项目的固定本地 alias，记录 ID。不会发布镜像/数据集或上传结果。
+配置文件为 `$HARBOR_HELPER_STATE/team.json`。只保存非秘密配置。默认 runtime 为本项目固定 CADIR 2.1.4 构建产物 `harbor-helper/cad-runtime:aa0d35429b998a7109e7`；其他机器需由维护者用下方入口构建或载入符合 CAD 任务契约的 runtime，不能把本地 image ID 当成 registry digest。提交时解析 image ID、创建本项目的固定本地 alias，记录 ID。不会发布镜像/数据集或上传结果。
+
+CAD runtime 的本项目构建入口如下（需要一个含固定 commit 的只读 CADIR Git checkout）：
+
+```bash
+uv run python scripts/build_cad_runtime.py --cadir /path/to/CADIR --prepare-only
+uv run python scripts/build_cad_runtime.py --cadir /path/to/CADIR
+```
+
+`configs/cad-runtime.json` 固定 CADIR 2.1.4 commit、OS base digest 和镜像命名；导出只包括已提交的 wheel 输入与匹配 `docs/skill`，忽略 checkout 的未提交修改，拒绝链接/路径穿越。构建记录在 `.state/runtime-build/provenance.json` 与 `pip-freeze.txt`；不会修改 CADIR/cad-bench、发布 Hub 数据集或推送镜像。源码和初始 OS 镜像固定，传递依赖仍在构建时解析，pip freeze 记录实际版本；不保证无缓存重建字节相同。固定源码镜像兼容性应分别验证正例和负例，并由CLI重验。只有已确认兼容的产物用于团队默认方案。维护者可用 `--reuse-image` 与 `--reuse-manifest` 复用独立已验证构建；入口核对 source archive、Dockerfile、base 和实际镜像内 733 个 source 文件、安装的 Python 源码及 skill，随后打本项目 alias，保留实际 image ID 和 pip freeze。
 
 团队所有成员和所有 CLI 必须使用同一个绝对 state 路径及受信任的共享 Unix 账号；不要为每位成员单独初始化 state。调度器容量限制作用于一个 state 内 helper 管理的 Job，不包含其他项目或用户直接启动的 Harbor。首版不提供跨 Unix 用户权限隔离。不同 state 是显式独立安装，不能共同保证机器总容量。
 
-配置默认最多 1 个活动 Job、1 个 Trial；`max_jobs` 和 `max_trials` 为团队总容量，每次提交的 `concurrency` 预留 Trial 槽位，确保最坏情况下的实际活动 Trial 不超上限。故障后未确认清理的 Job 继续占槽位，显示 `cleanup_blocked`。资源通过原生 Harbor override 设置 CPU/内存上限，磁盘/token/费用硬限额不支持。墙钟预算涵盖 worker 启动到执行完成，排队/提交前下载不计其中；尝试次数受团队上限控制，基础设施重试为 0。
+`runtime_image_env` 列出需要接收固定镜像 alias 的原生 Harbor environment.env 变量；CAD 默认方案在团队配置声明两种角色的变量，通用 Job 接入不读取 CAD 评分逻辑。配置默认最多 1 个活动 Job、1 个 Trial；`max_jobs` 和 `max_trials` 为团队总容量，每次提交的 `concurrency` 预留 Trial 槽位，确保最坏情况下的实际活动 Trial 不超上限。故障后未确认清理的 Job 继续占槽位，显示 `cleanup_blocked`。资源通过原生 Harbor override 设置 CPU/内存上限，磁盘/token/费用硬限额不支持。墙钟预算涵盖 worker 启动到执行完成，排队/提交前下载不计其中；尝试次数受团队上限控制，基础设施重试为 0。
 
 ## 成员操作
 
@@ -39,7 +48,7 @@ export HARBOR_HELPER_STATE=/path/to/team
 .venv/bin/harbor-helper cancel hh-替换为真实ID
 ```
 
-`submit --task 'generation--box'` 可只跑一题；`--attempts`、`--concurrency`、`--wall-seconds` 在团队上限内覆盖默认值。`--dataset` 只接受显式数字 revision 或 sha256 digest，拒绝 latest。成功提交前实际解析并下载 Hub 任务，保存 agent 和 verifier 全部原始输入文件。提交失败不给一个假成功 run ID。
+`submit --task 'generation--box'` 可只跑一题；`--attempts`、`--concurrency`、`--wall-seconds` 在团队上限内覆盖默认值。`--model` 选择同一个维护者配置的 vLLM endpoint 已服务的 model ID，不改变 endpoint；改选模型时声明 checkpoint 标为 unknown。`--dataset` 只接受显式数字 revision 或 sha256 digest，拒绝 latest。成功提交前实际解析并下载 Hub 任务，保存 agent 和 verifier 全部原始输入文件。提交失败不给一个假成功 run ID。
 
 `cancel` 返回取消请求；最终 `cancelled` 才确认本次工作停止和限定本次 Compose project 的容器/网络/volume 清理。不会使用全局 prune。结果保留。worker 硬退出由调度器识别并清理，失败后提示整体 rerun；不恢复中途会话。调度器故障后 `recover`（或 status/list/新提交）启动唯一调度进程并协调旧 worker，不重复执行。PID 和 Linux 启动时间共同识别进程；flock 防多个调度器和同一次 worker 重复。
 

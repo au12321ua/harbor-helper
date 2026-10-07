@@ -13,7 +13,7 @@ from harbor_helper.runs import ensure_supervisor, image_identity, submit
 from harbor_helper.storage import ACTIVE, TERMINAL, Store, read_json, write_json
 
 
-def doctor(store):
+def doctor(store, preset="default"):
     checks = []
     version = importlib.metadata.version("harbor")
     checks.append(
@@ -56,7 +56,7 @@ def doctor(store):
                 "check": "runtime_image",
                 "ok": False,
                 "detail": str(e),
-                "fix": "Maintainer: build/load the CAD runtime matching the task contract",
+                "fix": "Maintainer: uv run python scripts/build_cad_runtime.py --cadir /path/to/CADIR",
             }
         )
 
@@ -91,11 +91,28 @@ def doctor(store):
         {
             "check": "model",
             "ok": model is not None,
+            "required": team["presets"].get(preset, {}).get("agent") == "opencode",
             "detail": "configured (not contacted)" if model else "A10 unverified: no model",
             "fix": "Maintainer: configure self-hosted vLLM in team.json, then restart scheduler",
         }
     )
-    return {"checks": checks, "ok": all(c["ok"] for c in checks), "model_request_sent": False}
+    try:
+        effective(team, argparse.Namespace(preset=preset))
+    except ValueError as e:
+        checks.append(
+            {
+                "check": "preset",
+                "ok": False,
+                "detail": str(e),
+                "fix": "Review the selected preset/model configuration",
+            }
+        )
+    return {
+        "checks": checks,
+        "preset": preset,
+        "ok": all(c["ok"] for c in checks if c.get("required", True)),
+        "model_request_sent": False,
+    }
 
 
 def parser():
@@ -106,12 +123,16 @@ def parser():
     sub = p.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init", help="Initialize team configuration once")
     init.add_argument("--config", type=Path)
-    sub.add_parser("doctor", help="Check dependencies/sources without calling a model")
+    diagnose = sub.add_parser("doctor", help="Check dependencies/sources without calling a model")
+    diagnose.add_argument("--preset", default="default")
     submit_p = sub.add_parser("submit", help="Freeze inputs and submit detached Harbor work")
     submit_p.add_argument("--preset", default="default")
     submit_p.add_argument("--dataset")
     submit_p.add_argument("--agent", choices=["oracle", "opencode"])
     submit_p.add_argument("--bundle", type=Path)
+    submit_p.add_argument(
+        "--model", help="Served model ID at the maintainer-configured vLLM endpoint"
+    )
     submit_p.add_argument("--task", help="Optional glob matching dataset task name")
     for k in ("attempts", "concurrency", "wall-seconds"):
         submit_p.add_argument("--" + k, type=int)
@@ -142,7 +163,7 @@ def dispatch(args):
             raise
         return {"state": str(store.root), "config": str(path)}
     if cmd == "doctor":
-        value = doctor(store)
+        value = doctor(store, args.preset)
         return value, 0 if value["ok"] else 1
     if cmd == "submit":
         team = load_team(store)

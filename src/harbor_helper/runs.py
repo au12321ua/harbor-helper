@@ -10,7 +10,7 @@ from pathlib import Path
 
 from harbor.models.job.config import JobConfig
 
-from harbor_helper.config import HARBOR_VERSION, reject_secrets, validate_effective
+from harbor_helper.config import DEFAULT, HARBOR_VERSION, reject_secrets, validate_effective
 from harbor_helper.sources import resolve_dataset, verify_inputs
 from harbor_helper.storage import read_json, tree_digest, write_json
 
@@ -109,8 +109,8 @@ def job_config(run_dir, manifest):
                 "override_cpus": cfg["max_cpus_per_trial"],
                 "override_memory_mb": cfg["max_memory_mb_per_trial"],
                 "env": {
-                    "CAD_BENCH_AGENT_IMAGE": manifest["image_alias"],
-                    "CAD_BENCH_VERIFIER_IMAGE": manifest["image_alias"],
+                    k: manifest["image_alias"]
+                    for k in cfg.get("runtime_image_env", DEFAULT["runtime_image_env"])
                 },
             },
             "agents": [agent],

@@ -52,7 +52,7 @@ def report(store, run_id):
                     ],
                 }
             )
-        except (ValueError, KeyError, TypeError) as e:
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError) as e:
             rows.append(
                 {
                     "task": "unknown",
@@ -135,6 +135,7 @@ def compare(store, left, right):
         "concurrency",
         "wall_seconds",
         "runtime_image",
+        "runtime_image_env",
         "max_cpus_per_trial",
         "max_memory_mb_per_trial",
     )

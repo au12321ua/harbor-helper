@@ -9,7 +9,7 @@ from harbor_helper.config import DEFAULT, effective, load_team, reject_secrets
 from harbor_helper.reports import compare, report
 from harbor_helper.runs import job_config, safe_environment, submit
 from harbor_helper.sources import verify_inputs
-from harbor_helper.storage import Store, tree_digest, write_json
+from harbor_helper.storage import Store, read_json, tree_digest, write_json
 from harbor_helper.worker import cleanup, finish, tick
 
 
@@ -232,3 +232,37 @@ def test_opencode_config_uses_only_selected_provider_and_placeholder(store):
     assert agent["env"] == {"VLLM_API_KEY": "${VLLM_API_KEY}"}
     assert agent["kwargs"]["opencode_config"]["enabled_providers"] == ["vllm"]
     assert agent["model_name"] == "vllm/local-model"
+
+
+def test_credential_redaction_keeps_frozen_inputs_intact(store):
+    from harbor_helper.worker import redact_files
+
+    p, _ = add_run(store)
+    token = "literal-occurrence"
+    frozen = p / "tasks" / "box" / "task.toml"
+    frozen.write_text(token)
+    native = trial(p)
+    (native / "agent").mkdir()
+    output = native / "agent" / "agent.txt"
+    output.write_text("Bearer " + token)
+    redact_files(p, [token])
+    assert output.read_text() == "Bearer [REDACTED]"
+    assert frozen.read_text() == token
+
+
+@pytest.mark.parametrize("field,value", [("task_name", 3), ("reward", 10**400)])
+def test_malformed_trial_diagnostic_corrects_success_without_changing_evidence(store, field, value):
+    p, _ = add_run(store, status="succeeded")
+    native = trial(p)
+    raw = read_json(native / "result.json")
+    if field == "reward":
+        raw["verifier_result"]["rewards"]["reward"] = value
+    else:
+        raw[field] = value
+    write_json(native / "result.json", raw)
+    before = (native / "result.json").read_bytes()
+    result = report(store, p.name)
+    assert not result["complete"] and result["invalid_attempts"] == 1
+    assert result["unexpected_trials"][0]["exception"]["exception_type"] == "MalformedTrialResult"
+    assert store.get(p.name)["status"] == "failed"
+    assert (native / "result.json").read_bytes() == before

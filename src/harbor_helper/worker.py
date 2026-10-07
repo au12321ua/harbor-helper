@@ -174,7 +174,11 @@ def supervise(root):
 
 
 def redact_files(path, secrets):
-    for file in path.rglob("*"):
+    # Frozen inputs must remain byte-for-byte intact. Harbor output can contain
+    # credentials echoed by tools, so scrub only execution evidence.
+    files = list((path / "harbor").rglob("*"))
+    files.append(path / "worker.log")
+    for file in files:
         if not file.is_file() or file.stat().st_size > 20_000_000:
             continue
         try:

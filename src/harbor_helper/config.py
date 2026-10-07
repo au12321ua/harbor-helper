@@ -6,7 +6,8 @@ from harbor_helper.storage import read_json
 HARBOR_VERSION = "0.23.0"
 DEFAULT = {
     "dataset": "au12321ua/cad-bench@2",
-    "runtime_image": "cad-bench/cad-runtime:cff490d90b2410ad29e2",
+    "runtime_image": "harbor-helper/cad-runtime:aa0d35429b998a7109e7",
+    "runtime_image_env": ["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"],
     "max_jobs": 1,
     "max_trials": 1,
     "max_attempts": 3,
@@ -55,6 +56,12 @@ def load_team(store):
     ):
         if type(team.get(key)) is not int or team[key] < 1:
             raise ValueError(f"{key} must be a positive integer")
+    team.setdefault("runtime_image_env", DEFAULT["runtime_image_env"])
+    names = team["runtime_image_env"]
+    if not isinstance(names, list) or not all(
+        isinstance(k, str) and re.fullmatch(r"[A-Z_][A-Z0-9_]*", k) for k in names
+    ):
+        raise ValueError("runtime_image_env must list non-secret image environment variable names")
     return team
 
 
@@ -69,12 +76,20 @@ def effective(team, args):
         dataset=team["dataset"],
         model=team["model"],
         runtime_image=team["runtime_image"],
+        runtime_image_env=team["runtime_image_env"],
         max_cpus_per_trial=team["max_cpus_per_trial"],
         max_memory_mb_per_trial=team["max_memory_mb_per_trial"],
     )
     for k in ("agent", "attempts", "concurrency", "wall_seconds", "dataset"):
         if getattr(args, k, None) is not None:
             cfg[k] = getattr(args, k)
+    selected_model = getattr(args, "model", None)
+    if selected_model:
+        if not cfg["model"]:
+            raise ValueError("Configure the maintainer vLLM endpoint before selecting a model")
+        cfg["model"] = dict(cfg["model"])
+        if selected_model != cfg["model"]["name"]:
+            cfg["model"].update(name=selected_model, declared_version="unknown")
     cfg["task_filter"] = getattr(args, "task", None)
     validate_effective(team, cfg)
     return cfg
