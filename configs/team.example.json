@@ -1,0 +1,15 @@
+{
+  "dataset": "au12321ua/cad-bench@2",
+  "runtime_image": "cad-bench/cad-runtime:cff490d90b2410ad29e2",
+  "max_jobs": 1,
+  "max_trials": 1,
+  "max_attempts": 3,
+  "max_wall_seconds": 3600,
+  "max_cpus_per_trial": 2,
+  "max_memory_mb_per_trial": 4096,
+  "presets": {
+    "default": {"agent": "oracle", "attempts": 1, "concurrency": 1, "wall_seconds": 1800},
+    "model": {"agent": "opencode", "attempts": 1, "concurrency": 1, "wall_seconds": 1800}
+  },
+  "model": null
+}
