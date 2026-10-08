@@ -111,7 +111,7 @@ oracle 自检评分不证明模型实际工具调用或产物。模型登录期�
 - [配置指南](docs/configuration.md)：首次部署、team/model、隐藏输入、文件引用、TTL与刷新。
 - [操作指南](docs/operations.md)：bundle、镜像维护、比较、恢复、扫描及故障处理。
 - [原生入口设计](docs/usability-design.md)、[设计与范围](docs/v0-design.md)、[验收条件](docs/acceptance.md)。
-- [CLI + Web 服务化规划](docs/service-design.md)：待评审草案，尚未实现。
+- [CLI + Web 服务化规划](docs/service-design.md)、[服务验收草案](docs/service-acceptance.md)：轻量团队共享服务，仍在评审，尚未实现。
 - [成员验收](docs/member-acceptance.md)：真人提交、重连、比较与 rerun。
 - 实现证据、独立检查报告：来源、验证和限制。
 - [CLI 源码](src/harbor_helper/cli.py)、[配置示例](configs/team.example.json)。
