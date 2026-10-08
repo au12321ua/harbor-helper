@@ -350,3 +350,23 @@ def test_admin_enabled_metadata_is_boolean_for_web_controls(data):
     assert response.json()["enabled"] is False
     assert next(u for u in data.users() if u["id"] == member["id"])["enabled"] is False
     assert data.disable_credential("k2")["enabled"] is False
+
+
+def test_rerun_cannot_bypass_disabled_model_profile(data, preparation):
+    run_id = prepare(data, preparation)
+    profile = data.object("profile", "m1")
+    profile["enabled"] = False
+    data.save_object("profile", profile)
+    actor = next(u for u in data.users() if u["username"] == "bob")
+    with pytest.raises(ServiceError, match="profile disabled"):
+        Application(data.root).accept(actor, {}, "disabled-rerun", parent=run_id)
+
+
+def test_live_log_tail_reads_only_complete_lines(data, preparation):
+    run_id = prepare(data, preparation)
+    path = data.store.path(run_id) / "worker.log"
+    # The 256 KiB seek starts inside this fake key, with an unfinished final line.
+    path.write_text("before\n" + KEYS[0] + "\n" + "line\n" * 52425 + "partial")
+    text = Application(data.root).logs(run_id)["text"]
+    assert set(text.splitlines()) <= {"line"}
+    assert "partial" not in text

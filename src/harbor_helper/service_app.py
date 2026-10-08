@@ -108,6 +108,11 @@ class Application:
                 cfg = json.loads(json.dumps(old["effective"]))
                 old_binding = old.get("service") or {}
                 if cfg["agent"] == "opencode":
+                    original_profile = self.data.object("profile", old_binding.get("model_profile"))
+                    if not original_profile["enabled"]:
+                        raise ServiceError(
+                            "profile_disabled", "Original model profile disabled", 409
+                        )
                     credential = self.data.credential(old_binding.get("credential_id"))
                     if (
                         not credential["enabled"]
@@ -353,8 +358,17 @@ class Application:
         with path.open("rb") as file:
             file.seek(0, 2)
             length = file.tell()
-            file.seek(max(0, length - 262144))
-            text = file.read().decode("utf-8", errors="replace")
+            offset = max(0, length - 262144)
+            file.seek(offset)
+            raw = file.read()
+        # Never expose a secret fragment where a bounded seek or live write cuts a line.
+        if offset:
+            newline = raw.find(b"\n")
+            raw = raw[newline + 1 :] if newline >= 0 else b""
+        if self.store.get(run_id)["status"] not in TERMINAL:
+            newline = raw.rfind(b"\n")
+            raw = raw[: newline + 1] if newline >= 0 else b""
+        text = raw.decode("utf-8", errors="replace")
         return {"text": redact_value(text, [key] if key else []), "truncated": length > 262144}
 
     def artifacts(self, run_id, allow_blocked=False):
