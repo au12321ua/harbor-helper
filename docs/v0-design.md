@@ -10,7 +10,7 @@
 
 运行位置已确定为统一机器。首版采用 Linux + Docker、SSH + CLI；维护者一次准备环境，成员通过默认方案运行，不手写 Harbor Job 或修改脚本。
 
-验收数据集使用 Harbor Hub 私有 package `au12321ua/cad-bench@2`，本次已独立解析和下载两题并核对内容摘要。运行记录必须保存实际 task/dataset 身份，不把 `latest` 当作固定版本。真实执行必须来自该数据集，mock 仅用于生命周期故障与边界测试。
+首版 CAD 验收数据集使用 Harbor Hub 私有 package `au12321ua/cad-bench@2`，已独立解析和下载两题并核对内容摘要。该选择是验收基线与团队默认值，不限制产品只能运行此数据集。成员可用 `submit --dataset` 为单次实验选择其他 Hub package；固定的是该次实验的版本与任务快照，不把 `latest` 当作固定版本。CAD 基线的验收证据必须来自真实 CAD 任务，mock 仅用于生命周期故障与边界测试。跨数据集实际切换见 验证记录。
 
 ## 范围与假设
 

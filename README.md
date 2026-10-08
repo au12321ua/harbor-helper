@@ -49,6 +49,14 @@ doctor 检查依赖、镜像、Hub 访问和非秘密配置，不发送模型请
 
 提交返回 run ID，后台任务在退出 SSH 后继续。登录 TTL 在实际出队时再次校验：过期排队任务明确失败且不启动模型；已运行任务继续执行与审计收尾。
 
+团队配置中的 dataset 是默认值；`--dataset` 可为本次实验切换到其他 Hub 数据集，不修改默认值。选择数字 revision 或 sha256 digest，每次实验和 rerun 固定所选版本。例如用单题测试集做无模型自检：
+
+```bash
+.venv/bin/harbor-helper submit --dataset au12321ua/harbor-helper-switch-smoke@1 --agent oracle
+```
+
+省略 `--agent oracle` 即按正常模型流程提交。其他账号使用私有数据集前需取得 Hub 访问权限。
+
 墙钟不限制 token 或费用；实际费用未知时保留 unknown，reported cost=0 不代表免费。
 
 ## 重连、状态与报告

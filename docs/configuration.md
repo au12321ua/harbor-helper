@@ -24,7 +24,7 @@ team.json 只保存服务、工具、镜像与容量字段，禁止 key 值。�
 
 | 字段 | 用法 |
 | --- | --- |
-| dataset | 固定数字 revision 或 sha256 digest，拒绝 latest |
+| dataset | 团队默认数据集；submit --dataset 可覆盖本次选择。使用数字 revision 或 sha256 digest，拒绝 latest |
 | runtime_image | 已验证的本机兼容镜像；固定预装 OpenCode 可避免重复安装 |
 | runtime_image_env | 原生 agent/verifier 接收固定 image alias 的变量 |
 | max_jobs / max_trials | 同一 state 的总 Job/Trial 容量 |

@@ -11,7 +11,15 @@
 .venv/bin/harbor-helper status hh-替换为真实ID
 ```
 
-`--task` 支持任务名 glob，不给则选择固定数据集的全部任务。`--attempts/--concurrency/--wall-seconds` 在团队上限内覆盖 preset。`--dataset` 只接受数字 revision 或 sha256 digest；`--model` 选择维护者 endpoint 已服务的模型 ID。提交成功前实际解析并下载 Hub 任务，保存 agent/verifier 原始输入；失败不会返回假成功 ID。
+`--task` 支持任务名 glob，不给则选择本次所选数据集的全部任务。`--attempts/--concurrency/--wall-seconds` 在团队上限内覆盖 preset。`--dataset` 覆盖本次提交的数据集，不修改 team.json 中的默认值；只接受数字 revision 或 sha256 digest。`--model` 选择维护者 endpoint 已服务的模型 ID。提交成功前实际解析并下载 Hub 任务，保存 agent/verifier 原始输入；失败不会返回假成功 ID。
+
+```bash
+.venv/bin/harbor-helper submit --dataset au12321ua/harbor-helper-switch-smoke@1 --agent oracle
+```
+
+该私有单题数据集的源码见 [切换示例](../examples/harbor-helper-switch-smoke/README.md)，其他账号需取得 Hub 访问权限。后续不带 `--dataset` 的新提交继续使用团队默认值；rerun 使用原实验的数据集与任务快照。更改团队长期默认值由维护者编辑 team.json 的 dataset 字段，仅影响新提交。不同数据集的报告不能汇总为可比改进。
+
+当前支持 Hub package 的任务集选择；数据集级自定义 metrics/files 与本地数据集目录尚不支持。实际 Hub/Docker 切换与重跑结果见 验证记录。
 
 输出 run ID 后可以断开 SSH；重连后直接使用 CLI 查询。Job/Trial 槽位作用于统一 state，无法限制其它项目、独立 state 或直接运行的 Harbor；未确认收尾的 Job 保持 cleanup_blocked 并占槽位。墙钟预算从 worker 开始，队列和提交前下载不计入；基础设施重试为 0，CPU/内存由原生 override 设置，磁盘/token/费用硬限额不支持。
 
