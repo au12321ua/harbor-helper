@@ -123,7 +123,7 @@ def report(store, run_id):
     return result
 
 
-def compare(store, left, right):
+def compare(store, left, right, published_reports=None):
     a, b = (read_json(store.path(i) / "manifest.json") for i in (left, right))
     reasons = []
     if a["source"] != b["source"]:
@@ -148,7 +148,11 @@ def compare(store, left, right):
     for k in ("harbor_version", "image_id"):
         if a[k] != b[k]:
             reasons.append(f"Actual runtime version differs: {k}")
-    ra, rb = report(store, left), report(store, right)
+    ra, rb = (
+        published_reports
+        if published_reports is not None
+        else (report(store, left), report(store, right))
+    )
     if not ra["complete"] or not rb["complete"]:
         reasons.append("Incomplete/exceptional attempts: no aggregate improvement conclusion")
     if any(store.get(i)["status"] != "succeeded" for i in (left, right)):

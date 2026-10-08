@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from harbor_helper.config import HARBOR_VERSION, load_team
@@ -22,7 +23,7 @@ from harbor_helper.credentials import (
 from harbor_helper.reports import report
 from harbor_helper.runs import safe_environment
 from harbor_helper.sources import verify_inputs
-from harbor_helper.storage import ACTIVE, Store, read_json, write_json
+from harbor_helper.storage import ACTIVE, TERMINAL, Store, read_json, write_json
 
 
 def process_birth(pid):
@@ -50,6 +51,7 @@ def cleanup(path):
     """Only exact native Compose projects recorded before starting any Trial."""
     projects_file = path / "projects.json"
     if not projects_file.exists():
+        write_json(path / "cleanup.json", {"confirmed": True, "projects": [], "time": time.time()})
         return  # Worker never passed Job initialization; no environment was started.
     projects = read_json(projects_file)
     for project in projects:
@@ -61,6 +63,8 @@ def cleanup(path):
             ids = run_command(["docker", kind, "ls", "-q", "--filter", label]).split()
             if ids:
                 run_command(["docker", kind, "rm", *ids])
+            if run_command(["docker", kind, "ls", "-q", "--filter", label]):
+                raise RuntimeError(f"Owned {kind} resources remain in project {project}")
         if run_command(["docker", "ps", "-aq", "--filter", label]):
             raise RuntimeError(f"Containers remain in owned project {project}")
     write_json(
@@ -103,48 +107,97 @@ def stop_group(row):
     raise RuntimeError("Worker descendants still active; capacity retained")
 
 
+def service_mode(store):
+    return (store.root / "service.json").exists()
+
+
+def audit_finished(store, row):
+    """Publish evidence only with a complete audit; never reserve execution capacity."""
+    secrets = [] if service_mode(store) else runtime_secrets()
+    audit = None
+    try:
+        path = store.path(row["id"])
+        manifest = read_json(path / "manifest.json")
+        cfg = manifest["effective"]
+        if service_mode(store):
+            from harbor_helper.service_data import ServiceData
+
+            key = ServiceData(store.root).run_key(row["id"], execution=False)
+        else:
+            from harbor_helper.auth import Auth
+
+            auth = Auth(store.root)
+            key = auth.audit_run_key(row["id"])
+            if (
+                cfg["agent"] == "opencode"
+                and cfg["model"].get("credential_env")
+                and auth.bound_record(row["id"]) is None
+                and not legacy_secrets()
+            ):
+                raise RuntimeError("Legacy credential audit source unavailable")
+        if key and key not in secrets:
+            secrets.append(key)
+        if cfg["agent"] == "opencode" and cfg["model"].get("credential_env") and not secrets:
+            raise RuntimeError("Credential audit source unavailable")
+        redact_files(path, secrets)
+        scrub_file(store.root / "supervisor.log", secrets)
+        audit = audit_run(store, row["id"], secrets)
+        audit["audit_complete"] = True
+        write_json(path / "credential-audit.json", audit)
+        if not audit["clean"]:
+            raise RuntimeError("Credential audit not clean; raw evidence withheld")
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
+        # Third-party exceptions can carry unavailable secrets. Persist a fixed,
+        # actionable message rather than potentially unsafe original exception text.
+        store.update(
+            row["id"],
+            audit_status="incomplete",
+            audit_reason="Evidence audit incomplete; affected logs and artifacts withheld",
+        )
+        path = store.path(row["id"])
+        try:
+            if audit is None:
+                write_json(
+                    path / "credential-audit.json",
+                    {"clean": False, "audit_complete": False, "reason": "Audit source unavailable"},
+                )
+            (path / "report.json").unlink(missing_ok=True)
+        except OSError:
+            pass  # Database audit_status still withholds evidence; queue keeps advancing.
+        return False
+    store.update(row["id"], audit_status="clean", audit_reason=None)
+    report(store, row["id"])
+    return True
+
+
 def finish(store, row, status, reason):
-    secrets = runtime_secrets()
+    secrets = [] if service_mode(store) else runtime_secrets()
     try:
         stop_group(row)
         cleanup(store.path(row["id"]))
-        from harbor_helper.auth import Auth
-
-        auth = Auth(store.root)
-        key = auth.audit_run_key(row["id"])
-        if key and key not in secrets:
-            secrets.append(key)
-        cfg = read_json(store.path(row["id"]) / "manifest.json")["effective"]
-        if (
-            cfg["agent"] == "opencode"
-            and cfg["model"].get("credential_env")
-            and auth.bound_record(row["id"]) is None
-            and not legacy_secrets()
-        ):
-            # Never let automatically loaded K2 claim an unbound historical K1.
-            raise RuntimeError(
-                "Legacy credential audit source unavailable; use explicit file launcher"
-            )
-        if cfg["agent"] == "opencode" and cfg["model"].get("credential_env") and not secrets:
-            raise RuntimeError(
-                "Credential audit unavailable; recover with file credential launcher"
-            )
-        redact_files(store.path(row["id"]), secrets)
-        scrub_file(store.root / "supervisor.log", secrets)
-        audit = audit_run(store, row["id"], secrets)
-        write_json(store.path(row["id"]) / "credential-audit.json", audit)
-        if not audit["clean"]:
-            raise RuntimeError("Credential audit not clean; raw evidence withheld")
-    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as e:
-        store.update(row["id"], status="cleanup_blocked", reason=redact_value(str(e), secrets))
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
+        store.update(
+            row["id"],
+            status="cleanup_blocked",
+            reason="Execution resource cleanup unconfirmed; capacity retained",
+        )
         return
+    # Capacity release depends solely on resource cleanup. Evidence may remain
+    # unavailable independently and can be audited again after restoring its key.
     store.update(
-        row["id"], status=status, reason=redact_value(reason, secrets), finished=time.time()
+        row["id"],
+        status=status,
+        reason=redact_value(reason, secrets),
+        finished=time.time(),
     )
-    report(store, row["id"])
+    audit_finished(store, store.get(row["id"]))
 
 
 def tick(store, children):
+    if service_mode(store):
+        with store.control():
+            _tick(store, children)
+        return
     from harbor_helper.auth import runtime_context
 
     legacy = legacy_secrets()
@@ -155,6 +208,13 @@ def tick(store, children):
 def _tick(store, children):
     team = load_team(store)
     for row in store.runs():
+        if row["status"] in TERMINAL and row["audit_status"] in {"pending", "incomplete"}:
+            path = store.path(row["id"])
+            stamp = path / "credential-audit.json"
+            if not (path / "archived.json").exists() and (
+                not stamp.exists() or time.time() - stamp.stat().st_mtime >= 5
+            ):
+                audit_finished(store, row)
         if row["status"] not in ACTIVE:
             continue
         path = store.path(row["id"])
@@ -181,8 +241,8 @@ def _tick(store, children):
             store.update(
                 row["id"], status="cancelled", finished=time.time(), reason="Cancelled while queued"
             )
+            audit_finished(store, store.get(row["id"]))
             continue
-        from harbor_helper.auth import Auth, AuthError
         from harbor_helper.credentials import KEY_ENV, LEGACY_KEY_ENV
 
         path = store.path(row["id"])
@@ -190,19 +250,28 @@ def _tick(store, children):
         environment = safe_environment()
         environment.pop(KEY_ENV, None)
         environment.pop(LEGACY_KEY_ENV, None)
-        if cfg["agent"] == "opencode":
+        if cfg["agent"] == "opencode" or service_mode(store):
             try:
-                _, key = Auth(store.root).worker_credentials(row["id"], cfg["model"]["endpoint"])
+                if service_mode(store):
+                    from harbor_helper.service_data import ServiceData
+
+                    key = ServiceData(store.root).run_key(row["id"], execution=True)
+                else:
+                    from harbor_helper.auth import Auth
+
+                    _, key = Auth(store.root).worker_credentials(
+                        row["id"], cfg["model"]["endpoint"]
+                    )
                 if key:
                     environment[KEY_ENV] = key
-            except AuthError as error:
+            except ValueError:
                 store.update(
                     row["id"],
                     status="failed",
                     finished=time.time(),
-                    reason=str(error) + "; model worker not started",
+                    reason="Execution authorization unavailable; worker not started",
                 )
-                report(store, row["id"])
+                audit_finished(store, store.get(row["id"]))
                 continue
         if len(active) >= team["max_jobs"] or slots + row["concurrency"] > team["max_trials"]:
             continue
@@ -228,12 +297,16 @@ def supervise(root):
     from harbor_helper import credentials
 
     # Native auto-loaded KEY_ENV is not an explicit historical source.
+    store = Store(root)
+    if service_mode(store):
+        os.environ.pop(credentials.KEY_ENV, None)
+        os.environ.pop(credentials.LEGACY_KEY_ENV, None)
+        credentials.AUDIT_SECRETS = []
     legacy = os.environ.get(credentials.LEGACY_KEY_ENV)
     credentials.LEGACY_SECRETS = [legacy] if legacy else []
     secrets = runtime_secrets()
     sys.stdout = RedactedStream(sys.stdout, secrets)
     sys.stderr = RedactedStream(sys.stderr, secrets)
-    store = Store(root)
     with (store.root / "supervisor.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -243,11 +316,31 @@ def supervise(root):
             store.root / "scheduler.json", {"pid": os.getpid(), "birth": process_birth(os.getpid())}
         )
         children = {}
+        # Keep cancellation/recovery/wall checks responsive during Hub downloads.
+        preparation_pool = ThreadPoolExecutor(max_workers=1) if service_mode(store) else None
+        preparation = None
+        maintained = time.monotonic()
         while True:
             try:
+                if preparation_pool and (preparation is None or preparation.done()):
+                    from harbor_helper.service_app import prepare_one
+
+                    if preparation is not None:
+                        completed, preparation = preparation, None
+                        completed.result()
+                    preparation = preparation_pool.submit(prepare_one, store)
                 tick(store, children)
+                if preparation_pool and time.monotonic() - maintained >= 30:
+                    from harbor_helper.service_app import maintenance
+
+                    with store.control():
+                        maintenance(store)
+                    maintained = time.monotonic()
             except Exception as e:  # noqa: BLE001 - persist/diagnose third-party Harbor errors
-                print(f"Scheduler error: {type(e).__name__}: {e}", flush=True)
+                if service_mode(store):
+                    print(f"Scheduler error: {type(e).__name__}", flush=True)
+                else:
+                    print(f"Scheduler error: {type(e).__name__}: {e}", flush=True)
             time.sleep(0.5)
 
 
@@ -273,18 +366,19 @@ async def execute(store, run_id):
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise RuntimeError("Worker loaded the wrong Harbor version")
     model = manifest["effective"]["model"]
-    if (
-        manifest["effective"]["agent"] == "opencode"
-        and model.get("credential_env")
-        and not os.environ.get("VLLM_API_KEY")
-    ):
-        raise RuntimeError("Model credential missing: verify auth status and protected source")
-    if manifest["effective"]["agent"] == "opencode":
-        from harbor_helper.auth import Auth
+    if manifest["effective"]["agent"] == "opencode" or service_mode(store):
+        if service_mode(store):
+            from harbor_helper.service_data import ServiceData
 
-        _, key = Auth(store.root).worker_credentials(run_id, model["endpoint"])
+            key = ServiceData(store.root).run_key(run_id, execution=True)
+        else:
+            from harbor_helper.auth import Auth
+
+            _, key = Auth(store.root).worker_credentials(run_id, model["endpoint"])
         if key:
             os.environ["VLLM_API_KEY"] = key
+        elif manifest["effective"]["agent"] == "opencode" and model.get("credential_env"):
+            raise RuntimeError("Model credential unavailable; worker execution refused")
     job = await Job.create(JobConfig.model_validate(read_json(path / "job.json")))
     projects, trials = [], []
     for cfg in job._trial_configs:
@@ -336,8 +430,14 @@ def run(root, run_id):
         try:
             outcome = asyncio.run(execute(store, run_id))
         except Exception as e:  # noqa: BLE001 - persist/diagnose third-party Harbor errors
-            print(f"Harbor startup/execution failed: {type(e).__name__}: {e}", flush=True)
-            outcome = {"status": "failed", "reason": f"{type(e).__name__}: {e}"}
+            if service_mode(store):
+                # Do not persist provider payloads from exception strings. Complete
+                # details remain available only in separately audited task evidence.
+                print(f"Harbor startup/execution failed: {type(e).__name__}", flush=True)
+                outcome = {"status": "failed", "reason": "Worker execution failed"}
+            else:
+                print(f"Harbor startup/execution failed: {type(e).__name__}: {e}", flush=True)
+                outcome = {"status": "failed", "reason": f"{type(e).__name__}: {e}"}
         sys.stdout.finish()
         sys.stderr.finish()
         redact_files(path, secrets)

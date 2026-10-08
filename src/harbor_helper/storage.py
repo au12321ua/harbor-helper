@@ -46,11 +46,21 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         (self.root / "runs").mkdir(exist_ok=True)
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS runs (
                 id TEXT PRIMARY KEY, status TEXT NOT NULL, created REAL NOT NULL,
                 started REAL, finished REAL, pid INTEGER, birth TEXT,
                 concurrency INTEGER NOT NULL, cancel INTEGER DEFAULT 0,
                 reason TEXT, parent TEXT)""")
+            # Migrate existing queues in place; execution and evidence safety are
+            # independent facts. An audit failure must not reserve execution slots.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(runs)")}
+            for name, definition in (
+                ("audit_status", "TEXT NOT NULL DEFAULT 'pending'"),
+                ("audit_reason", "TEXT"),
+            ):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE runs ADD COLUMN {name} {definition}")
 
     @contextmanager
     def control(self):
@@ -82,8 +92,9 @@ class Store:
     def update(self, run_id, **fields):
         from harbor_helper.credentials import redact_value, runtime_secrets
 
-        if "reason" in fields:
-            fields["reason"] = redact_value(fields["reason"], runtime_secrets())
+        for name in ("reason", "audit_reason"):
+            if name in fields:
+                fields[name] = redact_value(fields[name], runtime_secrets())
         with self.connect() as db:
             db.execute(
                 "UPDATE runs SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?",

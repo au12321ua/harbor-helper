@@ -138,13 +138,13 @@ report 会重新生成派生报告，补写证据后交接前再次 scan。停�
 | key 文件 unavailable/invalid | 核对明确路径、当前所有者、0600、普通文件/非链接；不输出文件内容 |
 | 认证、接口或工具调用不兼容 | 保存经审计的错误类型/摘要，先诊断服务与配置，不盲目 rerun |
 | 新 CLI 提示模型凭据缺失 | 先 auth status 核对选中team、有效期和来源；全部终态后 auth login，CLI自动刷新idle实例 |
-| cleanup_blocked | 保持占容量；核对是进程停止、归属 Docker 清理还是凭据审计失败，不修改数据库绕过 |
+| cleanup_blocked | 保持占容量；核对进程停止与归属 Docker 清理；审计异常已分离为audit_status，不修改数据库绕过 |
 | scheduler 已死 | 用原生 recover 协调原 worker/收尾，不重执行模型 |
-| 活动 scheduler 无审计凭据且无法收尾 | 恢复本run的原引用/权限后 recover；硬恢复缺原key将保持阻塞，不轮换/logout逃避审计；旧版历史来源可由兼容文件启动器处理 |
+| 活动 scheduler 无审计凭据且无法收尾 | 恢复本run的原引用/权限后 recover；硬恢复缺原key标记audit incomplete并限制原始证据；资源清理确认后释放容量；旧版历史来源可由兼容文件启动器处理 |
 | worker 中断或墙钟触达 | 等清理与审计完成、保留原结果；需要新实验时另行确认预算，用整体 rerun 或新 submit |
 | 快照被改、镜像 alias 身份变化 | 不改 frozen tasks/bundle；按错误来源修复，旧 run 保留供核对 |
 
-清理按记录的精确 Compose project 执行；PID 与 Linux 启动时间一起识别，拒绝误杀复用 PID。flock 防多 scheduler/同一 worker 重复。跨 write/flush 输出脱敏、reason 入库前处理、先清洗原生再生成派生报告；SQLite 按字段检查，冻结输入不改，clean 只读日志无需写入。命中不可清洗/扫描不完成/缺所需审计凭据时仍阻塞，不放宽权限或忽略错误释放容量。
+清理按记录的精确 Compose project 执行；PID 与 Linux 启动时间一起识别，拒绝误杀复用 PID。flock 防多 scheduler/同一 worker 重复。跨 write/flush 输出脱敏、reason 入库前处理、先清洗原生再生成派生报告；SQLite 按字段检查，冻结输入不改，clean 只读日志无需写入。命中不可清洗/扫描不完成/缺所需审计凭据时标记audit_status=incomplete并限制日志/报告/产物；资源释放确认后进入终态并放容量，不能把审计异常当资源残留。
 
 ## 自动化输出
 

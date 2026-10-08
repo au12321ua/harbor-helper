@@ -174,7 +174,7 @@ def test_database_is_read_by_fields_and_never_byte_rewritten(tmp_path):
     assert not scan_tree(tmp_path, [MARKER])["clean"]
 
 
-def test_unclean_frozen_inputs_withhold_report_and_retain_capacity(tmp_path, monkeypatch):
+def test_unclean_frozen_inputs_withhold_report_but_release_capacity(tmp_path, monkeypatch):
     from harbor_helper.config import DEFAULT
 
     monkeypatch.setenv("VLLM_API_KEY", MARKER)
@@ -184,7 +184,9 @@ def test_unclean_frozen_inputs_withhold_report_and_retain_capacity(tmp_path, mon
     frozen.parent.mkdir()
     frozen.write_text(MARKER)
     tick(store, {})
-    assert store.get(path.name)["status"] == "cleanup_blocked"
+    assert store.get(path.name)["status"] == "failed"
+    assert store.get(path.name)["audit_status"] == "incomplete"
+    assert store.get(path.name)["finished"] is not None
     assert not (path / "report.json").exists()
     assert frozen.read_text() == MARKER
     assert not json.loads((path / "credential-audit.json").read_text())["clean"]

@@ -1,11 +1,13 @@
 import asyncio
 import importlib.metadata
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 import uuid
+from copy import deepcopy
 from pathlib import Path
 
 from harbor.models.job.config import JobConfig
@@ -81,7 +83,12 @@ def job_config(run_dir, manifest):
                     "npm": "@ai-sdk/openai-compatible",
                     "name": "Maintainer OpenAI-compatible service",
                     "options": {"baseURL": model["endpoint"]},
-                    "models": {model["name"]: {"name": model["name"]}},
+                    "models": {
+                        model["name"]: {
+                            "name": model["name"],
+                            "options": deepcopy(model.get("parameters", {})),
+                        }
+                    },
                 }
             },
         }
@@ -96,6 +103,10 @@ def job_config(run_dir, manifest):
             # A bundle cannot redirect the maintainer's endpoint/model selection.
             if custom["provider"]["vllm"]["options"]["baseURL"] != model["endpoint"]:
                 raise ValueError("Bundle cannot override model endpoint")
+            if custom["provider"]["vllm"]["models"][model["name"]].get("options", {}) != model.get(
+                "parameters", {}
+            ):
+                raise ValueError("Bundle cannot override frozen model parameters")
             custom["enabled_providers"] = ["vllm"]
         agent["kwargs"]["opencode_config"] = custom
     return JobConfig.model_validate(
@@ -128,19 +139,31 @@ def job_config(run_dir, manifest):
     ).model_dump(mode="json")
 
 
-def submit(store, team, cfg=None, bundle=None, parent=None):
+def submit(
+    store,
+    team,
+    cfg=None,
+    bundle=None,
+    parent=None,
+    *,
+    service=None,
+    run_id=None,
+    start_supervisor=True,
+):
     from harbor_helper.auth import Auth
 
-    if parent:
+    if parent and (service is None or cfg is None):
         cfg = read_json(store.path(parent) / "manifest.json")["effective"]
     validate_effective(team, cfg)
     session = None
-    if cfg["agent"] == "opencode":
+    if cfg["agent"] == "opencode" and service is None:
         session, _ = Auth(store.root).execution(cfg["model"]["endpoint"])
 
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise ValueError("Wrong Harbor version; install with uv sync --locked")
-    run_id = "hh-" + uuid.uuid4().hex[:16]
+    run_id = run_id or "hh-" + uuid.uuid4().hex[:16]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", run_id):
+        raise ValueError("Invalid run identifier")
     path = store.root / "runs" / run_id
     path.mkdir(mode=0o700)
     try:
@@ -148,7 +171,8 @@ def submit(store, team, cfg=None, bundle=None, parent=None):
             old_path = store.path(parent)
             old = read_json(old_path / "manifest.json")
             verify_inputs(old_path, old)
-            cfg = old["effective"]
+            if service is None:
+                cfg = old["effective"]
             validate_effective(team, cfg)
             for name in ("tasks", "bundle"):
                 if (old_path / name).exists():
@@ -190,20 +214,38 @@ def submit(store, team, cfg=None, bundle=None, parent=None):
                 "cost": "unsupported",
             },
         }
+        if service is not None:
+            manifest["service"] = service
         verify_inputs(path, manifest)
         write_json(path / "manifest.json", manifest)
         write_json(path / "job.json", job_config(path, manifest))
         if session:
             Auth(store.root).bind(run_id, session["id"])
-        with store.connect() as db:
-            db.execute(
-                "INSERT INTO runs(id,status,created,concurrency,parent) VALUES(?,?,?,?,?)",
-                (run_id, "queued", time.time(), cfg["concurrency"], parent),
-            )
+
+        def publish():
+            if service is not None:
+                from harbor_helper.service_data import ServiceData
+
+                if not ServiceData(store.root).allow_publish(service["submission_id"]):
+                    raise ValueError("Submission cancelled before queue publication")
+            with store.connect() as db:
+                db.execute(
+                    "INSERT INTO runs(id,status,created,concurrency,parent) VALUES(?,?,?,?,?)",
+                    (run_id, "queued", time.time(), cfg["concurrency"], parent),
+                )
+
+        # Network preparation above is deliberately outside the shared queue lock.
+        # The local CLI already holds this lock; do not acquire a second flock.
+        if service is not None:
+            with store.control():
+                publish()
+        else:
+            publish()
     except BaseException:
         shutil.rmtree(path)
         raise
-    ensure_supervisor(store)
+    if start_supervisor:
+        ensure_supervisor(store)
     return {
         "run_id": run_id,
         "state": str(store.root),
@@ -254,6 +296,10 @@ def stop_supervisor(store, timeout=10):
 
     if any(row["status"] not in TERMINAL for row in store.runs()):
         raise ValueError("Only stop idle scheduler; cancel/wait for all tasks first")
+    if (store.root / "service.json").exists():
+        with store.connect() as db:
+            if db.execute("SELECT 1 FROM submissions WHERE status='preparing' LIMIT 1").fetchone():
+                raise ValueError("Input preparation active; wait before stopping scheduler")
     identity = scheduler_identity(store)
     if identity:
         try:
@@ -273,6 +319,12 @@ def stop_supervisor(store, timeout=10):
 def ensure_supervisor(store):
     if scheduler_identity(store):
         return
+    environment = safe_environment()
+    if (store.root / "service.json").exists():
+        from harbor_helper.credentials import KEY_ENV, LEGACY_KEY_ENV
+
+        environment.pop(KEY_ENV, None)
+        environment.pop(LEGACY_KEY_ENV, None)
     with (store.root / "supervisor.log").open("a") as log:
         subprocess.Popen(
             [sys.executable, "-m", "harbor_helper.worker", "supervise", str(store.root)],
@@ -281,7 +333,7 @@ def ensure_supervisor(store):
             stderr=log,
             start_new_session=True,
             close_fds=True,
-            env=safe_environment(),
+            env=environment,
         )
 
     deadline = time.monotonic() + 10

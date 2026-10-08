@@ -25,6 +25,20 @@ DEFAULT = {
 def reject_secrets(value):
     if isinstance(value, dict):
         for k, v in value.items():
+            if (
+                k
+                in {
+                    "max_tokens",
+                    "max_output_tokens",
+                    "max_completion_tokens",
+                    "maxTokens",
+                    "maxOutputTokens",
+                    "maxCompletionTokens",
+                }
+                and type(v) is int
+                and v > 0
+            ):
+                continue  # Generation length settings are not credential values.
             if re.search(r"(password|secret|token|api.?key|authorization)", k, re.IGNORECASE):
                 raise ValueError(f"Literal credentials are forbidden in configuration: {k}")
             reject_secrets(v)
@@ -102,6 +116,8 @@ def validate_effective(team, cfg):
         ("attempts", "max_attempts"),
         ("concurrency", "max_trials"),
         ("wall_seconds", "max_wall_seconds"),
+        ("max_cpus_per_trial", "max_cpus_per_trial"),
+        ("max_memory_mb_per_trial", "max_memory_mb_per_trial"),
     ):
         if type(cfg[key]) is not int or not 1 <= cfg[key] <= team[limit]:
             raise ValueError(f"{key} must be between 1 and {team[limit]}")
@@ -119,6 +135,7 @@ def validate_effective(team, cfg):
             "declared_version",
             "credential_env",
             "opencode_version",
+            "parameters",
         }:
             raise ValueError("Unknown model option")
         url = urlparse(model.get("endpoint", ""))
@@ -126,6 +143,8 @@ def validate_effective(team, cfg):
             raise ValueError("Set the maintainer's OpenAI-compatible http(s) endpoint")
         if not model.get("name") or not model.get("opencode_version"):
             raise ValueError("Set model.name and fixed model.opencode_version")
+        if not isinstance(model.get("parameters", {}), dict):
+            raise ValueError("Model parameters must be a non-secret object")
         key = model.get("credential_env")
         if key and (key != "VLLM_API_KEY"):
             raise ValueError("Use explicit VLLM_API_KEY runtime credential reference")

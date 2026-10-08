@@ -331,7 +331,7 @@ def test_idle_scheduler_refresh_and_stop_confirmed(client):
 
 
 @pytest.mark.parametrize("damage", ["delete", "permissions", "replace"])
-def test_hard_crash_unavailable_original_audit_stays_blocked(client, damage):
+def test_hard_crash_unavailable_audit_releases_capacity_but_withholds_logs(client, damage):
     client.login()
     (client.state / "fixture-hold").touch()
     run_id = client.call("submit")["run_id"]
@@ -349,15 +349,15 @@ def test_hard_crash_unavailable_original_audit_stays_blocked(client, damage):
     else:
         client.key.write_text(FAKE_KEY2)
     client.call("recover")
-    assert client.terminal(run_id)["status"] == "cleanup_blocked"
+    assert client.terminal(run_id)["status"] == "failed"
+    assert client.row(run_id)["audit_status"] == "incomplete"
     assert not (client.state / "runs" / run_id / "report.json").exists()
-    assert client.row(run_id)["finished"] is None
-    client.call("auth", "logout", ok=False)
+    assert client.row(run_id)["finished"] is not None
     client.call("logs", run_id, ok=False)
     # Restore identity; recover now audits the original key without new execution.
     client.key.write_text(FAKE_KEY)
     client.key.chmod(0o600)
-    wait_for(lambda: client.row(run_id)["status"] == "failed")
+    wait_for(lambda: client.row(run_id)["audit_status"] == "clean")
     assert FAKE_KEY not in (client.state / "runs" / run_id / "fixture-native.log").read_text()
     client.call("stop")
     assert client.call("scan")["clean"]

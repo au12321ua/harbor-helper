@@ -152,7 +152,8 @@ def scan_tree(root, secrets):
             if not parent_db.is_file():
                 counts["unreadable_files"] += 1
             continue
-        found, tail = False, b""
+        relative = path.relative_to(root).as_posix() if root.is_dir() else path.name
+        found, tail = any(pattern in relative.encode() for pattern in patterns), b""
         try:
             with path.open("rb") as source:
                 if source.read(16) == b"SQLite format 3\0":
