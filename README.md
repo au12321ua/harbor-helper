@@ -89,6 +89,31 @@ candidate/
 
 无认证 endpoint 可将 `credential_env` 设置为 null。版本必须固定；helper 使用 Harbor 的安装/执行/评分流程，安装环节使用发行版 Node/npm 安装固定 opencode 平台二进制，避免安装 nvm 时额外依赖 GitHub 下载。未自动选择服务或授权付费请求。
 
+维护者可在固定 CAD runtime 上一次预装 OpenCode，减少成员每次任务的准备耗时；此步骤不加载模型凭据、不发模型请求：
+
+```bash
+.venv/bin/python scripts/build_opencode_runtime.py
+# 在其它本机输出目录复用镜像时仍核对构建输入、CAD文件、依赖和实际版本。
+.venv/bin/python scripts/build_opencode_runtime.py \
+  --reuse-image VERIFIED_OPENCODE_IMAGE \
+  --output .state/opencode-runtime-reuse
+```
+
+镜像只继承固定 CAD 基础镜像并预装 `opencode-ai@1.18.35`、发行版 Node/npm；源码、matching skill 和 Python 依赖逐文件核对不变。构建输入、基础/派生 image ID、实际 Node/npm/OpenCode 版本和维护耗时保存在 `.state/opencode-runtime-build/provenance.json`，APT/npm 传递依赖在构建时解析，不保证重建字节相同。镜像身份以自身构建provenance为准，不把本地image ID当registry digest。
+
+经来源与实际安装入口验证后，维护者可在空闲时将共享 `team.json` 的现有 `runtime_image` 改为已验证镜像；本次优化未自动切换配置。每次任务的实际 `HelperOpenCode.install` 先核对 `opencode --version`：匹配则跳过 apt/npm，不匹配或缺失则安装指定版本，最终版本不符直接失败。原生 `run`/工具/解析/评分入口保持不变，`agent/install-decision.json` 记录版本、复用决定与安装耗时。
+
+以下验证在同一个固定题目环境走 Harbor 原生 `install_only`，不执行模型或 verifier；输出目录必须新建，`--task` 可使用已冻结的本地任务目录：
+
+```bash
+.venv/bin/python scripts/verify_opencode_startup.py \
+  --task /path/to/frozen-task \
+  --provenance .state/opencode-runtime-build/provenance.json \
+  --output .state/opencode-startup-new
+```
+
+切换镜像会改变运行环境身份，仅用于新实验；已有 run 与 rerun 继续使用冻结镜像。旧冷启动与新预装环境不能无条件比较。安装验证不代替 A10 有效评分验收；新的真实模型运行需另有明确授权。
+
 带认证的服务可使用最小文件凭据启动器。文件须由当前账号拥有、权限 `0600`、为不含符号链接的普通文件，内容为单个凭据值。启动器仅在执行进程内加载到 `VLLM_API_KEY`，不复制到配置、argv 或临时凭据文件。默认 oracle 直接使用普通 CLI，不加载文件。已有调度器不会获取新环境；变更前等任务全部终止并 `stop`，再用启动器 `recover`。
 
 ```bash

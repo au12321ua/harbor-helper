@@ -190,7 +190,8 @@ def test_unclean_frozen_inputs_withhold_report_and_retain_capacity(tmp_path, mon
     assert not json.loads((path / "credential-audit.json").read_text())["clean"]
 
 
-def test_fixed_opencode_installer_uses_system_node_without_nvm():
+@pytest.mark.parametrize("previous", [None, "1.18.34"])
+def test_fixed_opencode_installer_uses_system_node_without_nvm(tmp_path, previous):
     from harbor_helper.agents import HelperOpenCode
 
     calls = []
@@ -201,15 +202,71 @@ def test_fixed_opencode_installer_uses_system_node_without_nvm():
     async def execute(env, command):
         calls.append(command)
 
+    probes = iter([previous, "1.18.35"])
+
+    async def probe(**kwargs):
+        version = next(probes)
+        return SimpleNamespace(stdout=version, return_code=0 if version else 1)
+
     agent = SimpleNamespace(
-        _version="1.18.35", ensure_system_dependencies=dependencies, exec_as_agent=execute
+        _version="1.18.35",
+        logs_dir=tmp_path,
+        ensure_system_dependencies=dependencies,
+        exec_as_agent=execute,
     )
-    asyncio.run(HelperOpenCode.install(agent, None))
+    asyncio.run(HelperOpenCode.install(agent, SimpleNamespace(exec=probe)))
     assert "npm i -g opencode-ai@1.18.35" in calls[-1]
     assert "nvm" not in calls[-1]
+    decision = json.loads((tmp_path / "install-decision.json").read_text())
+    assert decision["previous_version"] == previous
+    assert not decision["reused"]
+    assert decision["actual_version"] == "1.18.35"
     agent._version = "latest"
     with pytest.raises(ValueError):
         asyncio.run(HelperOpenCode.install(agent, None))
+
+
+def test_preinstalled_opencode_skips_dependency_and_npm_install(tmp_path):
+    from harbor_helper.agents import HelperOpenCode
+
+    async def probe(**kwargs):
+        return SimpleNamespace(stdout="1.18.35\n", return_code=0)
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Matching preinstalled version must skip dependency/npm installation")
+
+    agent = SimpleNamespace(
+        _version="1.18.35",
+        logs_dir=tmp_path,
+        ensure_system_dependencies=unexpected,
+        exec_as_agent=unexpected,
+    )
+    asyncio.run(HelperOpenCode.install(agent, SimpleNamespace(exec=probe)))
+    decision = json.loads((tmp_path / "install-decision.json").read_text())
+    assert decision["reused"]
+    assert decision["actual_version"] == "1.18.35"
+
+
+def test_opencode_rejects_wrong_version_after_install(tmp_path):
+    from harbor_helper.agents import HelperOpenCode
+
+    async def probe(**kwargs):
+        return SimpleNamespace(stdout="1.18.34", return_code=0)
+
+    async def install(*args, **kwargs):
+        pass
+
+    agent = SimpleNamespace(
+        _version="1.18.35",
+        logs_dir=tmp_path,
+        ensure_system_dependencies=install,
+        exec_as_agent=install,
+    )
+    with pytest.raises(RuntimeError, match="fixed version"):
+        asyncio.run(HelperOpenCode.install(agent, SimpleNamespace(exec=probe)))
+    decision = json.loads((tmp_path / "install-decision.json").read_text())
+    assert not decision["reused"]
+    assert decision["actual_version"] == "1.18.34"
 
 
 def test_hard_exit_scrubs_before_report_and_audits_database(tmp_path, monkeypatch):

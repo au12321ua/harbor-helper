@@ -1,9 +1,12 @@
 import re
 import shlex
+import time
 from pathlib import Path
 
 from harbor.agents.installed.opencode import OpenCode
 from harbor.agents.oracle import OracleAgent
+
+from harbor_helper.storage import write_json
 
 
 class HelperOpenCode(OpenCode):
@@ -12,6 +15,21 @@ class HelperOpenCode(OpenCode):
         # OpenCode's npm package installs its own platform binary.
         if not self._version or not re.fullmatch(r"\d+\.\d+\.\d+", self._version):
             raise ValueError("A fixed numeric opencode version is required")
+        started = time.monotonic()
+        command = "command -v opencode >/dev/null 2>&1 && opencode --version"
+        probe = await environment.exec(command=command, timeout_sec=30)
+        actual = (probe.stdout or "").strip() if probe.return_code == 0 else None
+        decision = {
+            "expected_version": self._version,
+            "previous_version": actual
+            if actual and re.fullmatch(r"\d+\.\d+\.\d+", actual)
+            else ("unrecognized" if actual else None),
+            "reused": actual == self._version,
+        }
+        if actual == self._version:
+            decision.update(actual_version=actual, install_seconds=time.monotonic() - started)
+            write_json(self.logs_dir / "install-decision.json", decision)
+            return
         await self.ensure_system_dependencies(
             environment, ("curl", "bash", "coreutils", "nodejs", "npm")
         )
@@ -22,6 +40,17 @@ class HelperOpenCode(OpenCode):
                 f"npm i -g opencode-ai@{shlex.quote(self._version)} && opencode --version"
             ),
         )
+        final = await environment.exec(command=command, timeout_sec=30)
+        final_version = (final.stdout or "").strip()
+        decision.update(
+            actual_version=final_version
+            if re.fullmatch(r"\d+\.\d+\.\d+", final_version)
+            else "unrecognized",
+            install_seconds=time.monotonic() - started,
+        )
+        write_json(self.logs_dir / "install-decision.json", decision)
+        if final.return_code or final_version != self._version:
+            raise RuntimeError("Installed opencode does not match the requested fixed version")
 
 
 class BundleMixin:
