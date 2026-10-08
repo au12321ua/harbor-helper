@@ -1,8 +1,12 @@
-# 维护者与成员验收
+# 真人成员使用验收
 
-## 维护者一次准备
+请一位未参与搭建或机器测试的成员，按照 [README](../README.md) 自行完成日常操作，记录说明是否足够清楚。维护者提前准备环境，试用时不代改脚本。
 
-在统一机器上按 [README](../README.md) 安装，准备已验证 runtime、Harbor Hub 权限，并初始化共享 state。提供给成员的入口为：
+这与真人使用验收分别记录。用户已反馈 API key 注入不清楚、默认提交误认为模型实验，以及 README 细节过多；这些是本轮需要修正的使用问题，尚不能据此将真人验收标为通过。命令输出美化另列后续任务。
+
+## 准备入口
+
+已有团队环境的成员使用同一个 state，不再次执行 `init`。新机器安装、模型配置与 API key 文件准备见 [配置指南](configuration.md)；日常任务、候选对比和故障处理见 [操作指南](operations.md)。
 
 ```bash
 cd /path/to/harbor-helper
@@ -10,47 +14,20 @@ export HARBOR_HELPER_STATE=/path/to/team
 .venv/bin/harbor-helper doctor
 ```
 
-`doctor` 的整体 `ok=true` 表示默认 oracle 必需条件就绪；没有配置模型时，model 检查可提示可选能力未验证。所有成员使用同一 state 和受信任的共享账号，不自行 init。机器复查完成后再交付成员使用。
+`doctor` 检查环境和配置，不发送模型请求，也不验证模型认证成功。真实模型实验请按 README 的文件凭据包装入口运行，并显式指定 `--preset model`。带凭据的入口也用于可能重新启动后台调度器的 `recover`、`status`、`list` 和 `rerun`。
 
-真实模型 A10 另需维护者在共享 `team.json` 配置 endpoint、served model ID、声明 checkpoint 版本、固定 opencode 版本和可选凭据环境变量名，格式见 README。可使用维护者选定的 OpenAI-compatible 托管服务，无需先部署自己的 vLLM；服务的流式响应、工具调用与认证兼容性须在选定后验证。现有 `VLLM_API_KEY` 只是接入使用的环境变量名，托管服务未公开 checkpoint 时声明版本可记录 unknown。凭据通过受保护渠道设置，不发到群里或写入配置、命令参数、验收反馈。更新凭据环境前等待所有任务终止，执行 stop，再在正确环境执行 recover。
+下面使用 oracle 自检来验收提交、断开重连与候选对比，无需 API key 或付费模型调用。oracle 执行题目自带解答，不能证明模型解题或使用候选技能。请在维护者确认团队无其他任务时进行；不要在模型任务运行中刷新或停止调度器。
 
-使用已指定的凭据文件时，等前置复查通过后采用文件启动器，无需手工读取或导出密钥。文件须由当前账号拥有、权限为 0600 的普通文件；下方仅填写文件路径，密钥值不出现在命令中。现有闲置调度器如未带凭据启动，先 stop，再使用启动器 recover。
+## 自行完成一次操作流程
 
-```bash
-MODEL_KEY_FILE=/path/to/owner-only-key
-hh_model() {
-  .venv/bin/python scripts/with_model_key.py --key-file "$MODEL_KEY_FILE" -- "$@"
-}
-.venv/bin/harbor-helper stop
-hh_model recover
-hh_model doctor --preset model
-hh_model submit --preset model --task generation--box \
-  --attempts 1 --concurrency 1 --wall-seconds 600
-```
-
-当前一次模型验收指定服务 `https://api.auuuuuua.top/v1`、served model `gpt-6.1-sol`、opencode `1.18.35`，实际 checkpoint unknown。600 秒是墙钟上限，费用/token 硬限额不支持；上述命令用于一次 box，不重复发付费试验。
-
-真实证据先经运行收尾审计，再由受控进程扫描确认 clean；扫描只输出计数/布尔。不 clean 时将安全摘要交工程处理，不把原始日志读取到对话或上传。
-
-```bash
-.venv/bin/python scripts/with_model_key.py --key-file "$MODEL_KEY_FILE" \
-  --scan "$HARBOR_HELPER_STATE"
-```
-
-保留返回的真实 run ID；结束后用 status/report 查看原始模型执行与 verifier 证据。doctor 不发模型请求，必须实际提交才能验证 A10。不要求模型必然得高分；须能区分正常低分与接入/执行故障。由 checker 核对真实路径中的凭据处理限制，补齐 A9 模型部分。
-
-## 未参与搭建成员的操作
-
-请一位未参与实现或机器测试的成员自行执行；维护者预先配置环境，过程中不代改脚本。首次 SSH 登录后运行上述入口命令。
-
-1. 提交默认两题实验，保存返回的 run ID，随后主动断开 SSH：
+1. 显式提交 oracle 基线，保存返回的 run ID，随后主动断开 SSH：
 
    ```bash
-   .venv/bin/harbor-helper submit
+   .venv/bin/harbor-helper submit --agent oracle
    exit
    ```
 
-2. 重新 SSH 登录，重新运行 `cd` 和 `export`。将下方 `hh-实际基线ID` 换成第一步返回的 ID：
+2. 重新 SSH 登录，重新运行上面的 `cd` 和 `export`。将占位 ID 换成第一步返回的 ID：
 
    ```bash
    BASE_RUN=hh-实际基线ID
@@ -59,24 +36,26 @@ hh_model submit --preset model --task generation--box \
    .venv/bin/harbor-helper report "$BASE_RUN"
    ```
 
-   若仍 queued/running，稍后再查看。预期原实验继续执行，最终 succeeded，报告包含两题有效评分与证据路径；失败则记录原因，不视作通过。
+   如果仍在排队或运行，稍后再查看。预期原实验继续执行，最终报告包含两题有效评分与证据路径。
 
-3. 使用随项目提供的 bundle 提交候选，保存新的 ID。候选使用同一数据集和默认条件：
+3. 使用项目提供的 bundle 提交 oracle 候选，保存新 ID：
 
    ```bash
-   .venv/bin/harbor-helper submit --bundle examples/bundle-probe
+   .venv/bin/harbor-helper submit --agent oracle --bundle examples/bundle-probe
    CANDIDATE_RUN=hh-实际候选ID
    .venv/bin/harbor-helper status "$CANDIDATE_RUN"
    .venv/bin/harbor-helper report "$CANDIDATE_RUN"
    ```
 
-   候选结束后对比，预期 comparable=true，显示 bundle 摘要变化和逐题 delta。oracle 候选得分相同、delta=0 也满足此项。此 bundle 用于验证准备内容被消费，不证明真实模型利用技能。
+   候选结束后对比：
 
    ```bash
    .venv/bin/harbor-helper compare "$BASE_RUN" "$CANDIDATE_RUN"
    ```
 
-4. 整体重跑候选，保存返回的新 ID。结束后报告并对比；预期新记录独立、原报告仍可查询、固定输入可比：
+   预期 `comparable=true`，显示 bundle 摘要变化和逐题分数差。oracle 分数相同也满足使用流程验收；此 bundle 只用于确认准备内容被消费。
+
+4. 整体重跑候选，保存返回的新 ID。结束后查询报告与对比：
 
    ```bash
    .venv/bin/harbor-helper rerun "$CANDIDATE_RUN"
@@ -87,20 +66,10 @@ hh_model submit --preset model --task generation--box \
    .venv/bin/harbor-helper report "$CANDIDATE_RUN"
    ```
 
-## 返回验收反馈
+   预期产生独立记录，原报告仍可查询，固定输入可比。`rerun` 会再次执行任务；此处重跑的是 oracle 候选。
 
-反馈成员是否参与搭建、产品 commit、基线/候选/重跑三个 ID、断开重连后结果、对比是否可比，以及遇到的说明或命令障碍。只需报告结论及不含秘密的错误摘要；不上传带凭据的原始配置或日志。
+## 返回反馈
 
-成员自行完成上述操作且无维护者代改脚本，才能判 A11 通过。A10 可以由维护者完成，A11 可以先用 oracle 完成，两者各自保留结论。
+反馈是否参与搭建、产品 commit、基线/候选/重跑三个 ID、断开重连后的结果、对比是否可比，以及遇到的文档或命令障碍。只需安全错误摘要，不发送 API key 或带秘密的原始日志。
 
-## 下一次模型验收方案（尚未执行）
-
-下一次建议新提交 box，一次尝试、并发 1、总墙钟上限 1200 秒、基础设施重试 0。使用已选 endpoint、gpt-6.1-sol 和同一文件凭据入口；不改任务/评分，不复用旧失败 run 的冷启动环境。取得用户对这次新增模型运行的预算决定后才执行：
-
-```bash
-hh_model doctor --preset model
-hh_model submit --preset model --task generation--box \
-  --attempts 1 --concurrency 1 --wall-seconds 1200
-```
-
-模型行为可能仍无法完成任务；只在取得原 verifier 有效评分后判 A10 通过。结束后沿用凭据审计与独立证据核对，不追加付费复查。费用/token 硬限制不支持，实际费用未知；1200 秒不能保证金额上限。真人 A11 可先按上述 oracle 流程完成。
+成员自行完成上述流程、无维护者代改脚本，且使用问题得到确认，才能判真人使用验收（A11）通过。模型链路验收（A9/A10）已通过，本轮文档检查无需另发模型请求。
