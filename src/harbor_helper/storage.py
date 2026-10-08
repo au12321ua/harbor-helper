@@ -73,6 +73,10 @@ class Store:
         return dict(row)
 
     def update(self, run_id, **fields):
+        from harbor_helper.credentials import redact_value, runtime_secrets
+
+        if "reason" in fields:
+            fields["reason"] = redact_value(fields["reason"], runtime_secrets())
         with self.connect() as db:
             db.execute(
                 "UPDATE runs SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?",

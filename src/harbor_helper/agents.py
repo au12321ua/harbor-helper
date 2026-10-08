@@ -1,7 +1,27 @@
+import re
+import shlex
 from pathlib import Path
 
 from harbor.agents.installed.opencode import OpenCode
 from harbor.agents.oracle import OracleAgent
+
+
+class HelperOpenCode(OpenCode):
+    async def install(self, environment):
+        # Use the distribution's Node/npm rather than fetching nvm from GitHub.
+        # OpenCode's npm package installs its own platform binary.
+        if not self._version or not re.fullmatch(r"\d+\.\d+\.\d+", self._version):
+            raise ValueError("A fixed numeric opencode version is required")
+        await self.ensure_system_dependencies(
+            environment, ("curl", "bash", "coreutils", "nodejs", "npm")
+        )
+        await self.exec_as_agent(
+            environment,
+            command=(
+                "set -euo pipefail; node --version && npm --version && "
+                f"npm i -g opencode-ai@{shlex.quote(self._version)} && opencode --version"
+            ),
+        )
 
 
 class BundleMixin:
@@ -59,5 +79,5 @@ class BundledOracle(BundleMixin, OracleAgent):
         super().__init__(*args, **kwargs)
 
 
-class BundledOpenCode(BundleMixin, OpenCode):
+class BundledOpenCode(BundleMixin, HelperOpenCode):
     pass

@@ -1,6 +1,6 @@
 # harbor-helper
 
-统一 Linux/Docker 机器上的 Harbor 实验 CLI。默认跑固定 CAD 数据集的 oracle；维护者配置自部署 vLLM 后，可选择 opencode。后台运行、共享容量、取消、输入快照、结果报告、对比和整体重跑均由同一个 state 管理。任务执行与评分仍由 Harbor 0.23.0 完成。
+统一 Linux/Docker 机器上的 Harbor 实验 CLI。默认跑固定 CAD 数据集的 oracle；维护者配置 OpenAI-compatible 模型服务后，可选择 opencode，服务可为托管或自部署。后台运行、共享容量、取消、输入快照、结果报告、对比和整体重跑均由同一个 state 管理。任务执行与评分仍由 Harbor 0.23.0 完成。
 
 ## 安装与维护者初始化
 
@@ -48,7 +48,7 @@ export HARBOR_HELPER_STATE=/path/to/team
 .venv/bin/harbor-helper cancel hh-替换为真实ID
 ```
 
-`submit --task 'generation--box'` 可只跑一题；`--attempts`、`--concurrency`、`--wall-seconds` 在团队上限内覆盖默认值。`--model` 选择同一个维护者配置的 vLLM endpoint 已服务的 model ID，不改变 endpoint；改选模型时声明 checkpoint 标为 unknown。`--dataset` 只接受显式数字 revision 或 sha256 digest，拒绝 latest。成功提交前实际解析并下载 Hub 任务，保存 agent 和 verifier 全部原始输入文件。提交失败不给一个假成功 run ID。
+`submit --task 'generation--box'` 可只跑一题；`--attempts`、`--concurrency`、`--wall-seconds` 在团队上限内覆盖默认值。`--model` 选择同一个维护者配置的 OpenAI-compatible endpoint 已服务的 model ID，不改变 endpoint；改选模型时声明 checkpoint 标为 unknown。`--dataset` 只接受显式数字 revision 或 sha256 digest，拒绝 latest。成功提交前实际解析并下载 Hub 任务，保存 agent 和 verifier 全部原始输入文件。提交失败不给一个假成功 run ID。
 
 `cancel` 返回取消请求；最终 `cancelled` 才确认本次工作停止和限定本次 Compose project 的容器/网络/volume 清理。不会使用全局 prune。结果保留。worker 硬退出由调度器识别并清理，失败后提示整体 rerun；不恢复中途会话。调度器故障后 `recover`（或 status/list/新提交）启动唯一调度进程并协调旧 worker，不重复执行。PID 和 Linux 启动时间共同识别进程；flock 防多个调度器和同一次 worker 重复。
 
@@ -71,33 +71,50 @@ candidate/
 .venv/bin/harbor-helper submit --preset model --bundle ./candidate
 ```
 
-提交时复制 bundle 并计算包含路径、文件内容及执行位的 SHA-256，源目录后续修改不影响排队/运行/rerun。拒绝符号链接与特殊文件。Harbor 原生 skills 注入技能，整个快照上传到 `/opt/harbor-helper-bundle`；bootstrap 在 agent 容器内以 root 执行，失败会成为 Trial 异常。SDK 可从该目录导入，bootstrap 可将 SDK 安装到环境；仅加入源码不代表任意 SDK 已自动 pip install。`bundle-setup.txt` 保存准备证据。oracle 同样可以执行 bootstrap 证明 payload 实际执行，解题及 verifier 仍走原生 oracle。opencode config 合并到 agent 真正使用的配置，仅允许维护者所选 vLLM provider，不能改模型 endpoint。不要放凭据、私钥或 .env 文件到 bundle。
+提交时复制 bundle 并计算包含路径、文件内容及执行位的 SHA-256，源目录后续修改不影响排队/运行/rerun。拒绝符号链接与特殊文件。Harbor 原生 skills 注入技能，整个快照上传到 `/opt/harbor-helper-bundle`；bootstrap 在 agent 容器内以 root 执行，失败会成为 Trial 异常。SDK 可从该目录导入，bootstrap 可将 SDK 安装到环境；仅加入源码不代表任意 SDK 已自动 pip install。`bundle-setup.txt` 保存准备证据。oracle 同样可以执行 bootstrap 证明 payload 实际执行，解题及 verifier 仍走原生 oracle。opencode config 合并到 agent 真正使用的配置，仅允许维护者所选 compatible provider，不能改模型 endpoint。不要放凭据、私钥或 .env 文件到 bundle。
 
-## vLLM 模型配置（需要维护者提供）
+## OpenAI-compatible 模型配置（需要维护者选择与授权）
 
-将 `team.json` 的 `model: null` 改为以下非秘密对象：
+将 `team.json` 的 `model: null` 改为以下非秘密对象。服务必须支持 opencode 所需流式响应和工具调用；内部 provider 名 `vllm` 与凭据变量 `VLLM_API_KEY` 是兼容标识，不要求服务由 vLLM 部署。服务不公开实际 checkpoint 时记录 `unknown`。
 
 ```json
 {
-  "endpoint": "http://MAINTAINER_VLLM_HOST:8000/v1",
-  "name": "DEPLOYED_MODEL_ID",
-  "declared_version": "MAINTAINER_CHECKPOINT_REVISION",
+  "endpoint": "https://MAINTAINER_SELECTED_HOST/v1",
+  "name": "SERVED_MODEL_ID",
+  "declared_version": "unknown",
   "credential_env": "VLLM_API_KEY",
-  "opencode_version": "PINNED_OPENCODE_VERSION"
+  "opencode_version": "1.18.35"
 }
 ```
 
-无认证 endpoint 可将 `credential_env` 设置为 null。opencode 版本必须固定，由 Harbor 在 agent 容器内安装。维护者只把必要凭据显式导出到当前 shell 的 `VLLM_API_KEY`；不要写到 argv、配置或 README。调度器仅继承白名单环境和这个明确的变量，不搜索相邻项目秘密，也不会选择付费 provider。凭据配置变更前等所有任务终止，执行 `stop`，重新在正确环境执行 `recover`。已有后台调度器不会因后续提交而取得新的 shell 环境。
+无认证 endpoint 可将 `credential_env` 设置为 null。版本必须固定；helper 使用 Harbor 的安装/执行/评分流程，安装环节使用发行版 Node/npm 安装固定 opencode 平台二进制，避免安装 nvm 时额外依赖 GitHub 下载。未自动选择服务或授权付费请求。
+
+带认证的服务可使用最小文件凭据启动器。文件须由当前账号拥有、权限 `0600`、为不含符号链接的普通文件，内容为单个凭据值。启动器仅在执行进程内加载到 `VLLM_API_KEY`，不复制到配置、argv 或临时凭据文件。默认 oracle 直接使用普通 CLI，不加载文件。已有调度器不会获取新环境；变更前等任务全部终止并 `stop`，再用启动器 `recover`。
 
 ```bash
-.venv/bin/harbor-helper stop
-# 由维护者安全设置 VLLM_API_KEY（不要将值写入命令历史）
-.venv/bin/harbor-helper recover
-.venv/bin/harbor-helper doctor
-.venv/bin/harbor-helper submit --preset model --task generation--box
+.venv/bin/harbor-helper --state /path/to/team stop
+.venv/bin/python scripts/with_model_key.py \
+  --key-file /path/to/protected/model-key -- \
+  --state /path/to/team recover
+.venv/bin/harbor-helper --state /path/to/team doctor --preset model
+# 发起真实模型任务前须有维护者授权。以下仅跑一题。
+.venv/bin/python scripts/with_model_key.py \
+  --key-file /path/to/protected/model-key -- \
+  --state /path/to/team submit --preset model --task generation--box \
+  --attempts 1 --concurrency 1 --wall-seconds 600
 ```
 
-A10 必须以真实模型完成 task 与评分验证。无模型时默认 oracle 不代表模型通过。Harbor 原始证据保存在受保护 run 目录；框架使用环境占位符序列化敏感 env，helper 对 worker 输出和已完成文本证据做凭据脱敏。不能保证任意恶意 bundle/模型主动泄露凭据；团队需信任输入。
+Docker exec 仅使用 `-e VLLM_API_KEY` 变量名，值由受控 Docker 子进程环境转发。worker 和 scheduler 输出跨 write/flush 脱敏，状态 reason 入库前脱敏；正常结束及硬退出清理后，先清洗原生/根级执行证据再生成报告。数据库只读字段核查，不做字节替换；冻结任务/bundle 保持原文。审计不 clean 或恢复进程缺少所需凭据时保留 `cleanup_blocked`，不交接原始内容；应以启动器重启调度器并保留诊断。
+
+结束并停止调度器后，读取或转发真实执行证据前再扫描整个验收 state。此命令仅返回计数/布尔，不发请求、不打印匹配值；覆盖大文件/二进制与 SQLite 字段，并检查原值、URL/JSON 转义与 base64 常见表示。不能检测所有任意编码或防止恶意任务通过网络泄密，输入仍须受信任。
+
+```bash
+.venv/bin/harbor-helper --state /path/to/team stop
+.venv/bin/python scripts/with_model_key.py \
+  --key-file /path/to/protected/model-key --scan /path/to/team
+```
+
+A10 必须有真实模型参与、可核对的工具行为与提交物，以及原 verifier 的有效评分；不要求高分，接口失败或无可评分提交的 observed reward=0 不代表通过。600 秒是墙钟限制，费用/token 硬限制不支持，成本/用量只报告实际可观测值。
 
 ## 产物与验证
 

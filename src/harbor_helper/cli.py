@@ -93,7 +93,7 @@ def doctor(store, preset="default"):
             "ok": model is not None,
             "required": team["presets"].get(preset, {}).get("agent") == "opencode",
             "detail": "configured (not contacted)" if model else "A10 unverified: no model",
-            "fix": "Maintainer: configure self-hosted vLLM in team.json, then restart scheduler",
+            "fix": "Maintainer: configure a compatible endpoint in team.json, then restart scheduler",
         }
     )
     try:
@@ -131,7 +131,7 @@ def parser():
     submit_p.add_argument("--agent", choices=["oracle", "opencode"])
     submit_p.add_argument("--bundle", type=Path)
     submit_p.add_argument(
-        "--model", help="Served model ID at the maintainer-configured vLLM endpoint"
+        "--model", help="Served model ID at the maintainer-configured compatible endpoint"
     )
     submit_p.add_argument("--task", help="Optional glob matching dataset task name")
     for k in ("attempts", "concurrency", "wall-seconds"):

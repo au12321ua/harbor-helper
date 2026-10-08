@@ -86,7 +86,9 @@ def effective(team, args):
     selected_model = getattr(args, "model", None)
     if selected_model:
         if not cfg["model"]:
-            raise ValueError("Configure the maintainer vLLM endpoint before selecting a model")
+            raise ValueError(
+                "Configure the maintainer compatible endpoint before selecting a model"
+            )
         cfg["model"] = dict(cfg["model"])
         if selected_model != cfg["model"]["name"]:
             cfg["model"].update(name=selected_model, declared_version="unknown")
@@ -121,7 +123,7 @@ def validate_effective(team, cfg):
             raise ValueError("Unknown model option")
         url = urlparse(model.get("endpoint", ""))
         if url.scheme not in {"http", "https"} or not url.hostname:
-            raise ValueError("Set the maintainer's vLLM http(s) endpoint")
+            raise ValueError("Set the maintainer's OpenAI-compatible http(s) endpoint")
         if not model.get("name") or not model.get("opencode_version"):
             raise ValueError("Set model.name and fixed model.opencode_version")
         key = model.get("credential_env")

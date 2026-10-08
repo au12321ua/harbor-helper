@@ -9,6 +9,15 @@ import time
 from pathlib import Path
 
 from harbor_helper.config import HARBOR_VERSION, load_team
+from harbor_helper.credentials import (
+    RedactedStream,
+    audit_run,
+    install_docker_credential_forwarding,
+    redact_value,
+    runtime_secrets,
+    scrub_file,
+    scrub_run,
+)
 from harbor_helper.reports import report
 from harbor_helper.runs import safe_environment
 from harbor_helper.sources import verify_inputs
@@ -94,13 +103,27 @@ def stop_group(row):
 
 
 def finish(store, row, status, reason):
+    secrets = runtime_secrets()
     try:
         stop_group(row)
         cleanup(store.path(row["id"]))
+        cfg = read_json(store.path(row["id"]) / "manifest.json")["effective"]
+        if cfg["agent"] == "opencode" and cfg["model"].get("credential_env") and not secrets:
+            raise RuntimeError(
+                "Credential audit unavailable; recover with file credential launcher"
+            )
+        redact_files(store.path(row["id"]), secrets)
+        scrub_file(store.root / "supervisor.log", secrets)
+        audit = audit_run(store, row["id"], secrets)
+        write_json(store.path(row["id"]) / "credential-audit.json", audit)
+        if not audit["clean"]:
+            raise RuntimeError("Credential audit not clean; raw evidence withheld")
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
-        store.update(row["id"], status="cleanup_blocked", reason=str(e))
+        store.update(row["id"], status="cleanup_blocked", reason=redact_value(str(e), secrets))
         return
-    store.update(row["id"], status=status, reason=reason, finished=time.time())
+    store.update(
+        row["id"], status=status, reason=redact_value(reason, secrets), finished=time.time()
+    )
     report(store, row["id"])
 
 
@@ -155,6 +178,9 @@ def tick(store, children):
 
 
 def supervise(root):
+    secrets = runtime_secrets()
+    sys.stdout = RedactedStream(sys.stdout, secrets)
+    sys.stderr = RedactedStream(sys.stderr, secrets)
     store = Store(root)
     with (store.root / "supervisor.lock").open("a") as lock:
         try:
@@ -174,38 +200,7 @@ def supervise(root):
 
 
 def redact_files(path, secrets):
-    # Frozen inputs must remain byte-for-byte intact. Harbor output can contain
-    # credentials echoed by tools, so scrub only execution evidence.
-    files = list((path / "harbor").rglob("*"))
-    files.append(path / "worker.log")
-    for file in files:
-        if not file.is_file() or file.stat().st_size > 20_000_000:
-            continue
-        try:
-            content = file.read_text()
-        except (UnicodeError, OSError):
-            continue
-        updated = content
-        for secret in secrets:
-            updated = updated.replace(secret, "[REDACTED]")
-        if content != updated:
-            file.write_text(updated)
-
-
-class RedactedStream:
-    def __init__(self, stream, secrets):
-        self.stream, self.secrets = stream, secrets
-
-    def write(self, value):
-        for secret in self.secrets:
-            value = value.replace(secret, "[REDACTED]")
-        return self.stream.write(value)
-
-    def flush(self):
-        self.stream.flush()
-
-    def __getattr__(self, key):
-        return getattr(self.stream, key)
+    scrub_run(path, secrets)
 
 
 async def execute(store, run_id):
@@ -216,6 +211,7 @@ async def execute(store, run_id):
     from harbor.trial.trial import Trial
 
     path = store.path(run_id)
+    install_docker_credential_forwarding()
     manifest = read_json(path / "manifest.json")
     verify_inputs(path, manifest)
     from harbor_helper.runs import image_identity
@@ -251,6 +247,8 @@ async def execute(store, run_id):
         {"python": sys.executable, "harbor_version": importlib.metadata.version("harbor")},
     )
     await job.run()
+    # Do not copy raw exception text into derived reports before scrubbing it.
+    redact_files(path, runtime_secrets())
     value = report(store, run_id)
     return {
         "status": "succeeded" if value["complete"] else "failed",
@@ -274,7 +272,7 @@ def run(root, run_id):
             time.sleep(0.1)
         else:
             return
-        secrets = [v for k, v in os.environ.items() if k == "VLLM_API_KEY" and v]
+        secrets = runtime_secrets()
         sys.stdout = RedactedStream(sys.stdout, secrets)
         sys.stderr = RedactedStream(sys.stderr, secrets)
         try:
@@ -282,10 +280,10 @@ def run(root, run_id):
         except Exception as e:  # noqa: BLE001 - persist/diagnose third-party Harbor errors
             print(f"Harbor startup/execution failed: {type(e).__name__}: {e}", flush=True)
             outcome = {"status": "failed", "reason": f"{type(e).__name__}: {e}"}
+        sys.stdout.finish()
+        sys.stderr.finish()
         redact_files(path, secrets)
-        for secret in secrets:
-            if outcome["reason"]:
-                outcome["reason"] = outcome["reason"].replace(secret, "[REDACTED]")
+        outcome["reason"] = redact_value(outcome["reason"], secrets)
         write_json(path / "outcome.json", outcome)
 
 

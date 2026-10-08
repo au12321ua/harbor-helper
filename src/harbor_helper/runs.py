@@ -65,6 +65,9 @@ def job_config(run_dir, manifest):
         if skills.exists():
             agent["skills"] = [str(p) for p in sorted(skills.iterdir()) if p.is_dir()]
     if cfg["agent"] == "opencode":
+        if "name" in agent:
+            agent.pop("name")
+            agent["import_path"] = "harbor_helper.agents:HelperOpenCode"
         model = cfg["model"]
         agent["model_name"] = "vllm/" + model["name"]
         agent["kwargs"]["version"] = model["opencode_version"]
@@ -76,7 +79,7 @@ def job_config(run_dir, manifest):
             "provider": {
                 "vllm": {
                     "npm": "@ai-sdk/openai-compatible",
-                    "name": "Maintainer vLLM",
+                    "name": "Maintainer OpenAI-compatible service",
                     "options": {"baseURL": model["endpoint"]},
                     "models": {model["name"]: {"name": model["name"]}},
                 }
