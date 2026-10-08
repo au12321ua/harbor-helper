@@ -112,6 +112,7 @@ oracle 自检评分不证明模型实际工具调用或产物。模型登录期�
 - [操作指南](docs/operations.md)：bundle、镜像维护、比较、恢复、扫描及故障处理。
 - [原生入口设计](docs/usability-design.md)、[设计与范围](docs/v0-design.md)、[验收条件](docs/acceptance.md)。
 - [CLI + Web 服务设计](docs/service-design.md)、[服务验收标准](docs/service-acceptance.md)、[服务部署与使用](docs/service-operations.md)：受邀团队共享 HTTP 服务，本地账户、团队模型方案和统一队列。
+- 服务实施记录、服务独立验收报告：产品 `787ae3b` 的 S1–S17 在无付费限定范围内通过，真实模型与真人 A11 另列。
 - [成员验收](docs/member-acceptance.md)：真人提交、重连、比较与 rerun。
 - 实现证据、独立检查报告：来源、验证和限制。
 - [CLI 源码](src/harbor_helper/cli.py)、[配置示例](configs/team.example.json)。
