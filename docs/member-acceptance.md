@@ -14,9 +14,27 @@ export HARBOR_HELPER_STATE=/path/to/team
 
 真实模型 A10 另需维护者在共享 `team.json` 配置 endpoint、served model ID、声明 checkpoint 版本、固定 opencode 版本和可选凭据环境变量名，格式见 README。可使用维护者选定的 OpenAI-compatible 托管服务，无需先部署自己的 vLLM；服务的流式响应、工具调用与认证兼容性须在选定后验证。现有 `VLLM_API_KEY` 只是接入使用的环境变量名，托管服务未公开 checkpoint 时声明版本可记录 unknown。凭据通过受保护渠道设置，不发到群里或写入配置、命令参数、验收反馈。更新凭据环境前等待所有任务终止，执行 stop，再在正确环境执行 recover。
 
+使用已指定的凭据文件时，等前置复查通过后采用文件启动器，无需手工读取或导出密钥。文件须由当前账号拥有、权限为 0600 的普通文件；下方仅填写文件路径，密钥值不出现在命令中。现有闲置调度器如未带凭据启动，先 stop，再使用启动器 recover。
+
 ```bash
-.venv/bin/harbor-helper doctor --preset model
-.venv/bin/harbor-helper submit --preset model --task generation--box
+MODEL_KEY_FILE=/path/to/owner-only-key
+hh_model() {
+  .venv/bin/python scripts/with_model_key.py --key-file "$MODEL_KEY_FILE" -- "$@"
+}
+.venv/bin/harbor-helper stop
+hh_model recover
+hh_model doctor --preset model
+hh_model submit --preset model --task generation--box \
+  --attempts 1 --concurrency 1 --wall-seconds 600
+```
+
+当前一次模型验收指定服务 `https://api.auuuuuua.top/v1`、served model `gpt-6.1-sol`、opencode `1.18.35`，实际 checkpoint unknown。600 秒是墙钟上限，费用/token 硬限额不支持；上述命令用于一次 box，不重复发付费试验。
+
+真实证据先经运行收尾审计，再由受控进程扫描确认 clean；扫描只输出计数/布尔。不 clean 时将安全摘要交工程处理，不把原始日志读取到对话或上传。
+
+```bash
+.venv/bin/python scripts/with_model_key.py --key-file "$MODEL_KEY_FILE" \
+  --scan "$HARBOR_HELPER_STATE"
 ```
 
 保留返回的真实 run ID；结束后用 status/report 查看原始模型执行与 verifier 证据。doctor 不发模型请求，必须实际提交才能验证 A10。不要求模型必然得高分；须能区分正常低分与接入/执行故障。由 checker 核对真实路径中的凭据处理限制，补齐 A9 模型部分。
