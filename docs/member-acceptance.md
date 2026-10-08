@@ -92,3 +92,15 @@ hh_model submit --preset model --task generation--box \
 反馈成员是否参与搭建、产品 commit、基线/候选/重跑三个 ID、断开重连后结果、对比是否可比，以及遇到的说明或命令障碍。只需报告结论及不含秘密的错误摘要；不上传带凭据的原始配置或日志。
 
 成员自行完成上述操作且无维护者代改脚本，才能判 A11 通过。A10 可以由维护者完成，A11 可以先用 oracle 完成，两者各自保留结论。
+
+## 下一次模型验收方案（尚未执行）
+
+下一次建议新提交 box，一次尝试、并发 1、总墙钟上限 1200 秒、基础设施重试 0。使用已选 endpoint、gpt-6.1-sol 和同一文件凭据入口；不改任务/评分，不复用旧失败 run 的冷启动环境。取得用户对这次新增模型运行的预算决定后才执行：
+
+```bash
+hh_model doctor --preset model
+hh_model submit --preset model --task generation--box \
+  --attempts 1 --concurrency 1 --wall-seconds 1200
+```
+
+模型行为可能仍无法完成任务；只在取得原 verifier 有效评分后判 A10 通过。结束后沿用凭据审计与独立证据核对，不追加付费复查。费用/token 硬限制不支持，实际费用未知；1200 秒不能保证金额上限。真人 A11 可先按上述 oracle 流程完成。
