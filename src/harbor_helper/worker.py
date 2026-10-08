@@ -13,6 +13,7 @@ from harbor_helper.credentials import (
     RedactedStream,
     audit_run,
     install_docker_credential_forwarding,
+    legacy_secrets,
     redact_value,
     runtime_secrets,
     scrub_file,
@@ -107,7 +108,23 @@ def finish(store, row, status, reason):
     try:
         stop_group(row)
         cleanup(store.path(row["id"]))
+        from harbor_helper.auth import Auth
+
+        auth = Auth(store.root)
+        key = auth.audit_run_key(row["id"])
+        if key and key not in secrets:
+            secrets.append(key)
         cfg = read_json(store.path(row["id"]) / "manifest.json")["effective"]
+        if (
+            cfg["agent"] == "opencode"
+            and cfg["model"].get("credential_env")
+            and auth.bound_record(row["id"]) is None
+            and not legacy_secrets()
+        ):
+            # Never let automatically loaded K2 claim an unbound historical K1.
+            raise RuntimeError(
+                "Legacy credential audit source unavailable; use explicit file launcher"
+            )
         if cfg["agent"] == "opencode" and cfg["model"].get("credential_env") and not secrets:
             raise RuntimeError(
                 "Credential audit unavailable; recover with file credential launcher"
@@ -118,7 +135,7 @@ def finish(store, row, status, reason):
         write_json(store.path(row["id"]) / "credential-audit.json", audit)
         if not audit["clean"]:
             raise RuntimeError("Credential audit not clean; raw evidence withheld")
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as e:
         store.update(row["id"], status="cleanup_blocked", reason=redact_value(str(e), secrets))
         return
     store.update(
@@ -128,6 +145,14 @@ def finish(store, row, status, reason):
 
 
 def tick(store, children):
+    from harbor_helper.auth import runtime_context
+
+    legacy = legacy_secrets()
+    with store.control(), runtime_context(store.root, legacy_key=legacy[0] if legacy else None):
+        _tick(store, children)
+
+
+def _tick(store, children):
     team = load_team(store)
     for row in store.runs():
         if row["status"] not in ACTIVE:
@@ -157,6 +182,28 @@ def tick(store, children):
                 row["id"], status="cancelled", finished=time.time(), reason="Cancelled while queued"
             )
             continue
+        from harbor_helper.auth import Auth, AuthError
+        from harbor_helper.credentials import KEY_ENV, LEGACY_KEY_ENV
+
+        path = store.path(row["id"])
+        cfg = read_json(path / "manifest.json")["effective"]
+        environment = safe_environment()
+        environment.pop(KEY_ENV, None)
+        environment.pop(LEGACY_KEY_ENV, None)
+        if cfg["agent"] == "opencode":
+            try:
+                _, key = Auth(store.root).worker_credentials(row["id"], cfg["model"]["endpoint"])
+                if key:
+                    environment[KEY_ENV] = key
+            except AuthError as error:
+                store.update(
+                    row["id"],
+                    status="failed",
+                    finished=time.time(),
+                    reason=str(error) + "; model worker not started",
+                )
+                report(store, row["id"])
+                continue
         if len(active) >= team["max_jobs"] or slots + row["concurrency"] > team["max_trials"]:
             continue
         path = store.path(row["id"])
@@ -167,7 +214,7 @@ def tick(store, children):
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=log,
-                env=safe_environment(),
+                env=environment,
                 close_fds=True,
                 start_new_session=True,
             )
@@ -178,6 +225,11 @@ def tick(store, children):
 
 
 def supervise(root):
+    from harbor_helper import credentials
+
+    # Native auto-loaded KEY_ENV is not an explicit historical source.
+    legacy = os.environ.get(credentials.LEGACY_KEY_ENV)
+    credentials.LEGACY_SECRETS = [legacy] if legacy else []
     secrets = runtime_secrets()
     sys.stdout = RedactedStream(sys.stdout, secrets)
     sys.stderr = RedactedStream(sys.stderr, secrets)
@@ -226,7 +278,13 @@ async def execute(store, run_id):
         and model.get("credential_env")
         and not os.environ.get("VLLM_API_KEY")
     ):
-        raise RuntimeError("Model credential missing: set VLLM_API_KEY before starting scheduler")
+        raise RuntimeError("Model credential missing: verify auth status and protected source")
+    if manifest["effective"]["agent"] == "opencode":
+        from harbor_helper.auth import Auth
+
+        _, key = Auth(store.root).worker_credentials(run_id, model["endpoint"])
+        if key:
+            os.environ["VLLM_API_KEY"] = key
     job = await Job.create(JobConfig.model_validate(read_json(path / "job.json")))
     projects, trials = [], []
     for cfg in job._trial_configs:

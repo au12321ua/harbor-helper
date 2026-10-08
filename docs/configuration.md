@@ -1,51 +1,37 @@
 # 环境、团队与模型配置
 
-已部署成员从 [README 的模型入口](../README.md#在已部署团队环境运行模型)开始，直接使用维护者给定的统一 state，不重复初始化。本文的安装和配置步骤由维护者在空闲窗口执行。
+已部署成员从 [README](../README.md#一次登录)开始，使用维护者给定的统一 state，不重复初始化。安装与非秘密配置由维护者在空闲窗口完成。
 
 ## 环境与一次初始化
 
-需要 Linux、Python 3.12–3.13、uv、Docker daemon 和 Compose 插件，以及 Harbor Hub 数据集权限。使用项目 `.venv` 的 Harbor 0.23.0，不使用系统中其他版本。
+需要 Linux、Python 3.12–3.13、uv、Docker daemon/Compose 插件、Harbor Hub 数据集权限。使用项目固定 Harbor 0.23.0。
 
 ```bash
-cd /path/to/harbor-helper
 uv sync --locked
-export HARBOR_HELPER_STATE=/path/to/team
-# 仅新部署、team.json 尚不存在时执行一次。
-.venv/bin/harbor-helper --state "$HARBOR_HELPER_STATE" init \
+# 仅新部署、team.json 尚不存在时执行。
+.venv/bin/harbor-helper --state /absolute/path/to/team init \
   --config configs/team.example.json
+.venv/bin/harbor-helper doctor
 ```
 
-`init` 不覆盖已有配置。已部署环境应检查现有 `$HARBOR_HELPER_STATE/team.json`，由维护者修改非秘密字段。所有 CLI 使用同一绝对 state；不同 state 是独立安装，不能共同保证整机容量。共享 Unix 账号须受信任，首版没有跨用户权限隔离。
+init 不覆盖已有配置，并将该绝对 state 记录为本账号选中的 team。已部署环境直接登录已有 team；登录也记录选择。重连无需 shell 函数或 export。解析顺序：显式 `--state` > `HARBOR_HELPER_STATE` > 本账号已选 team > 已有项目 `.state/team` 自动发现 > 系统默认 `~/.local/state/harbor-helper`。自动发现的 state 在登录输入前显示。
 
-先构建或载入兼容 runtime，再诊断环境（[镜像维护](operations.md#维护构建与复用)）：
-
-```bash
-.venv/bin/harbor-helper --state "$HARBOR_HELPER_STATE" doctor
-```
-
-Hub 权限不足时使用 `.venv/bin/harbor auth login`，并向数据集所有者申请权限。`doctor` 可访问 Hub metadata、检查 Docker/镜像，但不发模型请求。
+所有成员使用同一绝对 state 和受信任的 Unix 账号；不同 state 不能共同保证整机容量，本版没有跨账号身份/权限平台。Hub 权限不足时使用 `.venv/bin/harbor auth login` 并申请数据集权限；它与 helper 的模型登录是两个独立入口。
 
 ## 团队非秘密配置
 
-`team.json` 只保存模型名称、endpoint、固定工具版本、runtime 与容量设置，不保存 key 值。
+team.json 只保存服务、工具、镜像与容量字段，禁止 key 值。初始化后的变更由维护者明确编辑，不由 auth login 静默修改。
 
 | 字段 | 用法 |
 | --- | --- |
-| `dataset` | 固定数字 revision 或 sha256 digest，拒绝 latest |
-| `runtime_image` | 维护者已验证的本机兼容镜像；预装 OpenCode 可避免每次重复安装 |
-| `runtime_image_env` | 接收固定 image alias 的原生环境变量，CAD 使用 agent/verifier 两种角色 |
-| `max_jobs` / `max_trials` | 统一 state 总 Job/Trial 容量，每次 concurrency 预留 Trial 槽位 |
-| `max_attempts` / `max_wall_seconds` | 成员提交上限；墙钟从 worker 开始计算，排队和提交前下载不计入 |
-| `max_cpus_per_trial` / `max_memory_mb_per_trial` | 原生 Harbor CPU/内存覆盖值 |
-| `presets.default` | 保持 oracle；不要静默将默认提交改为收费模型 |
-| `presets.model` | agent=opencode；成员仍显式 `submit --preset model` |
-| `model` | 维护者明确选择并授权的兼容服务配置 |
-
-镜像变更只影响新 submit。旧 run/rerun 使用冻结镜像与输入；新旧镜像可能不可比，见[报告与比较](operations.md#报告比较与整体重跑)。基础设施重试固定为 0；磁盘/token/费用硬限额不支持。
-
-## 模型配置
-
-将现有 `model: null` 换成以下对象；endpoint 与模型名称用维护者选定值替换：
+| dataset | 固定数字 revision 或 sha256 digest，拒绝 latest |
+| runtime_image | 已验证的本机兼容镜像；固定预装 OpenCode 可避免重复安装 |
+| runtime_image_env | 原生 agent/verifier 接收固定 image alias 的变量 |
+| max_jobs / max_trials | 同一 state 的总 Job/Trial 容量 |
+| max_attempts / max_wall_seconds | 提交上限；墙钟从 worker 开始，排队/提交下载不计入 |
+| max_cpus_per_trial / max_memory_mb_per_trial | Harbor 原生资源覆盖值 |
+| presets.default / presets.model | 保留共享原值；CLI 裸 submit 选择 model，oracle 须显式选择 |
+| model | 维护者选定的兼容服务，见下方 |
 
 ```json
 {
@@ -57,121 +43,53 @@ Hub 权限不足时使用 `.venv/bin/harbor auth login`，并向数据集所有�
 }
 ```
 
-服务须支持 OpenCode 所需流式响应和工具调用，可以托管或自部署。内部 provider 名 `vllm` 和变量 `VLLM_API_KEY` 是兼容标识，不要求服务运行 vLLM；使用 `@ai-sdk/openai-compatible`。未观测实际 checkpoint 时记录 unknown。
+将 model:null 替换为该对象，并使用已选服务的真实非秘密名称。服务须支持 OpenCode 流式响应/工具调用；内部 vllm 与 VLLM_API_KEY 是兼容标识，不要求服务运行 vLLM，使用 @ai-sdk/openai-compatible。无认证服务可设 credential_env:null，仍需一次本地登录以绑定服务与 TTL，不输入 key。
 
-OpenCode 版本固定。实际 install 核对已安装版本，匹配则复用；缺失或不匹配时安装指定版本，再核对，不符直接失败。`--model` 只能选择同一 endpoint 的 served model ID；改选模型时声明版本置为 unknown，不改变 endpoint。
+OpenCode 实际 install 核对版本，匹配复用；缺失或不匹配安装固定版本并再次核对。`submit --model` 只选择同一 endpoint 的 served model，改选后 declared_version=unknown；不可观测 checkpoint 仍 unknown。
 
-无认证服务可将 `credential_env` 设为 null，并使用普通 CLI 的显式 `--preset model`。以下文件包装方法适用于需要认证的团队服务。
+切镜像只影响新 submit，旧 run/rerun 保留固定输入和环境身份。维护构建与成员提交耗时分开，镜像来源验证见[操作指南](operations.md#维护构建与复用)。基础设施 retry=0；磁盘/token/费用硬上限不支持。
 
-## Key 文件准备
+## Key 输入与文件引用
 
-先设置维护者指定的**文件路径**，不要在此变量中放 key 值：
-
-```bash
-export HARBOR_HELPER_KEY_FILE=/absolute/path/to/protected/model-key
-```
-
-已有受保护文件直接复用，不另建密钥或复制到其它配置。文件须由执行账号拥有、权限 `0600`，内容为一个非空且无空白的 key 值，可带结尾换行；普通文件、非符号链接。只查看元信息：
+交互终端由产品隐藏输入，不需要准备文件或内嵌 Python：
 
 ```bash
-test ! -L "$HARBOR_HELPER_KEY_FILE" && \
-  stat -c '%a %U %F' -- "$HARBOR_HELPER_KEY_FILE"
+.venv/bin/harbor-helper --state /absolute/path/to/team auth login --ttl 8h
 ```
 
-若维护者需要首次保存已取得的 key，可在交互终端隐藏输入；下面不覆盖已有文件、不将值放进 shell 历史或 argv。目录和路径先由维护者确认，禁止把真实值发到消息或证据中。
+输入前显示 state、endpoint、model。隐藏输入不可用时失败，不能回退可见输入。值缓存于当前账号 `~/.config/harbor-helper/auth/` 的 team 私有区；目录 0700、文件 0600，核对所有者/类型/链接，与实验 state 和报告隔离。本地权限保护不承诺加密，也不防同账号进程。
+
+已经指定的受保护文件只引用，不复制值：
 
 ```bash
-.venv/bin/python - <<'PY'
-import getpass
-import os
-import warnings
-from pathlib import Path
-
-warnings.simplefilter("error", getpass.GetPassWarning)  # 无法隐藏输入时直接失败
-os.umask(0o077)
-path = Path(os.environ["HARBOR_HELPER_KEY_FILE"]).expanduser()
-if not path.is_absolute():
-    raise SystemExit("请使用绝对文件路径")
-path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-key = getpass.getpass("API key（隐藏输入）: ").strip()
-if not key or any(c.isspace() or ord(c) < 32 for c in key):
-    raise SystemExit("需要一个非空、无空白的 key 值")
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-with os.fdopen(fd, "w") as output:
-    output.write(key + "\n")
-PY
+.venv/bin/harbor-helper --state /absolute/path/to/team auth login \
+  --key-file /absolute/path/to/protected/model-key --ttl 8h
+stat -c '%a %U %F' -- /absolute/path/to/protected/model-key
 ```
 
-已有文件权限不符时，由其拥有者在确认文件身份后设为 `0600`。不使用 `cat`、shell `export VLLM_API_KEY=<值>`、环境文件、bundle 或 `team.json` 保存/转发 key。启动器仅在进程内读取，运行时转给受控子进程；Docker argv 只传环境变量名。
+参数是文件路径；文件内才是 key 值，文件不得位于实验 state 内。要求当前账号拥有、0600、普通文件、非符号链接、一个非空且无空白的值（可有结尾换行）。权限修正由拥有者确认文件身份后执行。不要 cat 文件、把 key 放进 argv/环境文件/team.json/bundle，或发到消息。
 
-## 每次登录的模型包装
+引用记录保存路径与身份指纹；期间删除、改权限或换值可能使旧 run 无法恢复审计。请保留关联 run 的原文件；新 key 用另一文件，并在全部任务终态后重新登录。
 
-在项目目录中，恢复团队 state、key 文件路径和函数；可将这一段加入受信任的 shell profile，重连后也必须有效：
+## 登录与调度器刷新
 
 ```bash
-export HARBOR_HELPER_STATE=/path/to/team
-export HARBOR_HELPER_KEY_FILE=/absolute/path/to/protected/model-key
-hh_model() {
-  : "${HARBOR_HELPER_STATE:?请设置团队 state 的绝对路径}"
-  : "${HARBOR_HELPER_KEY_FILE:?请设置 key 文件的绝对路径}"
-  .venv/bin/python scripts/with_model_key.py \
-    --key-file "$HARBOR_HELPER_KEY_FILE" -- \
-    --state "$HARBOR_HELPER_STATE" "$@"
-}
-hh_model doctor --preset model
+.venv/bin/harbor-helper auth status
+.venv/bin/harbor-helper auth logout
 ```
 
-`doctor` 即使成功也不验证 key/provider 认证或工具调用；只能在已授权真实任务中确认。`hh_model` 加载的是显式文件内容，路径本身不是 key 值。
+默认 TTL8h，可用正秒数或 s/m/h/d，如 --ttl 30m。登录只保存本地使用授权，不发 provider 探测，authentication_verified=false。doctor 也不证明 key/provider 可用。
 
-## 刷新调度器凭据
+login 内部协调空闲调度器：以 PID+birth 验证旧身份，发送停止请求，等待旧实例确实退出后恢复；stop 超时则诊断失败，不假设 sleep 后已退出。存在任意未终态 Job（含 queued/cleanup_blocked）时，拒绝轮换/logout，保留原会话并提示等待或取消。
 
-已有 scheduler 的环境不会被后续 `recover` 或 submit 更新。首次模型使用、更新 key、服务配置，或普通 CLI 启动过无凭据 scheduler 时，应刷新。先通过 `hh_model list/status` 等待所有任务进入 succeeded/failed/cancelled；queued/running/cancelling/cleanup_blocked 都不能直接 `stop`。维护者协调空闲窗口，其他成员暂停可启动调度器的命令。
+日常 submit/list/status/cancel/recover/rerun 自动加载当前授权与审计来源，并内部脱敏，无需手动 stop/recover 刷新。TTL 在提交及真实出队检查；旧 scheduler 环境和历史 key 不能启动新模型 worker。过期排队任务明确 failed/未执行；已启动任务可继续执行、取消和收尾。过期不妨碍安全状态查询。
 
-维护者先定义下面的函数。`hh_stop_idle` 调用现有 `stop`，使用 `scheduler.json` 的 PID 和 Linux 启动标识 `birth` 确认旧实例退出；轮询检查退出条件，超时或出现其它活动 scheduler 则失败，不继续 recover。`stop` 的返回只代表发出停止请求。
+logout 撤销当前新执行授权，不删除已使用的历史审计材料；TTL8h 同样限制新执行，**不是审计材料删除期限**。关联 run/日志仍保留时，其来源留对应 team 私有区，仅用于脱敏和 scan；未使用的旧会话会清除。外部 key 始终仅引用。删除历史来源会使相关扫描不完整，不能维持全 clean 承诺；本版没有通用 purge/密钥服务。
 
-```bash
-hh_stop_idle() {
-  .venv/bin/python - "$HARBOR_HELPER_STATE" <<'PY' || return
-import subprocess
-import sys
-import time
-from pathlib import Path
-from harbor_helper.storage import read_json
-from harbor_helper.worker import process_birth
+无关旧来源缺失不影响新 run 执行/收尾，但对应原始日志拒读，全state scan 返回 audit incomplete/clean=false。安全摘要仍可看。恢复与证据操作见[操作指南](operations.md#故障处理)。
 
-state = Path(sys.argv[1])
-identity_file = state / "scheduler.json"
-old = read_json(identity_file) if identity_file.exists() else None
-subprocess.run(
-    [sys.executable, "-m", "harbor_helper.cli", "--state", str(state), "stop"],
-    check=True,
-)
-deadline = time.monotonic() + 10
-while old and process_birth(old["pid"]) == old["birth"]:
-    if time.monotonic() >= deadline:
-        raise SystemExit("旧 scheduler 尚未退出；不要 recover，请维护者检查")
-    time.sleep(0.1)
-current = read_json(identity_file) if identity_file.exists() else None
-if current and process_birth(current["pid"]) == current["birth"]:
-    raise SystemExit("检测到活动 scheduler；协调空闲窗口后重新刷新")
-print("旧 scheduler 已停止")
-PY
-}
-hh_refresh_model() {
-  hh_stop_idle && hh_model recover
-}
-```
+## 配置验证与兼容维护
 
-需要刷新时执行一次；日常提交无需重复 stop/recover：
+普通 submit 默认模型且缺登录即失败，无凭据不回退 oracle；自检明确 `submit --agent oracle`，也支持 `--preset oracle`。旧 team.json 的 default 不改，旧 manifest/rerun 的有效配置不改。
 
-```bash
-hh_refresh_model
-```
-
-刷新期间不要再运行 `list/status/submit/recover`，以免另起实例。确认退出后才由 `hh_model recover` 启动新实例；之后模型的 recover/submit/status/list/rerun/cancel 均用 `hh_model`。普通 oracle 不加载该文件；普通 CLI 若新起调度器，下一次模型使用前重新刷新。需要仅停止以扫描证据时，只执行 `hh_stop_idle`。
-
-遇到 cleanup_blocked 时，先按[故障处理](operations.md#故障处理)定位；不要把状态改成终态来绕过 stop。使用现有 key 的文件启动器恢复已死调度器可执行收尾，不会重执行模型。
-
-## 配置验证与后续
-
-环境/模型配置诊断不代替真实评分。提交与预算示例见 [README](../README.md)，bundle、镜像来源、报告和安全扫描见[操作指南](operations.md)。设计、验收与独立证据见[文档导航](../README.md#文档导航)。
+旧 scripts/with_model_key.py 保留给维护者处理原生登录引入前的历史审计来源，不再是新模型提交主路径，不能代替 native auth 的 TTL。自动化需显式 --json；默认终端摘要，logs 默认可读字符串、--json 时为合法 JSON 字符串。更多操作见 [README](../README.md) 与[操作指南](operations.md)。

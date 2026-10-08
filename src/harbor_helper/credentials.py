@@ -11,10 +11,22 @@ from pathlib import Path
 from urllib.parse import quote
 
 KEY_ENV = "VLLM_API_KEY"
+AUDIT_SECRETS = []
+LEGACY_SECRETS = None
+LEGACY_KEY_ENV = "HARBOR_HELPER_LEGACY_AUDIT_KEY"
+
+
+def legacy_secrets():
+    if LEGACY_SECRETS is None:
+        value = os.environ.get(LEGACY_KEY_ENV) or os.environ.get(KEY_ENV)
+        return [value] if value else []
+    return list(LEGACY_SECRETS)
 
 
 def runtime_secrets():
-    return [os.environ[KEY_ENV]] if os.environ.get(KEY_ENV) else []
+    return list(
+        dict.fromkeys([*AUDIT_SECRETS, *([os.environ[KEY_ENV]] if os.environ.get(KEY_ENV) else [])])
+    )
 
 
 def redact_value(value, secrets):
@@ -108,7 +120,25 @@ def scan_tree(root, secrets):
     root = Path(root)
     if not root.exists() or root.is_symlink():
         return {**counts, "unreadable_files": 1, "clean": False}
-    files = root.rglob("*") if root.is_dir() else [root]
+
+    def walk(directory):
+        try:
+            with os.scandir(directory) as entries:
+                children = list(entries)
+        except OSError:
+            counts["unreadable_files"] += 1
+            return
+        for entry in children:
+            path = Path(entry.path)
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    yield from walk(path)
+                else:
+                    yield path
+            except OSError:
+                counts["unreadable_files"] += 1
+
+    files = walk(root) if root.is_dir() else [root]
     for path in files:
         if path.is_symlink():
             counts["unreadable_files"] += 1

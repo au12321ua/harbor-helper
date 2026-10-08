@@ -20,7 +20,7 @@ a = p.parse_args()
 state = a.state.resolve()
 if state.exists():
     raise SystemExit("Use a new isolated state directory")
-cli = [sys.executable, "-m", "harbor_helper.cli", "--state", str(state)]
+cli = [sys.executable, "-m", "harbor_helper.cli", "--json", "--state", str(state)]
 evidence = []
 
 
@@ -62,7 +62,9 @@ def owned(run_id):
 
 
 def submit():
-    return call("submit", "--bundle", str(bundle), "--task", "generation--box")["run_id"]
+    return call(
+        "submit", "--agent", "oracle", "--bundle", str(bundle), "--task", "generation--box"
+    )["run_id"]
 
 
 call("init")

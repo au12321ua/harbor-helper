@@ -129,6 +129,15 @@ def job_config(run_dir, manifest):
 
 
 def submit(store, team, cfg=None, bundle=None, parent=None):
+    from harbor_helper.auth import Auth
+
+    if parent:
+        cfg = read_json(store.path(parent) / "manifest.json")["effective"]
+    validate_effective(team, cfg)
+    session = None
+    if cfg["agent"] == "opencode":
+        session, _ = Auth(store.root).execution(cfg["model"]["endpoint"])
+
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise ValueError("Wrong Harbor version; install with uv sync --locked")
     run_id = "hh-" + uuid.uuid4().hex[:16]
@@ -184,6 +193,8 @@ def submit(store, team, cfg=None, bundle=None, parent=None):
         verify_inputs(path, manifest)
         write_json(path / "manifest.json", manifest)
         write_json(path / "job.json", job_config(path, manifest))
+        if session:
+            Auth(store.root).bind(run_id, session["id"])
         with store.connect() as db:
             db.execute(
                 "INSERT INTO runs(id,status,created,concurrency,parent) VALUES(?,?,?,?,?)",
@@ -221,10 +232,47 @@ def safe_environment():
         "no_proxy",
         "SSL_CERT_FILE",
     }
-    return {k: v for k, v in os.environ.items() if k in keep or k == "VLLM_API_KEY"}
+    from harbor_helper.credentials import KEY_ENV, LEGACY_KEY_ENV
+
+    return {k: v for k, v in os.environ.items() if k in keep or k in {KEY_ENV, LEGACY_KEY_ENV}}
+
+
+def scheduler_identity(store):
+    from harbor_helper.worker import process_birth
+
+    path = store.root / "scheduler.json"
+    if path.exists():
+        identity = read_json(path)
+        if identity.get("birth") and process_birth(identity["pid"]) == identity["birth"]:
+            return identity
+    return None
+
+
+def stop_supervisor(store, timeout=10):
+    from harbor_helper.storage import TERMINAL
+    from harbor_helper.worker import process_birth
+
+    if any(row["status"] not in TERMINAL for row in store.runs()):
+        raise ValueError("Only stop idle scheduler; cancel/wait for all tasks first")
+    identity = scheduler_identity(store)
+    if identity:
+        try:
+            os.kill(identity["pid"], 15)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + timeout
+        while process_birth(identity["pid"]) == identity["birth"]:
+            if time.monotonic() >= deadline:
+                raise ValueError("Scheduler stop timed out; original PID/birth still active")
+            time.sleep(0.05)
+        if scheduler_identity(store):
+            raise ValueError("Another scheduler is active; stop not confirmed")
+    return {"scheduler": "stopped", "confirmed": True}
 
 
 def ensure_supervisor(store):
+    if scheduler_identity(store):
+        return
     with (store.root / "supervisor.log").open("a") as log:
         subprocess.Popen(
             [sys.executable, "-m", "harbor_helper.worker", "supervise", str(store.root)],
@@ -235,3 +283,9 @@ def ensure_supervisor(store):
             close_fds=True,
             env=safe_environment(),
         )
+
+    deadline = time.monotonic() + 10
+    while not scheduler_identity(store):
+        if time.monotonic() >= deadline:
+            raise ValueError("Scheduler did not become ready; use recover and inspect diagnostics")
+        time.sleep(0.05)

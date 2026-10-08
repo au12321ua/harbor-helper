@@ -1,24 +1,24 @@
 # 详细操作与维护
 
-模型命令先按 [README](../README.md#在已部署团队环境运行模型)定义 `hh_model`；已部署成员使用统一 state，不重新 init。本文中的模型 submit/rerun 都会发请求，只在已有授权与预算范围内执行。
+模型命令先按 [README](../README.md#一次登录)完成原生 auth login；已部署成员使用统一 state，不重新 init。本文中的模型 submit/rerun 都会发请求，只在已有授权与预算范围内执行。
 
 ## 日常提交与容量
 
 ```bash
-hh_model submit --preset model --task generation--box \
+.venv/bin/harbor-helper submit --preset model --task generation--box \
   --attempts 1 --concurrency 1 --wall-seconds 1200
-hh_model list
-hh_model status hh-替换为真实ID
+.venv/bin/harbor-helper list
+.venv/bin/harbor-helper status hh-替换为真实ID
 ```
 
 `--task` 支持任务名 glob，不给则选择固定数据集的全部任务。`--attempts/--concurrency/--wall-seconds` 在团队上限内覆盖 preset。`--dataset` 只接受数字 revision 或 sha256 digest；`--model` 选择维护者 endpoint 已服务的模型 ID。提交成功前实际解析并下载 Hub 任务，保存 agent/verifier 原始输入；失败不会返回假成功 ID。
 
-输出 run ID 后可以断开 SSH；重连后恢复 `hh_model` 函数再查询。Job/Trial 槽位作用于统一 state，无法限制其它项目、独立 state 或直接运行的 Harbor；未确认收尾的 Job 保持 cleanup_blocked 并占槽位。墙钟预算从 worker 开始，队列和提交前下载不计入；基础设施重试为 0，CPU/内存由原生 override 设置，磁盘/token/费用硬限额不支持。
+输出 run ID 后可以断开 SSH；重连后直接使用 CLI 查询。Job/Trial 槽位作用于统一 state，无法限制其它项目、独立 state 或直接运行的 Harbor；未确认收尾的 Job 保持 cleanup_blocked 并占槽位。墙钟预算从 worker 开始，队列和提交前下载不计入；基础设施重试为 0，CPU/内存由原生 override 设置，磁盘/token/费用硬限额不支持。
 
 需要取消时单独执行：
 
 ```bash
-hh_model cancel hh-替换为真实ID
+.venv/bin/harbor-helper cancel hh-替换为真实ID
 ```
 
 取消先记录请求，最终 cancelled 才确认进程停止与归属资源清理。queued 取消无需起容器；running 取消保留结果，不影响其它 Job。不使用全局 Docker prune。
@@ -34,7 +34,7 @@ candidate/
 ```
 
 ```bash
-hh_model submit --preset model --bundle ./candidate --task generation--box \
+.venv/bin/harbor-helper submit --preset model --bundle ./candidate --task generation--box \
   --attempts 1 --concurrency 1 --wall-seconds 1200
 ```
 
@@ -47,8 +47,8 @@ hh_model submit --preset model --bundle ./candidate --task generation--box \
 任务终态后查看报告；比较时等待两组实验都结束：
 
 ```bash
-hh_model report hh-替换为真实ID
-hh_model compare hh-基线ID hh-候选ID
+.venv/bin/harbor-helper report hh-替换为真实ID
+.venv/bin/harbor-helper compare hh-基线ID hh-候选ID
 ```
 
 报告只将无异常且含有限数字 reward 的 Trial 计为有效。基础设施错误、缺失/损坏结果单列，不能当有效零分；低分本身不等于执行失败。helper 不读取 CAD 私有指标文件，也不重写评分器。
@@ -60,7 +60,7 @@ rerun 创建新 ID，复制旧 run 的固定题目/评分、bundle、有效配�
 确认需要重新执行后再运行：
 
 ```bash
-hh_model rerun hh-替换为真实ID
+.venv/bin/harbor-helper rerun hh-替换为真实ID
 ```
 
 ## 维护构建与复用
@@ -98,28 +98,29 @@ hh_model rerun hh-替换为真实ID
 
 它拒绝携带 VLLM_API_KEY，不执行 agent.run/verifier，记录环境、agent setup、安装核对与含清理总耗时。维护构建耗时与成员任务耗时分开；该探针不代表完整模型实验耗时。实际 `HelperOpenCode.install` 匹配版本时跳过 apt/npm，缺失或旧版安装指定版本并验证，`agent/install-decision.json` 留档。
 
-维护者验证镜像来源、安装入口和 oracle 评分后，在所有任务终止的空闲窗口修改 team.json 的 runtime_image；按[配置指南](configuration.md#刷新调度器凭据)刷新 scheduler。新配置只用于新实验，已有 run/rerun 镜像不改。固定来源、历史 hash/耗时和原生评分证据见实现证据与独立报告。
+维护者验证镜像来源、安装入口和 oracle 评分后，在所有任务终止的空闲窗口修改 team.json 的 runtime_image；后续 CLI 自动加载配置与授权；必要时使用原生 stop/recover。新配置只用于新实验，已有 run/rerun 镜像不改。固定来源、历史 hash/耗时和原生评分证据见实现证据与独立报告。
 
 ## 日志与证据交接
 
 每个 run 位于 `$HARBOR_HELPER_STATE/runs/<run-id>/`，包括 manifest.json、冻结 tasks/、可选 bundle/、有效原生 job.json、worker runtime/日志、原始 harbor/ Trial 与 verifier/产物、projects.json、cleanup.json、credential-audit.json 和 report.json。
 
-交接模型执行证据时，终态后协调空闲窗口，定义配置指南中的 `hh_stop_idle` 并执行它以停止/确认 scheduler 退出。确认 worker 停止及本次归属资源清理，再扫描**整个 state**：
+交接前等待所有任务终态，再用原生 stop 等待调度器确认退出，扫描整个 state：
 
 ```bash
-hh_stop_idle && \
-.venv/bin/python scripts/with_model_key.py \
-  --key-file "$HARBOR_HELPER_KEY_FILE" --scan "$HARBOR_HELPER_STATE"
+.venv/bin/harbor-helper stop
+.venv/bin/harbor-helper scan
 ```
 
-命令不发送请求、不输出匹配值，只返回计数与 clean 布尔；检查大文件/二进制、SQLite 字段、原值及 URL/JSON 转义、base64 常见表示。未 clean 时不要读取或转发原始日志，保留安全计数交维护者处理。确认 clean 后可读取本次日志/产物：
+scan 只返回安全计数与结论，不输出匹配值。扫描包括大文件/二进制、SQLite 字段、原值及 URL/JSON 转义、base64 表示；专用私有凭据区与 state 分离，不作为产物扫描。活动写者存在时拒绝；缺所需历史来源返回 audit_complete=false/clean=false，不能把 K2 当前登录当作 K1 历史完整覆盖。命中、不可读、来源失效时不要读取/转发原始证据。
+
+日志默认可读流，--json 返回 JSON 字符串；无法取得本run来源时原始日志拒读，安全 status 摘要仍可看。关联来源可用后读取：
 
 ```bash
-hh_model logs hh-替换为真实ID
-hh_model report hh-替换为真实ID
+.venv/bin/harbor-helper logs hh-替换为真实ID
+.venv/bin/harbor-helper report hh-替换为真实ID
 ```
 
-以上两条不会启动调度器；report 会重新生成派生报告，若更新报告或补写证据，交接前再次扫描。扫描结束后不要用 list/status 引入新的写者再声称扫描是最终证据。需要继续排队时经 `hh_model recover`。scanner 不检测任意编码或阻止恶意任务网络泄密，题目/bundle 须受信任。
+report 会重新生成派生报告，补写证据后交接前再次 scan。停写扫描后不要再用 list/status 启动调度器并仍称最终停写证据；继续运行用 recover。scanner 不检测任意编码或阻止恶意任务网络泄密，题目/bundle 须受信任。logout/轮换后的历史来源保留和清除限制见[配置指南](configuration.md#登录与调度器刷新)。
 
 ## 故障处理
 
@@ -128,14 +129,25 @@ hh_model report hh-替换为真实ID
 | model 未配置、doctor 失败 | 维护者检查非秘密 team.json、Hub 权限、Docker/兼容 runtime；doctor 不证明认证可用 |
 | key 文件 unavailable/invalid | 核对明确路径、当前所有者、0600、普通文件/非链接；不输出文件内容 |
 | 认证、接口或工具调用不兼容 | 保存经审计的错误类型/摘要，先诊断服务与配置，不盲目 rerun |
-| 新 CLI 提示模型凭据缺失 | 旧 scheduler 可能由普通 CLI 启动；全部终态后按配置指南刷新，而非仅再 recover |
+| 新 CLI 提示模型凭据缺失 | 先 auth status 核对选中team、有效期和来源；全部终态后 auth login，CLI自动刷新idle实例 |
 | cleanup_blocked | 保持占容量；核对是进程停止、归属 Docker 清理还是凭据审计失败，不修改数据库绕过 |
-| scheduler 已死 | 用 `hh_model recover` 协调原 worker/收尾，不重执行模型；模型 status/list 也用包装 |
-| 活动 scheduler 无审计凭据且无法收尾 | stop 只接受全部终态；交维护者核对 scheduler.json 的 PID+birth，精确停止旧实例并带文件凭据恢复；不全局 kill/prune |
+| scheduler 已死 | 用原生 recover 协调原 worker/收尾，不重执行模型 |
+| 活动 scheduler 无审计凭据且无法收尾 | 恢复本run的原引用/权限后 recover；硬恢复缺原key将保持阻塞，不轮换/logout逃避审计；旧版历史来源可由兼容文件启动器处理 |
 | worker 中断或墙钟触达 | 等清理与审计完成、保留原结果；需要新实验时另行确认预算，用整体 rerun 或新 submit |
 | 快照被改、镜像 alias 身份变化 | 不改 frozen tasks/bundle；按错误来源修复，旧 run 保留供核对 |
 
 清理按记录的精确 Compose project 执行；PID 与 Linux 启动时间一起识别，拒绝误杀复用 PID。flock 防多 scheduler/同一 worker 重复。跨 write/flush 输出脱敏、reason 入库前处理、先清洗原生再生成派生报告；SQLite 按字段检查，冻结输入不改，clean 只读日志无需写入。命中不可清洗/扫描不完成/缺所需审计凭据时仍阻塞，不放宽权限或忽略错误释放容量。
+
+## 自动化输出
+
+默认 Rich 摘要/表格；脚本须明确选择 JSON，全局及常用命令后均支持：
+
+```bash
+.venv/bin/harbor-helper --json list
+.venv/bin/harbor-helper report hh-替换为真实ID --json
+```
+
+JSON 保留原数据字段与退出码，日志字符串为合法 JSON 编码；human 摘要不改变评分/可比性语义。不匹配比较退出2，失败诊断或 scan 不clean退出1。list/status 可能自动启动调度器，scan 前使用 stop。
 
 ## 开发检查与验收
 

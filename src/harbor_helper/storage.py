@@ -1,3 +1,4 @@
+import fcntl
 import hashlib
 import json
 import os
@@ -50,6 +51,12 @@ class Store:
                 started REAL, finished REAL, pid INTEGER, birth TEXT,
                 concurrency INTEGER NOT NULL, cancel INTEGER DEFAULT 0,
                 reason TEXT, parent TEXT)""")
+
+    @contextmanager
+    def control(self):
+        with (self.root / "control.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
 
     @contextmanager
     def connect(self):
