@@ -12,7 +12,7 @@ export HARBOR_HELPER_STATE=/path/to/team
 
 `doctor` 的整体 `ok=true` 表示默认 oracle 必需条件就绪；没有配置模型时，model 检查可提示可选能力未验证。所有成员使用同一 state 和受信任的共享账号，不自行 init。机器复查完成后再交付成员使用。
 
-真实模型 A10 另需维护者在共享 `team.json` 配置 endpoint、served model ID、声明 checkpoint 版本、固定 opencode 版本和可选凭据环境变量名，格式见 README。凭据通过受保护渠道设置，不发到群里或写入配置、命令参数、验收反馈。更新凭据环境前等待所有任务终止，执行 stop，再在正确环境执行 recover。
+真实模型 A10 另需维护者在共享 `team.json` 配置 endpoint、served model ID、声明 checkpoint 版本、固定 opencode 版本和可选凭据环境变量名，格式见 README。可使用维护者选定的 OpenAI-compatible 托管服务，无需先部署自己的 vLLM；服务的流式响应、工具调用与认证兼容性须在选定后验证。现有 `VLLM_API_KEY` 只是接入使用的环境变量名，托管服务未公开 checkpoint 时声明版本可记录 unknown。凭据通过受保护渠道设置，不发到群里或写入配置、命令参数、验收反馈。更新凭据环境前等待所有任务终止，执行 stop，再在正确环境执行 recover。
 
 ```bash
 .venv/bin/harbor-helper doctor --preset model

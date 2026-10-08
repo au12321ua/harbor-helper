@@ -14,7 +14,7 @@
 
 - 复用 Harbor 的 Job/Trial、Docker provider、agent 和 verifier，不另写任务执行器和评分器。
 - 首版交付 CLI 初始化与诊断、后台提交、状态/日志/取消、报告/对比、版本固定与重跑。
-- 支持内置 oracle 无模型基线和 opencode 模型实验；模型 endpoint 由维护者配置，沿用自部署 vLLM 的方向，不自动换用外部付费模型或复用相邻项目的凭据。
+- 支持内置 oracle 无模型基线和 opencode 模型实验；模型 endpoint 由维护者选择并配置。用户已澄清当前无自部署 vLLM，需要使用现成托管模型服务测试。优先复用现有 OpenAI-compatible 接入，服务须满足 opencode 所需的流式响应与工具调用；具体供应商兼容性在选定后实测。不自动选择供应商、发起未配置的付费请求或复用相邻项目的凭据。
 - 无网页平台、分布式执行、完整 RL 训练、自研 gateway/sandbox、中途 agent 会话恢复或自动 promote。
 - 共享机器面向受信任团队；首版不承诺跨用户强安全隔离或复杂 RBAC。每次运行隔离工作目录、配置和结果。
 - 分数是否上升由实验决定；重跑保存配置不保证随机模型逐字重现。
@@ -38,6 +38,7 @@
 - 来源不能确认时标明未知，不虚报实际模型 checkpoint 或镜像 digest；重跑无法取回固定来源时明确失败/要求新实验，不悄悄换到 latest。
 - 原始证据与报告分开保存，报告可重新生成；报告算法不绑定 CAD 的具体指标和测试文件。
 - Runtime接入使用固定源码commit与匹配skill，agent/verifier兼容性须分别验证正例和负例。项目安装路径仍需固定构建输入、保存依赖清单与实际 image ID，并由产品 CLI 重验；镜像本机 ID 不称为 registry manifest digest。不得通过改题目或评分掩盖兼容问题。
+- 当前 opencode 配置使用 `@ai-sdk/openai-compatible`；内部 provider 名称 `vllm` 是配置标识，不要求服务实际由 vLLM 部署。现有 `VLLM_API_KEY` 是显式凭据环境变量名，非供应商身份。非兼容接口、特殊认证或请求格式需在选定服务后评估适配，不能宣称所有托管服务开箱可用；服务不公开 checkpoint 时记录 unknown。
 
 ## 模块职责与最简单实现方向
 
