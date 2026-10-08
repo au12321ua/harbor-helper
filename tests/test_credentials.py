@@ -93,6 +93,19 @@ def test_large_binary_scan_and_scrub_chunk_boundary(tmp_path):
     assert not scan_tree(tmp_path / "missing", [MARKER])["clean"]
 
 
+def test_clean_container_owned_log_requires_no_write(tmp_path, monkeypatch):
+    path = tmp_path / "clean.log"
+    path.write_bytes(b"readable native log without credentials")
+    before = path.stat()
+    monkeypatch.setattr(
+        "harbor_helper.credentials.tempfile.mkstemp",
+        lambda **kwargs: pytest.fail("Clean logs must not require write access"),
+    )
+    scrub_file(path, [MARKER])
+    assert path.stat().st_ino == before.st_ino
+    assert path.stat().st_mtime_ns == before.st_mtime_ns
+
+
 def test_actual_spawn_argv_contains_name_and_env_contains_value(tmp_path, monkeypatch):
     monkeypatch.setenv("VLLM_API_KEY", MARKER)
     install_docker_credential_forwarding()

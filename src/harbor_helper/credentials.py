@@ -161,6 +161,10 @@ def scrub_file(path, secrets):
     with path.open("rb") as source:
         if source.read(16) == b"SQLite format 3\0":
             return  # Never mutate database bytes; scan fields and withhold on matches.
+    if scan_tree(path, secrets)["clean"]:
+        # Container-owned log directories may be readable but not writable.
+        # Clean files need no replacement or temporary output in that directory.
+        return
     overlap = max(map(len, patterns)) - 1
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".redact-")
     changed = False
