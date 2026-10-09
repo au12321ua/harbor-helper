@@ -37,6 +37,7 @@ function AdminForm({
   description,
   fields,
   onSave,
+  resetOnSave = true,
 }: {
   title: string;
   description: string;
@@ -49,6 +50,7 @@ function AdminForm({
     required?: boolean;
   }[];
   onSave: (value: Item) => Promise<unknown>;
+  resetOnSave?: boolean;
 }) {
   const [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false);
@@ -68,7 +70,7 @@ function AdminForm({
             const value = Object.fromEntries(new FormData(form));
             try {
               await onSave(value);
-              form.reset();
+              if (resetOnSave) form.reset();
               toast.success("配置已保存");
             } catch (err) {
               setError(err);
@@ -145,10 +147,12 @@ function ModelForm({
   catalog,
   selected,
   save,
+  onSaved,
 }: {
   catalog: Item;
   selected?: Item;
-  save: (path: string, value: Item) => Promise<unknown>;
+  save: (path: string, value: Item) => Promise<Item>;
+  onSaved: (value: Item) => void;
 }) {
   const [provider, setProvider] = useState(selected?.provider_id || "");
   const credentials = (catalog.credentials || []).filter(
@@ -179,6 +183,7 @@ function ModelForm({
         </SelectField>
         <AdminForm
           key={`${selected?.id || "new"}-${provider}`}
+          resetOnSave={!selected}
           title="模型配置"
           description="常用参数可留空；JSON 高级参数与常用参数合并。已有实验保留旧版本。"
           fields={[
@@ -230,7 +235,7 @@ function ModelForm({
             if (v.temperature !== "")
               params.temperature = Number(v.temperature);
             if (v.max_tokens !== "") params.max_tokens = Number(v.max_tokens);
-            await save("/admin/model-profiles", {
+            const saved = await save("/admin/model-profiles", {
               id: selected?.id,
               name: v.name,
               provider_id: provider,
@@ -240,6 +245,7 @@ function ModelForm({
               opencode_version: v.opencode_version,
               enabled: selected?.enabled ?? true,
             });
+            onSaved(saved);
           }}
         />
       </CardContent>
@@ -257,6 +263,10 @@ export function Admin() {
   if (loading) return <Loading />;
   const users = rowsOf(data?.[0], "users"),
     c = data?.[1] || {};
+  // Keep only the selection ID; refreshed catalog versions supply edit defaults.
+  const selectedProfile = (c.model_profiles || []).find(
+    (p: Item) => p.id === edit.profile,
+  );
   async function save(path: string, value: Item, method = "POST") {
     const result = await api(path, { method, body: JSON.stringify(value) });
     await reload();
@@ -503,7 +513,7 @@ export function Admin() {
                         ]
                   }
                   onSave={async (v) => {
-                    await save(`/admin/catalog/${kind}`, {
+                    const saved = await save(`/admin/catalog/${kind}`, {
                       ...v,
                       id: edit[kind]?.id,
                       enabled: v.enabled === "true",
@@ -516,7 +526,7 @@ export function Admin() {
                           }
                         : {}),
                     });
-                    setEdit({ ...edit, [kind]: undefined });
+                    setEdit((current) => ({ ...current, [kind]: saved }));
                   }}
                 />
                 <Button
@@ -587,13 +597,13 @@ export function Admin() {
                   },
                 ]}
                 onSave={async (v) => {
-                  await save("/admin/providers", {
+                  const saved = await save("/admin/providers", {
                     ...v,
                     id: edit.provider?.id,
                     protocol: "openai-compatible",
                     enabled: edit.provider?.enabled ?? true,
                   });
-                  setEdit({ ...edit, provider: undefined });
+                  setEdit((current) => ({ ...current, provider: saved }));
                 }}
               />
             </div>
@@ -686,7 +696,7 @@ export function Admin() {
                     <CardContent className="flex flex-wrap gap-2">
                       <Button
                         variant="outline"
-                        onClick={() => setEdit({ ...edit, profile: p })}
+                        onClick={() => setEdit({ ...edit, profile: p.id })}
                       >
                         编辑方案
                       </Button>
@@ -724,10 +734,13 @@ export function Admin() {
                 </Button>
               </div>
               <ModelForm
-                key={JSON.stringify(edit.profile || {})}
+                key={JSON.stringify(selectedProfile || {})}
                 catalog={c}
-                selected={edit.profile}
+                selected={selectedProfile}
                 save={save}
+                onSaved={(saved) =>
+                  setEdit((current) => ({ ...current, profile: saved.id }))
+                }
               />
             </div>
           </div>

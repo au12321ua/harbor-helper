@@ -67,6 +67,7 @@ const catalog = {
 };
 async function fixture(page: Page, role = "admin", logged = true) {
   let authenticated = logged;
+  const currentCatalog = structuredClone(catalog);
   const calls: { path: string; body: any; headers: Record<string, string> }[] =
     [];
   await page.route("**/api/v1/**", async (route) => {
@@ -92,8 +93,20 @@ async function fixture(page: Page, role = "admin", logged = true) {
     } else if (path === "/auth/logout") {
       authenticated = false;
       value = { ok: true };
-    } else if (path === "/catalog") value = catalog;
-    else if (path === "/usage")
+    } else if (path === "/catalog") value = currentCatalog;
+    else if (path === "/admin/model-profiles" && request.method() === "POST") {
+      const index = currentCatalog.model_profiles.findIndex(
+        (p) => p.id === body.id,
+      );
+      const previous = currentCatalog.model_profiles[index] as any;
+      value = {
+        ...body,
+        id: body.id || "plan-new",
+        version: (previous?.version || 1) + 1,
+      };
+      if (index >= 0) currentCatalog.model_profiles[index] = value;
+      else currentCatalog.model_profiles.push(value);
+    } else if (path === "/usage")
       value = {
         total_runs: 1,
         total_submissions: 1,
@@ -178,6 +191,104 @@ async function fixture(page: Page, role = "admin", logged = true) {
   });
   return calls;
 }
+test("model edits show current saved values and repeated save preserves them", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  // Seed the existing version using the same stateful API fixture as the UI.
+  await page.goto("/admin");
+  await page.evaluate(async () => {
+    await fetch("/api/v1/admin/model-profiles", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "plan1",
+        name: "测试方案",
+        model: "test-model",
+        provider_id: "p1",
+        credential_id: "c1",
+        enabled: true,
+        params: { temperature: 0.5, max_tokens: 100, top_p: 0.8 },
+        opencode_version: "1.18.35",
+      }),
+    });
+  });
+  await page.reload();
+  await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
+  await page.getByRole("button", { name: "编辑方案", exact: true }).click();
+  const form = page
+    .locator("form")
+    .filter({ has: page.getByLabel("方案名称", { exact: true }) });
+  await expect(page.getByLabel("Temperature（可选）")).toHaveValue("0.5");
+  await page.getByLabel("方案名称", { exact: true }).fill("更新方案");
+  await page.getByLabel("Temperature（可选）").fill("0");
+  await page.getByLabel("最大输出 tokens（可选）").fill("200");
+  await page
+    .getByLabel("高级参数 JSON")
+    .fill('{"temperature":0.5,"max_tokens":100,"top_p":0.9}');
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("配置已保存", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Temperature（可选）")).toHaveValue("0");
+  await expect(page.getByLabel("方案名称", { exact: true })).toHaveValue(
+    "更新方案",
+  );
+  await expect(page.getByLabel("最大输出 tokens（可选）")).toHaveValue("200");
+  await expect(page.getByLabel("高级参数 JSON")).toHaveValue(
+    '{"temperature":0,"max_tokens":200,"top_p":0.9}',
+  );
+  await expect(page.getByLabel("团队 key", { exact: true })).toHaveValue("c1");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        calls.filter((c) => c.path === "/admin/model-profiles" && c.body)
+          .length,
+    )
+    .toBe(3);
+  const writes = calls
+    .filter((c) => c.path === "/admin/model-profiles" && c.body)
+    .slice(1);
+  expect(writes.map((c) => c.body)).toEqual(
+    Array(2).fill({
+      id: "plan1",
+      name: "更新方案",
+      provider_id: "p1",
+      credential_id: "c1",
+      model: "test-model",
+      params: { temperature: 0, max_tokens: 200, top_p: 0.9 },
+      opencode_version: "1.18.35",
+      enabled: true,
+    }),
+  );
+  await expect(page.getByLabel("Temperature（可选）")).toHaveValue("0");
+  // Reload and reopen to check the fixture's persisted catalog, not just the DOM.
+  await page.reload();
+  await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
+  await page.getByRole("button", { name: "编辑方案", exact: true }).click();
+  await expect(page.getByLabel("Temperature（可选）")).toHaveValue("0");
+  await expect(page.getByLabel("高级参数 JSON")).toHaveValue(
+    '{"temperature":0,"max_tokens":200,"top_p":0.9}',
+  );
+  // The persisted reload above completes the successful save before correction input.
+  await form.getByLabel("方案名称").fill("待修正输入");
+  await form.getByLabel("Temperature（可选）").fill("0.2");
+  await form.getByLabel("高级参数 JSON").fill("{invalid");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(form.getByText("操作未完成", { exact: true })).toBeVisible();
+  await expect(form.getByLabel("方案名称")).toHaveValue("待修正输入");
+  await expect(form.getByLabel("Temperature（可选）")).toHaveValue("0.2");
+  await expect(form.getByLabel("高级参数 JSON")).toHaveValue("{invalid");
+  expect(calls.filter((c) => c.path === "/admin/model-profiles" && c.body)).toHaveLength(3);
+  // Server rejection also retains correction input after a valid JSON submission.
+  await page.route("**/api/v1/admin/model-profiles", (route) =>
+    route.fulfill({ status: 400, json: { detail: "测试拒绝保存" } }),
+  );
+  await form.getByLabel("高级参数 JSON").fill('{"top_p":0.7}');
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(form.getByText("操作未完成", { exact: true })).toBeVisible();
+  await expect(form.getByLabel("方案名称")).toHaveValue("待修正输入");
+  await expect(form.getByLabel("Temperature（可选）")).toHaveValue("0.2");
+  await expect(form.getByLabel("高级参数 JSON")).toHaveValue('{"top_p":0.7}');
+});
 test("shared list, actual zero report, literal safe logs and screenshot", async ({
   page,
 }) => {
@@ -330,4 +441,118 @@ test("protected setup and failed preparation offer actionable new submission", a
   const submission = calls.find((c) => c.path === "/submissions" && c.body);
   expect(submission?.body.name).toBe("失败示例");
   expect(submission?.body.dataset_id).toBe("dataset1");
+});
+
+for (const kind of ["provider", "runtime", "dataset"] as const) {
+  test(`${kind} editor loads saved values and repeats identity`, async ({
+    page,
+  }) => {
+    await fixture(page);
+    const current: any = structuredClone(catalog);
+    current.runtimes = [
+      {
+        id: "runtime1",
+        name: "环境旧名",
+        image: "python:old",
+        image_env: [],
+        enabled: true,
+        status: "unverified",
+        version: 1,
+      },
+    ];
+    current.datasets[0] = {
+      ...current.datasets[0],
+      name: "数据集旧名",
+      runtime_id: "runtime1",
+      enabled: true,
+      status: "unverified",
+    };
+    const spec = {
+      provider: {
+        tab: "模型与 key",
+        button: "编辑提供商",
+        label: "API 端点",
+        value: "https://changed.invalid/v1",
+        path: "/admin/providers",
+        list: "providers",
+        id: "p1",
+      },
+      runtime: {
+        tab: "运行环境",
+        button: "编辑",
+        label: "Docker 镜像引用",
+        value: "python:changed",
+        path: "/admin/catalog/runtime",
+        list: "runtimes",
+        id: "runtime1",
+      },
+      dataset: {
+        tab: "数据集",
+        button: "编辑",
+        label: "Hub 来源（owner/name@版本）",
+        value: "team/changed@2",
+        path: "/admin/catalog/dataset",
+        list: "datasets",
+        id: "dataset1",
+      },
+    }[kind];
+    const saves: any[] = [];
+    await page.route("**/api/v1/catalog", (route) =>
+      route.fulfill({ json: current }),
+    );
+    await page.route(`**/api/v1${spec.path}`, async (route) => {
+      const v = route.request().postDataJSON();
+      saves.push(v);
+      current[spec.list][0] = {
+        ...v,
+        version: saves.length + 1,
+        status: "unverified",
+      };
+      await route.fulfill({ json: current[spec.list][0] });
+    });
+    await page.goto("/admin");
+    await page.getByRole("tab", { name: spec.tab, exact: true }).click();
+    await page.getByRole("button", { name: spec.button, exact: true }).click();
+    const input = page.getByLabel(spec.label, { exact: true });
+    await input.fill(spec.value);
+    const form = page.locator("form").filter({ has: input });
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(input).toHaveValue(spec.value);
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await expect.poll(() => saves.length).toBe(2);
+    expect(saves.map((v) => v.id)).toEqual([spec.id, spec.id]);
+    expect(
+      saves.map((v) =>
+        kind === "provider"
+          ? v.endpoint
+          : kind === "runtime"
+            ? v.image
+            : v.reference,
+      ),
+    ).toEqual([spec.value, spec.value]);
+  });
+}
+test("failed credential save retains nonsecret inputs and clears secret", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.route("**/api/v1/admin/credentials", (route) =>
+    route.fulfill({
+      status: 422,
+      json: { code: "credential_binding", message: "请修正提供商配置" },
+    }),
+  );
+  await page.goto("/admin");
+  await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
+  const form = page
+    .locator("form")
+    .filter({ has: page.getByLabel("Key 名称") });
+  await form.getByLabel("Key 名称").fill("待修正key名称");
+  await form.getByLabel("提供商", { exact: true }).selectOption("p1");
+  await form.getByLabel("密钥", { exact: true }).fill("fake-failed-save-key");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(form.getByText("操作未完成", {exact:true})).toBeVisible();
+  await expect(form.getByLabel("Key 名称")).toHaveValue("待修正key名称");
+  await expect(form.getByLabel("提供商", { exact: true })).toHaveValue("p1");
+  await expect(form.getByLabel("密钥", { exact: true })).toHaveValue("");
 });
