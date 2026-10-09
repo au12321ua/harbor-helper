@@ -30,7 +30,7 @@ cd ..
 
 ```bash
 mkdir -p "$HOME/harbor-helper/service" "$HOME/harbor-helper-private"
-chmod 700 "$HOME/harbor-helper-private"
+chmod 700 "$HOME/harbor-helper" "$HOME/harbor-helper/service" "$HOME/harbor-helper-private"
 
 uv run harbor-helper service serve \
   --root "$HOME/harbor-helper/service" \
