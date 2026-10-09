@@ -7,6 +7,7 @@ import os
 import sqlite3
 import stat
 import tempfile
+from contextvars import ContextVar
 from pathlib import Path
 from urllib.parse import quote
 
@@ -260,10 +261,35 @@ def install_docker_credential_forwarding():
     if getattr(original, "_helper_credentials", False):
         return
 
+    compose_exec = ContextVar("helper_compose_exec", default=False)
+    original_env = DockerEnvironment._compose_env_vars
+
+    def compose_env(self, *args, **kwargs):
+        environment = original_env(self, *args, **kwargs)
+        if not compose_exec.get():
+            for name in (
+                KEY_ENV,
+                LEGACY_KEY_ENV,
+                "HF_TOKEN",
+                "HUGGING_FACE_HUB_TOKEN",
+                "HARBOR_API_KEY",
+            ):
+                environment.pop(name, None)
+        return environment
+
+    DockerEnvironment._compose_env_vars = compose_env
+
     @functools.wraps(original)
     async def forward(self, command, **kwargs):
         secret = os.environ.get(KEY_ENV)
         command = list(command)
+        token = compose_exec.set(bool(command and command[0] == "exec"))
+        try:
+            return await forward_command(self, command, secret, **kwargs)
+        finally:
+            compose_exec.reset(token)
+
+    async def forward_command(self, command, secret, **kwargs):
         if secret:
             assignment = f"{KEY_ENV}={secret}"
             for i, arg in enumerate(command):

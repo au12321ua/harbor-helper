@@ -467,7 +467,7 @@ test("protected setup and failed preparation offer actionable new submission", a
   expect(submission?.body.dataset_id).toBe("dataset1");
 });
 
-for (const kind of ["provider", "runtime", "dataset"] as const) {
+for (const kind of ["provider", "dataset"] as const) {
   test(`${kind} editor loads saved values and repeats identity`, async ({
     page,
   }) => {
@@ -500,15 +500,6 @@ for (const kind of ["provider", "runtime", "dataset"] as const) {
         path: "/admin/providers",
         list: "providers",
         id: "p1",
-      },
-      runtime: {
-        tab: "运行环境",
-        button: "编辑",
-        label: "Docker 镜像引用",
-        value: "python:changed",
-        path: "/admin/catalog/runtime",
-        list: "runtimes",
-        id: "runtime1",
       },
       dataset: {
         tab: "数据集",
@@ -556,9 +547,7 @@ for (const kind of ["provider", "runtime", "dataset"] as const) {
       saves.map((v) =>
         kind === "provider"
           ? v.endpoint
-          : kind === "runtime"
-            ? v.image
-            : v.reference,
+          : v.reference,
       ),
     ).toEqual([spec.value, spec.value]);
   });
@@ -629,21 +618,20 @@ test("Hub status survives reload and distinguishes storage from access validatio
   await expect(page.getByText("凭据：已停用", {exact:true})).toBeVisible();
 });
 
-test("Docker discovery offers local selection and explicit CAD or custom contracts", async ({page}) => {
+test("Docker inventory is read-only and source needs no runtime", async ({page}) => {
   const calls = await fixture(page);
   await page.route("**/api/v1/admin/docker", route => route.fulfill({json:{state:"ready", checked_at:1791518000, message:"Docker daemon 可达", images:[{reference:"python:local"}], truncated:false}}));
   await page.goto("/admin");
-  await page.getByRole("tab", {name:"运行环境", exact:true}).click();
+  await page.getByRole("tab", {name:"Docker 诊断", exact:true}).click();
   await page.getByRole("button", {name:"发现本机 Docker 与镜像", exact:true}).click();
   await expect(page.getByText("Docker daemon 可达", {exact:true})).toBeVisible();
-  await page.getByLabel("环境名称", {exact:true}).fill("CAD local");
-  await page.getByLabel("选择本地镜像", {exact:true}).selectOption("python:local");
-  await expect(page.getByLabel("Docker 镜像引用", {exact:true})).toHaveValue("python:local");
-  await page.getByLabel("任务镜像约定", {exact:true}).selectOption("cad");
-  const form = page.locator("form").filter({has: page.getByLabel("环境名称", {exact:true})});
-  await form.getByRole("button", {name:"保存", exact:true}).click();
-  await expect.poll(() => calls.filter(c => c.path === "/admin/catalog/runtime" && c.body).length).toBe(1);
-  expect(calls.find(c => c.path === "/admin/catalog/runtime" && c.body)?.body.image_env).toEqual(["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"]);
+  await expect(page.getByText("python:local", {exact:true})).toBeVisible();
+  await expect(page.getByLabel("Docker 镜像引用", {exact:true})).toHaveCount(0);
+  await expect(page.getByLabel("任务镜像约定", {exact:true})).toHaveCount(0);
+  await page.getByRole("tab", {name:"数据集", exact:true}).click();
+  await expect(page.getByLabel("运行环境", {exact:true})).toHaveCount(0);
+  expect(calls.filter(c => c.path === "/admin/catalog/runtime" && c.body)).toHaveLength(0);
+  await page.getByRole("tab", {name:"Docker 诊断", exact:true}).click();
   await page.route("**/api/v1/admin/docker", route => route.fulfill({json:{state:"permission_denied", checked_at:1791518001, message:"服务账户没有daemon访问权限", images:[], truncated:false}}));
   await page.getByRole("button", {name:"发现本机 Docker 与镜像", exact:true}).click();
   await expect(page.getByText("服务账户没有daemon访问权限", {exact:true})).toBeVisible();

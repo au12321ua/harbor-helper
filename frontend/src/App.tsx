@@ -387,7 +387,7 @@ function NewExperiment() {
                   <Alert>
                     <AlertTitle>团队尚无可用数据集</AlertTitle>
                     <AlertDescription>
-                      请管理员在团队管理中配置、验证数据集和运行环境。
+                      请管理员在团队管理中登记并验证 benchmark 来源。
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -616,6 +616,7 @@ function Submission({ user }: { user: Item }) {
         description={`提交 ${id}`}
       />
       <ErrorNotice error={error} />
+      {data?.legacy_override_removed ? <Alert><AlertDescription>本次重跑沿用父实验作者任务快照与模型参数，旧 helper 镜像覆盖不再沿用；实际环境可能变化。</AlertDescription></Alert> : null}
       <Card>
         <CardHeader>
           <CardTitle>
@@ -832,7 +833,7 @@ function RunDetailContent({ user }: { user: Item }) {
               }}
             >
               <RefreshCw data-icon="inline-start" />
-              重跑实验
+              重跑实验（按作者定义）
             </Button>
           </div>
         }
@@ -845,6 +846,8 @@ function RunDetailContent({ user }: { user: Item }) {
           <Link to={`/runs/${row.parent}`}>来源实验 {row.parent}</Link>
         ) : null}
       </div>
+      {manifest.legacy_override_removed ? <Alert><AlertDescription>本次重跑沿用父作者任务快照与模型参数，旧 helper 镜像覆盖不再沿用，实际环境可能变化。</AlertDescription></Alert> : null}
+      {manifest.execution_mode !== "harbor-native" ? <Alert><AlertDescription>此历史实验使用旧 helper 镜像覆盖。重跑将按父作者定义执行，旧覆盖不再沿用。</AlertDescription></Alert> : null}
       {row.audit_status === "incomplete" ? (
         <Alert variant="destructive">
           <AlertTitle>日志安全审计异常</AlertTitle>

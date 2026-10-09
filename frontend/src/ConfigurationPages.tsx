@@ -329,12 +329,7 @@ export function Admin() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              {kind === "dataset" ? (
-                <p>绑定环境：{(c.runtimes || []).find((r: Item) => r.id === v.runtime_id)?.name || "环境已不可用"}
-                  {" · "}{(c.runtimes || []).find((r: Item) => r.id === v.runtime_id)?.status === "verified" ? "环境已验证" : "环境尚未验证"}
-                  {v.runtime_version ? ` · 数据集验证绑定环境v${v.runtime_version}` : " · 数据集尚未完成绑定验证"}
-                </p>
-              ) : null}
+              {kind === "dataset" ? <p>环境由 Harbor 按任务作者定义构建和运行；来源验证不代表依赖可用。</p> : null}
               <p>
                 {v.status === "verified"
                   ? "已验证"
@@ -395,7 +390,7 @@ export function Admin() {
     <>
       <Title
         title="团队管理"
-        description="先验证数据集与运行环境，再配置模型和受邀成员。日常配置在网页完成。"
+        description="验证 benchmark 来源，再配置模型和受邀成员。环境按作者定义执行。"
       />
       <ErrorNotice error={error} />
       {saving ? (
@@ -405,7 +400,7 @@ export function Admin() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="admin-tabs">
           <TabsTrigger value="readiness">就绪与来源</TabsTrigger>
-          <TabsTrigger value="runtime">运行环境</TabsTrigger>
+          <TabsTrigger value="runtime">Docker 诊断</TabsTrigger>
           <TabsTrigger value="dataset">数据集</TabsTrigger>
           <TabsTrigger value="models">模型与 key</TabsTrigger>
           <TabsTrigger value="users">受邀账户</TabsTrigger>
@@ -417,21 +412,13 @@ export function Admin() {
               <CardHeader>
                 <CardTitle>实验准备检查</CardTitle>
                 <CardDescription>
-                  目录验证代表该次检查可用；实际提交仍重新校验并冻结来源与环境。
+                  目录验证代表该次检查可用；实际提交仍重新校验并保留作者任务快照。
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
                 <p>
                   已验证可选数据集：
                   {(c.datasets || []).filter((v: Item) => v.ready).length}
-                </p>
-                <p>
-                  已验证环境：
-                  {
-                    (c.runtimes || []).filter(
-                      (v: Item) => v.status === "verified" && v.enabled,
-                    ).length
-                  }
                 </p>
                 <p>
                   默认数据集：
@@ -501,138 +488,42 @@ export function Admin() {
             </div>
           </div>
         </TabsContent>
-        {(["runtime", "dataset"] as const).map((kind) => (
-          <TabsContent key={kind} value={kind}>
-            <div className="admin-layout">
-              {catalogList(
-                kind,
-                c[kind === "dataset" ? "datasets" : "runtimes"] || [],
-              )}
-              <div className="flex flex-col gap-4">
-                {kind === "runtime" ? (
-                  <Card>
-                    <CardHeader><CardTitle>服务端 Docker 与本地镜像</CardTitle></CardHeader>
-                    <CardContent className="flex flex-col gap-3">
-                      <p>读取运行本网站的服务端；不拉取、构建或删除镜像。</p>
-                      <Button disabled={dockerBusy} onClick={() => void discoverDocker()}>{dockerBusy ? "发现中…" : "发现本机 Docker 与镜像"}</Button>
-                      <ErrorNotice error={dockerError} />
-                      {docker ? <><p role="status">{docker.message}</p><p>发现时间：{date(docker.checked_at)} · 可选镜像：{docker.images.length}{docker.truncated ? "（列表已截断，可手动填写）" : ""}</p></> : <p>尚未发现。点击按钮查看安装、daemon连接和镜像列表。</p>}
-                      <p>数据集提供任务，任务可能自带Dockerfile或Compose。本环境指定本服务运行该数据集时的固定镜像；只有任务Compose使用相应变量时才会应用。保存或镜像发现不证明任务兼容。</p>
-                    </CardContent>
-                  </Card>
-                ) : <p>数据集绑定一个环境配置；验证会记录环境版本。任务可能自带Dockerfile/Compose，请按任务约定选择环境。</p>}
-                <AdminForm
-                  key={JSON.stringify(edit[kind] || {})}
-                  title={`${edit[kind] ? "编辑" : "添加"}${kind === "dataset" ? "数据集" : "运行环境"}`}
-                  description="保存会创建新版本并取消验证状态；再次验证后才能供成员选择。"
-                  fields={
-                    kind === "dataset"
-                      ? [
-                          {
-                            name: "name",
-                            label: "数据集名称",
-                            defaultValue: edit.dataset?.name,
-                          },
-                          {
-                            name: "reference",
-                            label: "Hub 来源（owner/name@版本）",
-                            defaultValue: edit.dataset?.reference,
-                          },
-                          {
-                            name: "runtime_id",
-                            label: "运行环境",
-                            defaultValue: edit.dataset?.runtime_id,
-                            options: (c.runtimes || []).map((r: Item) => ({
-                              value: r.id,
-                              label: `${r.name} · v${r.version} · ${r.status === "verified" ? "已验证" : "未验证"}`,
-
-                            })),
-                          },
-                          {
-                            name: "enabled",
-                            label: "状态",
-                            defaultValue: String(edit.dataset?.enabled ?? true),
-                            options: [
-                              { value: "true", label: "启用" },
-                              { value: "false", label: "停用" },
-                            ],
-                          },
-                        ]
-                      : [
-                          {
-                            name: "name",
-                            label: "环境名称",
-                            defaultValue: edit.runtime?.name,
-                          },
-                          {
-                            name: "local_image",
-                            label: "选择本地镜像",
-                            required: false,
-                            copyTo: "image",
-                            options: (docker?.images || []).map((image: Item) => ({value: image.reference, label: image.reference})),
-                            description: "先点击发现；选择后复制到镜像引用，也可直接填写其他引用。未加载的镜像须部署负责人准备。",
-                          },
-                          {
-                            name: "image",
-                            label: "Docker 镜像引用",
-                            defaultValue: edit.runtime?.image,
-                          },
-                          {
-                            name: "image_contract",
-                            label: "任务镜像约定",
-                            defaultValue: edit.runtime ? (JSON.stringify(edit.runtime.image_env) === JSON.stringify(["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"]) ? "cad" : edit.runtime.image_env?.length ? "custom" : "native") : "",
-                            options: [
-                              {value: "cad", label: "CAD模板：agent与verifier使用所选镜像"},
-                              {value: "agent", label: "CAD模板：仅agent使用所选镜像"},
-                              {value: "verifier", label: "CAD模板：仅verifier使用所选镜像"},
-                              {value: "native", label: "任务自带构建/镜像：不注入变量"},
-                              {value: "custom", label: "高级：自定义Compose变量"},
-                            ],
-                            description: "CAD预置只适用于支持CAD_BENCH_AGENT_IMAGE / CAD_BENCH_VERIFIER_IMAGE的模板，分别控制agent执行环境和verifier评分环境；两者会收到同一固定镜像alias。其他任务请按其Compose约定选择自定义或不注入，不会自动适配。",
-                          },
-                          {
-                            name: "image_env",
-                            label: "高级镜像变量名（逗号分隔）",
-                            defaultValue: (edit.runtime?.image_env || []).join(","),
-                            required: false,
-                            description: "仅选择高级自定义时使用。变量值为所选镜像的固定alias，不是任意环境变量值。",
-                          },
-                          {
-                            name: "enabled",
-                            label: "状态",
-                            defaultValue: String(edit.runtime?.enabled ?? true),
-                            options: [
-                              { value: "true", label: "启用" },
-                              { value: "false", label: "停用" },
-                            ],
-                          },
-                        ]
-                  }
-                  onSave={async (v) => {
-                    const {local_image: _local, image_contract: contract, ...values} = v;
-                    const saved = await save(`/admin/catalog/${kind}`, {
-                      ...values,
-                      id: edit[kind]?.id,
-                      enabled: v.enabled === "true",
-                      ...(kind === "runtime"
-                        ? {
-                            image_env: contract === "cad" ? ["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"] : contract === "agent" ? ["CAD_BENCH_AGENT_IMAGE"] : contract === "verifier" ? ["CAD_BENCH_VERIFIER_IMAGE"] : contract === "native" ? [] : v.image_env.split(",").map((x: string) => x.trim()).filter(Boolean),
-                          }
-                        : {}),
-                    });
-                    setEdit((current) => ({ ...current, [kind]: saved }));
-                  }}
-                />
-                <Button
-                  variant="ghost"
-                  onClick={() => setEdit({ ...edit, [kind]: undefined })}
-                >
-                  新建条目
-                </Button>
-              </div>
+        <TabsContent value="runtime">
+          <Card>
+            <CardHeader><CardTitle>服务端 Docker 与镜像库存</CardTitle></CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p>只读诊断，不拉取、构建或删除镜像。库存不代表 benchmark 兼容性。</p>
+              <Button disabled={dockerBusy} onClick={() => void discoverDocker()}>{dockerBusy ? "发现中…" : "发现本机 Docker 与镜像"}</Button>
+              <ErrorNotice error={dockerError} />
+              {docker ? <><p role="status">{docker.message}</p><p>发现时间：{date(docker.checked_at)}</p>
+                {(docker.images || []).map((image: Item) => <p key={image.reference}>{image.reference}</p>)}</> : null}
+              <p>旧运行环境配置保留为历史记录，新实验不使用其镜像覆盖。</p>
+              {(c.runtimes || []).map((runtime: Item) => <p key={runtime.id}>{runtime.name} · v{runtime.version} · {runtime.image}</p>)}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="dataset">
+          <div className="admin-layout">
+            {catalogList("dataset", c.datasets || [])}
+            <div className="flex flex-col gap-4">
+              <AdminForm key={JSON.stringify(edit.dataset || {})}
+                title={`${edit.dataset ? "编辑" : "添加"}数据集`}
+                description="保存来源，再验证访问和任务清单。无需统一运行镜像；缺少作者依赖时执行会如实失败。"
+                fields={[
+                  {name: "name", label: "数据集名称", defaultValue: edit.dataset?.name},
+                  {name: "reference", label: "Hub 来源（owner/name@版本）", defaultValue: edit.dataset?.reference},
+                  {name: "enabled", label: "状态", defaultValue: String(edit.dataset?.enabled ?? true), options: [
+                    {value: "true", label: "启用"}, {value: "false", label: "停用"},
+                  ]},
+                ]}
+                onSave={async (v) => {
+                  const saved = await save("/admin/catalog/dataset", {...v, id: edit.dataset?.id, enabled: v.enabled === "true"});
+                  setEdit((current) => ({...current, dataset: saved}));
+                }} />
+              <Button variant="ghost" onClick={() => setEdit({...edit, dataset: undefined})}>新建条目</Button>
             </div>
-          </TabsContent>
-        ))}
+          </div>
+        </TabsContent>
         <TabsContent value="models">
           <div className="flex flex-col gap-6">
             <Alert>

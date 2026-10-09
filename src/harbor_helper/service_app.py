@@ -23,18 +23,26 @@ def digest(value):
 
 def public_submission(value):
     return {
-        k: value[k]
-        for k in (
-            "id",
-            "submitter",
-            "operation",
-            "request",
-            "run_id",
-            "status",
-            "created",
-            "error",
-            "parent",
-        )
+        "execution_mode": value.get("frozen", {})
+        .get("service", {})
+        .get("execution_mode", "legacy-image-override"),
+        "legacy_override_removed": value.get("frozen", {})
+        .get("service", {})
+        .get("legacy_override_removed", False),
+        **{
+            k: value[k]
+            for k in (
+                "id",
+                "submitter",
+                "operation",
+                "request",
+                "run_id",
+                "status",
+                "created",
+                "error",
+                "parent",
+            )
+        },
     }
 
 
@@ -171,8 +179,6 @@ class Application:
                     ),
                     "task_filter": request.get("task"),
                     "model": None,
-                    "runtime_image": team["runtime_image"],
-                    "runtime_image_env": team["runtime_image_env"],
                     "max_cpus_per_trial": team["max_cpus_per_trial"],
                     "max_memory_mb_per_trial": team["max_memory_mb_per_trial"],
                 }
@@ -232,7 +238,7 @@ class Application:
                         None,
                     )
                 if dataset_id:
-                    selected, runtime = self.configuration.ready_dataset(dataset_id)
+                    selected = self.configuration.ready_dataset(dataset_id)
                     if (
                         request.get("dataset_id")
                         and request.get("task")
@@ -241,15 +247,11 @@ class Application:
                         raise ServiceError("task_selection", "Select a verified dataset task")
                     cfg.update(
                         dataset=selected["resolved"],
-                        runtime_image=runtime["image_id"],
-                        runtime_image_env=runtime["image_env"],
                     )
                     service.update(
                         dataset_id=selected["id"],
                         dataset_version=selected["version"],
                         dataset_name=selected["name"],
-                        runtime_id=runtime["id"],
-                        runtime_version=runtime["version"],
                         source_version=selected.get("source_version"),
                     )
                     # Recheck credential usability at acceptance; download revalidates source content.
@@ -261,6 +263,13 @@ class Application:
                     service["source_version"] = (
                         status["version"] if status["mode"] == "team" else None
                     )
+            cfg.pop("runtime_image", None)
+            cfg.pop("runtime_image_env", None)
+            service["execution_mode"] = "harbor-native"
+            if parent and old.get("execution_mode") != "harbor-native":
+                service["legacy_override_removed"] = True
+            service.pop("runtime_id", None)
+            service.pop("runtime_version", None)
             validate_effective(team, cfg)
             bundle = request.get("bundle_id")
             if bundle and not parent:
@@ -409,7 +418,7 @@ class Application:
         return {
             "row": self.summary(row),
             "manifest": {
-                k: manifest[k]
+                k: manifest.get(k)
                 for k in (
                     "effective",
                     "source",
@@ -417,6 +426,8 @@ class Application:
                     "service",
                     "bundle_digest",
                     "image_id",
+                    "execution_mode",
+                    "legacy_override_removed",
                     "model_checkpoint_actual",
                     "hard_budgets",
                 )

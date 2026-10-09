@@ -1,6 +1,7 @@
 import asyncio
 import fcntl
 import importlib.metadata
+import json
 import os
 import signal
 import subprocess
@@ -54,10 +55,28 @@ def cleanup(path):
         write_json(path / "cleanup.json", {"confirmed": True, "projects": [], "time": time.time()})
         return  # Worker never passed Job initialization; no environment was started.
     projects = read_json(projects_file)
+    from harbor_helper.environments import owned_anonymous_volumes
+
+    owned = set()
+    for evidence in path.glob("harbor/*/*/helper-environment-*.json"):
+        observation = read_json(evidence)
+        if observation.get("project") in projects:
+            owned.update(observation.get("owned_anonymous_volumes", []))
     for project in projects:
         label = f"label=com.docker.compose.project={project}"
         ids = run_command(["docker", "ps", "-aq", "--filter", label]).split()
         if ids:
+            containers = json.loads(run_command(["docker", "inspect", *ids]))
+            owned.update(
+                owned_anonymous_volumes(
+                    containers,
+                    lambda reference: json.loads(run_command(["docker", "inspect", reference])),
+                )
+            )
+            # Persist before removal, so retry/recovery can confirm anonymous mounts too.
+            stamp = path / "owned-anonymous-volumes.json"
+            owned.update(read_json(stamp) if stamp.exists() else [])
+            write_json(stamp, sorted(owned))
             run_command(["docker", "rm", "-f", *ids])
         for kind in ("network", "volume"):
             ids = run_command(["docker", kind, "ls", "-q", "--filter", label]).split()
@@ -67,8 +86,24 @@ def cleanup(path):
                 raise RuntimeError(f"Owned {kind} resources remain in project {project}")
         if run_command(["docker", "ps", "-aq", "--filter", label]):
             raise RuntimeError(f"Containers remain in owned project {project}")
+    stamp = path / "owned-anonymous-volumes.json"
+    owned.update(read_json(stamp) if stamp.exists() else [])
+    for volume in sorted(owned):
+        # Do not delete a mount now used by any other container/project.
+        if run_command(["docker", "ps", "-aq", "--filter", f"volume={volume}"]):
+            raise RuntimeError("Owned anonymous volume still attached; cleanup unconfirmed")
+        if volume in run_command(["docker", "volume", "ls", "-q"]).split():
+            run_command(["docker", "volume", "rm", volume])
+        if volume in run_command(["docker", "volume", "ls", "-q"]).split():
+            raise RuntimeError("Owned anonymous volume remains")
     write_json(
-        path / "cleanup.json", {"confirmed": True, "projects": projects, "time": time.time()}
+        path / "cleanup.json",
+        {
+            "confirmed": True,
+            "projects": projects,
+            "anonymous_volumes": sorted(owned),
+            "time": time.time(),
+        },
     )
 
 
@@ -361,7 +396,10 @@ async def execute(store, run_id):
     verify_inputs(path, manifest)
     from harbor_helper.runs import image_identity
 
-    if image_identity(manifest["image_alias"]) != manifest["image_id"]:
+    if (
+        manifest.get("execution_mode") != "harbor-native"
+        and image_identity(manifest["image_alias"]) != manifest["image_id"]
+    ):
         raise RuntimeError("Fixed image alias changed; submit/rerun to restore it")
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise RuntimeError("Worker loaded the wrong Harbor version")

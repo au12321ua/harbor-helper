@@ -465,3 +465,33 @@ def test_malformed_trial_diagnostic_corrects_success_without_changing_evidence(s
     assert result["unexpected_trials"][0]["exception"]["exception_type"] == "MalformedTrialResult"
     assert store.get(p.name)["status"] == "failed"
     assert (native / "result.json").read_bytes() == before
+
+
+def test_native_compare_image_difference_or_unknown_is_observation(store):
+    a, ma = add_run(store, "native-a", status="succeeded")
+    b, mb = add_run(store, "native-b", status="succeeded")
+    for path, manifest in ((a, ma), (b, mb)):
+        manifest["execution_mode"] = "harbor-native"
+        manifest.pop("image_id")
+        manifest.pop("image_alias")
+        manifest["effective"].pop("runtime_image")
+        manifest["effective"].pop("runtime_image_env")
+        write_json(path / "manifest.json", manifest)
+    trial(a, reward=0)
+    trial(b, reward=1)
+    observation = b / "harbor" / b.name / "box__attempt" / "helper-environment-observed.json"
+    write_json(observation, {"project": "observed", "images": [{"image_id": "sha256:different"}]})
+    value = compare(store, a.name, b.name)
+    assert value["comparable"] and value["mean_task_delta"] == {"reward": 1.0}
+    assert value["environment_observations"]["left"] == "unknown"
+    assert (
+        value["environment_observations"]["right"][0]["images"][0]["image_id"] == "sha256:different"
+    )
+
+
+def test_unavailable_image_observation_does_not_fail_valid_score(store):
+    path, _ = add_run(store, "native-unknown", status="succeeded")
+    evidence = trial(path, reward=0)
+    (evidence / "helper-environment-broken.json").write_text("broken observation")
+    result = report(store, path.name)
+    assert result["complete"] and result["environment_observations"] == [{"images": "unknown"}]

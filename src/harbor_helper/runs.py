@@ -119,12 +119,21 @@ def job_config(run_dir, manifest):
             "retry": {"max_retries": 0},
             "environment": {
                 "type": "docker",
+                **(
+                    {"import_path": "harbor_helper.environments:NativeDockerEnvironment"}
+                    if manifest.get("execution_mode") == "harbor-native"
+                    else {}
+                ),
                 "delete": True,
                 "override_cpus": cfg["max_cpus_per_trial"],
                 "override_memory_mb": cfg["max_memory_mb_per_trial"],
                 "env": {
                     k: manifest["image_alias"]
-                    for k in cfg.get("runtime_image_env", DEFAULT["runtime_image_env"])
+                    for k in (
+                        cfg.get("runtime_image_env", DEFAULT["runtime_image_env"])
+                        if manifest.get("execution_mode") != "harbor-native"
+                        else []
+                    )
                 },
             },
             "agents": [agent],
@@ -155,6 +164,7 @@ def submit(
     if parent and (service is None or cfg is None):
         cfg = read_json(store.path(parent) / "manifest.json")["effective"]
     validate_effective(team, cfg)
+    native = service is not None and service.get("execution_mode") == "harbor-native"
     session = None
     if cfg["agent"] == "opencode" and service is None:
         session, _ = Auth(store.root).execution(cfg["model"]["endpoint"])
@@ -177,8 +187,9 @@ def submit(
             for name in ("tasks", "bundle"):
                 if (old_path / name).exists():
                     shutil.copytree(old_path / name, path / name)
-            source, digest, image = old["source"], old["bundle_digest"], old["image_id"]
-            if image_identity(image) != image:
+            source, digest = old["source"], old["bundle_digest"]
+            image = old.get("image_id")
+            if not native and image_identity(image) != image:
                 raise ValueError("Fixed runtime image unavailable")
         else:
             validate_effective(team, cfg)
@@ -206,9 +217,11 @@ def submit(
                 check_bundle(bundle)
                 shutil.copytree(bundle, path / "bundle")
                 digest = tree_digest(path / "bundle")
-            image = image_identity(cfg["runtime_image"])
-        alias = "harbor-helper/runtime:" + image.removeprefix("sha256:")
-        subprocess.run(["docker", "tag", image, alias], check=True, timeout=30)
+            image = None if native else image_identity(cfg["runtime_image"])
+        alias = None
+        if not native:
+            alias = "harbor-helper/runtime:" + image.removeprefix("sha256:")
+            subprocess.run(["docker", "tag", image, alias], check=True, timeout=30)
         manifest = {
             "run_id": run_id,
             "parent": parent,
@@ -229,6 +242,13 @@ def submit(
                 "cost": "unsupported",
             },
         }
+        if native:
+            manifest["execution_mode"] = "harbor-native"
+            manifest["legacy_override_removed"] = bool(
+                parent and old.get("execution_mode") != "harbor-native"
+            )
+            manifest.pop("image_id")
+            manifest.pop("image_alias")
         if service is not None:
             manifest["service"] = service
         verify_inputs(path, manifest)

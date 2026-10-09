@@ -76,18 +76,22 @@ def web(tmp_path, monkeypatch):
 
 def create_catalog(web):
     _data, _app, client = web
-    runtime = client.post(
-        "/api/v1/admin/catalog/runtime",
-        headers=WRITE,
-        json={"name": "Python", "image": "python:fixture"},
-    ).json()
-    runtime = client.post(
-        f"/api/v1/admin/catalog/runtime/{runtime['id']}/verify", headers=WRITE
-    ).json()
+    # Historical object survives without participating in new source readiness.
+    runtime = _app.configuration.persist(
+        "runtime",
+        {
+            "name": "Legacy Python",
+            "image": "python:fixture",
+            "enabled": True,
+            "status": "verified",
+            "image_id": IMAGE,
+            "image_env": [],
+        },
+    )
     dataset = client.post(
         "/api/v1/admin/catalog/dataset",
         headers=WRITE,
-        json={"name": "Answer", "reference": "team/data@1", "runtime_id": runtime["id"]},
+        json={"name": "Answer", "reference": "team/data@1"},
     ).json()
     dataset = client.post(
         f"/api/v1/admin/catalog/dataset/{dataset['id']}/verify", headers=WRITE
@@ -111,7 +115,8 @@ def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
     assert app.accept(actor, request, "stable-key")["id"] == submission["id"]
     frozen = data.submission(submission["id"])["frozen"]
     assert frozen["effective"]["dataset"] == SOURCE
-    assert frozen["effective"]["runtime_image"] == IMAGE
+    assert "runtime_image" not in frozen["effective"]
+    assert frozen["service"]["execution_mode"] == "harbor-native"
     assert frozen["service"]["dataset_version"] == dataset["version"]
     with pytest.raises(ServiceError, match="Select a verified"):
         app.accept(actor, {**request, "task": "wrong"}, "wrong-task")
@@ -119,13 +124,22 @@ def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
         actor, {"dataset": "team/data@1", "task": "a*", "agent": "oracle"}, "cli-pattern"
     )
     assert data.submission(cli_submission["id"])["frozen"]["effective"]["task_filter"] == "a*"
-    assert data.submission(cli_submission["id"])["frozen"]["effective"]["runtime_image"] == IMAGE
+    assert "runtime_image" not in data.submission(cli_submission["id"])["frozen"]["effective"]
     edited = client.post(
-        "/api/v1/admin/catalog/runtime",
+        "/api/v1/admin/catalog/dataset",
         headers=WRITE,
-        json={"id": runtime["id"], "name": "Python v2", "image": "python:new"},
+        json={"id": dataset["id"], "name": "Answer v2", "reference": "team/data@2"},
     ).json()
     assert edited["status"] == "unverified"
+    assert (
+        client.post(
+            "/api/v1/admin/catalog/runtime",
+            headers=WRITE,
+            json={"name": "Retired", "image": "python:new"},
+        ).status_code
+        == 409
+    )
+    assert app.configuration.catalog()["runtimes"][0]["id"] == runtime["id"]
     assert not app.catalog()["datasets"][0]["ready"]
     with pytest.raises(ServiceError):
         app.accept(actor, request, "new-key")
@@ -290,8 +304,12 @@ def test_hub_persistent_metadata_and_legacy_migration(web):
     # Recreate only the old schema in this isolated fixture to verify an upgrade.
     with data.store.connect() as db:
         db.execute("ALTER TABLE source_credentials RENAME TO old_sources")
-        db.execute("CREATE TABLE source_credentials(version INTEGER PRIMARY KEY, enabled INTEGER NOT NULL, nonce BLOB NOT NULL, ciphertext BLOB NOT NULL)")
-        db.execute("INSERT INTO source_credentials SELECT version,enabled,nonce,ciphertext FROM old_sources")
+        db.execute(
+            "CREATE TABLE source_credentials(version INTEGER PRIMARY KEY, enabled INTEGER NOT NULL, nonce BLOB NOT NULL, ciphertext BLOB NOT NULL)"
+        )
+        db.execute(
+            "INSERT INTO source_credentials SELECT version,enabled,nonce,ciphertext FROM old_sources"
+        )
         db.execute("DROP TABLE old_sources")
     upgraded = Application(data.root)
     assert upgraded.catalog()["hub"]["updated_at"] is None
@@ -305,9 +323,14 @@ def test_hub_persistent_metadata_and_legacy_migration(web):
 def test_docker_discovery_admin_only(web, monkeypatch):
     _data, _app, client = web
     calls = []
-    monkeypatch.setattr("harbor_helper.service_docker.discover_docker", lambda: calls.append(True) or {"state": "ready", "images": []})
+    monkeypatch.setattr(
+        "harbor_helper.service_docker.discover_docker",
+        lambda: calls.append(True) or {"state": "ready", "images": []},
+    )
     assert client.get("/api/v1/admin/docker").json()["state"] == "ready"
     assert calls == [True]
-    client.post("/api/v1/auth/login", headers=WRITE, json={"username": "member", "password": PASSWORD})
+    client.post(
+        "/api/v1/auth/login", headers=WRITE, json={"username": "member", "password": PASSWORD}
+    )
     assert client.get("/api/v1/admin/docker").status_code == 403
     assert calls == [True]

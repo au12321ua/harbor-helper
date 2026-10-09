@@ -77,7 +77,8 @@ class TeamConfiguration:
             )
             db.execute(
                 "INSERT INTO source_credentials(version,enabled,nonce,ciphertext,updated_at) "
-                "VALUES(?,1,?,?,?)", (version, nonce, encrypted, time.time())
+                "VALUES(?,1,?,?,?)",
+                (version, nonce, encrypted, time.time()),
             )
         return self.hub_status()
 
@@ -124,6 +125,8 @@ class TeamConfiguration:
         return {**value, "id": object_id, "version": version}
 
     def save(self, kind, value):
+        if kind == "runtime":
+            raise ServiceError("runtime_retired", "旧运行环境只读；新实验按作者定义执行", 409)
         allowed = (
             {"id", "name", "enabled", "reference", "runtime_id"}
             if kind == "dataset"
@@ -143,7 +146,7 @@ class TeamConfiguration:
                 r"[\w.-]+/[\w.-]+@(?:[1-9][0-9]*|sha256:[0-9a-f]{64})", value["reference"]
             ):
                 raise ServiceError("dataset_reference", "数据集须指定 owner/name@版本")
-            self.data.object("runtime", value.get("runtime_id"))
+            value.pop("runtime_id", None)  # Historical bindings remain readable, never used anew.
         else:
             if not isinstance(value.get("image"), str) or not re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,255}", value["image"]
@@ -160,6 +163,8 @@ class TeamConfiguration:
         return self.persist(kind, value)
 
     def verify(self, kind, object_id):
+        if kind == "runtime":
+            raise ServiceError("runtime_retired", "Docker 库存仅用于诊断", 409)
         with self.data.store.control():
             value = self.data.object(kind, object_id)
             initial_version = value["version"]
@@ -178,9 +183,7 @@ class TeamConfiguration:
                         409,
                     ) from None
             else:
-                runtime = self.ready_runtime(value["runtime_id"])
                 value.update(source_call(value["reference"], key=source_key))
-                value["runtime_version"] = runtime["version"]
                 value["source_version"] = hub["version"] if hub["mode"] == "team" else None
             value.update(status="verified", checked=time.time(), error=None)
         except ServiceError as error:
@@ -207,12 +210,9 @@ class TeamConfiguration:
         value = self.data.object("dataset", object_id)
         if not value["enabled"] or value["status"] != "verified":
             raise ServiceError("dataset_unverified", "管理员须启用并验证数据集", 409)
-        runtime = self.ready_runtime(value["runtime_id"])
-        if runtime["version"] != value["runtime_version"]:
-            raise ServiceError("dataset_stale", "运行环境已修改；管理员须重新验证数据集", 409)
         if value.get("source_version"):
             self.hub_key(value["source_version"])
-        return value, runtime
+        return value
 
     def catalog(self):
         datasets = []

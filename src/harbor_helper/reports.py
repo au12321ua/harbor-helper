@@ -4,6 +4,18 @@ from collections import defaultdict
 from harbor_helper.storage import read_json, write_json
 
 
+def environment_observations(path):
+    observations = []
+    for evidence in sorted((path / "harbor").glob("*/*/helper-environment-*.json")):
+        try:
+            value = read_json(evidence)
+            if isinstance(value, dict):
+                observations.append(value)
+        except (ValueError, OSError):
+            observations.append({"images": "unknown"})
+    return observations or "unknown"
+
+
 def report(store, run_id):
     path = store.path(run_id)
     manifest = read_json(path / "manifest.json")
@@ -47,6 +59,10 @@ def report(store, run_id):
                     or (None if valid else {"exception_type": "MissingReward"}),
                     "evidence": str(p.parent),
                     "agent_info": result.get("agent_info"),
+                    "phase_timings": {
+                        k: result.get(k) or "unknown"
+                        for k in ("environment_setup", "agent_setup", "agent_execution", "verifier")
+                    },
                     "artifacts": [
                         str(f) for f in (p.parent / "artifacts").rglob("*") if f.is_file()
                     ],
@@ -113,6 +129,9 @@ def report(store, run_id):
             max(0, t["expected_attempts"] - t["observed_attempts"]) for t in tasks
         ),
         "source": manifest["source"],
+        "harbor_version": manifest.get("harbor_version", "unknown"),
+        "execution_mode": manifest.get("execution_mode", "legacy-image-override"),
+        "environment_observations": environment_observations(path),
         "tasks": tasks,
         "unexpected_trials": [r for r in rows if r["task"] not in expected],
         "manifest": str(path / "manifest.json"),
@@ -145,8 +164,21 @@ def compare(store, left, right, published_reports=None):
         if a["effective"].get(k) != b["effective"].get(k)
     }
     reasons.extend(f"Experiment condition differs: {k}" for k in changes)
-    for k in ("harbor_version", "image_id"):
-        if a[k] != b[k]:
+    native = any(m.get("execution_mode") == "harbor-native" for m in (a, b))
+    if native:
+        for k in ("runtime_image", "runtime_image_env"):
+            changes.pop(k, None)
+        reasons = [
+            r
+            for r in reasons
+            if r
+            not in {
+                "Experiment condition differs: runtime_image",
+                "Experiment condition differs: runtime_image_env",
+            }
+        ]
+    for k in ("harbor_version",) if native else ("harbor_version", "image_id"):
+        if a.get(k) != b.get(k):
             reasons.append(f"Actual runtime version differs: {k}")
     ra, rb = (
         published_reports
@@ -176,6 +208,12 @@ def compare(store, left, right, published_reports=None):
         "comparable": not reasons,
         "reasons": reasons,
         "config_changes": changes,
+        "environment_observations": {
+            "left_mode": a.get("execution_mode", "legacy-image-override"),
+            "right_mode": b.get("execution_mode", "legacy-image-override"),
+            "left": ra.get("environment_observations", "unknown"),
+            "right": rb.get("environment_observations", "unknown"),
+        },
         "bundle_change": {"left": a["bundle_digest"], "right": b["bundle_digest"]},
         "tasks": deltas,
         "mean_task_delta": aggregate,
