@@ -1,4 +1,5 @@
 import math
+import re
 from collections import defaultdict
 from datetime import datetime
 
@@ -68,10 +69,38 @@ def trial_diagnosis(result, trial_dir, cfg):
                 "missing_dependencies": [
                     tool
                     for tool in decision.get("missing_dependencies", [])
-                    if tool in {"curl", "bash", "cat", "node", "npm"}
+                    if tool in {"curl", "bash", "cat", "node", "npm", "sh", "tee", "stdbuf"}
                 ],
                 "reused": decision.get("reused") is True,
             }
+            if decision.get("strategy") == "offline-npm-binary-v1":
+                installation.update(
+                    strategy="offline-npm-binary-v1",
+                    stage=decision.get("stage") if decision.get("stage") in {
+                        "public_tool_preparation", "offline_tool_installation", "ready"
+                    } else "unknown",
+                    status=decision.get("status") if decision.get("status") in {
+                        "running", "completed", "interrupted", "failed"
+                    } else "unknown",
+                    cache_hit=decision.get("cache_hit") is True,
+                )
+                if decision.get("preparation_error_type") in {
+                    "HTTPError", "URLError", "TimeoutError", "ValueError", "OSError", "KeyError", "unknown"
+                }:
+                    installation["preparation_error_type"] = decision["preparation_error_type"]
+                seconds = decision.get("preparation_seconds")
+                if type(seconds) in {int, float} and math.isfinite(seconds) and seconds >= 0:
+                    installation["preparation_seconds"] = seconds
+                material = decision.get("material") or {}
+                if isinstance(material, dict):
+                    for key, pattern in {
+                        "version": r"\d+\.\d+\.\d+",
+                        "binary_sha256": r"[0-9a-f]{64}",
+                        "source": r"https://registry\.npmjs\.org/opencode-linux-[a-z0-9-]+/-/opencode-linux-[a-z0-9-]+-\d+\.\d+\.\d+\.tgz",
+                    }.items():
+                        value = material.get(key)
+                        if isinstance(value, str) and re.fullmatch(pattern, value):
+                            installation[key] = value
     except (ValueError, OSError, TypeError):
         pass
     error = result.get("exception_info") or {}
@@ -82,7 +111,7 @@ def trial_diagnosis(result, trial_dir, cfg):
     elif error_type == "EnvironmentStartTimeoutError":
         hint = "环境启动超过作者时限×冻结倍数；检查构建/拉取/启动记录和整体运行时长。up包含入口程序与Compose健康等待，不能据此单独认定健康检查失败。"
     elif phase == "agent_setup" and error:
-        hint = "代理准备失败，尚未推理。检查作者网络策略、软件包仓库及固定OpenCode版本安装；启动等待倍数不延长安装阶段。"
+        hint = "代理准备失败，尚未推理。检查工具准备/离线安装阶段、作者网络策略及已审计日志；启动等待倍数不延长代理安装阶段。新工具策略在任务网络外下载固定公共材料，再由Harbor上传；不会开放任务公网。"
     elif error:
         hint = "执行异常；查看已审计日志及各阶段记录。"
     else:
@@ -236,6 +265,7 @@ def compare(store, left, right, published_reports=None):
         "concurrency",
         "wall_seconds",
         "environment_build_timeout_multiplier",
+        "agent_tool_preparation",
         "runtime_image",
         "runtime_image_env",
         "max_cpus_per_trial",
@@ -249,6 +279,7 @@ def compare(store, left, right, published_reports=None):
             "environment_build_timeout_multiplier": m["effective"].get(
                 "environment_build_timeout_multiplier", 1
             ),
+            "agent_tool_preparation": m["effective"].get("agent_tool_preparation", "in-task-npm"),
         }
         for m in (a, b)
     ]

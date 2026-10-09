@@ -127,6 +127,10 @@ def validate_effective(team, cfg):
         raise ValueError("environment_build_timeout_multiplier must be finite and at least 1")
     if cfg["agent"] not in {"oracle", "opencode"}:
         raise ValueError("Supported agents: oracle, opencode")
+    if cfg.get("agent_tool_preparation", "in-task-npm") not in {
+        "in-task-npm", "offline-npm-binary-v1"
+    }:
+        raise ValueError("Unknown agent tool preparation strategy")
     if not re.fullmatch(r"[\w.-]+/[\w.-]+@(?:[1-9][0-9]*|sha256:[0-9a-f]{64})", cfg["dataset"]):
         raise ValueError("Dataset must be a package pinned to numeric revision or sha256 digest")
     if cfg["agent"] == "opencode":

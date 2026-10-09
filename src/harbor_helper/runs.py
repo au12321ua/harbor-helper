@@ -121,6 +121,8 @@ def job_config(run_dir, manifest):
         model = cfg["model"]
         agent["model_name"] = "vllm/" + model["name"]
         agent["kwargs"]["version"] = model["opencode_version"]
+        if cfg.get("agent_tool_preparation") == "offline-npm-binary-v1":
+            agent["kwargs"]["helper_tool_cache"] = str(run_dir.parents[1] / "agent-tools")
         agent["extra_allowed_hosts"] = [
             __import__("urllib.parse", fromlist=["urlparse"]).urlparse(model["endpoint"]).hostname
         ]

@@ -1,3 +1,4 @@
+import asyncio
 import re
 import shlex
 import time
@@ -10,9 +11,73 @@ from harbor_helper.storage import write_json
 
 
 class HelperOpenCode(OpenCode):
+    def __init__(self, *args, helper_tool_cache=None, **kwargs):
+        self.helper_tool_cache = Path(helper_tool_cache) if helper_tool_cache else None
+        self._offline_tool = False
+        super().__init__(*args, **kwargs)
+
+    async def exec_as_agent(self, environment, command, **kwargs):
+        if self.helper_tool_cache:
+            # Public catalog refresh/updater downloads are preparation, not inference.
+            kwargs["env"] = {
+                **kwargs.get("env", {}),
+                "OPENCODE_DISABLE_MODELS_FETCH": "true",
+                "OPENCODE_DISABLE_AUTOUPDATE": "true",
+            }
+        if self._offline_tool:
+            command = "export PATH=/installed-agent/helper-tools:$PATH; " + command
+        return await super().exec_as_agent(environment, command, **kwargs)
+
+    async def _install_offline(self, environment, decision):
+        from harbor_helper.agent_tools import prepare
+
+        target = "/installed-agent/helper-tools"
+        probe = await environment.exec(
+            command="uname -m; if [ -f /etc/alpine-release ] || ldd --version 2>&1 | grep -qi musl; then echo musl; else echo glibc; fi",
+            timeout_sec=30,
+        )
+        values = (probe.stdout or "").split()
+        arches = {"x86_64": "x64", "aarch64": "arm64"}
+        if probe.return_code or len(values) != 2 or values[0] not in arches:
+            raise RuntimeError("Cannot identify author environment ABI for fixed agent tool")
+        platform = "linux-" + arches[values[0]]
+        platform += "-musl" if values[1] == "musl" else (
+            "-baseline" if values[0] == "x86_64" else ""
+        )
+        decision["stage"] = "public_tool_preparation"
+        write_json(self.logs_dir / "install-decision.json", decision)
+        start = time.monotonic()
+        material = await prepare(self.helper_tool_cache, self._version, platform, evidence_dir=self.logs_dir)
+        decision.update(
+            material=material["material"], cache_hit=material["cache_hit"],
+            preparation_seconds=time.monotonic() - start, stage="offline_tool_installation",
+        )
+        write_json(self.logs_dir / "install-decision.json", decision)
+        # Harbor's copy channel does not open the author's execution network.
+        await environment.upload_dir(source_dir=Path(material["path"]), target_dir=target)
+        # Preserve the author image and existing executables. Use the agent's own path.
+        check = await environment.exec(
+            command=f"chmod -R a+rX {target}; {target}/opencode --version; "
+            "for tool in bash sh tee stdbuf; do command -v \"$tool\" >/dev/null 2>&1 || "
+            "printf 'missing:%s\\n' \"$tool\"; done",
+            user="root", timeout_sec=30,
+        )
+        output = (check.stdout or "").splitlines()
+        missing = [line[8:] for line in output if line.startswith("missing:")]
+        decision["missing_dependencies"] = missing
+        if check.return_code or self._version not in output:
+            raise RuntimeError("Offline OpenCode executable failed author environment ABI/version check")
+        if missing:
+            mode = decision["author_network_mode"]
+            if mode == "no-network":
+                raise RuntimeError("Offline agent runtime missing author shell/coreutils: " + ", ".join(missing))
+            await self.ensure_system_dependencies(environment, ("bash", "coreutils"))
+        self._offline_tool = True
+        decision.update(actual_version=self._version, status="completed", stage="ready")
+
     async def install(self, environment):
-        # Use the distribution's Node/npm rather than fetching nvm from GitHub.
-        # OpenCode's npm package installs its own platform binary.
+        # Historical accepted jobs keep the distribution Node/npm installer.
+        # New jobs can provision the fixed platform binary outside the task network.
         if not self._version or not re.fullmatch(r"\d+\.\d+\.\d+", self._version):
             raise ValueError("A fixed numeric opencode version is required")
         started = time.monotonic()
@@ -29,6 +94,27 @@ class HelperOpenCode(OpenCode):
         if actual == self._version:
             decision.update(actual_version=actual, install_seconds=time.monotonic() - started)
             write_json(self.logs_dir / "install-decision.json", decision)
+            return
+        mode = getattr(getattr(environment, "network_policy", None), "network_mode", None)
+        decision["author_network_mode"] = getattr(mode, "value", "unknown")
+        if getattr(self, "helper_tool_cache", None):
+            decision.update(strategy="offline-npm-binary-v1", status="running")
+            try:
+                await self._install_offline(environment, decision)
+            except BaseException as exc:
+                decision.update(
+                    status="interrupted" if isinstance(exc, asyncio.CancelledError)
+                    else "failed",
+                    error_type=type(exc).__name__,
+                )
+                from harbor_helper.agent_tools import ToolPreparationError
+
+                if isinstance(exc, ToolPreparationError):
+                    decision["preparation_error_type"] = exc.classification
+                raise
+            finally:
+                decision["install_seconds"] = time.monotonic() - started
+                write_json(self.logs_dir / "install-decision.json", decision)
             return
         # A no-network author task may legitimately ship a matching agent. Only
         # diagnose missing prerequisites after checking that reuse path above.

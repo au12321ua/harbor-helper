@@ -549,7 +549,7 @@ function NewExperiment() {
                     />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="wall_seconds">最长运行秒数</FieldLabel>
+                    <FieldLabel htmlFor="wall_seconds">实验总时长上限（秒，含准备）</FieldLabel>
                     <Input
                       id="wall_seconds"
                       name="wall_seconds"
@@ -562,6 +562,7 @@ function NewExperiment() {
                       }
                       required
                     />
+                    <FieldDescription>从实验进入执行阶段计时，包含环境准备、代理工具准备与安装、模型执行和评分；不含此前来源准备与排队。环境启动用作者时限×倍数，代理准备沿Harbor默认360秒保护，模型执行另受作者agent时限约束。总上限更早到期会中止；资源清理可能晚于上限完成。</FieldDescription>
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -575,6 +576,7 @@ function NewExperiment() {
           <p>提交者记为当前账户。重跑时创建新的实验记录，不覆盖历史结果。</p>
           <p>提供商、模型与参数在提交后固定；执行前会再次检查凭据是否可用。</p>
           <p>新实验环境准备等待默认为作者时限×10，可在高级参数改为1或其他倍数；整体运行上限仍生效。</p>
+          <p>新模型实验先复用匹配的预装OpenCode；否则在任务网络外下载校验固定公共工具，再上传到作者容器离线安装。任务仍按作者网络运行，所选模型地址沿Harbor显式允许主机策略。</p>
           <Button
             type="submit"
             disabled={
@@ -870,6 +872,8 @@ function RunDetailContent({ user }: { user: Item }) {
             <p>最后到达：{({environment_setup: "环境启动", agent_setup: "代理安装与准备", agent_execution: "推理/参考解执行", verifier: "评分"} as Record<string, string>)[attempt.diagnosis.phase] || "未知"} · 启动倍数 {attempt.diagnosis.startup_multiplier}</p>
             <p>{attempt.diagnosis.phases.map((phase: Item) => `${({environment_setup: "环境启动", agent_setup: "代理准备", agent_execution: "执行", verifier: "评分"} as Record<string, string>)[phase.phase]}：${phase.reached ? phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒` : "未到达"}`).join("；")}</p>
             {attempt.diagnosis.agent_installation?.missing_dependencies?.length ? <p>代理安装缺少：{attempt.diagnosis.agent_installation.missing_dependencies.join("、")}；请查看作者网络约束与已审计日志。</p> : null}
+            {attempt.diagnosis.agent_installation?.strategy === "offline-npm-binary-v1" ? <p>代理工具：任务外联网准备 → 容器内离线安装；阶段 {attempt.diagnosis.agent_installation.stage}，状态 {attempt.diagnosis.agent_installation.status}，缓存{attempt.diagnosis.agent_installation.cache_hit ? "复用" : "首次准备或未完成"}。{attempt.diagnosis.agent_installation.preparation_error_type ? `公共材料准备错误：${attempt.diagnosis.agent_installation.preparation_error_type}` : ""}</p> : null}
+            {attempt.diagnosis.agent_installation?.binary_sha256 ? <p style={{ overflowWrap: "anywhere" }}>工具版本 {attempt.diagnosis.agent_installation.version}；公共准备 {attempt.diagnosis.agent_installation.preparation_seconds?.toFixed(3) ?? "未知"} 秒；SHA256 {attempt.diagnosis.agent_installation.binary_sha256}；来源 {attempt.diagnosis.agent_installation.source}。</p> : null}
             <p>Compose：{Array.isArray(attempt.diagnosis.compose) ? attempt.diagnosis.compose.map((phase: Item) => `${phase.phase} ${phase.status} ${phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒`}`).join("；") : "阶段记录未知（旧记录可能未保存）"}</p>
           </CardContent>
         </Card>
@@ -901,6 +905,7 @@ function RunDetailContent({ user }: { user: Item }) {
                   状态原因: row.reason || "—",
                   作者启动时限与有效等待: manifest.startup_policy?.tasks?.map((task: Item) => `${task.task}：作者 ${task.author_build_timeout_sec} 秒 × ${manifest.startup_policy.multiplier} = 准备等待 ${task.start_wait_timeout_sec} 秒；作者网络 ${task.author_network_mode}`).join("；") || "未知",
                   环境启动策略: `作者 build_timeout_sec × ${manifest.effective?.environment_build_timeout_multiplier ?? 1}（冻结）；整体运行上限 ${manifest.effective?.wall_seconds ?? "未知"} 秒`,
+                  代理工具策略: manifest.effective?.agent === "opencode" ? (manifest.effective?.agent_tool_preparation === "offline-npm-binary-v1" ? "匹配预装优先；任务外公共工具准备 / Harbor上传离线安装（冻结）" : "旧受理：任务内安装（未暗改）") : "参考解，无模型工具安装",
                 }).map(([k, v]) => (
                   <div key={k}>
                     <dt>{k}</dt>

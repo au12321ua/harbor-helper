@@ -21,7 +21,7 @@ const limitLabels: Record<string, string> = {
   max_jobs: "全局任务并发",
   max_trials: "全局 Trial 并发",
   max_queue: "最大队列长度",
-  max_wall_seconds: "最长运行秒数",
+  max_wall_seconds: "实验总时长上限（秒，含准备）",
   max_attempts: "每任务最大尝试数",
   max_cpus_per_trial: "每 Trial CPU 上限",
   max_memory_mb_per_trial: "每 Trial 内存 MB",

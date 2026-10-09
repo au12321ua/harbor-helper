@@ -50,6 +50,9 @@ def run_command(argv):
 
 def cleanup(path):
     """Only exact native Compose projects recorded before starting any Trial."""
+    from harbor_helper.agent_tools import cleanup_staging
+
+    cleanup_staging(path, process_birth)
     projects_file = path / "projects.json"
     if not projects_file.exists():
         write_json(path / "cleanup.json", {"confirmed": True, "projects": [], "time": time.time()})

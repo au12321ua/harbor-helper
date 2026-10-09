@@ -27,7 +27,7 @@ try {
   await page
     .getByLabel("数据集", { exact: true })
     .fill("au12321ua/harbor-helper-switch-smoke@1");
-  await page.getByLabel("最长运行秒数", { exact: true }).fill("180");
+  await page.getByLabel("实验总时长上限（秒，含准备）", { exact: true }).fill("180");
   await page.getByRole("button", { name: "提交实验", exact: true }).click();
   await page.waitForURL(/\/runs\//, { timeout: 180000 });
   const runId = page.url().split("/").at(-1);

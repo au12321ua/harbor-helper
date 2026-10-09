@@ -536,3 +536,25 @@ def test_comparison_uses_actual_startup_multiplier_and_preserves_history(
         )
         assert value["mean_task_delta"] is None
     assert before == [(folder / "manifest.json").read_bytes() for folder in folders]
+
+
+@pytest.mark.parametrize(
+    "right,comparable", [("in-task-npm", True), ("offline-npm-binary-v1", False)]
+)
+def test_tool_preparation_condition_has_legacy_semantics(store, right, comparable):
+    a, _ma = add_run(store, "a", "succeeded")
+    b, mb = add_run(store, "b", "succeeded")
+    mb["effective"]["agent_tool_preparation"] = right
+    write_json(b / "manifest.json", mb)
+    trial(a, 0)
+    trial(b, 1)
+    before = (a / "manifest.json").read_bytes()
+    value = compare(store, "a", "b")
+    assert value["comparable"] is comparable
+    if not comparable:
+        assert value["mean_task_delta"] is None
+        assert value["config_changes"]["agent_tool_preparation"] == {
+            "left": "in-task-npm",
+            "right": right,
+        }
+    assert (a / "manifest.json").read_bytes() == before

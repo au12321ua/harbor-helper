@@ -187,6 +187,7 @@ class Application:
                     "max_memory_mb_per_trial": team["max_memory_mb_per_trial"],
                 }
                 if agent == "opencode":
+                    cfg["agent_tool_preparation"] = "offline-npm-binary-v1"
                     profile = self.data.object(
                         "profile",
                         request.get("model_profile")

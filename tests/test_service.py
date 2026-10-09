@@ -62,6 +62,27 @@ def client(data, username="alice"):
     return c
 
 
+def test_new_tool_strategy_frozen_and_old_rerun_keeps_installer(data, preparation):
+    app = Application(data.root)
+    actor = data.users()[0]
+    accepted = app.accept(actor, {"dataset": "test/data@1", "model_profile": "m1"}, "tools-new")
+    frozen = data.submission(accepted["id"])["frozen"]["effective"]
+    assert frozen["agent_tool_preparation"] == "offline-npm-binary-v1"
+    prepare_one(data.store)
+    rid = data.submission(accepted["id"])["run_id"]
+    folder = data.store.path(rid)
+    assert read_json(folder / "job.json")["agents"][0]["kwargs"]["helper_tool_cache"] == str(data.root / "agent-tools")
+    manifest = read_json(folder / "manifest.json")
+    manifest["effective"].pop("agent_tool_preparation")
+    from harbor_helper.storage import write_json
+
+    write_json(folder / "manifest.json", manifest)
+    before = (folder / "manifest.json").read_bytes()
+    accepted = app.accept(actor, {}, "tools-old-rerun", parent=rid)
+    assert "agent_tool_preparation" not in data.submission(accepted["id"])["frozen"]["effective"]
+    assert (folder / "manifest.json").read_bytes() == before
+
+
 @pytest.fixture
 def preparation(monkeypatch):
     async def source(dataset, target, task):
