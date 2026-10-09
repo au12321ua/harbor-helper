@@ -6,6 +6,8 @@
 
 让受邀的可信团队通过 CLI 和 Web 提交、观察、比较和重跑实验；数据集可选择，实验配置固定，结果全团队共享。
 
+本轮用户优先级：成员只用浏览器、不登录服务器完成实验操作，管理员日常配置也在网页完成；结构整理次要。当前 Web 交付与版本限定的独立结论见 `docs/web-usability-checker-report.md`。
+
 - 保留个人提交身份，仅成员/管理员两种角色；管理员邀请账户，不开放注册，不引入复杂 SSO。
 - 成员取消自己的任务；管理员可取消任何任务、删除产物、管理团队凭据与容量；重跑归当前提交者。
 - 团队共用多提供商、多 key；明确绑定、加密存储，主密钥在数据库之外；密钥不回传前端、不进入日志。
@@ -28,7 +30,7 @@
 
 - Python：`uv sync --locked --group dev`；`uv run pytest -q`；`uv run ruff check src tests`。测试隔离前提与版本证据见交接，不能默认这些命令无副作用。
 - Web：在 `frontend/` 运行 `npm ci`、`npm run build`、`npm run lint`；构建会写入 `src/harbor_helper/static/`。`npm run test:ui` 另需 Playwright Chromium，使用拦截 API 的 UI fixture。
-- 服务：按操作说明用全新独立 state 与 DB 外主密钥执行 `harbor-helper service init`，然后 `service serve --root … --host … --port …`；远程成员用 `service login`，不使用本地 `auth login` 注入团队模型凭据。
+- 服务：按操作说明用全新独立 state 执行 `service serve --root … --setup-token-file … --master-key-file … --host … --port …`，引导凭证和主密钥在 state 外；首管理员及业务设置在网页完成。`service init` 保留兼容。成员用浏览器，远程 CLI 用 `service login`，不使用本地 `auth login` 注入团队模型凭据。
 
 ## 工作原则
 
