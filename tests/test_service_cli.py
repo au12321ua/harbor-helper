@@ -299,10 +299,11 @@ def test_service_init_requires_confirmation_without_state(home, monkeypatch, tmp
 
 
 def test_service_serve_factory_host_port_no_native_auth(home, monkeypatch, tmp_path):
-    app = object()
+    from types import SimpleNamespace
+    app = SimpleNamespace(state=SimpleNamespace(application=True))
     calls = []
     monkeypatch.setattr(
-        "harbor_helper.service_api.create_app", lambda root: calls.append(root) or app
+        "harbor_helper.service_api.create_app", lambda root, **kwargs: calls.append((root, kwargs)) or app
     )
     monkeypatch.setattr("uvicorn.run", lambda value, **kwargs: calls.append((value, kwargs)))
     args = parser().parse_args(
@@ -318,7 +319,7 @@ def test_service_serve_factory_host_port_no_native_auth(home, monkeypatch, tmp_p
         ]
     )
     service_dispatch(args)
-    assert calls[0] == tmp_path / "service"
+    assert calls[0] == (tmp_path / "service", {"setup_token_file":None,"master_key_file":None})
     assert calls[1] == (app, {"host": "0.0.0.0", "port": 8123, "access_log": False})
 
 

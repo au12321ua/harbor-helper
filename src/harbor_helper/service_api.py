@@ -1,5 +1,7 @@
 """One HTTP application: invited team API and packaged React assets."""
 
+import json
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +15,9 @@ from pydantic import BaseModel, ConfigDict, SecretStr
 from starlette.exceptions import HTTPException
 
 from harbor_helper.service_app import Application, admin, public_submission, safe_view
-from harbor_helper.service_data import ServiceError
+from harbor_helper.service_data import LIMITS, ServiceData, ServiceError
+from harbor_helper.service_setup import protected_file
+from harbor_helper.storage import Store
 
 
 class Login(BaseModel):
@@ -28,7 +32,7 @@ class Account(Login):
 
 class Credential(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    id: str
+    id: str = ""
     provider_id: str
     label: str
     key: SecretStr
@@ -46,13 +50,33 @@ def token(request):
     return request.cookies.get("hh_session", "")
 
 
-def create_app(root, *, start_scheduler=True):
-    application = Application(root)
-    data = application.data
+class Setup(Login):
+    setup_token: SecretStr
+    team_name: str = "团队实验室"
+
+
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: SecretStr
+    password: SecretStr
+
+
+def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_file=None):
+    store = Store(root)
+    private = store.root.parent / ("." + store.root.name + "-deployment")
+    setup_token_file = Path(setup_token_file or private / "setup-token")
+    master_key_file = Path(master_key_file or private / "master-key")
+    with store.control():
+        application = Application(store) if (store.root / "service.json").exists() else None
+        if application is None:
+            if setup_token_file.resolve().is_relative_to(store.root):
+                raise ServiceError("setup_protection", "Bootstrap token must be outside state", 503)
+            protected_file(setup_token_file, create=True)
+    data = application.data if application else None
 
     @asynccontextmanager
     async def lifespan(app):
-        if start_scheduler:
+        if start_scheduler and application is not None:
             from harbor_helper.runs import ensure_supervisor
 
             with application.store.control():
@@ -83,7 +107,20 @@ def create_app(root, *, start_scheduler=True):
 
     @app.middleware("http")
     async def boundary(request, call_next):
+        nonlocal application, data
         request.state.request_id = uuid.uuid4().hex
+        if application is None and (store.root / "service.json").exists():
+            application = Application(store)
+            data = application.data
+            app.state.application = application
+        if (
+            request.url.path.startswith("/api/")
+            and application is None
+            and request.url.path != "/api/v1/setup"
+        ):
+            return failure(
+                request, "service_not_initialized", "Complete protected website setup", 503
+            )
         if request.url.path.startswith("/api/"):
             if request.method not in {"GET", "HEAD", "OPTIONS"}:
                 origin = request.headers.get("origin")
@@ -98,7 +135,10 @@ def create_app(root, *, start_scheduler=True):
                     )
             size = request.headers.get("content-length")
             try:
-                too_large = size and int(size) > data.limits()["max_upload_bytes"] + 65536
+                too_large = (
+                    size
+                    and int(size) > (data.limits() if data else LIMITS)["max_upload_bytes"] + 65536
+                )
             except ValueError:
                 too_large = True
             if too_large:
@@ -111,7 +151,7 @@ def create_app(root, *, start_scheduler=True):
             "OPTIONS",
         }:
             maximum = (
-                data.limits()["max_upload_bytes"] + 65536
+                (data.limits() if data else LIMITS)["max_upload_bytes"] + 65536
                 if request.url.path == "/api/v1/bundles"
                 else 65536
             )
@@ -175,6 +215,44 @@ def create_app(root, *, start_scheduler=True):
         admin(user)
         return user
 
+    @app.get("/api/v1/setup")
+    def setup_status():
+        return {"initialized": (store.root / "service.json").exists()}
+
+    @app.post("/api/v1/setup", status_code=201)
+    def setup(body: Setup):
+        nonlocal application, data
+        if (store.root / "service.json").exists():
+            raise ServiceError("already_initialized", "Website setup is already complete", 409)
+        if not secrets.compare_digest(
+            body.setup_token.get_secret_value(), protected_file(setup_token_file)
+        ):
+            raise ServiceError("setup_denied", "Deployment bootstrap credential required", 403)
+        if not 1 <= len(body.team_name.strip()) <= 128:
+            raise ServiceError("team_name", "Team name must be 1–128 characters")
+        ServiceData.initialize(
+            store, master_key_file, body.username, body.password.get_secret_value()
+        )
+        application = Application(store)
+        data = application.data
+        from harbor_helper.storage import write_json
+
+        write_json(store.root / "web.json", {"team_name": body.team_name.strip()})
+        app.state.application = application
+        if start_scheduler:
+            from harbor_helper.runs import ensure_supervisor
+
+            with store.control():
+                ensure_supervisor(store)
+        return {"initialized": True}
+
+    @app.post("/api/v1/auth/password")
+    def password_change(body: PasswordChange, user: Annotated[dict, Depends(actor)]):
+        session, _ = data.login(user["username"], body.current_password.get_secret_value())
+        data.logout(session)
+        data.update_user(user["id"], password=body.password.get_secret_value())
+        return {"changed": True, "login_required": True}
+
     @app.post("/api/v1/auth/login")
     def login(body: Login, response: Response):
         value, user = data.login(body.username, body.password.get_secret_value())
@@ -224,6 +302,18 @@ def create_app(root, *, start_scheduler=True):
     @app.get("/api/v1/runs/{run_id}")
     def run(run_id: str, user: Annotated[dict, Depends(actor)]):
         return application.detail(run_id)
+
+    @app.get("/api/v1/runs/{run_id}/report/download")
+    def download_report(run_id: str, user: Annotated[dict, Depends(actor)]):
+        report = application.safe_report(run_id)
+        if report is None:
+            raise ServiceError("report_pending", "Report not available", 409)
+        # run identifier is generated and resolved by Store; never an arbitrary filename.
+        return Response(
+            json.dumps(report, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{run_id}-report.json"'},
+        )
 
     @app.get("/api/v1/runs/{run_id}/logs")
     def logs(run_id: str, user: Annotated[dict, Depends(actor)]):
@@ -298,6 +388,42 @@ def create_app(root, *, start_scheduler=True):
         data.event(user, "update_account", user_id)
         return result
 
+    @app.post("/api/v1/admin/catalog/{kind}")
+    def save_catalog(kind: str, body: dict, user: Annotated[dict, Depends(administrator)]):
+        if kind not in {"dataset", "runtime"}:
+            raise ServiceError("catalog_kind", "Unknown catalog kind", 404)
+        with store.control():
+            result = application.configuration.save(kind, body)
+            data.event(user, "save_" + kind, result["id"])
+            return result
+
+    @app.post("/api/v1/admin/catalog/{kind}/{object_id}/verify")
+    def verify_catalog(kind: str, object_id: str, user: Annotated[dict, Depends(administrator)]):
+        if kind not in {"dataset", "runtime"}:
+            raise ServiceError("catalog_kind", "Unknown catalog kind", 404)
+        result = application.configuration.verify(kind, object_id)
+        data.event(user, "verify_" + kind, object_id)
+        return result
+
+    @app.patch("/api/v1/admin/settings")
+    def settings(body: dict, user: Annotated[dict, Depends(administrator)]):
+        with store.control():
+            return application.configuration.save_settings(body)
+
+    @app.post("/api/v1/admin/hub")
+    def hub(body: Rotation, user: Annotated[dict, Depends(administrator)]):
+        with store.control():
+            result = application.configuration.save_hub(body.key.get_secret_value())
+            data.event(user, "rotate_hub", "team-source")
+            return result
+
+    @app.post("/api/v1/admin/hub/disable")
+    def hub_disable(user: Annotated[dict, Depends(administrator)]):
+        with store.control():
+            result = application.configuration.save_hub(enabled=False)
+            data.event(user, "disable_hub", "team-source")
+            return result
+
     @app.get("/api/v1/admin/providers")
     def providers(user: Annotated[dict, Depends(administrator)]):
         return data.objects("provider")
@@ -328,9 +454,12 @@ def create_app(root, *, start_scheduler=True):
     def credential(body: Credential, user: Annotated[dict, Depends(administrator)]):
         with application.store.control():
             result = data.add_credential(
-                body.id, body.provider_id, body.label, body.key.get_secret_value()
+                body.id or uuid.uuid4().hex,
+                body.provider_id,
+                body.label,
+                body.key.get_secret_value(),
             )
-            data.event(user, "add_credential", body.id)
+            data.event(user, "add_credential", result["id"])
             return result
 
     @app.post("/api/v1/admin/credentials/{credential_id}/rotate")

@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 
 from harbor_helper.config import load_team, validate_effective
 from harbor_helper.credentials import redact_value
+from harbor_helper.service_config import TeamConfiguration
 from harbor_helper.service_data import ServiceData, ServiceError
 from harbor_helper.storage import ACTIVE, TERMINAL, read_json, tree_digest, write_json
 
@@ -51,14 +52,21 @@ class Application:
     def __init__(self, root):
         self.data = ServiceData(root)
         self.store = self.data.store
+        self.configuration = TeamConfiguration(self.data)
 
     def catalog(self):
+        settings = self.configuration.settings()
+        default_dataset = load_team(self.store)["dataset"]
+        if settings.get("default_dataset_id"):
+            selected = self.data.object("dataset", settings["default_dataset_id"])
+            default_dataset = selected["reference"]
         return {
+            **self.configuration.catalog(),
             "providers": self.data.objects("provider"),
             "credentials": self.data.credentials(),
             "model_profiles": self.data.objects("profile"),
             "limits": self.data.limits(),
-            "default_dataset": load_team(self.store)["dataset"],
+            "default_dataset": default_dataset,
         }
 
     def accept(self, actor, request, idem, parent=None):
@@ -73,10 +81,16 @@ class Application:
             "concurrency",
             "wall_seconds",
             "task",
+            "dataset_id",
+            "name",
         }:
             raise ServiceError(
                 "invalid_submission", "Unknown submission fields; identity is supplied by server"
             )
+        if request.get("name") is not None and (
+            not isinstance(request["name"], str) or len(request["name"]) > 128
+        ):
+            raise ServiceError("experiment_name", "Experiment name must be at most 128 characters")
         operation = "rerun:" + parent if parent else "submit"
         request_hash = digest(request)
         with self.store.control():
@@ -102,11 +116,23 @@ class Application:
             queued = sum(r["status"] == "queued" for r in self.store.runs())
             if preparing + queued >= limits["max_queue"]:
                 raise ServiceError("queue_full", "Shared queue capacity reached", 429)
-            service = {"user_id": actor["id"], "submitter": actor["username"]}
+            service = {
+                "user_id": actor["id"],
+                "submitter": actor["username"],
+                "name": request.get("name") or "",
+            }
             if parent:
                 old = read_json(self.store.path(parent) / "manifest.json")
                 cfg = json.loads(json.dumps(old["effective"]))
                 old_binding = old.get("service") or {}
+                service.update(
+                    {
+                        k: v
+                        for k, v in old_binding.items()
+                        if k not in {"user_id", "submitter", "submission_id", "name"}
+                    }
+                )
+                service["name"] = ((old_binding.get("name") or parent) + " · 重跑")[:128]
                 if cfg["agent"] == "opencode":
                     original_profile = self.data.object("profile", old_binding.get("model_profile"))
                     if not original_profile["enabled"]:
@@ -151,7 +177,11 @@ class Application:
                     "max_memory_mb_per_trial": team["max_memory_mb_per_trial"],
                 }
                 if agent == "opencode":
-                    profile = self.data.object("profile", request.get("model_profile"))
+                    profile = self.data.object(
+                        "profile",
+                        request.get("model_profile")
+                        or self.configuration.settings().get("default_model_profile"),
+                    )
                     provider = self.data.object("provider", profile["provider_id"])
                     credential = self.data.credential(profile["credential_id"])
                     if (
@@ -186,6 +216,50 @@ class Application:
                 elif agent != "oracle":
                     raise ServiceError(
                         "invalid_agent", "Use opencode with a model profile or explicit oracle"
+                    )
+            if not parent:
+                dataset_id = request.get("dataset_id")
+                if not dataset_id and not request.get("dataset"):
+                    dataset_id = self.configuration.settings().get("default_dataset_id")
+                if not dataset_id and request.get("dataset"):
+                    dataset_id = next(
+                        (
+                            d["id"]
+                            for d in self.configuration.catalog()["datasets"]
+                            if d["ready"]
+                            and request["dataset"] in {d["reference"], d.get("resolved")}
+                        ),
+                        None,
+                    )
+                if dataset_id:
+                    selected, runtime = self.configuration.ready_dataset(dataset_id)
+                    if (
+                        request.get("dataset_id")
+                        and request.get("task")
+                        and request["task"] not in {t["name"] for t in selected["tasks"]}
+                    ):
+                        raise ServiceError("task_selection", "Select a verified dataset task")
+                    cfg.update(
+                        dataset=selected["resolved"],
+                        runtime_image=runtime["image_id"],
+                        runtime_image_env=runtime["image_env"],
+                    )
+                    service.update(
+                        dataset_id=selected["id"],
+                        dataset_version=selected["version"],
+                        dataset_name=selected["name"],
+                        runtime_id=runtime["id"],
+                        runtime_version=runtime["version"],
+                        source_version=selected.get("source_version"),
+                    )
+                    # Recheck credential usability at acceptance; download revalidates source content.
+                    if service.get("source_version"):
+                        self.configuration.hub_key(service["source_version"])
+                else:
+                    # Remote CLI retains explicit references, but also uses explicit team Hub config.
+                    status = self.configuration.hub_status()
+                    service["source_version"] = (
+                        status["version"] if status["mode"] == "team" else None
                     )
             validate_effective(team, cfg)
             bundle = request.get("bundle_id")
@@ -256,6 +330,8 @@ class Application:
                 audit_status = "incomplete"
         return {
             "id": row["id"],
+            "name": binding.get("name") or row["id"],
+            "dataset_name": binding.get("dataset_name"),
             "status": row["status"],
             "created": row["created"],
             "started": row["started"],
@@ -596,12 +672,26 @@ def prepare_one(store):
             db.execute(
                 "UPDATE submissions SET status='ready',run_id=? WHERE id=?", (run_id, row["id"])
             )
-    except Exception:  # noqa: BLE001 - third-party source errors may carry credentials
+    except Exception as error:  # noqa: BLE001 - third-party source errors may carry credentials
+        if isinstance(error, ServiceError):
+            message = f"{error.code}: {error}"
+        elif isinstance(error, ValueError) and "image" in str(error).lower():
+            message = (
+                "runtime_missing: 固定运行镜像不可用；管理员检查环境并重新验证，成员修改后新提交"
+            )
+        elif isinstance(error, ValueError) and (
+            "bundle" in str(error).lower() or "snapshot" in str(error).lower()
+        ):
+            message = "input_snapshot: 固定输入或实验包不可用；请修改输入后新提交"
+        else:
+            message = (
+                "input_preparation: 准备失败；管理员检查数据集权限、运行环境与实验包，修复后新提交"
+            )
         with store.connect() as db:
             db.execute(
                 "UPDATE submissions SET status=CASE WHEN cancel=1 THEN 'cancelled' ELSE 'failed' END,error=? WHERE id=?",
                 (
-                    "Input preparation failed; check dataset access, frozen image and bundle",
+                    message,
                     row["id"],
                 ),
             )

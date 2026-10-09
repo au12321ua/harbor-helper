@@ -68,10 +68,10 @@ def public_object(row):
 
 
 class ServiceData:
-    def __init__(self, root):
+    def __init__(self, root, *, initializing=False):
         self.store = root if isinstance(root, Store) else Store(root)
         self.root = self.store.root
-        if not (self.root / "service.json").is_file():
+        if not initializing and not (self.root / "service.json").is_file():
             raise ServiceError(
                 "service_not_initialized", "Initialize a dedicated service state", 503
             )
@@ -110,7 +110,15 @@ class ServiceData:
 
     @classmethod
     def initialize(cls, root, master_file, username, password, team=None):
-        store = Store(root)
+        store = root if isinstance(root, Store) else Store(root)
+        with store.control():
+            return cls._initialize(store, master_file, username, password, team)
+
+    @classmethod
+    def _initialize(cls, store, master_file, username, password, team):
+        identifier(username)
+        if not isinstance(password, str) or not 12 <= len(password) <= 512:
+            raise ServiceError("invalid_password", "Password must be 12–512 characters")
         master = Path(master_file).expanduser().absolute()
         if master.is_relative_to(store.root):
             raise ServiceError("master_location", "Master key must be outside service state")
@@ -121,24 +129,25 @@ class ServiceData:
             fd = os.open(master, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, "wb") as file:
                 file.write(secrets.token_bytes(32))
-        write_json(
-            store.root / "service.json", {"master_file": str(master), "session_seconds": 28800}
-        )
+        data = cls(store, initializing=True)
+        data._master(master)
         config = json.loads(json.dumps(team or DEFAULT))
+        reject_secrets(config)
         config.update({key: value for key, value in LIMITS.items() if key in DEFAULT})
         write_json(store.root / "team.json", config)
         store.root.chmod(0o700)
         (store.root / "runs").chmod(0o700)
-        data = cls(store)
-        for name in ("service.json", "team.json", "queue.sqlite"):
-            (store.root / name).chmod(0o600)
-        data._master()
         data.create_user(username, password, "admin")
         data.set_limits(LIMITS)
+        write_json(
+            store.root / "service.json", {"master_file": str(master), "session_seconds": 28800}
+        )
+        for name in ("service.json", "team.json", "queue.sqlite", "limits.json"):
+            (store.root / name).chmod(0o600)
         return data
 
-    def _master(self):
-        path = Path(read_json(self.root / "service.json")["master_file"])
+    def _master(self, path=None):
+        path = Path(path or read_json(self.root / "service.json")["master_file"])
         if path.resolve().is_relative_to(self.root) or path.is_symlink():
             raise ServiceError(
                 "master_unavailable", "Protected external master key unavailable", 503
@@ -310,8 +319,9 @@ class ServiceData:
         return public_object(row)
 
     def save_object(self, kind, value):
-        object_id = identifier(value.get("id"))
+        object_id = identifier(value.get("id") or uuid.uuid4().hex)
         value = dict(value)
+        value["id"] = object_id
         value.pop("version", None)
         reject_secrets(value)
         if kind == "provider":

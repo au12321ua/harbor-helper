@@ -83,6 +83,12 @@ def preparation(monkeypatch):
         }
 
     monkeypatch.setattr("harbor_helper.runs.resolve_dataset", source)
+    monkeypatch.setattr(
+        "harbor_helper.service_sources.source_call",
+        lambda reference, *, key=None, target=None, task=None: __import__("asyncio").run(
+            source(reference, target, task)
+        ),
+    )
     monkeypatch.setattr("harbor_helper.runs.image_identity", lambda ref: "sha256:fixed")
     monkeypatch.setattr("harbor_helper.runs.subprocess.run", lambda *a, **k: None)
 

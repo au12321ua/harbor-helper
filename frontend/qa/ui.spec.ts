@@ -40,6 +40,17 @@ const catalog = {
       enabled: true,
     },
   ],
+  datasets: [
+    {
+      id: "dataset1",
+      name: "测试数据集",
+      reference: "team/test@1",
+      ready: true,
+      version: 2,
+      tasks: [{ name: "answer" }],
+    },
+  ],
+  settings: { default_dataset_id: "dataset1" },
   default_dataset: "team/test@1",
   limits: {
     max_jobs: 1,
@@ -68,7 +79,8 @@ async function fixture(page: Page, role = "admin", logged = true) {
     calls.push({ path, body, headers: request.headers() });
     let value: any = {};
     let status = 200;
-    if (path === "/me") {
+    if (path === "/setup") value = { initialized: true };
+    else if (path === "/me") {
       value = { user: { ...user, role } };
       if (!authenticated) {
         status = 401;
@@ -211,14 +223,16 @@ test("invited login and dataset/profile submission use same-origin mutation head
   await page.getByLabel("密码", { exact: true }).fill("test-password-only");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByRole("link", { name: "新建实验" }).first().click();
-  await page.getByLabel("数据集", { exact: true }).fill("team/switched@2");
+  await page.getByLabel("数据集", { exact: true }).selectOption("dataset1");
+  await page.getByLabel("任务", { exact: true }).selectOption("answer");
   await page.getByLabel("模型方案", { exact: true }).selectOption("plan1");
   await page.getByRole("button", { name: "提交实验" }).click();
   await expect(
     page.getByRole("heading", { name: "实验准备", exact: true }),
   ).toBeVisible();
   const submitted = calls.find((c) => c.path === "/submissions" && c.body);
-  expect(submitted?.body.dataset).toBe("team/switched@2");
+  expect(submitted?.body.dataset_id).toBe("dataset1");
+  expect(submitted?.body.task).toBe("answer");
   expect(submitted?.headers["idempotency-key"]).toHaveLength(32);
   expect(submitted?.headers["x-requested-with"]).toBe("harbor-helper");
   expect(submitted?.body).not.toHaveProperty("key");
@@ -240,12 +254,15 @@ test("admin key write clears input and does not use browser storage", async ({
 }) => {
   const calls = await fixture(page);
   await page.goto("/admin");
-  await page.getByRole("tab", { name: "凭据", exact: true }).click();
-  await page.getByLabel("凭据 ID").fill("c2");
-  await page.getByLabel("显示名称").fill("新的测试凭据");
-  await page.getByLabel("所属提供商").selectOption("p1");
+  await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
+  await page.getByLabel("Key 名称").fill("新的测试凭据");
+  await page.getByLabel("提供商", { exact: true }).first().selectOption("p1");
   await page.getByLabel("密钥", { exact: true }).fill("fake-key-browser-test");
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page
+    .locator("form")
+    .filter({ has: page.getByLabel("Key 名称") })
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
   await expect(page.getByLabel("密钥", { exact: true })).toHaveValue("");
   expect(calls.find((c) => c.path === "/admin/credentials")?.body.key).toBe(
     "fake-key-browser-test",
@@ -255,4 +272,62 @@ test("admin key write clears input and does not use browser storage", async ({
       JSON.stringify({ ...localStorage, ...sessionStorage }),
     ),
   ).not.toContain("fake-key-browser-test");
+});
+
+test("protected setup and failed preparation offer actionable new submission", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  let initialized = false;
+  await page.route("**/api/v1/setup", async (route) => {
+    if (route.request().method() === "POST") {
+      initialized = true;
+      await route.fulfill({ json: { initialized: true } });
+    } else await route.fulfill({ json: { initialized } });
+  });
+  await page.goto("/");
+  await page
+    .getByLabel("部署引导凭证")
+    .fill("fake-protected-bootstrap-material");
+  await page.getByLabel("首管理员用户名").fill("admin");
+  await page
+    .getByLabel("管理员密码（至少12位）")
+    .fill("fake-bootstrap-password");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "登录团队实验室" }),
+  ).toBeVisible();
+  await page.reload();
+  await page.route("**/api/v1/submissions/sub-failed", (route) =>
+    route.fulfill({
+      json: {
+        id: "sub-failed",
+        submitter: "test-admin",
+        status: "failed",
+        error: "source_access: 检查团队来源凭据",
+        request: {
+          name: "失败示例",
+          dataset_id: "dataset1",
+          task: "answer",
+          agent: "oracle",
+        },
+      },
+    }),
+  );
+  await page.goto("/submissions/sub-failed");
+  await expect(
+    page.getByText(
+      "本次准备已停止。修复配置或修改输入后重新提交，会创建新的实验。",
+    ),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "修改输入后新提交" }).click();
+  await expect(page.getByLabel("实验名称（可选）")).toHaveValue("失败示例");
+  await expect(page.getByLabel("任务", { exact: true })).toHaveValue("answer");
+  await expect(page.getByLabel("执行方案", { exact: true })).toHaveValue(
+    "oracle",
+  );
+  await page.getByRole("button", { name: "提交实验", exact: true }).click();
+  const submission = calls.find((c) => c.path === "/submissions" && c.body);
+  expect(submission?.body.name).toBe("失败示例");
+  expect(submission?.body.dataset_id).toBe("dataset1");
 });

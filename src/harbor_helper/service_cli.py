@@ -29,6 +29,10 @@ def add_parsers(sub):
     initialize.add_argument("--config", type=Path, help="Non-secret team configuration")
     serve = operations.add_parser("serve", help="Serve API and packaged static UI over HTTP")
     serve.add_argument("--root", type=Path)
+    serve.add_argument(
+        "--setup-token-file", type=Path, help="Owner-only deployment bootstrap token"
+    )
+    serve.add_argument("--master-key-file", type=Path, help="External persistent master key")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     member_login = operations.add_parser(
@@ -87,7 +91,15 @@ def dispatch(args):
 
         inherited = {name: os.environ.pop(name, None) for name in (KEY_ENV, LEGACY_KEY_ENV)}
         try:
-            uvicorn.run(create_app(root), host=args.host, port=args.port, access_log=False)
+            app = create_app(
+                root, setup_token_file=args.setup_token_file, master_key_file=args.master_key_file
+            )
+            if app.state.application is None:
+                private = root.parent / ("." + root.name + "-deployment")
+                print(
+                    f"Website setup ready. Protected bootstrap material: {args.setup_token_file or private / 'setup-token'}"
+                )
+            uvicorn.run(app, host=args.host, port=args.port, access_log=False)
         finally:
             for name, value in inherited.items():
                 if value is not None:
