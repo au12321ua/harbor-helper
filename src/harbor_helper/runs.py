@@ -182,9 +182,24 @@ def submit(
                 raise ValueError("Fixed runtime image unavailable")
         else:
             validate_effective(team, cfg)
-            source = asyncio.run(
-                resolve_dataset(cfg["dataset"], path / "tasks", cfg["task_filter"])
-            )
+            if service is not None:
+                from harbor_helper.service_config import TeamConfiguration
+                from harbor_helper.service_data import ServiceData
+                from harbor_helper.service_sources import source_call
+
+                config = TeamConfiguration(ServiceData(store))
+                key = (
+                    config.hub_key(service["source_version"])
+                    if service.get("source_version")
+                    else None
+                )
+                source = source_call(
+                    cfg["dataset"], key=key, target=path / "tasks", task=cfg["task_filter"]
+                )
+            else:
+                source = asyncio.run(
+                    resolve_dataset(cfg["dataset"], path / "tasks", cfg["task_filter"])
+                )
             digest = None
             if bundle:
                 bundle = Path(bundle).expanduser().resolve()

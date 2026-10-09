@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useLoad } from "./useLoad";
+import { Admin, SetupPage, AccountPage } from "./ConfigurationPages";
+import {
+  ErrorNotice,
+  Status,
+  Title,
+  SelectField,
+  EmptyState,
+  Loading,
+} from "./shared";
+import { useEffect, useState, useRef } from "react";
 import {
   BrowserRouter,
   Link,
@@ -7,6 +17,7 @@ import {
   Routes,
   useNavigate,
   useParams,
+  useLocation,
 } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -34,7 +45,6 @@ import {
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -59,153 +69,9 @@ import {
   FieldDescription,
   FieldGroup,
 } from "@/components/ui/field";
-import {
-  Empty,
-  EmptyHeader,
-  EmptyTitle,
-  EmptyDescription,
-} from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { toast, Toaster } from "sonner";
 import "./App.css";
-
-function ErrorNotice({ error }: { error: unknown }) {
-  if (!error) return null;
-  return (
-    <Alert variant="destructive">
-      <AlertTitle>操作未完成</AlertTitle>
-      <AlertDescription>
-        {error instanceof Error ? error.message : String(error)}
-        {error instanceof ApiError && error.requestId ? (
-          <small>请求编号：{error.requestId}</small>
-        ) : null}
-      </AlertDescription>
-    </Alert>
-  );
-}
-function Status({ value }: { value: string }) {
-  return (
-    <Badge
-      className="whitespace-nowrap"
-      variant={
-        value === "failed" ||
-        value === "cleanup_blocked" ||
-        value === "incomplete"
-          ? "destructive"
-          : value === "succeeded" || value === "clean"
-            ? "default"
-            : "secondary"
-      }
-    >
-      {labels[value] || value || "—"}
-    </Badge>
-  );
-}
-function Title({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="page-heading">
-      <div>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {action}
-    </div>
-  );
-}
-function SelectField({
-  label,
-  name,
-  value,
-  onChange,
-  children,
-  description,
-  required = true,
-}: {
-  label: string;
-  name: string;
-  value: string;
-  onChange: (v: string) => void;
-  children: React.ReactNode;
-  description?: string;
-  required?: boolean;
-}) {
-  return (
-    <Field>
-      <FieldLabel htmlFor={name}>{label}</FieldLabel>
-      <select
-        id={name}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required={required}
-      >
-        {children}
-      </select>
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
-    </Field>
-  );
-}
-function EmptyState({
-  title = "暂无实验",
-  description = "提交第一个实验后，它会出现在团队共享列表中。",
-}: {
-  title?: string;
-  description?: string;
-}) {
-  return (
-    <Empty>
-      <EmptyHeader>
-        <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{description}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
-  );
-}
-function Loading() {
-  return (
-    <div className="flex flex-col gap-4">
-      <Skeleton className="h-12 w-64" />
-      <Skeleton className="h-48 w-full" />
-    </div>
-  );
-}
-function useLoad<T>(loader: () => Promise<T>, dependency = "", poll = 0) {
-  const loaderRef = useRef(loader);
-  const [data, setData] = useState<T>();
-  const [error, setError] = useState<unknown>();
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    loaderRef.current = loader;
-  }, [loader]);
-  const reload = useCallback(async () => {
-    try {
-      setData(await loaderRef.current());
-      setError(undefined);
-    } catch (e) {
-      setError(e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    void reload();
-    if (poll) {
-      const id = setInterval(() => {
-        if (document.visibilityState === "visible") void reload();
-      }, poll);
-      return () => clearInterval(id);
-    }
-  }, [reload, dependency, poll]);
-  return { data, error, loading, reload };
-}
 
 function Login({ onLogin }: { onLogin: (user: Item) => void }) {
   const [error, setError] = useState<unknown>(),
@@ -294,7 +160,7 @@ function ExperimentList() {
     submissions: Item[] = data?.[0].submissions || [],
     usage = data?.[1] || {};
   const shown = runs.filter((r) =>
-    JSON.stringify([r.id, r.submitter, r.dataset, r.status])
+    JSON.stringify([r.id, r.name, r.submitter, r.dataset, r.status])
       .toLowerCase()
       .includes(filter.toLowerCase()),
   );
@@ -372,7 +238,7 @@ function ExperimentList() {
               <TableRow key={r.id}>
                 <TableCell>
                   <Link className="run-link" to={`/runs/${r.id}`}>
-                    {r.id}
+                    {r.name || r.id}
                   </Link>
                   <div className="cell-secondary">
                     {typeof r.dataset === "string"
@@ -416,7 +282,9 @@ function ExperimentList() {
             .map((s) => (
               <Card key={s.id}>
                 <CardContent className="submission-row">
-                  <Link to={`/submissions/${s.id}`}>{s.id}</Link>
+                  <Link to={`/submissions/${s.id}`}>
+                    {s.request?.name || s.id}
+                  </Link>
                   <Status value={s.status} />
                   <span>{s.submitter}</span>
                   <span className="text-muted-foreground">
@@ -435,24 +303,33 @@ function ExperimentList() {
 }
 
 function NewExperiment() {
+  const restored = useLocation().state?.request || {};
   const submitKey = useRef(newIdempotencyKey());
   const { data, error, loading } = useLoad(() => api("/catalog"));
   const navigate = useNavigate();
-  const [dataset, setDataset] = useState(""),
-    [agent, setAgent] = useState("opencode"),
-    [profile, setProfile] = useState(""),
+  const [dataset, setDataset] = useState(restored.dataset_id || ""),
+    [agent, setAgent] = useState(restored.agent || "opencode"),
+    [profile, setProfile] = useState(restored.model_profile || ""),
     [bundle, setBundle] = useState(""),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>(),
     [uploadBusy, setUploadBusy] = useState(false);
+  const datasets: Item[] = (data?.datasets || []).filter((d: Item) => d.ready);
   const selectedDataset =
-    dataset ||
-    (typeof data?.default_dataset === "string"
-      ? data.default_dataset
-      : data?.default_dataset?.ref || "");
+    dataset || data?.settings?.default_dataset_id || datasets[0]?.id || "";
+  const selected = datasets.find((d: Item) => d.id === selectedDataset);
+  const selectedProfile =
+    profile || data?.settings?.default_model_profile || "";
   if (loading) return <Loading />;
   const profiles: Item[] = (data?.model_profiles || []).filter(
-    (p: Item) => p.enabled !== false,
+    (p: Item) =>
+      p.enabled !== false &&
+      (data?.providers || []).some(
+        (v: Item) => v.id === p.provider_id && v.enabled,
+      ) &&
+      (data?.credentials || []).some(
+        (v: Item) => v.id === p.credential_id && v.enabled,
+      ),
   );
   const limits = data?.limits || {};
   return (
@@ -476,9 +353,10 @@ function NewExperiment() {
             const s = await post(
               "/submissions",
               {
-                dataset: selectedDataset,
+                dataset_id: selectedDataset,
+                name: f.get("experiment_name") || "",
                 agent,
-                model_profile: agent === "oracle" ? null : profile,
+                model_profile: agent === "oracle" ? null : selectedProfile,
                 bundle_id: bundle || null,
                 task: f.get("task") || null,
                 attempts: Number(f.get("attempts")),
@@ -500,31 +378,64 @@ function NewExperiment() {
             <CardHeader>
               <CardTitle>实验输入</CardTitle>
               <CardDescription>
-                数据集使用 Hub 引用与版本；服务会记录解析后的固定来源。
+                按名称选择团队验证过的数据集与任务，提交后固定本次来源与环境。
               </CardDescription>
             </CardHeader>
             <CardContent>
               <FieldGroup>
+                {!datasets.length ? (
+                  <Alert>
+                    <AlertTitle>团队尚无可用数据集</AlertTitle>
+                    <AlertDescription>
+                      请管理员在团队管理中配置、验证数据集和运行环境。
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
                 <Field>
-                  <FieldLabel htmlFor="dataset">数据集</FieldLabel>
+                  <FieldLabel htmlFor="experiment_name">
+                    实验名称（可选）
+                  </FieldLabel>
                   <Input
-                    id="dataset"
-                    value={selectedDataset}
-                    onChange={(e) => setDataset(e.target.value)}
-                    placeholder="owner/dataset@version"
-                    required
+                    id="experiment_name"
+                    name="experiment_name"
+                    maxLength={128}
+                    defaultValue={restored.name}
+                    placeholder="例如：基线参考解 / 参数 A"
                   />
-                  <FieldDescription>
-                    可以切换为团队可访问的其他数据集。
-                  </FieldDescription>
                 </Field>
+                <SelectField
+                  label="数据集"
+                  name="dataset"
+                  value={selectedDataset}
+                  onChange={setDataset}
+                  description={
+                    selected
+                      ? `${selected.reference} · 已验证版本 ${selected.version}`
+                      : "选择管理员验证的数据集"
+                  }
+                >
+                  <option value="">选择数据集</option>
+                  {datasets.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </SelectField>
                 <Field>
-                  <FieldLabel htmlFor="task">任务筛选（可选）</FieldLabel>
-                  <Input
+                  <FieldLabel htmlFor="task">任务</FieldLabel>
+                  <select
+                    key={selectedDataset}
                     id="task"
                     name="task"
-                    placeholder="任务名；留空运行整个数据集"
-                  />
+                    defaultValue={restored.task || ""}
+                  >
+                    <option value="">全部任务</option>
+                    {(selected?.tasks || []).map((t: Item) => (
+                      <option key={t.name} value={t.name}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
                 <SelectField
                   label="执行方案"
@@ -539,7 +450,7 @@ function NewExperiment() {
                   <SelectField
                     label="模型方案"
                     name="profile"
-                    value={profile}
+                    value={selectedProfile}
                     onChange={setProfile}
                     description="使用管理员配置的团队凭据，密钥不会展示给成员。"
                   >
@@ -596,57 +507,60 @@ function NewExperiment() {
               </FieldGroup>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>运行限制</CardTitle>
-              <CardDescription>
-                所有成员的实验共用同一队列与容量。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FieldGroup className="numeric-fields">
-                <Field>
-                  <FieldLabel htmlFor="attempts">每任务尝试次数</FieldLabel>
-                  <Input
-                    id="attempts"
-                    name="attempts"
-                    type="number"
-                    min="1"
-                    max={limits.max_attempts || 3}
-                    defaultValue="1"
-                    required
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="concurrency">实验并发数</FieldLabel>
-                  <Input
-                    id="concurrency"
-                    name="concurrency"
-                    type="number"
-                    min="1"
-                    max={limits.max_trials || 2}
-                    defaultValue="1"
-                    required
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="wall_seconds">最长运行秒数</FieldLabel>
-                  <Input
-                    id="wall_seconds"
-                    name="wall_seconds"
-                    type="number"
-                    min="1"
-                    max={limits.max_wall_seconds || 1800}
-                    defaultValue={Math.min(
-                      600,
-                      limits.max_wall_seconds || 1800,
-                    )}
-                    required
-                  />
-                </Field>
-              </FieldGroup>
-            </CardContent>
-          </Card>
+          <details>
+            <summary>高级参数：尝试次数、并发与运行时长</summary>
+            <Card>
+              <CardHeader>
+                <CardTitle>运行限制</CardTitle>
+                <CardDescription>
+                  所有成员的实验共用同一队列与容量。
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FieldGroup className="numeric-fields">
+                  <Field>
+                    <FieldLabel htmlFor="attempts">每任务尝试次数</FieldLabel>
+                    <Input
+                      id="attempts"
+                      name="attempts"
+                      type="number"
+                      min="1"
+                      max={limits.max_attempts || 3}
+                      defaultValue={restored.attempts || 1}
+                      required
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="concurrency">实验并发数</FieldLabel>
+                    <Input
+                      id="concurrency"
+                      name="concurrency"
+                      type="number"
+                      min="1"
+                      max={limits.max_trials || 2}
+                      defaultValue={restored.concurrency || 1}
+                      required
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="wall_seconds">最长运行秒数</FieldLabel>
+                    <Input
+                      id="wall_seconds"
+                      name="wall_seconds"
+                      type="number"
+                      min="1"
+                      max={limits.max_wall_seconds || 1800}
+                      defaultValue={
+                        restored.wall_seconds ||
+                        Math.min(600, limits.max_wall_seconds || 1800)
+                      }
+                      required
+                    />
+                  </Field>
+                </FieldGroup>
+              </CardContent>
+            </Card>
+          </details>
         </div>
         <aside className="form-aside">
           <h2>提交前确认</h2>
@@ -656,7 +570,13 @@ function NewExperiment() {
           <p>提供商、模型与参数在提交后固定；执行前会再次检查凭据是否可用。</p>
           <Button
             type="submit"
-            disabled={busy || uploadBusy || (agent === "opencode" && !profile)}
+            disabled={
+              busy ||
+              uploadBusy ||
+              !selected ||
+              (agent === "opencode" &&
+                !profiles.some((p) => p.id === selectedProfile))
+            }
           >
             {busy ? (
               <LoaderCircle data-icon="inline-start" className="animate-spin" />
@@ -684,7 +604,17 @@ function Submission({ user }: { user: Item }) {
   if (loading) return <Loading />;
   return (
     <>
-      <Title title="实验准备" description={`提交 ${id}`} />
+      <Title
+        title={
+          data?.request?.name ||
+          (data?.status === "failed"
+            ? "实验准备失败"
+            : data?.status === "cancelled"
+              ? "实验已取消"
+              : "实验准备")
+        }
+        description={`提交 ${id}`}
+      />
       <ErrorNotice error={error} />
       <Card>
         <CardHeader>
@@ -692,7 +622,11 @@ function Submission({ user }: { user: Item }) {
             <Status value={data?.status} />
           </CardTitle>
           <CardDescription>
-            数据源解析与准备完成后，自动进入统一队列。
+            {data?.status === "failed"
+              ? "本次准备已停止。修复配置或修改输入后重新提交，会创建新的实验。"
+              : data?.status === "cancelled"
+                ? "本次提交已取消。"
+                : "数据源解析与准备完成后，自动进入统一队列。"}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -722,6 +656,22 @@ function Submission({ user }: { user: Item }) {
             >
               取消提交
             </Button>
+          ) : null}
+          {data?.status === "failed" ? (
+            <>
+              <Button asChild>
+                <Link to="/new" state={{ request: data.request }}>
+                  修改输入后新提交
+                </Link>
+              </Button>
+              {user.role === "admin" ? (
+                <Button variant="outline" asChild>
+                  <Link to="/admin">修复团队配置</Link>
+                </Button>
+              ) : (
+                <p>数据源权限或运行镜像问题请联系管理员在网页修复。</p>
+              )}
+            </>
           ) : null}
           <Button variant="ghost" asChild>
             <Link to="/">返回实验列表</Link>
@@ -838,7 +788,7 @@ function RunDetailContent({ user }: { user: Item }) {
         </Link>
       </Button>
       <Title
-        title={id || "实验详情"}
+        title={data?.row?.name || id || "实验详情"}
         description={`由 ${row.submitter || "—"} 提交于 ${date(row.created)}`}
         action={
           <div className="flex gap-2">
@@ -953,6 +903,15 @@ function RunDetailContent({ user }: { user: Item }) {
             <Card>
               <CardHeader>
                 <CardTitle>评分报告</CardTitle>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    window.location.href = `/api/v1/runs/${id}/report/download`;
+                  }}
+                >
+                  <Download data-icon="inline-start" />
+                  下载评分报告
+                </Button>
                 <CardDescription>
                   保留合法零分，单独记录缺失和无效尝试。
                 </CardDescription>
@@ -1183,7 +1142,8 @@ function Compare() {
                 <option value="">选择实验</option>
                 {(data?.runs || []).map((r: Item) => (
                   <option key={r.id} value={r.id}>
-                    {r.id} · {r.submitter} · {labels[r.status] || r.status}
+                    {r.name || r.id} · {r.dataset_name || r.dataset} ·{" "}
+                    {r.submitter} · {labels[r.status] || r.status}
                   </option>
                 ))}
               </SelectField>
@@ -1196,7 +1156,8 @@ function Compare() {
                 <option value="">选择实验</option>
                 {(data?.runs || []).map((r: Item) => (
                   <option key={r.id} value={r.id}>
-                    {r.id} · {r.submitter} · {labels[r.status] || r.status}
+                    {r.name || r.id} · {r.dataset_name || r.dataset} ·{" "}
+                    {r.submitter} · {labels[r.status] || r.status}
                   </option>
                 ))}
               </SelectField>
@@ -1227,530 +1188,8 @@ function Compare() {
     </>
   );
 }
-const limitLabels: Record<string, string> = {
-  max_jobs: "全局任务并发",
-  max_trials: "全局 Trial 并发",
-  max_queue: "最大队列长度",
-  max_wall_seconds: "最长运行秒数",
-  max_attempts: "每任务最大尝试数",
-  max_cpus_per_trial: "每 Trial CPU 上限",
-  max_memory_mb_per_trial: "每 Trial 内存 MB",
-  max_upload_bytes: "最大上传字节数",
-  log_retention_days: "日志保留天数",
-  artifact_retention_days: "产物保留天数",
-};
-function rowsOf(value: Item | Item[] | undefined, key: string): Item[] {
-  return Array.isArray(value) ? value : value?.[key] || [];
-}
-function AdminForm({
-  title,
-  description,
-  fields,
-  onSave,
-}: {
-  title: string;
-  description: string;
-  fields: {
-    name: string;
-    label: string;
-    type?: string;
-    options?: { value: string; label: string }[];
-    defaultValue?: string;
-    required?: boolean;
-  }[];
-  onSave: (value: Item) => Promise<unknown>;
-}) {
-  const [error, setError] = useState<unknown>(),
-    [busy, setBusy] = useState(false);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            setBusy(true);
-            setError(undefined);
-            const value = Object.fromEntries(new FormData(form));
-            try {
-              await onSave(value);
-              form.reset();
-              toast.success("配置已保存");
-            } catch (err) {
-              setError(err);
-            } finally {
-              const secrets = form.querySelectorAll<HTMLInputElement>(
-                'input[type="password"]',
-              );
-              secrets.forEach((input) => {
-                input.value = "";
-              });
-              setBusy(false);
-            }
-          }}
-        >
-          <FieldGroup>
-            {fields.map((f) => (
-              <Field key={f.name}>
-                <FieldLabel htmlFor={`${title}-${f.name}`}>
-                  {f.label}
-                </FieldLabel>
-                {f.options ? (
-                  <select
-                    id={`${title}-${f.name}`}
-                    name={f.name}
-                    required={f.required !== false}
-                    defaultValue={f.defaultValue || ""}
-                  >
-                    {!f.defaultValue ? <option value="">请选择</option> : null}
-                    {f.options.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : f.type === "textarea" ? (
-                  <Textarea
-                    id={`${title}-${f.name}`}
-                    name={f.name}
-                    required={f.required !== false}
-                    defaultValue={f.defaultValue}
-                  />
-                ) : (
-                  <Input
-                    id={`${title}-${f.name}`}
-                    name={f.name}
-                    type={f.type || "text"}
-                    required={f.required !== false}
-                    defaultValue={f.defaultValue}
-                    autoComplete={
-                      f.type === "password" ? "new-password" : "off"
-                    }
-                  />
-                )}
-              </Field>
-            ))}
-            <ErrorNotice error={error} />
-            <Button disabled={busy} type="submit">
-              {busy ? (
-                <LoaderCircle
-                  data-icon="inline-start"
-                  className="animate-spin"
-                />
-              ) : null}
-              保存
-            </Button>
-          </FieldGroup>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
-function Admin() {
-  const { data, error, loading, reload } = useLoad(
-    () => Promise.all([api("/admin/users"), api("/catalog")]),
-    "",
-  );
-  const [rotation, setRotation] = useState("");
-  const [tab, setTab] = useState("users");
-  if (loading) return <Loading />;
-  const users = rowsOf(data?.[0], "users"),
-    catalog = data?.[1] || {},
-    providers: Item[] = catalog.providers || [],
-    credentials: Item[] = catalog.credentials || [],
-    profiles: Item[] = catalog.model_profiles || [];
-  async function save(path: string, value: Item) {
-    await post(path, value);
-    await reload();
-  }
-  async function mutate(path: string, method = "POST", body: Item = {}) {
-    try {
-      await api(path, { method, body: JSON.stringify(body) });
-      await reload();
-      toast.success("已更新");
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-  return (
-    <>
-      <Title
-        title="团队管理"
-        description="管理受邀账户、团队模型方案与共享容量。"
-      />
-      <ErrorNotice error={error} />
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="admin-tabs">
-          <TabsTrigger value="users">受邀账户</TabsTrigger>
-          <TabsTrigger value="providers">提供商</TabsTrigger>
-          <TabsTrigger value="credentials">凭据</TabsTrigger>
-          <TabsTrigger value="profiles">模型方案</TabsTrigger>
-          <TabsTrigger value="limits">容量与保留</TabsTrigger>
-        </TabsList>
-        <TabsContent value="users">
-          <div className="admin-layout">
-            <div className="table-shell">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>账户</TableHead>
-                    <TableHead>角色</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {users.map((u) => (
-                    <TableRow key={u.id}>
-                      <TableCell>{u.username}</TableCell>
-                      <TableCell>
-                        {u.role === "admin" ? "管理员" : "成员"}
-                      </TableCell>
-                      <TableCell>
-                        {u.enabled === false ? "停用" : "启用"}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            void mutate(`/admin/users/${u.id}`, "PATCH", {
-                              enabled: u.enabled === false,
-                            })
-                          }
-                        >
-                          {u.enabled === false ? "启用" : "停用"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <AdminForm
-              title="创建受邀账户"
-              description="不提供公开注册。成员共享查看权限，管理员负责全局管理。"
-              fields={[
-                { name: "username", label: "用户名" },
-                { name: "password", label: "初始密码", type: "password" },
-                {
-                  name: "role",
-                  label: "角色",
-                  defaultValue: "member",
-                  options: [
-                    { value: "member", label: "成员" },
-                    { value: "admin", label: "管理员" },
-                  ],
-                },
-              ]}
-              onSave={(value) => save("/admin/users", value)}
-            />
-          </div>
-        </TabsContent>
-        <TabsContent value="providers">
-          <div className="admin-layout">
-            <div className="table-shell">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>提供商</TableHead>
-                    <TableHead>端点</TableHead>
-                    <TableHead>状态</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {providers.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        {p.name}
-                        <div className="cell-secondary">{p.id}</div>
-                      </TableCell>
-                      <TableCell className="break-all">{p.endpoint}</TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            void save("/admin/providers", {
-                              ...p,
-                              enabled: p.enabled === false,
-                            }).catch((e) => toast.error(e.message))
-                          }
-                        >
-                          {p.enabled === false ? "启用" : "停用"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {!providers.length ? (
-                <EmptyState
-                  title="尚未配置提供商"
-                  description="新增兼容端点，再为其添加团队凭据。"
-                />
-              ) : null}
-            </div>
-            <AdminForm
-              title="新增 / 更新提供商"
-              description="首版支持 OpenAI-compatible 协议；使用同一 ID 更新配置。"
-              fields={[
-                { name: "id", label: "提供商 ID" },
-                { name: "name", label: "名称" },
-                { name: "endpoint", label: "API 端点", type: "url" },
-                {
-                  name: "protocol",
-                  label: "协议",
-                  defaultValue: "openai-compatible",
-                  options: [
-                    { value: "openai-compatible", label: "OpenAI-compatible" },
-                  ],
-                },
-              ]}
-              onSave={(value) =>
-                save("/admin/providers", { ...value, enabled: true })
-              }
-            />
-          </div>
-        </TabsContent>
-        <TabsContent value="credentials">
-          <Alert>
-            <AlertTitle>密钥只写入，不回显</AlertTitle>
-            <AlertDescription>
-              密钥加密保存；轮换创建新版本。旧版本仅在实际运行或审计仍依赖时保留。停用后拒绝新执行。
-            </AlertDescription>
-          </Alert>
-          <div className="admin-layout">
-            <div className="table-shell">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>凭据</TableHead>
-                    <TableHead>提供商</TableHead>
-                    <TableHead>版本 / 状态</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {credentials.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell>
-                        {c.label}
-                        <div className="cell-secondary">{c.id}</div>
-                      </TableCell>
-                      <TableCell>{c.provider_id}</TableCell>
-                      <TableCell>
-                        {c.current_version ?? c.version ?? "—"} ·{" "}
-                        {c.enabled === false ? "停用" : "可用"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setRotation(c.id)}
-                          >
-                            轮换
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={c.enabled === false}
-                            onClick={() =>
-                              void mutate(`/admin/credentials/${c.id}/disable`)
-                            }
-                          >
-                            停用
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {!credentials.length ? (
-                <EmptyState
-                  title="暂无团队凭据"
-                  description="管理员添加密钥后，成员通过模型方案使用。"
-                />
-              ) : null}
-            </div>
-            <div className="flex flex-col gap-6">
-              <AdminForm
-                title="新增团队凭据"
-                description="输入内容仅本次提交使用，不保存在浏览器。"
-                fields={[
-                  { name: "id", label: "凭据 ID" },
-                  { name: "label", label: "显示名称" },
-                  {
-                    name: "provider_id",
-                    label: "所属提供商",
-                    options: providers.map((p) => ({
-                      value: p.id,
-                      label: p.name,
-                    })),
-                  },
-                  { name: "key", label: "密钥", type: "password" },
-                ]}
-                onSave={(value) => save("/admin/credentials", value)}
-              />
-              {rotation ? (
-                <AdminForm
-                  key={rotation}
-                  title={`轮换 ${rotation}`}
-                  description="模型方案保持不变，后续新提交绑定此凭据的当前可用版本。"
-                  fields={[{ name: "key", label: "新密钥", type: "password" }]}
-                  onSave={async (value) => {
-                    await save(`/admin/credentials/${rotation}/rotate`, value);
-                    setRotation("");
-                  }}
-                />
-              ) : null}
-            </div>
-          </div>
-        </TabsContent>
-        <TabsContent value="profiles">
-          <div className="admin-layout">
-            <div className="table-shell">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>模型方案</TableHead>
-                    <TableHead>模型 / 凭据</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {profiles.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        {p.name}
-                        <div className="cell-secondary">{p.id}</div>
-                      </TableCell>
-                      <TableCell>
-                        {p.model}
-                        <div className="cell-secondary">{p.credential_id}</div>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            void save("/admin/model-profiles", {
-                              ...p,
-                              enabled: p.enabled === false,
-                            }).catch((e) => toast.error(e.message))
-                          }
-                        >
-                          {p.enabled === false ? "启用" : "停用"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {!profiles.length ? (
-                <EmptyState
-                  title="暂无模型方案"
-                  description="方案明确引用提供商、凭据和模型。"
-                />
-              ) : null}
-            </div>
-            <AdminForm
-              title="新增 / 更新模型方案"
-              description="使用同一 ID 更新。已有实验继续保留提交时的配置快照。"
-              fields={[
-                { name: "id", label: "方案 ID" },
-                { name: "name", label: "名称" },
-                {
-                  name: "provider_id",
-                  label: "提供商",
-                  options: providers.map((p) => ({
-                    value: p.id,
-                    label: p.name,
-                  })),
-                },
-                {
-                  name: "credential_id",
-                  label: "凭据",
-                  options: credentials.map((c) => ({
-                    value: c.id,
-                    label: `${c.label} · ${c.provider_id}`,
-                  })),
-                },
-                { name: "model", label: "模型 ID" },
-                {
-                  name: "params",
-                  label: "模型参数 JSON",
-                  type: "textarea",
-                  defaultValue: "{}",
-                },
-              ]}
-              onSave={(value) =>
-                save("/admin/model-profiles", {
-                  ...value,
-                  params: JSON.parse(value.params),
-                  opencode_version: "1.18.35",
-                  enabled: true,
-                })
-              }
-            />
-          </div>
-        </TabsContent>
-        <TabsContent value="limits">
-          <Card>
-            <CardHeader>
-              <CardTitle>全局容量与保留参数</CardTitle>
-              <CardDescription>
-                CLI 与 Web
-                共用。缩小容量不强制中断已运行的实验；对后续调度生效。保留期不代表无条件删除依赖数据。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const value = Object.fromEntries(
-                    [...new FormData(e.currentTarget).entries()].map(
-                      ([k, v]) => [k, Number(v)],
-                    ),
-                  );
-                  await mutate("/admin/limits", "PATCH", value);
-                }}
-              >
-                <FieldGroup className="limits-grid">
-                  {Object.entries(catalog.limits || {})
-                    .filter(([name]) => name in limitLabels)
-                    .map(([name, value]) => (
-                      <Field key={name}>
-                        <FieldLabel htmlFor={name}>
-                          {limitLabels[name]}
-                        </FieldLabel>
-                        <Input
-                          id={name}
-                          name={name}
-                          type="number"
-                          min="1"
-                          defaultValue={String(value)}
-                          required
-                        />
-                      </Field>
-                    ))}
-                </FieldGroup>
-                <Button className="mt-6">保存容量配置</Button>
-              </form>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </>
-  );
-}
 function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
+  const { data: catalog } = useLoad(() => api("/catalog"));
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -1761,6 +1200,10 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
           </span>
         </Link>
         <nav aria-label="主导航">
+          <NavLink to="/account">
+            <Settings2 />
+            账户与密码
+          </NavLink>
           <NavLink end to="/">
             <LayoutList />
             共享实验
@@ -1809,11 +1252,15 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <span>团队工作空间</span>
+          <span>{catalog?.settings?.team_name || "团队工作空间"}</span>
           <span>全部实验共享可见</span>
         </header>
         <main>
           <Routes>
+            <Route
+              path="/account"
+              element={<AccountPage logout={onLogout} />}
+            />
             <Route path="/" element={<ExperimentList />} />
             <Route path="/new" element={<NewExperiment />} />
             <Route
@@ -1856,12 +1303,25 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
 function App() {
   const [user, setUser] = useState<Item | null>(null),
     [loading, setLoading] = useState(true),
+    [setup, setSetup] = useState(false),
     [failure, setFailure] = useState<unknown>();
   useEffect(() => {
-    api("/me")
-      .then((value) => setUser(value.user || value))
+    api("/setup")
+      .then((status) => {
+        if (!status.initialized) {
+          setSetup(true);
+          return null;
+        }
+        return api("/me");
+      })
+      .then((value) => {
+        if (value) setUser(value.user || value);
+      })
       .catch((e) => {
-        if (!(e instanceof ApiError && e.code === "unauthorized"))
+        if (!(
+          e instanceof ApiError &&
+          ["unauthorized", "login_required"].includes(e.code)
+        ))
           setFailure(e);
       })
       .finally(() => setLoading(false));
@@ -1876,6 +1336,13 @@ function App() {
           <LoaderCircle className="animate-spin" />
           <p>正在连接团队实验室…</p>
         </div>
+      ) : setup ? (
+        <SetupPage
+          done={() => {
+            setSetup(false);
+            setFailure(undefined);
+          }}
+        />
       ) : user ? (
         <Shell user={user} onLogout={() => setUser(null)} />
       ) : (

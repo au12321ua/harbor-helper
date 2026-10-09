@@ -52,6 +52,13 @@ async def resolve_dataset(reference, target, task_filter=None):
         "package":"fixture/box","directory":"box","ref":"sha256:fixed",
         "snapshot_digest":tree_digest(folder)}]}
 """)
+        with (package / "service_sources.py").open("a") as f:
+            f.write("""
+def source_call(reference, *, key=None, target=None, task=None):
+    import asyncio
+    from harbor_helper.sources import resolve_dataset
+    return asyncio.run(resolve_dataset(reference, target, task))
+""")
         with (package / "runs.py").open("a") as f:
             f.write("""
 def image_identity(reference):return "sha256:"+"f"*64
