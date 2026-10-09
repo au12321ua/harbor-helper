@@ -85,6 +85,7 @@ function AdminForm({
             }
           }}
         >
+          <fieldset disabled={busy} aria-busy={busy} className="min-w-0">
           <FieldGroup>
             {fields.map((f) => (
               <Field key={f.name}>
@@ -138,6 +139,7 @@ function AdminForm({
               保存
             </Button>
           </FieldGroup>
+          </fieldset>
         </form>
       </CardContent>
     </Card>
@@ -259,7 +261,8 @@ export function Admin() {
   const [tab, setTab] = useState("readiness"),
     [edit, setEdit] = useState<Item>({}),
     [rotation, setRotation] = useState(""),
-    [reset, setReset] = useState<Item>();
+    [reset, setReset] = useState<Item>(),
+    [saving, setSaving] = useState(false);
   if (loading) return <Loading />;
   const users = rowsOf(data?.[0], "users"),
     c = data?.[1] || {};
@@ -268,9 +271,16 @@ export function Admin() {
     (p: Item) => p.id === edit.profile,
   );
   async function save(path: string, value: Item, method = "POST") {
-    const result = await api(path, { method, body: JSON.stringify(value) });
-    await reload();
-    return result;
+    // Catalog refresh can remount editors. Keep every editor and its selectors
+    // unavailable until both the mutation and refresh finish.
+    setSaving(true);
+    try {
+      const result = await api(path, { method, body: JSON.stringify(value) });
+      await reload();
+      return result;
+    } finally {
+      setSaving(false);
+    }
   }
   async function action(path: string, value: Item = {}, method = "POST") {
     try {
@@ -357,6 +367,10 @@ export function Admin() {
         description="先验证数据集与运行环境，再配置模型和受邀成员。日常配置在网页完成。"
       />
       <ErrorNotice error={error} />
+      {saving ? (
+        <p role="status">正在保存并刷新配置，完成后可继续编辑。</p>
+      ) : null}
+      <fieldset disabled={saving} aria-busy={saving} className="min-w-0">
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="admin-tabs">
           <TabsTrigger value="readiness">就绪与来源</TabsTrigger>
@@ -844,6 +858,7 @@ export function Admin() {
           />
         </TabsContent>
       </Tabs>
+      </fieldset>
     </>
   );
 }

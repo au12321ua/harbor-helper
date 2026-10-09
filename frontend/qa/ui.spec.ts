@@ -191,6 +191,21 @@ async function fixture(page: Page, role = "admin", logged = true) {
   });
   return calls;
 }
+// Hold the refresh until assertions finish, rather than racing an arbitrary timeout.
+async function holdCatalogRefresh(page: Page) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/v1/catalog", async (route) => {
+    await gate;
+    await route.fallback();
+  }, { times: 1 });
+  return release;
+}
+async function expectEditorsLocked(page: Page) {
+  await expect(page.getByRole("status").filter({ hasText: "正在保存并刷新配置" })).toBeVisible();
+  await expect(page.locator("input:enabled, textarea:enabled, select:enabled")).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "模型与 key", exact: true })).toBeDisabled();
+}
 test("model edits show current saved values and repeated save preserves them", async ({
   page,
 }) => {
@@ -225,7 +240,16 @@ test("model edits show current saved values and repeated save preserves them", a
   await page
     .getByLabel("高级参数 JSON")
     .fill('{"temperature":0.5,"max_tokens":100,"top_p":0.9}');
+  const releaseRefresh = await holdCatalogRefresh(page);
+  const mutation = page.waitForResponse((r) => r.url().endsWith("/admin/model-profiles") && r.request().method() === "POST");
   await form.getByRole("button", { name: "保存", exact: true }).click();
+  expect((await mutation).ok()).toBe(true);
+  await expectEditorsLocked(page);
+  await expect(page.locator("#model-provider")).toBeDisabled();
+  await expect(form.getByLabel("方案名称")).toBeDisabled();
+  releaseRefresh();
+  await expect(form.getByLabel("方案名称")).toBeEnabled();
+  await expect(page.locator("#model-provider")).toBeEnabled();
   await expect(page.getByText("配置已保存", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Temperature（可选）")).toHaveValue("0");
   await expect(page.getByLabel("方案名称", { exact: true })).toHaveValue(
@@ -516,7 +540,14 @@ for (const kind of ["provider", "runtime", "dataset"] as const) {
     const input = page.getByLabel(spec.label, { exact: true });
     await input.fill(spec.value);
     const form = page.locator("form").filter({ has: input });
+    const releaseRefresh = await holdCatalogRefresh(page);
+    const mutation = page.waitForResponse((r) => r.url().endsWith(spec.path) && r.request().method() === "POST");
     await form.getByRole("button", { name: "保存", exact: true }).click();
+    expect((await mutation).ok()).toBe(true);
+    await expectEditorsLocked(page);
+    await expect(input).toBeDisabled();
+    releaseRefresh();
+    await expect(input).toBeEnabled();
     await expect(input).toHaveValue(spec.value);
     await form.getByRole("button", { name: "保存", exact: true }).click();
     await expect.poll(() => saves.length).toBe(2);
@@ -536,12 +567,15 @@ test("failed credential save retains nonsecret inputs and clears secret", async 
   page,
 }) => {
   await fixture(page);
-  await page.route("**/api/v1/admin/credentials", (route) =>
-    route.fulfill({
+  let releaseFailure!: () => void;
+  const gate = new Promise<void>((resolve) => { releaseFailure = resolve; });
+  await page.route("**/api/v1/admin/credentials", async (route) => {
+    await gate;
+    await route.fulfill({
       status: 422,
       json: { code: "credential_binding", message: "请修正提供商配置" },
-    }),
-  );
+    });
+  });
   await page.goto("/admin");
   await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
   const form = page
@@ -550,7 +584,13 @@ test("failed credential save retains nonsecret inputs and clears secret", async 
   await form.getByLabel("Key 名称").fill("待修正key名称");
   await form.getByLabel("提供商", { exact: true }).selectOption("p1");
   await form.getByLabel("密钥", { exact: true }).fill("fake-failed-save-key");
+  const request = page.waitForRequest((r) => r.url().endsWith("/admin/credentials") && r.method() === "POST");
   await form.getByRole("button", { name: "保存", exact: true }).click();
+  await request;
+  await expectEditorsLocked(page);
+  await expect(form.getByLabel("密钥", { exact: true })).toBeDisabled();
+  releaseFailure();
+  await expect(form.getByLabel("Key 名称")).toBeEnabled();
   await expect(form.getByText("操作未完成", {exact:true})).toBeVisible();
   await expect(form.getByLabel("Key 名称")).toHaveValue("待修正key名称");
   await expect(form.getByLabel("提供商", { exact: true })).toHaveValue("p1");
