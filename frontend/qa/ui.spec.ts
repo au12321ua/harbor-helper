@@ -672,3 +672,25 @@ test("explicit new provider creates another object and editing preserves its pee
   expect(current.providers[1].name).toBe("B");
   expect(current.providers[1].endpoint).toBe("https://b.invalid/v1");
 });
+
+test("list scope is separate from model binding and exposes empty state", async ({ page }) => {
+  await fixture(page);
+  await page.goto("/admin");
+  await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
+  await expect(page.getByText("以下条件只缩小左侧列表；右侧新建或编辑表单中的提供商与团队 key 决定保存绑定。筛选不会修改表单或已有配置。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "编辑方案", exact: true }).click();
+  const form = page.locator("form").filter({ has: page.getByLabel("方案名称", { exact: true }) });
+  await form.getByLabel("Temperature（可选）").fill("0");
+  await page.getByLabel("列表范围：提供商", { exact: true }).selectOption("p1");
+  await page.getByLabel("列表范围：团队 key", { exact: true }).selectOption("c1");
+  await expect(form.getByLabel("Temperature（可选）")).toHaveValue("0");
+  await expect(page.getByLabel("团队 key", { exact: true })).toHaveValue("c1");
+  await page.getByRole("button", { name: "显示全部配置", exact: true }).click();
+  await expect(page.getByLabel("列表范围：提供商", { exact: true })).toHaveValue("");
+  await expect(form.getByLabel("Temperature（可选）")).toHaveValue("0");
+  await page.route("**/api/v1/catalog", (route) => route.fulfill({ json: { ...catalog, credentials: [], model_profiles: [] } }));
+  await page.reload();
+  await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
+  await expect(page.getByText("此范围暂无团队 key", { exact: true })).toBeVisible();
+  await expect(page.getByText("此范围暂无模型方案", { exact: true })).toBeVisible();
+});

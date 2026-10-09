@@ -2,7 +2,7 @@ import { useLoad } from "./useLoad";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { api, post, date, type Item } from "./api";
-import { ErrorNotice, Title, SelectField, Loading } from "./shared";
+import { ErrorNotice, Title, SelectField, Loading, EmptyState } from "./shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -194,6 +194,7 @@ function ModelForm({
             </option>
           ))}
         </SelectField>
+        {provider && !credentials.length ? <Alert><AlertDescription>该提供商暂无启用的团队 key，请先添加或启用凭据再保存方案。</AlertDescription></Alert> : null}
         <AdminForm
           key={`${selected?.id || "new"}-${provider}`}
           resetOnSave={!selected}
@@ -207,7 +208,7 @@ function ModelForm({
               defaultValue: selected?.provider_id === provider ? selected?.credential_id : undefined,
               options: credentials.map((c: Item) => ({
                 value: c.id,
-                label: c.label,
+                label: `${(catalog.providers || []).find((p: Item) => p.id === c.provider_id)?.name || c.provider_id} → ${c.label}`,
               })),
             },
             {
@@ -284,6 +285,9 @@ export function Admin() {
   if (loading) return <Loading />;
   const users = rowsOf(data?.[0], "users"),
     c = data?.[1] || {};
+  const visibleProviders = (c.providers || []).filter((p: Item) => !providerFilter || p.id === providerFilter);
+  const visibleKeys = (c.credentials || []).filter((k: Item) => (!providerFilter || k.provider_id === providerFilter) && (!keyFilter || k.id === keyFilter));
+  const visibleProfiles = (c.model_profiles || []).filter((p: Item) => (!providerFilter || p.provider_id === providerFilter) && (!keyFilter || p.credential_id === keyFilter));
   // Keep only the selection ID; refreshed catalog versions supply edit defaults.
   const selectedProfile = (c.model_profiles || []).find(
     (p: Item) => p.id === edit.profile,
@@ -534,19 +538,28 @@ export function Admin() {
                 的绑定，停用阻止新执行。
               </AlertDescription>
             </Alert>
-            <div className="flex flex-wrap gap-4">
-              <SelectField label="筛选提供商" name="filter-provider" value={providerFilter} onChange={(v) => {setProviderFilter(v); setKeyFilter("");}}>
+            <Card>
+              <CardHeader><CardTitle>浏览配置列表</CardTitle><CardDescription>以下条件只缩小左侧列表；右侧新建或编辑表单中的提供商与团队 key 决定保存绑定。筛选不会修改表单或已有配置。</CardDescription></CardHeader>
+              <CardContent className="flex flex-col gap-3">
+              <div className="flex flex-wrap gap-4">
+              <SelectField label="列表范围：提供商" name="filter-provider" value={providerFilter} onChange={(v) => {setProviderFilter(v); setKeyFilter("");}}>
                 <option value="">全部提供商</option>
                 {(c.providers || []).map((p: Item) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </SelectField>
-              <SelectField label="筛选团队 key" name="filter-key" value={keyFilter} onChange={setKeyFilter}>
+              <SelectField label="列表范围：团队 key" name="filter-key" value={keyFilter} onChange={setKeyFilter}>
                 <option value="">全部key</option>
                 {(c.credentials || []).filter((k: Item) => !providerFilter || k.provider_id === providerFilter).map((k: Item) => <option key={k.id} value={k.id}>{(c.providers || []).find((p: Item) => p.id === k.provider_id)?.name} → {k.label}</option>)}
               </SelectField>
-            </div>
+              <Button variant="outline" onClick={() => {setProviderFilter(""); setKeyFilter("");}}>显示全部配置</Button>
+              </div>
+              <p>当前列表：{visibleProviders.length} 个提供商、{visibleKeys.length} 个团队 key、{visibleProfiles.length} 个模型方案。提供商条件作用于三种列表；key 条件只作用于 key 与模型方案。</p>
+              </CardContent>
+            </Card>
             <div className="admin-layout">
               <div className="flex flex-col gap-4">
-                {(c.providers || []).filter((p: Item) => !providerFilter || p.id === providerFilter).map((p: Item) => (
+                <h2>提供商列表</h2>
+                {!visibleProviders.length ? <EmptyState title="此范围暂无提供商" description="显示全部配置或在右侧新建提供商。" /> : null}
+                {visibleProviders.map((p: Item) => (
                   <Card key={p.id}>
                     <CardHeader>
                       <CardTitle>{p.name}</CardTitle>
@@ -608,7 +621,9 @@ export function Admin() {
             </div>
             <div className="admin-layout">
               <div className="flex flex-col gap-3">
-                {(c.credentials || []).filter((k: Item) => (!providerFilter || k.provider_id === providerFilter) && (!keyFilter || k.id === keyFilter)).map((key: Item) => (
+                <h2>团队 key 列表</h2>
+                {!visibleKeys.length ? <EmptyState title="此范围暂无团队 key" description="调整列表范围；添加时在右侧明确选择所属提供商。" /> : null}
+                {visibleKeys.map((key: Item) => (
                   <Card key={key.id}>
                     <CardHeader>
                       <CardTitle>
@@ -646,7 +661,7 @@ export function Admin() {
                   <AdminForm
                     key={rotation}
                     title="轮换团队 key"
-                    description="旧版本继续供已绑定运行与审计使用。"
+                    description={`正在轮换：${(c.credentials || []).find((k: Item) => k.id === rotation)?.label || rotation}。旧版本继续供已绑定运行与审计使用。`}
                     fields={[
                       { name: "key", label: "新密钥", type: "password" },
                     ]}
@@ -677,7 +692,9 @@ export function Admin() {
             </div>
             <div className="admin-layout">
               <div className="flex flex-col gap-4">
-                {(c.model_profiles || []).filter((p: Item) => (!providerFilter || p.provider_id === providerFilter) && (!keyFilter || p.credential_id === keyFilter)).map((p: Item) => (
+                <h2>模型方案列表</h2>
+                {!visibleProfiles.length ? <EmptyState title="此范围暂无模型方案" description="调整列表范围或新建模型方案；保存绑定在右侧编辑。" /> : null}
+                {visibleProfiles.map((p: Item) => (
                   <Card key={p.id}>
                     <CardHeader>
                       <CardTitle>

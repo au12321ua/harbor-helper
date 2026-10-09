@@ -88,6 +88,7 @@ class Application:
             "attempts",
             "concurrency",
             "wall_seconds",
+            "environment_build_timeout_multiplier",
             "task",
             "dataset_id",
             "name",
@@ -176,6 +177,9 @@ class Application:
                     "concurrency": request.get("concurrency", 1),
                     "wall_seconds": request.get(
                         "wall_seconds", min(1800, limits["max_wall_seconds"])
+                    ),
+                    "environment_build_timeout_multiplier": request.get(
+                        "environment_build_timeout_multiplier", 10
                     ),
                     "task_filter": request.get("task"),
                     "model": None,
@@ -405,10 +409,27 @@ class Application:
             )
         if not (path / "report.json").exists():
             return None
+        # Enrich old, already audited reports in memory; original history stays byte-identical.
+        from harbor_helper.reports import trial_diagnosis
+
+        value = read_json(path / "report.json")
+        cfg = read_json(path / "manifest.json")["effective"]
+        for task in value.get("tasks", []):
+            for attempt in task.get("attempts", []):
+                if "diagnosis" not in attempt:
+                    result = {
+                        **attempt.get("phase_timings", {}),
+                        "exception_info": attempt.get("framework_exception"),
+                    }
+                    attempt["diagnosis"] = trial_diagnosis(
+                        result, path / "unavailable-legacy-phases", cfg
+                    )
         # Path-bearing internal Harbor fields never leave service views.
-        return safe_view(read_json(path / "report.json"))
+        return safe_view(value)
 
     def detail(self, run_id):
+        from harbor_helper.runs import startup_policy
+
         row = self.store.get(run_id)
         manifest = read_json(self.store.path(run_id) / "manifest.json")
         try:
@@ -418,19 +439,23 @@ class Application:
         return {
             "row": self.summary(row),
             "manifest": {
-                k: manifest.get(k)
-                for k in (
-                    "effective",
-                    "source",
-                    "parent",
-                    "service",
-                    "bundle_digest",
-                    "image_id",
-                    "execution_mode",
-                    "legacy_override_removed",
-                    "model_checkpoint_actual",
-                    "hard_budgets",
-                )
+                "startup_policy": manifest.get("startup_policy")
+                or startup_policy(self.store.path(run_id), manifest),
+                **{
+                    k: manifest.get(k)
+                    for k in (
+                        "effective",
+                        "source",
+                        "parent",
+                        "service",
+                        "bundle_digest",
+                        "image_id",
+                        "execution_mode",
+                        "legacy_override_removed",
+                        "model_checkpoint_actual",
+                        "hard_budgets",
+                    )
+                },
             },
             "artifacts": self.artifacts(run_id, allow_blocked=True),
             "report": report,

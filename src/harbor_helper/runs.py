@@ -1,11 +1,13 @@
 import asyncio
 import importlib.metadata
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
 import time
+import tomllib
 import uuid
 from copy import deepcopy
 from pathlib import Path
@@ -47,6 +49,52 @@ def check_bundle(path):
             or any(s in p.name.lower() for s in ("secret", "credential", ".pem"))
         ):
             raise ValueError("Credential files cannot be bundled")
+
+
+def startup_policy(run_dir, manifest):
+    """Describe frozen author budgets without changing or exporting author env values."""
+    from harbor.models.task.config import EnvironmentConfig
+
+    multiplier = manifest["effective"].get("environment_build_timeout_multiplier", 1)
+    tasks = []
+    for task in manifest["source"]["tasks"]:
+        try:
+            author = tomllib.loads(
+                (run_dir / "tasks" / task["directory"] / "task.toml").read_text()
+            ).get("environment", {})
+            base = author.get("build_timeout_sec", EnvironmentConfig().build_timeout_sec)
+            network = author.get(
+                "network_mode", "public" if author.get("allow_internet", True) else "no-network"
+            )
+            if type(base) not in {int, float} or not math.isfinite(base) or base <= 0:
+                raise ValueError("Unrecognized author startup budget")
+            network = network if network in {"public", "no-network", "allowlist"} else "unknown"
+            wait = base * multiplier
+            tasks.append(
+                {
+                    "task": task["package"].split("/", 1)[-1],
+                    "author_build_timeout_sec": base,
+                    "start_wait_timeout_sec": wait
+                    if math.isfinite(wait)
+                    else "exceeds finite range",
+                    "author_network_mode": network,
+                }
+            )
+        except (ValueError, TypeError, OSError):
+            tasks.append(
+                {
+                    "task": task["package"].split("/", 1)[-1],
+                    "author_build_timeout_sec": "unknown",
+                    "start_wait_timeout_sec": "unknown",
+                    "author_network_mode": "unknown",
+                }
+            )
+    return {
+        "multiplier": multiplier,
+        "wall_seconds": manifest["effective"]["wall_seconds"],
+        "scope": "Harbor environment.start (build/pull/up); agent setup and inference unchanged",
+        "tasks": tasks,
+    }
 
 
 def job_config(run_dir, manifest):
@@ -116,6 +164,15 @@ def job_config(run_dir, manifest):
             "n_attempts": cfg["attempts"],
             "n_concurrent_trials": cfg["concurrency"],
             "quiet": True,
+            **(
+                {
+                    "environment_build_timeout_multiplier": cfg[
+                        "environment_build_timeout_multiplier"
+                    ]
+                }
+                if "environment_build_timeout_multiplier" in cfg
+                else {}
+            ),
             "retry": {"max_retries": 0},
             "environment": {
                 "type": "docker",
@@ -251,6 +308,8 @@ def submit(
             manifest.pop("image_alias")
         if service is not None:
             manifest["service"] = service
+        if native and "environment_build_timeout_multiplier" in cfg:
+            manifest["startup_policy"] = startup_policy(path, manifest)
         verify_inputs(path, manifest)
         write_json(path / "manifest.json", manifest)
         write_json(path / "job.json", job_config(path, manifest))

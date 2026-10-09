@@ -1,3 +1,4 @@
+import math
 import re
 from urllib.parse import urlparse
 
@@ -121,6 +122,9 @@ def validate_effective(team, cfg):
     ):
         if type(cfg[key]) is not int or not 1 <= cfg[key] <= team[limit]:
             raise ValueError(f"{key} must be between 1 and {team[limit]}")
+    multiplier = cfg.get("environment_build_timeout_multiplier", 1)
+    if type(multiplier) not in {int, float} or not math.isfinite(multiplier) or multiplier < 1:
+        raise ValueError("environment_build_timeout_multiplier must be finite and at least 1")
     if cfg["agent"] not in {"oracle", "opencode"}:
         raise ValueError("Supported agents: oracle, opencode")
     if not re.fullmatch(r"[\w.-]+/[\w.-]+@(?:[1-9][0-9]*|sha256:[0-9a-f]{64})", cfg["dataset"]):

@@ -30,6 +30,30 @@ class HelperOpenCode(OpenCode):
             decision.update(actual_version=actual, install_seconds=time.monotonic() - started)
             write_json(self.logs_dir / "install-decision.json", decision)
             return
+        # A no-network author task may legitimately ship a matching agent. Only
+        # diagnose missing prerequisites after checking that reuse path above.
+        check = await environment.exec(
+            command='for tool in curl bash cat node npm; do command -v "$tool" >/dev/null 2>&1 || printf \'%s\\n\' "$tool"; done',
+            user="root",
+        )
+        missing = [
+            tool
+            for tool in (check.stdout or "").split()
+            if tool in {"curl", "bash", "cat", "node", "npm"}
+        ]
+        decision["missing_dependencies"] = missing
+        mode = getattr(getattr(environment, "network_policy", None), "network_mode", None)
+        decision["author_network_mode"] = getattr(mode, "value", "unknown")
+        if missing and decision["author_network_mode"] == "no-network":
+            decision.update(status="blocked", install_seconds=time.monotonic() - started)
+            write_json(self.logs_dir / "install-decision.json", decision)
+            raise RuntimeError(
+                "Agent setup blocked: author environment network_mode=no-network; "
+                "fixed OpenCode is not preinstalled and missing dependencies: "
+                + ", ".join(missing)
+                + ". No author network override was applied. Select the reference solution (Oracle) "
+                "or a benchmark whose author environment supports this fixed agent."
+            )
         await self.ensure_system_dependencies(
             environment, ("curl", "bash", "coreutils", "nodejs", "npm")
         )

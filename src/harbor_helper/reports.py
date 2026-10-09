@@ -1,5 +1,6 @@
 import math
 from collections import defaultdict
+from datetime import datetime
 
 from harbor_helper.storage import read_json, write_json
 
@@ -14,6 +15,86 @@ def environment_observations(path):
         except (ValueError, OSError):
             observations.append({"images": "unknown"})
     return observations or "unknown"
+
+
+def trial_diagnosis(result, trial_dir, cfg):
+    """Bounded structured evidence; never copy command output into diagnostic hints."""
+    phases = []
+    for name in ("environment_setup", "agent_setup", "agent_execution", "verifier"):
+        timing = result.get(name)
+        seconds = None
+        if isinstance(timing, dict) and timing.get("started_at") and timing.get("finished_at"):
+            try:
+                seconds = (
+                    datetime.fromisoformat(timing["finished_at"])
+                    - datetime.fromisoformat(timing["started_at"])
+                ).total_seconds()
+            except (ValueError, TypeError):
+                pass
+        phases.append(
+            {
+                "phase": name,
+                "reached": isinstance(timing, dict) and bool(timing.get("started_at")),
+                "seconds": seconds,
+            }
+        )
+    compose = []
+    for evidence in sorted(trial_dir.glob("helper-phases-*.json")):
+        try:
+            for entry in read_json(evidence):
+                if entry.get("phase") in {"build", "pull", "up", "down"}:
+                    seconds = entry.get("seconds")
+                    compose.append(
+                        {
+                            "phase": entry["phase"],
+                            "status": entry.get("status")
+                            if entry.get("status")
+                            in {"running", "completed", "failed", "interrupted"}
+                            else "unknown",
+                            "seconds": seconds
+                            if type(seconds) in {int, float}
+                            and math.isfinite(seconds)
+                            and seconds >= 0
+                            else None,
+                        }
+                    )
+        except (ValueError, OSError, TypeError, AttributeError):
+            pass
+    installation = None
+    try:
+        decision = read_json(trial_dir / "agent" / "install-decision.json")
+        if isinstance(decision, dict):
+            installation = {
+                "missing_dependencies": [
+                    tool
+                    for tool in decision.get("missing_dependencies", [])
+                    if tool in {"curl", "bash", "cat", "node", "npm"}
+                ],
+                "reused": decision.get("reused") is True,
+            }
+    except (ValueError, OSError, TypeError):
+        pass
+    error = result.get("exception_info") or {}
+    error_type = error.get("exception_type", "")
+    phase = next((p["phase"] for p in reversed(phases) if p["reached"]), "unknown")
+    if "author environment network_mode=no-network" in error.get("exception_message", ""):
+        hint = "作者环境禁止联网，且缺少固定OpenCode安装依赖；未覆盖作者策略。可选择参考解（不调用模型），或支持该代理的作者benchmark。此模型路径尚未执行成功。"
+    elif error_type == "EnvironmentStartTimeoutError":
+        hint = "环境启动超过作者时限×冻结倍数；检查构建/拉取/启动记录和整体运行时长。up包含入口程序与Compose健康等待，不能据此单独认定健康检查失败。"
+    elif phase == "agent_setup" and error:
+        hint = "代理准备失败，尚未推理。检查作者网络策略、软件包仓库及固定OpenCode版本安装；启动等待倍数不延长安装阶段。"
+    elif error:
+        hint = "执行异常；查看已审计日志及各阶段记录。"
+    else:
+        hint = "阶段耗时为可观察证据；未到达的阶段不代表零耗时。"
+    return {
+        "phase": phase,
+        "hint": hint,
+        "phases": phases,
+        "compose": compose or "unknown",
+        "startup_multiplier": cfg.get("environment_build_timeout_multiplier", 1),
+        "agent_installation": installation,
+    }
 
 
 def report(store, run_id):
@@ -59,6 +140,7 @@ def report(store, run_id):
                     or (None if valid else {"exception_type": "MissingReward"}),
                     "evidence": str(p.parent),
                     "agent_info": result.get("agent_info"),
+                    "diagnosis": trial_diagnosis(result, p.parent, manifest["effective"]),
                     "phase_timings": {
                         k: result.get(k) or "unknown"
                         for k in ("environment_setup", "agent_setup", "agent_execution", "verifier")

@@ -100,19 +100,50 @@ class NativeDockerEnvironment(DockerEnvironment):
         if command == ["down", "--rmi", "local", "--volumes", "--remove-orphans"]:
             await self._observe()  # Persist ownership before containers disappear.
             command = ["down", "--volumes", "--remove-orphans"]
+        phase = command[0] if command else "unknown"
+        if phase not in {"build", "pull", "up", "down"}:
+            return await super()._run_docker_compose_command(command, **kwargs)
+        project = _sanitize_docker_compose_project_name(self.session_id)
+        target = self.trial_paths.trial_dir / f"helper-phases-{project}.json"
         started = time.monotonic()
-        result = await super()._run_docker_compose_command(command, **kwargs)
-        if command and command[0] == "up":
-            await self._observe()
-        if command and command[0] in {"build", "up"}:
-            project = _sanitize_docker_compose_project_name(self.session_id)
+        entry = {"phase": phase, "started_at": time.time(), "status": "running"}
+        try:
+            entries = read_json(target) if target.exists() else []
+        except (ValueError, OSError):
+            entries = []
+        if not isinstance(entries, list):
+            entries = []
+        entries.append(entry)
+
+        def persist():
             try:
-                with (self.trial_paths.trial_dir / f"helper-compose-{project}.log").open(
-                    "a"
-                ) as log:
-                    log.write(f"{command[0]} seconds={time.monotonic() - started:.6f}\n")
-                    log.write(result.stdout or "")
-                    log.write("\n")
+                write_json(target, entries)
             except OSError:
-                self.logger.warning("Helper Compose timing/output observation unavailable")
-        return result
+                self.logger.warning("Helper Compose phase observation unavailable")
+
+        persist()
+        try:
+            result = await super()._run_docker_compose_command(command, **kwargs)
+            entry["status"] = "completed"
+            if phase == "up":
+                await self._observe()
+            if phase in {"build", "up"}:
+                try:
+                    with (self.trial_paths.trial_dir / f"helper-compose-{project}.log").open(
+                        "a"
+                    ) as log:
+                        log.write(f"{phase} seconds={time.monotonic() - started:.6f}\n")
+                        log.write(result.stdout or "")
+                        log.write("\n")
+                except OSError:
+                    self.logger.warning("Helper Compose timing/output observation unavailable")
+            return result
+        except asyncio.CancelledError:
+            entry["status"] = "interrupted"
+            raise
+        except Exception:
+            entry["status"] = "failed"
+            raise
+        finally:
+            entry.update(seconds=time.monotonic() - started, finished_at=time.time())
+            persist()

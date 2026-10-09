@@ -362,6 +362,7 @@ function NewExperiment() {
                 attempts: Number(f.get("attempts")),
                 concurrency: Number(f.get("concurrency")),
                 wall_seconds: Number(f.get("wall_seconds")),
+                environment_build_timeout_multiplier: Number(f.get("environment_build_timeout_multiplier")),
               },
               submitKey.current,
             );
@@ -508,7 +509,7 @@ function NewExperiment() {
             </CardContent>
           </Card>
           <details>
-            <summary>高级参数：尝试次数、并发与运行时长</summary>
+            <summary>高级参数：启动等待、尝试次数、并发与运行时长</summary>
             <Card>
               <CardHeader>
                 <CardTitle>运行限制</CardTitle>
@@ -518,6 +519,11 @@ function NewExperiment() {
               </CardHeader>
               <CardContent>
                 <FieldGroup className="numeric-fields">
+                  <Field>
+                    <FieldLabel htmlFor="environment_build_timeout_multiplier">环境启动等待倍数</FieldLabel>
+                    <Input id="environment_build_timeout_multiplier" name="environment_build_timeout_multiplier" type="number" min="1" step="0.1" defaultValue={restored.environment_build_timeout_multiplier ?? 10} required />
+                    <FieldDescription>这是实验准备等待调整，作者声明的时限与文件保持不变。作者 build_timeout_sec × 此倍数，覆盖构建、拉取与容器启动等待。默认10：作者30秒时等待300秒；1保留作者时限。整体运行时长仍可提前终止，安装依赖与推理时限不受此项影响。提交后冻结，重跑沿用。</FieldDescription>
+                  </Field>
                   <Field>
                     <FieldLabel htmlFor="attempts">每任务尝试次数</FieldLabel>
                     <Input
@@ -568,6 +574,7 @@ function NewExperiment() {
           <Separator />
           <p>提交者记为当前账户。重跑时创建新的实验记录，不覆盖历史结果。</p>
           <p>提供商、模型与参数在提交后固定；执行前会再次检查凭据是否可用。</p>
+          <p>新实验环境准备等待默认为作者时限×10，可在高级参数改为1或其他倍数；整体运行上限仍生效。</p>
           <Button
             type="submit"
             disabled={
@@ -856,6 +863,17 @@ function RunDetailContent({ user }: { user: Item }) {
           </AlertDescription>
         </Alert>
       ) : null}
+      {data?.report?.tasks?.flatMap((task: Item) => task.attempts || []).filter((attempt: Item) => attempt.diagnosis).map((attempt: Item) => (
+        <Card key={attempt.trial || attempt.task}>
+          <CardHeader><CardTitle>{attempt.valid ? "执行阶段与耗时" : "失败定位与阶段耗时"} · {attempt.task}</CardTitle><CardDescription>{attempt.diagnosis.hint}</CardDescription></CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p>最后到达：{({environment_setup: "环境启动", agent_setup: "代理安装与准备", agent_execution: "推理/参考解执行", verifier: "评分"} as Record<string, string>)[attempt.diagnosis.phase] || "未知"} · 启动倍数 {attempt.diagnosis.startup_multiplier}</p>
+            <p>{attempt.diagnosis.phases.map((phase: Item) => `${({environment_setup: "环境启动", agent_setup: "代理准备", agent_execution: "执行", verifier: "评分"} as Record<string, string>)[phase.phase]}：${phase.reached ? phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒` : "未到达"}`).join("；")}</p>
+            {attempt.diagnosis.agent_installation?.missing_dependencies?.length ? <p>代理安装缺少：{attempt.diagnosis.agent_installation.missing_dependencies.join("、")}；请查看作者网络约束与已审计日志。</p> : null}
+            <p>Compose：{Array.isArray(attempt.diagnosis.compose) ? attempt.diagnosis.compose.map((phase: Item) => `${phase.phase} ${phase.status} ${phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒`}`).join("；") : "阶段记录未知（旧记录可能未保存）"}</p>
+          </CardContent>
+        </Card>
+      ))}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="overview">配置与状态</TabsTrigger>
@@ -881,6 +899,8 @@ function RunDetailContent({ user }: { user: Item }) {
                   完成时间: date(row.finished),
                   执行并发: row.concurrency,
                   状态原因: row.reason || "—",
+                  作者启动时限与有效等待: manifest.startup_policy?.tasks?.map((task: Item) => `${task.task}：作者 ${task.author_build_timeout_sec} 秒 × ${manifest.startup_policy.multiplier} = 准备等待 ${task.start_wait_timeout_sec} 秒；作者网络 ${task.author_network_mode}`).join("；") || "未知",
+                  环境启动策略: `作者 build_timeout_sec × ${manifest.effective?.environment_build_timeout_multiplier ?? 1}（冻结）；整体运行上限 ${manifest.effective?.wall_seconds ?? "未知"} 秒`,
                 }).map(([k, v]) => (
                   <div key={k}>
                     <dt>{k}</dt>

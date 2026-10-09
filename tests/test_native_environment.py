@@ -80,7 +80,7 @@ def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypat
     assert job_config(data.store.path(child), child_manifest)["environment"].get("env", {}) == {}
 
 
-def test_native_adapter_preserves_build_up_and_down_volumes(monkeypatch):
+def test_native_adapter_preserves_build_up_and_down_volumes(monkeypatch, tmp_path):
     calls = []
 
     async def original(self, command, **kwargs):
@@ -93,6 +93,8 @@ def test_native_adapter_preserves_build_up_and_down_volumes(monkeypatch):
     monkeypatch.setattr(DockerEnvironment, "_run_docker_compose_command", original)
     monkeypatch.setattr(NativeDockerEnvironment, "_observe", observe)
     env = object.__new__(NativeDockerEnvironment)
+    env.session_id = "owned-test"
+    env.trial_paths = SimpleNamespace(trial_dir=tmp_path)
     asyncio.run(
         env._run_docker_compose_command(["down", "--rmi", "local", "--volumes", "--remove-orphans"])
     )

@@ -207,6 +207,8 @@ def test_fixed_opencode_installer_uses_system_node_without_nvm(tmp_path, previou
     probes = iter([previous, "1.18.35"])
 
     async def probe(**kwargs):
+        if kwargs["command"].startswith("for tool in"):
+            return SimpleNamespace(stdout="", return_code=0)
         version = next(probes)
         return SimpleNamespace(stdout=version, return_code=0 if version else 1)
 
