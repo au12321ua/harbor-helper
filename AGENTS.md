@@ -1,12 +1,12 @@
 # 项目工作入口
 
-先读 [docs/HANDOFF.md](docs/archive/handoff-2026-10-09.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。
+先读 [docs/HANDOFF.md](docs/HANDOFF.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。
 
 ## 目标与用户确认的边界
 
 让受邀的可信团队通过 CLI 和 Web 提交、观察、比较和重跑实验；数据集可选择，实验配置固定，结果全团队共享。
 
-本轮用户优先级：成员只用浏览器、不登录服务器完成实验操作，管理员日常配置也在网页完成；结构整理次要。当前 Web 交付与版本限定的独立结论见 `docs/web-usability-checker-report.md`。
+本轮用户优先级：成员只用浏览器、不登录服务器完成实验操作，管理员日常配置也在网页完成；结构整理次要。当前交付从[HANDOFF](docs/HANDOFF.md)读取；此前Web流程的[独立报告](docs/evidence/web-usability/web-usability-checker-report.md)仅是旧固定版本证据，不覆盖本次P2。
 
 - 保留个人提交身份，仅成员/管理员两种角色；管理员邀请账户，不开放注册，不引入复杂 SSO。
 - 成员取消自己的任务；管理员可取消任何任务、删除产物、管理团队凭据与容量；重跑归当前提交者。
@@ -18,7 +18,7 @@
 
 ## 按任务查阅
 
-- 需求来源与现场、证据边界、文档冲突：[HANDOFF](docs/archive/handoff-2026-10-09.md)。
+- 当前任务、现场与证据边界：[当前HANDOFF](docs/HANDOFF.md)。旧需求来源、版本现场和文档冲突见[历史交接](docs/archive/handoff-2026-10-09.md)，其中“当前”只属于原记录时点。
 - 服务设计/验收/运行：[service-design](docs/archive/team-service/service-design.md)、[service-acceptance](docs/reference/service-acceptance.md)、[service-operations](docs/guides/web-service.md)。技术细节的来源分类以交接为准。
 - 本地 CLI：[README](README.md)、[configuration](docs/guides/local-configuration.md)、[operations](docs/guides/local-operations.md)；历史验收：[acceptance](docs/archive/local-cli/acceptance.md)。
 - 职责与兼容：[源码结构](docs/architecture/source-layout.md)。应用/API/数据：`src/harbor_helper/service/{application,api,data}.py`；CLI：`commands/{main,service,remote}.py`。
