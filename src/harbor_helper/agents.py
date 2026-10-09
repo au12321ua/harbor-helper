@@ -4,17 +4,30 @@ import shlex
 import time
 from pathlib import Path
 
-from harbor.agents.installed.opencode import OpenCode
+from harbor.agents.installed.opencode import OpenCode, OpenCodeOptions
 from harbor.agents.oracle import OracleAgent
+from pydantic import Field
 
 from harbor_helper.storage import write_json
 
 
+class HelperOpenCodeOptions(OpenCodeOptions):
+    """Declare helper kwargs at Harbor Job preflight; retain native strict options."""
+
+    helper_tool_cache: str | None = Field(default=None, min_length=1, strict=True)
+
+
+class BundledOpenCodeOptions(HelperOpenCodeOptions):
+    helper_bundle: str | None = Field(default=None, min_length=1, strict=True)
+
+
 class HelperOpenCode(OpenCode):
+    options_model = HelperOpenCodeOptions
+
     def __init__(self, *args, helper_tool_cache=None, **kwargs):
         self.helper_tool_cache = Path(helper_tool_cache) if helper_tool_cache else None
         self._offline_tool = False
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, helper_tool_cache=helper_tool_cache, **kwargs)
 
     async def exec_as_agent(self, environment, command, **kwargs):
         if self.helper_tool_cache:
@@ -219,4 +232,4 @@ class BundledOracle(BundleMixin, OracleAgent):
 
 
 class BundledOpenCode(BundleMixin, HelperOpenCode):
-    pass
+    options_model = BundledOpenCodeOptions
