@@ -271,3 +271,43 @@ def test_automatic_model_ids_binding_edit_and_no_key_echo(web):
         "/api/v1/admin/model-profiles", headers=WRITE, json={**profile, "provider_id": other["id"]}
     )
     assert bad.status_code == 422 and bad.json()["code"] == "credential_binding"
+
+
+def test_hub_persistent_metadata_and_legacy_migration(web):
+    data, _app, client = web
+    assert client.get("/api/v1/catalog").json()["hub"]["state"] == "unset"
+    saved = client.post("/api/v1/admin/hub", headers=WRITE, json={"key": "fake-metadata-pat"})
+    assert saved.status_code == 200
+    assert saved.json()["state"] == "active" and saved.json()["version"] == 1
+    assert saved.json()["updated_at"] > 0
+    assert "fake-metadata-pat" not in saved.text
+    assert Application(data.root).catalog()["hub"] == saved.json()
+    rotated = client.post("/api/v1/admin/hub", headers=WRITE, json={"key": "fake-next-pat"}).json()
+    assert rotated["version"] == 2 and rotated["updated_at"] >= saved.json()["updated_at"]
+    disabled = client.post("/api/v1/admin/hub/disable", headers=WRITE).json()
+    assert disabled["state"] == "disabled" and disabled["version"] == 2
+    assert Application(data.root).catalog()["hub"] == disabled
+    # Recreate only the old schema in this isolated fixture to verify an upgrade.
+    with data.store.connect() as db:
+        db.execute("ALTER TABLE source_credentials RENAME TO old_sources")
+        db.execute("CREATE TABLE source_credentials(version INTEGER PRIMARY KEY, enabled INTEGER NOT NULL, nonce BLOB NOT NULL, ciphertext BLOB NOT NULL)")
+        db.execute("INSERT INTO source_credentials SELECT version,enabled,nonce,ciphertext FROM old_sources")
+        db.execute("DROP TABLE old_sources")
+    upgraded = Application(data.root)
+    assert upgraded.catalog()["hub"]["updated_at"] is None
+    assert upgraded.catalog()["hub"]["state"] == "disabled"
+    assert upgraded.configuration.hub_key() is None
+    next_result = upgraded.configuration.save_hub("fake-upgraded-pat")
+    assert next_result["version"] == 3 and next_result["updated_at"] > 0
+    assert upgraded.configuration.hub_key() == "fake-upgraded-pat"
+
+
+def test_docker_discovery_admin_only(web, monkeypatch):
+    _data, _app, client = web
+    calls = []
+    monkeypatch.setattr("harbor_helper.service_docker.discover_docker", lambda: calls.append(True) or {"state": "ready", "images": []})
+    assert client.get("/api/v1/admin/docker").json()["state"] == "ready"
+    assert calls == [True]
+    client.post("/api/v1/auth/login", headers=WRITE, json={"username": "member", "password": PASSWORD})
+    assert client.get("/api/v1/admin/docker").status_code == 403
+    assert calls == [True]

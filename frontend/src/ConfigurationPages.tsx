@@ -48,12 +48,15 @@ function AdminForm({
     options?: { value: string; label: string }[];
     defaultValue?: string;
     required?: boolean;
+    copyTo?: string;
+    description?: string;
   }[];
   onSave: (value: Item) => Promise<unknown>;
   resetOnSave?: boolean;
 }) {
   const [error, setError] = useState<unknown>(),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [saved, setSaved] = useState(false);
   return (
     <Card>
       <CardHeader>
@@ -67,11 +70,13 @@ function AdminForm({
             const form = e.currentTarget;
             setBusy(true);
             setError(undefined);
+            setSaved(false);
             const value = Object.fromEntries(new FormData(form));
             try {
               await onSave(value);
               if (resetOnSave) form.reset();
               toast.success("配置已保存");
+              setSaved(true);
             } catch (err) {
               setError(err);
             } finally {
@@ -98,6 +103,10 @@ function AdminForm({
                     name={f.name}
                     required={f.required !== false}
                     defaultValue={f.defaultValue || ""}
+                    onChange={f.copyTo ? (e) => {
+                      const target = e.currentTarget.form?.elements.namedItem(f.copyTo!);
+                      if (target instanceof HTMLInputElement && e.currentTarget.value) target.value = e.currentTarget.value;
+                    } : undefined}
                   >
                     {!f.defaultValue ? <option value="">请选择</option> : null}
                     {f.options.map((o) => (
@@ -126,9 +135,11 @@ function AdminForm({
                     }
                   />
                 )}
+                {f.description ? <p className="text-sm text-muted-foreground">{f.description}</p> : null}
               </Field>
             ))}
             <ErrorNotice error={error} />
+            {saved ? <p role="status">保存完成；下方状态以当前配置为准。</p> : null}
             <Button disabled={busy} type="submit">
               {busy ? (
                 <LoaderCircle
@@ -193,7 +204,7 @@ function ModelForm({
             {
               name: "credential_id",
               label: "团队 key",
-              defaultValue: selected?.credential_id,
+              defaultValue: selected?.provider_id === provider ? selected?.credential_id : undefined,
               options: credentials.map((c: Item) => ({
                 value: c.id,
                 label: c.label,
@@ -262,7 +273,14 @@ export function Admin() {
     [edit, setEdit] = useState<Item>({}),
     [rotation, setRotation] = useState(""),
     [reset, setReset] = useState<Item>(),
-    [saving, setSaving] = useState(false);
+    [saving, setSaving] = useState(false),
+    [hubNotice, setHubNotice] = useState(""),
+    [hubError, setHubError] = useState<unknown>(),
+    [docker, setDocker] = useState<Item>(),
+    [dockerBusy, setDockerBusy] = useState(false),
+    [dockerError, setDockerError] = useState<unknown>(),
+    [providerFilter, setProviderFilter] = useState(""),
+    [keyFilter, setKeyFilter] = useState("");
   if (loading) return <Loading />;
   const users = rowsOf(data?.[0], "users"),
     c = data?.[1] || {};
@@ -281,6 +299,13 @@ export function Admin() {
     } finally {
       setSaving(false);
     }
+  }
+  async function discoverDocker() {
+    setDockerBusy(true);
+    setDockerError(undefined);
+    try { setDocker(await api("/admin/docker")); }
+    catch (e) { setDockerError(e); }
+    finally { setDockerBusy(false); }
   }
   async function action(path: string, value: Item = {}, method = "POST") {
     try {
@@ -304,6 +329,12 @@ export function Admin() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
+              {kind === "dataset" ? (
+                <p>绑定环境：{(c.runtimes || []).find((r: Item) => r.id === v.runtime_id)?.name || "环境已不可用"}
+                  {" · "}{(c.runtimes || []).find((r: Item) => r.id === v.runtime_id)?.status === "verified" ? "环境已验证" : "环境尚未验证"}
+                  {v.runtime_version ? ` · 数据集验证绑定环境v${v.runtime_version}` : " · 数据集尚未完成绑定验证"}
+                </p>
+              ) : null}
               <p>
                 {v.status === "verified"
                   ? "已验证"
@@ -434,15 +465,36 @@ export function Admin() {
               </CardContent>
             </Card>
             <div className="flex flex-col gap-4">
+              <Card>
+                <CardHeader><CardTitle>Hub 凭据状态</CardTitle></CardHeader>
+                <CardContent className="flex flex-col gap-2">
+                  <p>凭据：{c.hub?.state === "active" || c.hub?.mode === "team" ? "已设置（启用）" : c.hub?.version ? "已停用" : "未设置"}</p>
+                  <p>版本：{c.hub?.version ? `v${c.hub.version}` : "无"} · 更新时间：{c.hub?.updated_at ? date(c.hub.updated_at) : c.hub?.version ? "旧版本未记录" : "无"}</p>
+                  <p>保存仅代表加密持久化，未验证Hub身份或数据集访问权限。访问验证结果请查看数据集条目的验证状态。</p>
+                  {hubNotice ? <p role="status">{hubNotice}</p> : null}
+                  <ErrorNotice error={hubError} />
+                </CardContent>
+              </Card>
               <AdminForm
                 title="团队 Hub 来源凭据"
                 description="只写入并加密保存。输入 Hub PAT，保存后去数据集页面验证权限；轮换后重新验证数据集。PAT 只用于来源准备，不进入执行环境。"
                 fields={[{ name: "key", label: "Hub PAT", type: "password" }]}
-                onSave={(v) => save("/admin/hub", v)}
+                onSave={async (v) => {
+                  setHubNotice(""); setHubError(undefined);
+                  await save("/admin/hub", v);
+                  setHubNotice("Hub PAT已保存，输入已清空；若已有凭据则完成轮换。请另行验证数据集访问。");
+                }}
               />
               <Button
                 variant="outline"
-                onClick={() => void action("/admin/hub/disable")}
+                disabled={!c.hub?.version || c.hub?.state === "disabled"}
+                onClick={async () => {
+                  setHubNotice(""); setHubError(undefined);
+                  try {
+                    await save("/admin/hub/disable", {});
+                    setHubNotice("Hub凭据已停用，当前使用匿名来源；需要权限的数据集须重新配置凭据。");
+                  } catch (e) { setHubError(e); }
+                }}
               >
                 停用 Hub 凭据，改为匿名来源
               </Button>
@@ -457,6 +509,18 @@ export function Admin() {
                 c[kind === "dataset" ? "datasets" : "runtimes"] || [],
               )}
               <div className="flex flex-col gap-4">
+                {kind === "runtime" ? (
+                  <Card>
+                    <CardHeader><CardTitle>服务端 Docker 与本地镜像</CardTitle></CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                      <p>读取运行本网站的服务端；不拉取、构建或删除镜像。</p>
+                      <Button disabled={dockerBusy} onClick={() => void discoverDocker()}>{dockerBusy ? "发现中…" : "发现本机 Docker 与镜像"}</Button>
+                      <ErrorNotice error={dockerError} />
+                      {docker ? <><p role="status">{docker.message}</p><p>发现时间：{date(docker.checked_at)} · 可选镜像：{docker.images.length}{docker.truncated ? "（列表已截断，可手动填写）" : ""}</p></> : <p>尚未发现。点击按钮查看安装、daemon连接和镜像列表。</p>}
+                      <p>数据集提供任务，任务可能自带Dockerfile或Compose。本环境指定本服务运行该数据集时的固定镜像；只有任务Compose使用相应变量时才会应用。保存或镜像发现不证明任务兼容。</p>
+                    </CardContent>
+                  </Card>
+                ) : <p>数据集绑定一个环境配置；验证会记录环境版本。任务可能自带Dockerfile/Compose，请按任务约定选择环境。</p>}
                 <AdminForm
                   key={JSON.stringify(edit[kind] || {})}
                   title={`${edit[kind] ? "编辑" : "添加"}${kind === "dataset" ? "数据集" : "运行环境"}`}
@@ -480,7 +544,8 @@ export function Admin() {
                             defaultValue: edit.dataset?.runtime_id,
                             options: (c.runtimes || []).map((r: Item) => ({
                               value: r.id,
-                              label: r.name,
+                              label: `${r.name} · v${r.version} · ${r.status === "verified" ? "已验证" : "未验证"}`,
+
                             })),
                           },
                           {
@@ -500,20 +565,37 @@ export function Admin() {
                             defaultValue: edit.runtime?.name,
                           },
                           {
+                            name: "local_image",
+                            label: "选择本地镜像",
+                            required: false,
+                            copyTo: "image",
+                            options: (docker?.images || []).map((image: Item) => ({value: image.reference, label: image.reference})),
+                            description: "先点击发现；选择后复制到镜像引用，也可直接填写其他引用。未加载的镜像须部署负责人准备。",
+                          },
+                          {
                             name: "image",
                             label: "Docker 镜像引用",
                             defaultValue: edit.runtime?.image,
                           },
                           {
+                            name: "image_contract",
+                            label: "任务镜像约定",
+                            defaultValue: edit.runtime ? (JSON.stringify(edit.runtime.image_env) === JSON.stringify(["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"]) ? "cad" : edit.runtime.image_env?.length ? "custom" : "native") : "",
+                            options: [
+                              {value: "cad", label: "CAD模板：agent与verifier使用所选镜像"},
+                              {value: "agent", label: "CAD模板：仅agent使用所选镜像"},
+                              {value: "verifier", label: "CAD模板：仅verifier使用所选镜像"},
+                              {value: "native", label: "任务自带构建/镜像：不注入变量"},
+                              {value: "custom", label: "高级：自定义Compose变量"},
+                            ],
+                            description: "CAD预置只适用于支持CAD_BENCH_AGENT_IMAGE / CAD_BENCH_VERIFIER_IMAGE的模板，分别控制agent执行环境和verifier评分环境；两者会收到同一固定镜像alias。其他任务请按其Compose约定选择自定义或不注入，不会自动适配。",
+                          },
+                          {
                             name: "image_env",
-                            label: "镜像变量名（逗号分隔）",
-                            defaultValue: (
-                              edit.runtime?.image_env || [
-                                "CAD_BENCH_AGENT_IMAGE",
-                                "CAD_BENCH_VERIFIER_IMAGE",
-                              ]
-                            ).join(","),
+                            label: "高级镜像变量名（逗号分隔）",
+                            defaultValue: (edit.runtime?.image_env || []).join(","),
                             required: false,
+                            description: "仅选择高级自定义时使用。变量值为所选镜像的固定alias，不是任意环境变量值。",
                           },
                           {
                             name: "enabled",
@@ -527,16 +609,14 @@ export function Admin() {
                         ]
                   }
                   onSave={async (v) => {
+                    const {local_image: _local, image_contract: contract, ...values} = v;
                     const saved = await save(`/admin/catalog/${kind}`, {
-                      ...v,
+                      ...values,
                       id: edit[kind]?.id,
                       enabled: v.enabled === "true",
                       ...(kind === "runtime"
                         ? {
-                            image_env: v.image_env
-                              .split(",")
-                              .map((x: string) => x.trim())
-                              .filter(Boolean),
+                            image_env: contract === "cad" ? ["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"] : contract === "agent" ? ["CAD_BENCH_AGENT_IMAGE"] : contract === "verifier" ? ["CAD_BENCH_VERIFIER_IMAGE"] : contract === "native" ? [] : v.image_env.split(",").map((x: string) => x.trim()).filter(Boolean),
                           }
                         : {}),
                     });
@@ -563,13 +643,23 @@ export function Admin() {
                 的绑定，停用阻止新执行。
               </AlertDescription>
             </Alert>
+            <div className="flex flex-wrap gap-4">
+              <SelectField label="筛选提供商" name="filter-provider" value={providerFilter} onChange={(v) => {setProviderFilter(v); setKeyFilter("");}}>
+                <option value="">全部提供商</option>
+                {(c.providers || []).map((p: Item) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </SelectField>
+              <SelectField label="筛选团队 key" name="filter-key" value={keyFilter} onChange={setKeyFilter}>
+                <option value="">全部key</option>
+                {(c.credentials || []).filter((k: Item) => !providerFilter || k.provider_id === providerFilter).map((k: Item) => <option key={k.id} value={k.id}>{(c.providers || []).find((p: Item) => p.id === k.provider_id)?.name} → {k.label}</option>)}
+              </SelectField>
+            </div>
             <div className="admin-layout">
               <div className="flex flex-col gap-4">
-                {(c.providers || []).map((p: Item) => (
+                {(c.providers || []).filter((p: Item) => !providerFilter || p.id === providerFilter).map((p: Item) => (
                   <Card key={p.id}>
                     <CardHeader>
                       <CardTitle>{p.name}</CardTitle>
-                      <CardDescription>{p.endpoint}</CardDescription>
+                      <CardDescription>{p.endpoint} · {p.enabled ? "启用" : "停用"} · {(c.credentials || []).filter((k: Item) => k.provider_id === p.id).length}个key · {(c.model_profiles || []).filter((m: Item) => m.provider_id === p.id).length}个方案</CardDescription>
                     </CardHeader>
                     <CardContent className="flex gap-2">
                       <Button
@@ -593,6 +683,9 @@ export function Admin() {
                   </Card>
                 ))}
               </div>
+              <div className="flex flex-col gap-3">
+              <p>{edit.provider ? `正在编辑：${edit.provider.name}` : "正在新建提供商"}；每个提供商可有多个key，每个key可有多个方案。</p>
+              <Button variant="outline" onClick={() => setEdit((current) => ({...current, provider: undefined}))}>新建提供商</Button>
               <AdminForm
                 key={JSON.stringify(edit.provider || {})}
                 title="提供商配置"
@@ -620,10 +713,11 @@ export function Admin() {
                   setEdit((current) => ({ ...current, provider: saved }));
                 }}
               />
+              </div>
             </div>
             <div className="admin-layout">
               <div className="flex flex-col gap-3">
-                {(c.credentials || []).map((key: Item) => (
+                {(c.credentials || []).filter((k: Item) => (!providerFilter || k.provider_id === providerFilter) && (!keyFilter || k.id === keyFilter)).map((key: Item) => (
                   <Card key={key.id}>
                     <CardHeader>
                       <CardTitle>
@@ -635,7 +729,7 @@ export function Admin() {
                             (p: Item) => p.id === key.provider_id,
                           )?.name
                         }{" "}
-                        · {key.enabled ? "启用" : "停用"}
+                        · {key.enabled ? "启用" : "停用"} · {(c.model_profiles || []).filter((m: Item) => m.credential_id === key.id).length}个方案
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex gap-2">
@@ -674,7 +768,7 @@ export function Admin() {
               </div>
               <AdminForm
                 title="添加团队 key"
-                description="密钥加密保存，不回显、不保存在浏览器。"
+                description="每个提供商可新增多个key。绑定保持不变；轮换或停用已有key，方案可编辑或新增。密钥加密保存，不回显、不保存在浏览器。"
                 fields={[
                   { name: "label", label: "Key 名称" },
                   {
@@ -692,19 +786,14 @@ export function Admin() {
             </div>
             <div className="admin-layout">
               <div className="flex flex-col gap-4">
-                {(c.model_profiles || []).map((p: Item) => (
+                {(c.model_profiles || []).filter((p: Item) => (!providerFilter || p.provider_id === providerFilter) && (!keyFilter || p.credential_id === keyFilter)).map((p: Item) => (
                   <Card key={p.id}>
                     <CardHeader>
                       <CardTitle>
                         {p.name} · {p.model}
                       </CardTitle>
                       <CardDescription>
-                        {
-                          (c.credentials || []).find(
-                            (k: Item) => k.id === p.credential_id,
-                          )?.label
-                        }{" "}
-                        · v{p.version}
+                        {(c.providers || []).find((provider: Item) => provider.id === p.provider_id)?.name} → {(c.credentials || []).find((k: Item) => k.id === p.credential_id)?.label} · v{p.version} · {p.enabled ? "启用" : "停用"}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-wrap gap-2">

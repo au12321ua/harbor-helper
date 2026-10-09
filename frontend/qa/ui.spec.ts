@@ -596,3 +596,91 @@ test("failed credential save retains nonsecret inputs and clears secret", async 
   await expect(form.getByLabel("提供商", { exact: true })).toHaveValue("p1");
   await expect(form.getByLabel("密钥", { exact: true })).toHaveValue("");
 });
+
+test("Hub status survives reload and distinguishes storage from access validation", async ({page}) => {
+  await fixture(page);
+  const current: any = structuredClone(catalog);
+  current.hub = {state: "unset", mode: "anonymous", version: null, updated_at: null};
+  await page.route("**/api/v1/catalog", route => route.fulfill({json: current}));
+  await page.route("**/api/v1/admin/hub", async route => {
+    current.hub = {state: "active", mode: "team", version: (current.hub.version || 0) + 1, updated_at: 1791518000};
+    await route.fulfill({json: current.hub});
+  });
+  await page.route("**/api/v1/admin/hub/disable", async route => {
+    current.hub = {...current.hub, state: "disabled", mode: "anonymous"};
+    await route.fulfill({json: current.hub});
+  });
+  await page.goto("/admin");
+  await expect(page.getByText("凭据：未设置", {exact:true})).toBeVisible();
+  const form = page.locator("form").filter({has: page.getByLabel("Hub PAT", {exact:true})});
+  for (let version = 1; version <= 2; version++) {
+    await form.getByLabel("Hub PAT", {exact:true}).fill("fake-hub-ui-pat");
+    await form.getByRole("button", {name:"保存", exact:true}).click();
+    await expect(page.getByText("凭据：已设置（启用）", {exact:true})).toBeVisible();
+    await expect(form.getByLabel("Hub PAT", {exact:true})).toHaveValue("");
+    await expect(page.getByText(new RegExp(`版本：v${version}`))).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("凭据：已设置（启用）", {exact:true})).toBeVisible();
+  }
+  await expect(page.getByText("保存仅代表加密持久化，未验证Hub身份或数据集访问权限。访问验证结果请查看数据集条目的验证状态。", {exact:true})).toBeVisible();
+  await page.getByRole("button", {name:"停用 Hub 凭据，改为匿名来源"}).click();
+  await expect(page.getByText("凭据：已停用", {exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("凭据：已停用", {exact:true})).toBeVisible();
+});
+
+test("Docker discovery offers local selection and explicit CAD or custom contracts", async ({page}) => {
+  const calls = await fixture(page);
+  await page.route("**/api/v1/admin/docker", route => route.fulfill({json:{state:"ready", checked_at:1791518000, message:"Docker daemon 可达", images:[{reference:"python:local"}], truncated:false}}));
+  await page.goto("/admin");
+  await page.getByRole("tab", {name:"运行环境", exact:true}).click();
+  await page.getByRole("button", {name:"发现本机 Docker 与镜像", exact:true}).click();
+  await expect(page.getByText("Docker daemon 可达", {exact:true})).toBeVisible();
+  await page.getByLabel("环境名称", {exact:true}).fill("CAD local");
+  await page.getByLabel("选择本地镜像", {exact:true}).selectOption("python:local");
+  await expect(page.getByLabel("Docker 镜像引用", {exact:true})).toHaveValue("python:local");
+  await page.getByLabel("任务镜像约定", {exact:true}).selectOption("cad");
+  const form = page.locator("form").filter({has: page.getByLabel("环境名称", {exact:true})});
+  await form.getByRole("button", {name:"保存", exact:true}).click();
+  await expect.poll(() => calls.filter(c => c.path === "/admin/catalog/runtime" && c.body).length).toBe(1);
+  expect(calls.find(c => c.path === "/admin/catalog/runtime" && c.body)?.body.image_env).toEqual(["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"]);
+  await page.route("**/api/v1/admin/docker", route => route.fulfill({json:{state:"permission_denied", checked_at:1791518001, message:"服务账户没有daemon访问权限", images:[], truncated:false}}));
+  await page.getByRole("button", {name:"发现本机 Docker 与镜像", exact:true}).click();
+  await expect(page.getByText("服务账户没有daemon访问权限", {exact:true})).toBeVisible();
+});
+
+test("explicit new provider creates another object and editing preserves its peers", async ({page}) => {
+  await fixture(page);
+  const current: any = structuredClone(catalog);
+  current.providers = [];
+  const writes: any[] = [];
+  await page.route("**/api/v1/catalog", route => route.fulfill({json: current}));
+  await page.route("**/api/v1/admin/providers", async route => {
+    const v = route.request().postDataJSON();
+    writes.push(v);
+    const index = current.providers.findIndex((p: any) => p.id === v.id);
+    const saved = {...v, id: v.id || `provider${current.providers.length + 1}`, version: index < 0 ? 1 : current.providers[index].version + 1};
+    if (index < 0) current.providers.push(saved); else current.providers[index] = saved;
+    await route.fulfill({json: saved});
+  });
+  await page.goto("/admin");
+  await page.getByRole("tab", {name:"模型与 key", exact:true}).click();
+  const form = page.locator("form").filter({has:page.getByLabel("提供商名称", {exact:true})});
+  for (const name of ["A", "B"]) {
+    await page.getByRole("button", {name:"新建提供商", exact:true}).click();
+    await expect(page.getByLabel("提供商名称", {exact:true})).toHaveValue("");
+    await page.getByLabel("提供商名称", {exact:true}).fill(name);
+    await page.getByLabel("API 端点", {exact:true}).fill(`https://${name.toLowerCase()}.invalid/v1`);
+    await form.getByRole("button", {name:"保存", exact:true}).click();
+    await expect(page.getByText(`正在编辑：${name}`, {exact:false})).toBeVisible();
+  }
+  expect(current.providers).toHaveLength(2);
+  expect(writes.map(v => v.id)).toEqual([undefined, undefined]);
+  await page.locator(".font-semibold").filter({hasText:/^A$/}).locator("..").locator("..").getByRole("button", {name:"编辑提供商", exact:true}).click();
+  await page.getByLabel("API 端点", {exact:true}).fill("https://a-edited.invalid/v1");
+  await form.getByRole("button", {name:"保存", exact:true}).click();
+  await expect.poll(() => writes.length).toBe(3);
+  expect(writes[2].id).toBe("provider1");
+  expect(current.providers[1].name).toBe("B");
+  expect(current.providers[1].endpoint).toBe("https://b.invalid/v1");
+});

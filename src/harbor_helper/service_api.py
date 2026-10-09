@@ -388,6 +388,12 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         data.event(user, "update_account", user_id)
         return result
 
+    @app.get("/api/v1/admin/docker")
+    def docker_discovery(user: Annotated[dict, Depends(administrator)]):
+        from harbor_helper.service_docker import discover_docker
+
+        return discover_docker()
+
     @app.post("/api/v1/admin/catalog/{kind}")
     def save_catalog(kind: str, body: dict, user: Annotated[dict, Depends(administrator)]):
         if kind not in {"dataset", "runtime"}:

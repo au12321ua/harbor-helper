@@ -19,9 +19,14 @@ class TeamConfiguration:
     def __init__(self, data):
         self.data = data
         with data.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS source_credentials (
                 version INTEGER PRIMARY KEY, enabled INTEGER NOT NULL,
-                nonce BLOB NOT NULL, ciphertext BLOB NOT NULL)""")
+                nonce BLOB NOT NULL, ciphertext BLOB NOT NULL, updated_at REAL)""")
+
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(source_credentials)")}
+            if "updated_at" not in columns:
+                db.execute("ALTER TABLE source_credentials ADD COLUMN updated_at REAL")
 
     def settings(self):
         path = self.data.root / "web.json"
@@ -46,17 +51,19 @@ class TeamConfiguration:
     def hub_status(self):
         with self.data.store.connect() as db:
             row = db.execute(
-                "SELECT version,enabled FROM source_credentials ORDER BY version DESC LIMIT 1"
+                "SELECT version,enabled,updated_at FROM source_credentials ORDER BY version DESC LIMIT 1"
             ).fetchone()
         return {
             "mode": "team" if row and row["enabled"] else "anonymous",
             "version": row["version"] if row else None,
+            "state": "active" if row and row["enabled"] else "disabled" if row else "unset",
+            "updated_at": row["updated_at"] if row else None,
         }
 
     def save_hub(self, key=None, enabled=True):
         if not enabled:
             with self.data.store.connect() as db:
-                db.execute("UPDATE source_credentials SET enabled=0")
+                db.execute("UPDATE source_credentials SET enabled=0, updated_at=?", (time.time(),))
             return self.hub_status()
         secret_value(key)
         with self.data.store.connect() as db:
@@ -69,7 +76,8 @@ class TeamConfiguration:
                 nonce, key.encode(), f"hub/{version}".encode()
             )
             db.execute(
-                "INSERT INTO source_credentials VALUES(?,1,?,?)", (version, nonce, encrypted)
+                "INSERT INTO source_credentials(version,enabled,nonce,ciphertext,updated_at) "
+                "VALUES(?,1,?,?,?)", (version, nonce, encrypted, time.time())
             )
         return self.hub_status()
 
