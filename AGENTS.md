@@ -1,6 +1,6 @@
 # 项目工作入口
 
-先读 [docs/HANDOFF.md](docs/HANDOFF.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。
+先读 [docs/HANDOFF.md](docs/archive/handoff-2026-10-09.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。
 
 ## 目标与用户确认的边界
 
@@ -18,11 +18,12 @@
 
 ## 按任务查阅
 
-- 需求来源与现场、证据边界、文档冲突：[HANDOFF](docs/HANDOFF.md)。
-- 服务设计/验收/运行：[service-design](docs/service-design.md)、[service-acceptance](docs/service-acceptance.md)、[service-operations](docs/service-operations.md)。技术细节的来源分类以交接为准。
-- 本地 CLI：[README](README.md)、[configuration](docs/configuration.md)、[operations](docs/operations.md)；历史验收：[acceptance](docs/acceptance.md)。
-- 应用/API/数据：`src/harbor_helper/service_app.py`、`service_api.py`、`service_data.py`；入口：`cli.py`、`service_cli.py`、`remote_cli.py`。
-- 执行/存储/结果：`runs.py`、`worker.py`、`storage.py`、`agents.py`、`reports.py`、`credentials.py`；Web：`frontend/src/App.tsx`、`frontend/src/api.ts`。
+- 需求来源与现场、证据边界、文档冲突：[HANDOFF](docs/archive/handoff-2026-10-09.md)。
+- 服务设计/验收/运行：[service-design](docs/archive/team-service/service-design.md)、[service-acceptance](docs/reference/service-acceptance.md)、[service-operations](docs/guides/web-service.md)。技术细节的来源分类以交接为准。
+- 本地 CLI：[README](README.md)、[configuration](docs/guides/local-configuration.md)、[operations](docs/guides/local-operations.md)；历史验收：[acceptance](docs/archive/local-cli/acceptance.md)。
+- 职责与兼容：[源码结构](docs/architecture/source-layout.md)。应用/API/数据：`src/harbor_helper/service/{application,api,data}.py`；CLI：`commands/{main,service,remote}.py`。
+- 执行/调度：`execution/{runs,worker,processes,agents,environments,agent_tools}.py`；持久层：`persistence/`；安全：`security/`；报告：`results/`。这些短路径均相对`src/harbor_helper/`。Web：`frontend/src/App.tsx`、`frontend/src/api.ts`。
+- 当前使用与固定版本证据从[文档导航](docs/README.md)进入；历史设计/否定方案和失败独立报告保留原版本，不成为新约束。
 
 ## 运行与验证入口
 

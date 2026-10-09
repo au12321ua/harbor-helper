@@ -13,15 +13,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from harbor_helper.cli import parser
-from harbor_helper.remote_cli import (
+from harbor_helper.commands.main import parser
+from harbor_helper.commands.remote import (
     RemoteError,
     load_profile,
     login,
     remote_root,
     service_url,
 )
-from harbor_helper.service_cli import dispatch as service_dispatch
+from harbor_helper.commands.service import dispatch as service_dispatch
 
 PASSWORD = "fake-member-password-only"
 TOKEN = "fixture-member-access-token-not-model-key"
@@ -162,7 +162,7 @@ def home(tmp_path, monkeypatch):
 def call(home, *args, code=0):
     env = {**os.environ, "HOME": str(home)}
     value = subprocess.run(
-        [sys.executable, "-m", "harbor_helper.cli", *args],
+        [sys.executable, "-m", "harbor_helper.commands.main", *args],
         env=env,
         capture_output=True,
         text=True,
@@ -177,7 +177,7 @@ def call(home, *args, code=0):
 
 def test_remote_multi_cli_profile_idempotency_and_shared_views(api, home, monkeypatch, tmp_path):
     url, calls, submissions = api
-    monkeypatch.setattr("harbor_helper.remote_cli.hidden_input", lambda _: PASSWORD)
+    monkeypatch.setattr("harbor_helper.commands.remote.hidden_input", lambda _: PASSWORD)
     assert login(url, "alice")["logged_in"]
     root = remote_root()
     profile = load_profile("default")
@@ -222,7 +222,7 @@ def test_remote_multi_cli_profile_idempotency_and_shared_views(api, home, monkey
 
 def test_remote_failures_and_logout_never_become_local(api, home, monkeypatch):
     url, _, _ = api
-    monkeypatch.setattr("harbor_helper.remote_cli.hidden_input", lambda _: PASSWORD)
+    monkeypatch.setattr("harbor_helper.commands.remote.hidden_input", lambda _: PASSWORD)
     login(url, "alice")
     call(home, "submit", code=1)
     call(home, "service", "logout", "--json")
@@ -231,7 +231,7 @@ def test_remote_failures_and_logout_never_become_local(api, home, monkeypatch):
     assert not (home / ".local/state/harbor-helper").exists()
     login(url, "alice")
     # Port exists but no server accepts requests: stale profile must fail closed.
-    from harbor_helper.auth import secure_write
+    from harbor_helper.security.files import secure_write
 
     secure_write(
         remote_root() / "profiles/default.json",
@@ -258,7 +258,7 @@ def test_invalid_url(url):
 
 
 def test_profile_permission_and_local_state_guard(api, home, monkeypatch, tmp_path):
-    monkeypatch.setattr("harbor_helper.remote_cli.hidden_input", lambda _: PASSWORD)
+    monkeypatch.setattr("harbor_helper.commands.remote.hidden_input", lambda _: PASSWORD)
     login(api[0], "alice")
     (remote_root() / "profiles/default.json").chmod(0o644)
     call(home, "list", code=1)
@@ -275,9 +275,9 @@ def test_profile_permission_and_local_state_guard(api, home, monkeypatch, tmp_pa
 
 
 def test_invalid_member_token_never_saved(home, monkeypatch):
-    monkeypatch.setattr("harbor_helper.remote_cli.hidden_input", lambda _: PASSWORD)
+    monkeypatch.setattr("harbor_helper.commands.remote.hidden_input", lambda _: PASSWORD)
     monkeypatch.setattr(
-        "harbor_helper.remote_cli.Client.request",
+        "harbor_helper.commands.remote.Client.request",
         lambda *args, **kwargs: {"token": "non-ascii-会话", "user": {"id": "member-1"}},
     )
     with pytest.raises(RemoteError, match="Invalid member session"):
@@ -288,7 +288,7 @@ def test_invalid_member_token_never_saved(home, monkeypatch):
 
 def test_service_init_requires_confirmation_without_state(home, monkeypatch, tmp_path):
     values = iter([PASSWORD, "different"])
-    monkeypatch.setattr("harbor_helper.service_cli.hidden_input", lambda _: next(values))
+    monkeypatch.setattr("harbor_helper.commands.service.hidden_input", lambda _: next(values))
     root = tmp_path / "state"
     args = parser().parse_args(
         ["service", "init", "--root", str(root), "--master-key-file", str(tmp_path / "master")]
@@ -300,10 +300,12 @@ def test_service_init_requires_confirmation_without_state(home, monkeypatch, tmp
 
 def test_service_serve_factory_host_port_no_native_auth(home, monkeypatch, tmp_path):
     from types import SimpleNamespace
+
     app = SimpleNamespace(state=SimpleNamespace(application=True))
     calls = []
     monkeypatch.setattr(
-        "harbor_helper.service_api.create_app", lambda root, **kwargs: calls.append((root, kwargs)) or app
+        "harbor_helper.service.api.create_app",
+        lambda root, **kwargs: calls.append((root, kwargs)) or app,
     )
     monkeypatch.setattr("uvicorn.run", lambda value, **kwargs: calls.append((value, kwargs)))
     args = parser().parse_args(
@@ -319,7 +321,7 @@ def test_service_serve_factory_host_port_no_native_auth(home, monkeypatch, tmp_p
         ]
     )
     service_dispatch(args)
-    assert calls[0] == (tmp_path / "service", {"setup_token_file":None,"master_key_file":None})
+    assert calls[0] == (tmp_path / "service", {"setup_token_file": None, "master_key_file": None})
     assert calls[1] == (app, {"host": "0.0.0.0", "port": 8123, "access_log": False})
 
 
@@ -331,7 +333,7 @@ def test_service_init_real_tty_hidden_and_external_master(home, tmp_path):
         [
             sys.executable,
             "-m",
-            "harbor_helper.cli",
+            "harbor_helper.commands.main",
             "service",
             "init",
             "--root",
@@ -382,8 +384,8 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
     """Actual API/data/SQLite over TCP; scheduler disabled to prohibit Hub/worker work."""
     import uvicorn
 
-    from harbor_helper.service_api import create_app
-    from harbor_helper.service_data import ServiceData
+    from harbor_helper.service.api import create_app
+    from harbor_helper.service.data import ServiceData
 
     root = tmp_path / "http-service"
     data = ServiceData.initialize(root, tmp_path / "http-master", "admin", PASSWORD)
@@ -401,7 +403,7 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
             assert time.monotonic() < deadline
             time.sleep(0.01)
         url = "http://127.0.0.1:" + str(sock.getsockname()[1])
-        monkeypatch.setattr("harbor_helper.remote_cli.hidden_input", lambda _: PASSWORD)
+        monkeypatch.setattr("harbor_helper.commands.remote.hidden_input", lambda _: PASSWORD)
         login(url, "alice")
         accepted = json.loads(
             call(

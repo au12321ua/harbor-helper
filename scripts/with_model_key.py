@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from harbor_helper.credentials import KEY_ENV, RedactedStream, read_key_file, scan_tree
+from harbor_helper.security.credentials import KEY_ENV, RedactedStream, read_key_file, scan_tree
 
 
 def main():
@@ -31,7 +31,7 @@ def main():
         cli_args = cli_args[1:]
     if not cli_args:
         parser.error("Supply existing harbor-helper arguments after --")
-    from harbor_helper.cli import main as helper_main
+    from harbor_helper.commands.main import main as helper_main
 
     old_value = os.environ.get(KEY_ENV)
     old_argv, old_stdout, old_stderr = sys.argv, sys.stdout, sys.stderr

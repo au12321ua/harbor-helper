@@ -22,7 +22,7 @@ def config(tmp_path, bundled=False, **kwargs):
             "tasks": [{"path": str(TASK)}],
             "agents": [
                 {
-                    "import_path": "harbor_helper.agents:"
+                    "import_path": "harbor_helper.execution.agents:"
                     + ("BundledOpenCode" if bundled else "HelperOpenCode"),
                     "model_name": "vllm/fixture",
                     "kwargs": {"version": "1.18.35", **kwargs},

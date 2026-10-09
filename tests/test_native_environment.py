@@ -9,16 +9,17 @@ from types import SimpleNamespace
 import pytest
 from harbor.environments.docker.docker import DockerEnvironment
 
-from harbor_helper.environments import (
+from harbor_helper.execution.environments import (
     NativeDockerEnvironment,
     anonymous_volumes,
     owned_anonymous_volumes,
 )
-from harbor_helper.runs import job_config
-from harbor_helper.service_app import Application, prepare_one
-from harbor_helper.service_data import ServiceData
-from harbor_helper.storage import read_json, tree_digest, write_json
-from harbor_helper.worker import cleanup
+from harbor_helper.execution.runs import job_config
+from harbor_helper.execution.worker import cleanup
+from harbor_helper.persistence.files import read_json, tree_digest, write_json
+from harbor_helper.service.application import Application
+from harbor_helper.service.data import ServiceData
+from harbor_helper.service.lifecycle import prepare_one
 
 
 def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypatch):
@@ -45,9 +46,11 @@ def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypat
             ],
         }
 
-    monkeypatch.setattr("harbor_helper.service_sources.source_call", source)
-    monkeypatch.setattr("harbor_helper.runs.image_identity", lambda _: pytest.fail("No image gate"))
-    monkeypatch.setattr("harbor_helper.runs.ensure_supervisor", lambda _: None)
+    monkeypatch.setattr("harbor_helper.service.sources.source_call", source)
+    monkeypatch.setattr(
+        "harbor_helper.execution.runs.image_identity", lambda _: pytest.fail("No image gate")
+    )
+    monkeypatch.setattr("harbor_helper.execution.runs.ensure_supervisor", lambda _: None)
     accepted = app.accept(actor, {"agent": "oracle", "dataset": "test/data@1"}, "first")
     prepare_one(data.store)
     parent = data.submission(accepted["id"])["run_id"]
@@ -136,7 +139,7 @@ def test_hard_exit_cleanup_persists_anonymous_and_does_not_remove_external(tmp_p
             volumes.remove(argv[3])
         return ""
 
-    monkeypatch.setattr("harbor_helper.worker.run_command", docker)
+    monkeypatch.setattr("harbor_helper.execution.worker.run_command", docker)
     cleanup(tmp_path)
     assert volumes == {external}
     assert read_json(tmp_path / "cleanup.json")["anonymous_volumes"] == [anonymous]
@@ -148,7 +151,7 @@ def test_compose_credentials_absent_from_build_up_but_exec_forwards(tmp_path):
     probe = tmp_path / "probe.py"
     probe.write_text("""import asyncio, os
 from harbor.environments.docker.docker import DockerEnvironment
-from harbor_helper.credentials import install_docker_credential_forwarding
+from harbor_helper.security.credentials import install_docker_credential_forwarding
 os.environ['VLLM_API_KEY']='fake-build-marker'
 os.environ['HF_TOKEN']='fake-hub-marker'
 DockerEnvironment._compose_env_vars=lambda self,**kw:dict(os.environ)
@@ -204,12 +207,13 @@ def test_already_accepted_legacy_preparation_retains_image_contract(tmp_path, mo
         }
 
     calls = []
-    monkeypatch.setattr("harbor_helper.service_sources.source_call", source)
+    monkeypatch.setattr("harbor_helper.service.sources.source_call", source)
     monkeypatch.setattr(
-        "harbor_helper.runs.image_identity", lambda image: calls.append(image) or "sha256:old"
+        "harbor_helper.execution.runs.image_identity",
+        lambda image: calls.append(image) or "sha256:old",
     )
-    monkeypatch.setattr("harbor_helper.runs.subprocess.run", lambda *a, **kw: None)
-    monkeypatch.setattr("harbor_helper.runs.ensure_supervisor", lambda _: None)
+    monkeypatch.setattr("harbor_helper.execution.runs.subprocess.run", lambda *a, **kw: None)
+    monkeypatch.setattr("harbor_helper.execution.runs.ensure_supervisor", lambda _: None)
     prepare_one(data.store)
     assert calls == ["legacy:fixed"]
     folder = data.store.path(data.submission(accepted["id"])["run_id"])

@@ -11,8 +11,8 @@ import sys
 import time
 from pathlib import Path
 
-from harbor_helper.storage import read_json, write_json
-from harbor_helper.worker import process_birth
+from harbor_helper.execution.worker import process_birth
+from harbor_helper.persistence.files import read_json, write_json
 
 p = argparse.ArgumentParser()
 p.add_argument("--state", required=True, type=Path)
@@ -20,7 +20,7 @@ a = p.parse_args()
 state = a.state.resolve()
 if state.exists():
     raise SystemExit("Use a new isolated state directory")
-cli = [sys.executable, "-m", "harbor_helper.cli", "--json", "--state", str(state)]
+cli = [sys.executable, "-m", "harbor_helper.commands.main", "--json", "--state", str(state)]
 evidence = []
 
 

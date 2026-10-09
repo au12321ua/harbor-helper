@@ -18,10 +18,17 @@ from pathlib import Path
 
 import pytest
 
-from harbor_helper.auth import Auth, AuthError, resolve_state, select_team, ttl_seconds
-from harbor_helper.config import DEFAULT
-from harbor_helper.storage import Store, read_json, write_json
-from harbor_helper.worker import process_birth
+from harbor_helper.execution.config import DEFAULT
+from harbor_helper.execution.worker import process_birth
+from harbor_helper.persistence.files import read_json, write_json
+from harbor_helper.persistence.store import Store
+from harbor_helper.security.local_auth import (
+    Auth,
+    AuthError,
+    resolve_state,
+    select_team,
+    ttl_seconds,
+)
 
 FAKE_KEY = "fixture-K1-no-provider-123456789"
 FAKE_KEY2 = "fixture-K2-no-provider-987654321"
@@ -62,7 +69,7 @@ class Client:
             package,
             ignore=shutil.ignore_patterns("__pycache__"),
         )
-        with (package / "sources.py").open("a") as output:
+        with (package / "execution/sources.py").open("a") as output:
             output.write("""
 async def resolve_dataset(reference, target, task_filter=None):
     target.mkdir()
@@ -73,7 +80,7 @@ async def resolve_dataset(reference, target, task_filter=None):
         {"package": "fixture/generation--box", "directory": task.name,
          "ref": "sha256:fixed", "snapshot_digest": tree_digest(task)}]}
 """)
-        with (package / "runs.py").open("a") as output:
+        with (package / "execution/runs.py").open("a") as output:
             output.write("""
 def image_identity(reference):
     return "sha256:" + "f" * 64
@@ -84,7 +91,7 @@ def _fixture_run(argv, *args, **kwargs):
     return _original_subprocess_run(argv, *args, **kwargs)
 subprocess.run = _fixture_run
 """)
-        worker = package / "worker.py"
+        worker = package / "execution/worker.py"
         text = worker.read_text()
         fixture = """
 async def execute(store, run_id):
@@ -92,7 +99,7 @@ async def execute(store, run_id):
     path = store.path(run_id)
     model = read_json(path / "manifest.json")["effective"]
     if model["agent"] == "opencode":
-        from harbor_helper.auth import Auth
+        from harbor_helper.security.local_auth import Auth
         Auth(store.root).worker_credentials(run_id, model["model"]["endpoint"])
     (path / "fixture-started").write_text("no network execution boundary")
     raw = path / "fixture-native.log"
@@ -123,7 +130,7 @@ async def execute(store, run_id):
         return [
             sys.executable,
             "-m",
-            "harbor_helper.cli",
+            "harbor_helper.commands.main",
             *(["--state", str(self.state)] if explicit else []),
             *args,
         ]
@@ -506,7 +513,7 @@ def test_scan_unreadable_file_directory_and_safe_encoded_logs(client):
 
 
 def test_stop_wait_and_timeout_never_report_false_success(tmp_path):
-    from harbor_helper.runs import stop_supervisor
+    from harbor_helper.execution.runs import stop_supervisor
 
     store = Store(tmp_path / "state")
     program = "import signal,time;signal.signal(signal.SIGTERM,lambda *a:time.sleep(0.4));print('ready',flush=True);time.sleep(20)"
@@ -538,7 +545,7 @@ def test_stop_wait_and_timeout_never_report_false_success(tmp_path):
 
 
 def test_current_k2_cannot_claim_unbound_legacy_k1(client):
-    from harbor_helper.auth import secure_read, secure_write
+    from harbor_helper.security.files import secure_read, secure_write
 
     client.login()
     first = client.call("submit")["run_id"]

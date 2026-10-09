@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from harbor_helper.service_api import create_app
-from harbor_helper.service_app import Application
-from harbor_helper.service_data import ServiceData, ServiceError
-from harbor_helper.storage import read_json
+from harbor_helper.persistence.files import read_json
+from harbor_helper.service.api import create_app
+from harbor_helper.service.application import Application
+from harbor_helper.service.data import ServiceData, ServiceError
 
 WRITE = {"X-Requested-With": "harbor-helper"}
 PASSWORD = "web-fixture-password-2026"
@@ -63,9 +63,9 @@ def web(tmp_path, monkeypatch):
     client.post(
         "/api/v1/auth/login", headers=WRITE, json={"username": "admin", "password": PASSWORD}
     )
-    monkeypatch.setattr("harbor_helper.runs.image_identity", lambda _: IMAGE)
+    monkeypatch.setattr("harbor_helper.execution.runs.image_identity", lambda _: IMAGE)
     monkeypatch.setattr(
-        "harbor_helper.service_config.source_call",
+        "harbor_helper.service.configuration.source_call",
         lambda *a, **kw: {
             "resolved": SOURCE,
             "tasks": [{"name": "answer", "package": "team/answer", "ref": "sha256:" + "c" * 64}],
@@ -183,7 +183,7 @@ def test_hub_secret_encryption_rotation_disable_and_safe_errors(web, monkeypatch
     def denied(*a, **kw):
         raise ServiceError("source_access", "检查团队 Hub 权限", 409)
 
-    monkeypatch.setattr("harbor_helper.service_config.source_call", denied)
+    monkeypatch.setattr("harbor_helper.service.configuration.source_call", denied)
     blocked = app.configuration.verify("dataset", dataset["id"])
     assert blocked["status"] == "blocked" and blocked["error"]["code"] == "source_access"
     assert not app.catalog()["datasets"][0]["ready"]
@@ -222,7 +222,7 @@ def test_verification_does_not_overwrite_concurrent_edits(web, monkeypatch):
             )
         return {"resolved": SOURCE, "tasks": []}
 
-    monkeypatch.setattr("harbor_helper.service_config.source_call", concurrent)
+    monkeypatch.setattr("harbor_helper.service.configuration.source_call", concurrent)
     with pytest.raises(ServiceError) as caught:
         app.configuration.verify("dataset", dataset["id"])
     assert caught.value.code == "configuration_changed"
@@ -324,7 +324,7 @@ def test_docker_discovery_admin_only(web, monkeypatch):
     _data, _app, client = web
     calls = []
     monkeypatch.setattr(
-        "harbor_helper.service_docker.discover_docker",
+        "harbor_helper.service.docker.discover_docker",
         lambda: calls.append(True) or {"state": "ready", "images": []},
     )
     assert client.get("/api/v1/admin/docker").json()["state"] == "ready"

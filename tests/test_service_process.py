@@ -16,10 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from harbor_helper.service_app import Application
-from harbor_helper.service_data import ServiceData, ServiceError
-from harbor_helper.storage import read_json
-from harbor_helper.worker import process_birth
+from harbor_helper.execution.worker import process_birth
+from harbor_helper.persistence.files import read_json
+from harbor_helper.service.application import Application
+from harbor_helper.service.data import ServiceData, ServiceError
 
 
 def wait(predicate, timeout=20):
@@ -37,10 +37,12 @@ class Processes:
         self.cwd = base / "work"
         self.cwd.mkdir()
         package = self.cwd / "harbor_helper"
-        package.mkdir()
-        for file in (Path(__file__).resolve().parents[1] / "src/harbor_helper").glob("*.py"):
-            shutil.copy2(file, package / file.name)
-        with (package / "sources.py").open("a") as f:
+        shutil.copytree(
+            Path(__file__).resolve().parents[1] / "src/harbor_helper",
+            package,
+            ignore=shutil.ignore_patterns("__pycache__", "static"),
+        )
+        with (package / "execution/sources.py").open("a") as f:
             f.write("""
 async def resolve_dataset(reference, target, task_filter=None):
     while (target.parents[2]/"prepare-hold").exists():
@@ -52,14 +54,14 @@ async def resolve_dataset(reference, target, task_filter=None):
         "package":"fixture/box","directory":"box","ref":"sha256:fixed",
         "snapshot_digest":tree_digest(folder)}]}
 """)
-        with (package / "service_sources.py").open("a") as f:
+        with (package / "service/sources.py").open("a") as f:
             f.write("""
 def source_call(reference, *, key=None, target=None, task=None):
     import asyncio
-    from harbor_helper.sources import resolve_dataset
+    from harbor_helper.execution.sources import resolve_dataset
     return asyncio.run(resolve_dataset(reference, target, task))
 """)
-        with (package / "runs.py").open("a") as f:
+        with (package / "execution/runs.py").open("a") as f:
             f.write("""
 def image_identity(reference):return "sha256:"+"f"*64
 _original_run=subprocess.run
@@ -68,14 +70,14 @@ def _fixture_run(argv,*args,**kwargs):
     return _original_run(argv,*args,**kwargs)
 subprocess.run=_fixture_run
 """)
-        worker = (package / "worker.py").read_text()
+        worker = (package / "execution/worker.py").read_text()
         fixture = """
 _original_cleanup=cleanup
 def cleanup(path):
     if (path/"resource-blocked").exists():raise RuntimeError("fixture resource retained")
     return _original_cleanup(path)
 async def execute(store,run_id):
-    from harbor_helper.service_data import ServiceData
+    from harbor_helper.service.data import ServiceData
     key=ServiceData(store.root).run_key(run_id,execution=True)
     if key != os.environ.get("VLLM_API_KEY"):raise RuntimeError("Worker environment binding mismatch")
     path=store.path(run_id)
@@ -90,7 +92,7 @@ async def execute(store,run_id):
     return {"status":"succeeded","reason":None}
 
 """
-        (package / "worker.py").write_text(
+        (package / "execution/worker.py").write_text(
             worker.replace('if __name__ == "__main__":', fixture + 'if __name__ == "__main__":')
         )
         self.home = base / "home"

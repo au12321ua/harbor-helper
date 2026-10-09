@@ -8,11 +8,12 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 
-from harbor_helper.service_api import create_app
-from harbor_helper.service_app import Application, maintenance, prepare_one
-from harbor_helper.service_data import ServiceData, ServiceError
-from harbor_helper.storage import read_json, tree_digest
-from harbor_helper.worker import finish
+from harbor_helper.execution.worker import finish
+from harbor_helper.persistence.files import read_json, tree_digest
+from harbor_helper.service.api import create_app
+from harbor_helper.service.application import Application
+from harbor_helper.service.data import ServiceData, ServiceError
+from harbor_helper.service.lifecycle import maintenance, prepare_one
 
 WRITE = {"X-Requested-With": "harbor-helper"}
 PASSWORD = "Fake-test-password-2026"
@@ -71,10 +72,12 @@ def test_new_tool_strategy_frozen_and_old_rerun_keeps_installer(data, preparatio
     prepare_one(data.store)
     rid = data.submission(accepted["id"])["run_id"]
     folder = data.store.path(rid)
-    assert read_json(folder / "job.json")["agents"][0]["kwargs"]["helper_tool_cache"] == str(data.root / "agent-tools")
+    assert read_json(folder / "job.json")["agents"][0]["kwargs"]["helper_tool_cache"] == str(
+        data.root / "agent-tools"
+    )
     manifest = read_json(folder / "manifest.json")
     manifest["effective"].pop("agent_tool_preparation")
-    from harbor_helper.storage import write_json
+    from harbor_helper.persistence.files import write_json
 
     write_json(folder / "manifest.json", manifest)
     before = (folder / "manifest.json").read_bytes()
@@ -103,15 +106,15 @@ def preparation(monkeypatch):
             ],
         }
 
-    monkeypatch.setattr("harbor_helper.runs.resolve_dataset", source)
+    monkeypatch.setattr("harbor_helper.execution.runs.resolve_dataset", source)
     monkeypatch.setattr(
-        "harbor_helper.service_sources.source_call",
+        "harbor_helper.service.sources.source_call",
         lambda reference, *, key=None, target=None, task=None: __import__("asyncio").run(
             source(reference, target, task)
         ),
     )
-    monkeypatch.setattr("harbor_helper.runs.image_identity", lambda ref: "sha256:fixed")
-    monkeypatch.setattr("harbor_helper.runs.subprocess.run", lambda *a, **k: None)
+    monkeypatch.setattr("harbor_helper.execution.runs.image_identity", lambda ref: "sha256:fixed")
+    monkeypatch.setattr("harbor_helper.execution.runs.subprocess.run", lambda *a, **k: None)
 
 
 def accept_model(data, username="alice", profile="m1", key="same"):
@@ -270,8 +273,8 @@ def test_resource_cleanup_separate_audit_and_next_capacity(data, preparation, mo
     (path / "worker.log").write_text(KEYS[0])
     with data.store.connect() as db:
         db.execute("DELETE FROM credential_versions WHERE id='k1'")
-    monkeypatch.setattr("harbor_helper.worker.stop_group", lambda row: None)
-    monkeypatch.setattr("harbor_helper.worker.cleanup", lambda path: None)
+    monkeypatch.setattr("harbor_helper.execution.worker.stop_group", lambda row: None)
+    monkeypatch.setattr("harbor_helper.execution.worker.cleanup", lambda path: None)
     finish(data.store, data.store.get(run_id), "failed", "interrupted")
     row = data.store.get(run_id)
     assert row["status"] == "failed" and row["audit_status"] == "incomplete" and row["finished"]
@@ -285,7 +288,7 @@ def test_resource_cleanup_separate_audit_and_next_capacity(data, preparation, mo
     def blocked(path):
         raise RuntimeError("resources still present")
 
-    monkeypatch.setattr("harbor_helper.worker.cleanup", blocked)
+    monkeypatch.setattr("harbor_helper.execution.worker.cleanup", blocked)
     finish(data.store, row, "failed", "interrupted")
     assert data.store.get(run_id)["status"] == "cleanup_blocked"
     assert Application(data.root).usage()["active_trials"] == 1
@@ -359,8 +362,8 @@ def test_credential_in_artifact_filename_withheld_without_holding_capacity(
     folder = data.store.path(run_id) / "harbor" / run_id / "box__attempt" / "artifacts"
     folder.mkdir(parents=True)
     (folder / KEYS[0]).write_text("otherwise safe artifact")
-    monkeypatch.setattr("harbor_helper.worker.stop_group", lambda row: None)
-    monkeypatch.setattr("harbor_helper.worker.cleanup", lambda path: None)
+    monkeypatch.setattr("harbor_helper.execution.worker.stop_group", lambda row: None)
+    monkeypatch.setattr("harbor_helper.execution.worker.cleanup", lambda path: None)
     finish(data.store, data.store.get(run_id), "failed", "fixture failure")
     row = data.store.get(run_id)
     assert row["status"] == "failed" and row["audit_status"] == "incomplete"
@@ -403,8 +406,8 @@ def test_live_log_tail_reads_only_complete_lines(data, preparation):
     "left,right,comparable", [(2, 3, False), (3, 3, True), (None, 1, True), (None, 2, False)]
 )
 def test_compare_api_startup_conditions(data, preparation, left, right, comparable):
-    from harbor_helper.reports import report
-    from harbor_helper.storage import write_json
+    from harbor_helper.persistence.files import write_json
+    from harbor_helper.results.reports import report
 
     c = client(data)
     runs, manifests = [], []

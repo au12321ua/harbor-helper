@@ -6,13 +6,14 @@ import pytest
 from harbor.environments.docker.docker import DockerEnvironment
 from harbor.models.task.config import NetworkMode, NetworkPolicy
 
-from harbor_helper.agents import HelperOpenCode
-from harbor_helper.config import DEFAULT, validate_effective
-from harbor_helper.environments import NativeDockerEnvironment
-from harbor_helper.reports import trial_diagnosis
-from harbor_helper.service_app import Application, prepare_one
-from harbor_helper.service_data import ServiceData
-from harbor_helper.storage import read_json, tree_digest
+from harbor_helper.execution.agents import HelperOpenCode
+from harbor_helper.execution.config import DEFAULT, validate_effective
+from harbor_helper.execution.environments import NativeDockerEnvironment
+from harbor_helper.persistence.files import read_json, tree_digest
+from harbor_helper.results.reports import trial_diagnosis
+from harbor_helper.service.application import Application
+from harbor_helper.service.data import ServiceData
+from harbor_helper.service.lifecycle import prepare_one
 
 
 def test_policy_frozen_and_legacy_rerun_preserved(tmp_path, monkeypatch):
@@ -34,8 +35,8 @@ def test_policy_frozen_and_legacy_rerun_preserved(tmp_path, monkeypatch):
             ],
         }
 
-    monkeypatch.setattr("harbor_helper.service_sources.source_call", source)
-    monkeypatch.setattr("harbor_helper.runs.ensure_supervisor", lambda _: None)
+    monkeypatch.setattr("harbor_helper.service.sources.source_call", source)
+    monkeypatch.setattr("harbor_helper.execution.runs.ensure_supervisor", lambda _: None)
     accepted = app.accept(
         actor,
         {"agent": "oracle", "dataset": "test/data@1", "environment_build_timeout_multiplier": 2},
@@ -66,7 +67,7 @@ def test_policy_frozen_and_legacy_rerun_preserved(tmp_path, monkeypatch):
     # Simulate a genuinely old accepted parent: its absent option stays absent.
     manifest = read_json(folder / "manifest.json")
     manifest["effective"].pop("environment_build_timeout_multiplier")
-    from harbor_helper.storage import write_json
+    from harbor_helper.persistence.files import write_json
 
     write_json(folder / "manifest.json", manifest)
     old_bytes = (folder / "manifest.json").read_bytes()
@@ -161,7 +162,7 @@ def test_diagnosis_distinguishes_unreached_from_zero_and_does_not_copy_raw(tmp_p
 
 
 def test_legacy_safe_report_enrichment_is_read_only(tmp_path):
-    from harbor_helper.storage import write_json
+    from harbor_helper.persistence.files import write_json
 
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", "fake-startup-password-2026"

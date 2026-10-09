@@ -9,9 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from harbor_helper import agent_tools
-from harbor_helper.agents import HelperOpenCode
-from harbor_helper.storage import read_json
+from harbor_helper.execution import agent_tools
+from harbor_helper.execution.agents import HelperOpenCode
+from harbor_helper.persistence.files import read_json
 
 
 def registry(monkeypatch, damaged=False):
@@ -147,7 +147,7 @@ def test_staging_recovery_preserves_live_child_and_other_cached_tools(tmp_path):
     (live / "partial.tgz").write_bytes(b"partial")
     other = cache / "other-complete-tool"
     other.mkdir()
-    from harbor_helper.storage import write_json
+    from harbor_helper.persistence.files import write_json
 
     write_json(
         logs / "helper-tool-staging.json",
@@ -177,8 +177,8 @@ def test_staging_recovery_preserves_live_child_and_other_cached_tools(tmp_path):
     ],
 )
 def test_tool_diagnosis_exposes_only_safe_public_provenance(tmp_path, source, shown):
-    from harbor_helper.reports import trial_diagnosis
-    from harbor_helper.storage import write_json
+    from harbor_helper.persistence.files import write_json
+    from harbor_helper.results.reports import trial_diagnosis
 
     (tmp_path / "agent").mkdir()
     write_json(

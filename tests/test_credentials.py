@@ -14,7 +14,10 @@ from types import SimpleNamespace
 import pytest
 from harbor.environments.docker.docker import DockerEnvironment
 
-from harbor_helper.credentials import (
+from harbor_helper.execution.worker import process_birth, tick
+from harbor_helper.persistence.files import write_json
+from harbor_helper.persistence.store import Store
+from harbor_helper.security.credentials import (
     RedactedStream,
     audit_run,
     install_docker_credential_forwarding,
@@ -22,8 +25,6 @@ from harbor_helper.credentials import (
     scan_tree,
     scrub_file,
 )
-from harbor_helper.storage import Store, write_json
-from harbor_helper.worker import process_birth, tick
 
 MARKER = "synthetic-private-marker-for-tests-only"
 
@@ -98,7 +99,7 @@ def test_clean_container_owned_log_requires_no_write(tmp_path, monkeypatch):
     path.write_bytes(b"readable native log without credentials")
     before = path.stat()
     monkeypatch.setattr(
-        "harbor_helper.credentials.tempfile.mkstemp",
+        "harbor_helper.security.credentials.tempfile.mkstemp",
         lambda **kwargs: pytest.fail("Clean logs must not require write access"),
     )
     scrub_file(path, [MARKER])
@@ -175,7 +176,7 @@ def test_database_is_read_by_fields_and_never_byte_rewritten(tmp_path):
 
 
 def test_unclean_frozen_inputs_withhold_report_but_release_capacity(tmp_path, monkeypatch):
-    from harbor_helper.config import DEFAULT
+    from harbor_helper.execution.config import DEFAULT
 
     monkeypatch.setenv("VLLM_API_KEY", MARKER)
     store, path = fixture_run(tmp_path / "state")
@@ -194,7 +195,7 @@ def test_unclean_frozen_inputs_withhold_report_but_release_capacity(tmp_path, mo
 
 @pytest.mark.parametrize("previous", [None, "1.18.34"])
 def test_fixed_opencode_installer_uses_system_node_without_nvm(tmp_path, previous):
-    from harbor_helper.agents import HelperOpenCode
+    from harbor_helper.execution.agents import HelperOpenCode
 
     calls = []
 
@@ -231,7 +232,7 @@ def test_fixed_opencode_installer_uses_system_node_without_nvm(tmp_path, previou
 
 
 def test_preinstalled_opencode_skips_dependency_and_npm_install(tmp_path):
-    from harbor_helper.agents import HelperOpenCode
+    from harbor_helper.execution.agents import HelperOpenCode
 
     async def probe(**kwargs):
         return SimpleNamespace(stdout="1.18.35\n", return_code=0)
@@ -252,7 +253,7 @@ def test_preinstalled_opencode_skips_dependency_and_npm_install(tmp_path):
 
 
 def test_opencode_rejects_wrong_version_after_install(tmp_path):
-    from harbor_helper.agents import HelperOpenCode
+    from harbor_helper.execution.agents import HelperOpenCode
 
     async def probe(**kwargs):
         return SimpleNamespace(stdout="1.18.34", return_code=0)
@@ -274,7 +275,7 @@ def test_opencode_rejects_wrong_version_after_install(tmp_path):
 
 
 def test_hard_exit_scrubs_before_report_and_audits_database(tmp_path, monkeypatch):
-    from harbor_helper.config import DEFAULT
+    from harbor_helper.execution.config import DEFAULT
 
     monkeypatch.setenv("VLLM_API_KEY", MARKER)
     store, path = fixture_run(tmp_path / "state")
@@ -326,7 +327,7 @@ def test_launcher_restores_env_and_redacts_cli_error(tmp_path, monkeypatch, caps
         print(MARKER[10:])
         raise RuntimeError(MARKER)
 
-    monkeypatch.setattr("harbor_helper.cli.main", fake_cli)
+    monkeypatch.setattr("harbor_helper.commands.main.main", fake_cli)
     assert launcher.main() == 1
     assert os.environ["VLLM_API_KEY"] == "previous-runtime-value"
     output = capsys.readouterr()

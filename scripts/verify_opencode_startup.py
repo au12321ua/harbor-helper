@@ -12,10 +12,10 @@ from harbor.environments.docker.docker import _sanitize_docker_compose_project_n
 from harbor.models.trial.config import TrialConfig
 from harbor.trial.trial import Trial
 
-from harbor_helper.agents import HelperOpenCode
-from harbor_helper.runs import safe_environment
-from harbor_helper.storage import read_json, tree_digest, write_json
-from harbor_helper.worker import cleanup
+from harbor_helper.execution.agents import HelperOpenCode
+from harbor_helper.execution.runs import safe_environment
+from harbor_helper.execution.worker import cleanup
+from harbor_helper.persistence.files import read_json, tree_digest, write_json
 
 
 async def verify(args):
@@ -37,7 +37,7 @@ async def verify(args):
             "trials_dir": output / "trials",
             "install_only": True,
             "agent": {
-                "import_path": "harbor_helper.agents:HelperOpenCode",
+                "import_path": "harbor_helper.execution.agents:HelperOpenCode",
                 "model_name": "setup-only/unused",
                 "kwargs": {"version": provenance["opencode_version"]},
             },

@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 from harbor.environments.docker.docker import DockerEnvironment
 
-from harbor_helper.config import DEFAULT
-from harbor_helper.credentials import install_docker_credential_forwarding
+from harbor_helper.execution.config import DEFAULT
+from harbor_helper.security.credentials import install_docker_credential_forwarding
 
 
 async def verify(output):

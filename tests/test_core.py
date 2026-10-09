@@ -10,12 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from harbor_helper.config import DEFAULT, effective, load_team, reject_secrets
-from harbor_helper.reports import compare, report
-from harbor_helper.runs import job_config, safe_environment, submit
-from harbor_helper.sources import verify_inputs
-from harbor_helper.storage import Store, read_json, tree_digest, write_json
-from harbor_helper.worker import cleanup, finish, tick
+from harbor_helper.execution.config import DEFAULT, effective, load_team, reject_secrets
+from harbor_helper.execution.runs import job_config, safe_environment, submit
+from harbor_helper.execution.sources import verify_inputs
+from harbor_helper.execution.worker import cleanup, finish, tick
+from harbor_helper.persistence.files import read_json, tree_digest, write_json
+from harbor_helper.persistence.store import Store
+from harbor_helper.results.reports import compare, report
 
 
 @pytest.fixture
@@ -197,14 +198,14 @@ def test_cleanup_failure_retains_capacity(store, monkeypatch):
     add_run(store, "queued")
     write_json(p / "projects.json", ["owned-project"])
     monkeypatch.setattr(
-        "harbor_helper.worker.cleanup",
+        "harbor_helper.execution.worker.cleanup",
         lambda _: (_ for _ in ()).throw(RuntimeError("Docker unavailable")),
     )
 
     def no_start(*args, **kwargs):
         pytest.fail("Capacity was released before cleanup confirmation")
 
-    monkeypatch.setattr("harbor_helper.worker.subprocess.Popen", no_start)
+    monkeypatch.setattr("harbor_helper.execution.worker.subprocess.Popen", no_start)
     tick(store, {})
     assert store.get("broken")["status"] == "cleanup_blocked"
     assert store.get("queued")["status"] == "queued"
@@ -214,7 +215,9 @@ def test_cleanup_exact_project_labels(store, monkeypatch):
     p, _ = add_run(store)
     write_json(p / "projects.json", ["owned-1", "owned-2"])
     calls = []
-    monkeypatch.setattr("harbor_helper.worker.run_command", lambda cmd: calls.append(cmd) or "")
+    monkeypatch.setattr(
+        "harbor_helper.execution.worker.run_command", lambda cmd: calls.append(cmd) or ""
+    )
     cleanup(p)
     assert calls and all(
         any("label=com.docker.compose.project=owned-" in arg for arg in cmd) for cmd in calls
@@ -226,7 +229,7 @@ def test_cancel_terminal_only_after_cleanup(store, monkeypatch):
     p, _ = add_run(store, status="running")
     store.update(p.name, cancel=1)
     called = []
-    monkeypatch.setattr("harbor_helper.worker.cleanup", lambda _: called.append(True))
+    monkeypatch.setattr("harbor_helper.execution.worker.cleanup", lambda _: called.append(True))
     finish(store, store.get(p.name), "cancelled", "user")
     assert called and store.get(p.name)["status"] == "cancelled"
 
@@ -262,12 +265,14 @@ def test_service_audit_failure_releases_slot_and_does_not_use_home_auth(store, m
             return "fake-first-marker" if run_id == "first" else None
 
     monkeypatch.setitem(
-        sys.modules, "harbor_helper.service_data", SimpleNamespace(ServiceData=Credentials)
+        sys.modules, "harbor_helper.service.data", SimpleNamespace(ServiceData=Credentials)
     )
-    monkeypatch.setattr("harbor_helper.auth.Auth", lambda *_: pytest.fail("HOME Auth in service"))
+    monkeypatch.setattr(
+        "harbor_helper.security.local_auth.Auth", lambda *_: pytest.fail("HOME Auth in service")
+    )
     launched = []
     monkeypatch.setattr(
-        "harbor_helper.worker.subprocess.Popen",
+        "harbor_helper.execution.worker.subprocess.Popen",
         lambda *args, **kwargs: launched.append(kwargs) or SimpleNamespace(pid=999999),
     )
     (first / "worker.log").write_text("fake-first-marker")
@@ -279,7 +284,7 @@ def test_service_audit_failure_releases_slot_and_does_not_use_home_auth(store, m
     assert "VLLM_API_KEY" not in launched[0]["env"]
     # Restoring audit material repairs evidence without restarting execution.
     available = True
-    from harbor_helper.worker import audit_finished
+    from harbor_helper.execution.worker import audit_finished
 
     assert audit_finished(store, store.get("first"))
     assert store.get("first")["status"] == "failed"
@@ -311,18 +316,21 @@ def test_service_submit_publication_lock_cancel_and_frozen_rerun(store, monkeypa
             return allowed
 
     monkeypatch.setitem(
-        sys.modules, "harbor_helper.service_data", SimpleNamespace(ServiceData=Publication)
+        sys.modules, "harbor_helper.service.data", SimpleNamespace(ServiceData=Publication)
     )
-    monkeypatch.setattr("harbor_helper.auth.Auth", lambda *_: pytest.fail("HOME Auth in service"))
+    monkeypatch.setattr(
+        "harbor_helper.security.local_auth.Auth", lambda *_: pytest.fail("HOME Auth in service")
+    )
 
     def image(reference):
         assert not locked(), "Preparation must not reserve the queue control lock"
         return old["image_id"]
 
-    monkeypatch.setattr("harbor_helper.runs.image_identity", image)
-    monkeypatch.setattr("harbor_helper.runs.subprocess.run", lambda *_, **__: None)
+    monkeypatch.setattr("harbor_helper.execution.runs.image_identity", image)
+    monkeypatch.setattr("harbor_helper.execution.runs.subprocess.run", lambda *_, **__: None)
     monkeypatch.setattr(
-        "harbor_helper.runs.ensure_supervisor", lambda *_: pytest.fail("Supervisor disabled")
+        "harbor_helper.execution.runs.ensure_supervisor",
+        lambda *_: pytest.fail("Supervisor disabled"),
     )
     with pytest.raises(ValueError, match="cancelled"):
         submit(
@@ -352,8 +360,8 @@ def test_service_submit_publication_lock_cancel_and_frozen_rerun(store, monkeypa
 
 
 def test_service_preparation_does_not_pause_supervision(store, monkeypatch):
-    from harbor_helper import credentials
-    from harbor_helper.worker import supervise
+    from harbor_helper.execution.worker import supervise
+    from harbor_helper.security import credentials
 
     write_json(store.root / "service.json", {})
     monkeypatch.setattr(credentials, "AUDIT_SECRETS", [])
@@ -367,7 +375,7 @@ def test_service_preparation_does_not_pause_supervision(store, monkeypatch):
         assert release.wait(5)
 
     monkeypatch.setitem(
-        sys.modules, "harbor_helper.service_app", SimpleNamespace(prepare_one=prepare)
+        sys.modules, "harbor_helper.service.lifecycle", SimpleNamespace(prepare_one=prepare)
     )
     ticked = []
 
@@ -376,13 +384,15 @@ def test_service_preparation_does_not_pause_supervision(store, monkeypatch):
         assert not release.is_set()
         ticked.append(True)
 
-    monkeypatch.setattr("harbor_helper.worker.tick", responsive_tick)
-    monkeypatch.setattr("harbor_helper.worker.RedactedStream", lambda stream, _: stream)
+    monkeypatch.setattr("harbor_helper.execution.worker.tick", responsive_tick)
+    monkeypatch.setattr("harbor_helper.execution.worker.RedactedStream", lambda stream, _: stream)
 
     class Done(BaseException):
         pass
 
-    monkeypatch.setattr("harbor_helper.worker.time.sleep", lambda _: (_ for _ in ()).throw(Done()))
+    monkeypatch.setattr(
+        "harbor_helper.execution.worker.time.sleep", lambda _: (_ for _ in ()).throw(Done())
+    )
     try:
         with pytest.raises(Done):
             supervise(store.root)
@@ -434,7 +444,7 @@ def test_bundle_cannot_silently_override_selected_model_parameters(store):
 
 
 def test_credential_redaction_keeps_frozen_inputs_intact(store):
-    from harbor_helper.worker import redact_files
+    from harbor_helper.execution.worker import redact_files
 
     p, _ = add_run(store)
     token = "literal-occurrence"

@@ -1,128 +1,74 @@
 # harbor-helper
 
-团队共享的 Harbor 实验 Web 与 CLI：后台排队、评分报告、比较与重跑。服务实验保留作者任务快照与实验参数，由 Harbor 0.23.0 按作者定义构建、运行和评分；实际镜像可以变化。
+受邀团队共享的 Harbor 实验工作台。成员通过浏览器提交、观察、取消自己的实验、比较、重跑和下载；管理员在网页邀请成员、配置数据集、团队模型/key及容量。所有人共享结果，提交身份保留。CLI与Web共用持久队列。
 
-## 浏览器使用
+## 成员使用
 
-成员打开部署负责人提供的网址，用受邀账户登录；选择已验证的数据集、任务与模型方案后提交实验。共享查看、取消自己的任务、比较、重跑和下载均在网页完成，无需登录服务器或安装 CLI。
+打开部署负责人提供的网址，用受邀账户登录。选择管理员已验证的数据集、任务和模型方案，填写实验名称后提交；尝试次数、并发和等待倍率等在高级参数中。结果页区分有效零分、缺评分与执行失败。重跑创建归当前提交者的新实验，可能再次产生模型费用。
 
-管理员首次在网页使用部署负责人提供的引导凭证创建账户，随后在管理页配置团队 Hub 来源、数据集和默认选择、模型/key、成员账户及容量。编辑、密钥轮换/停用与账户恢复也在网页完成。保存配置不等于真实模型认证或推理成功。
+成员无需SSH、服务器state路径、个人模型key或安装CLI。管理员日常业务配置也在网页完成。
 
-部署与使用见对应服务指南；安装、Docker/镜像和网络入口由部署负责人准备。
+## 从干净环境启动 Web
 
-以下命令适用于旧本地 CLI；远程 CLI 另见服务使用指南。
+以下由部署负责人一次完成，在已取得源码的项目根目录执行。需要：
 
-## 安装与环境
-
-需要 Linux、Python 3.12–3.13、uv、Docker daemon/Compose 插件、Harbor Hub 数据集权限，以及维护者已配置的兼容 runtime 和模型服务。
+- Linux、Python **3.12–3.13**、[uv](https://docs.astral.sh/uv/getting-started/installation/)。Harbor由锁文件安装为0.23.0。
+- Node.js **20.19及以上的20.x，或22.12及以上**、npm，用于构建网页。
+- 真正执行实验时，服务账户须能访问Docker daemon与Compose插件；作者任务所需镜像、依赖和网络须可用。私有Hub数据集需要权限。首次网页设置不需要先发模型请求。
 
 ```bash
 uv sync --locked
+cd frontend
+npm ci
+npm run build
+cd ..
 ```
 
-以下命令使用项目 `.venv/bin/harbor-helper`。维护者新部署按[配置指南](docs/configuration.md#环境与一次初始化)初始化一次；已部署成员直接使用统一 state，**不重复 init**。
+构建写入`src/harbor_helper/static/`。生产只运行下面一个HTTP服务，它同时提供网页和相对`/api/v1`接口；不需要启动Vite或单独部署前端。
 
-## 一次登录
-
-已有项目的 `.state/team` 可自动发现。首次明确选择维护者提供的团队目录并登录；命令在输入前显示 state、endpoint 和模型：
+选择全新服务目录和**state之外**的私有部署目录。下面是当前账号可写的示例；不要用旧本地团队目录或已有服务重新初始化：
 
 ```bash
-.venv/bin/harbor-helper --state /absolute/path/to/team auth login
+mkdir -p "$HOME/harbor-helper/service" "$HOME/harbor-helper-private"
+chmod 700 "$HOME/harbor-helper-private"
+
+uv run harbor-helper service serve \
+  --root "$HOME/harbor-helper/service" \
+  --setup-token-file "$HOME/harbor-helper-private/setup-token" \
+  --master-key-file "$HOME/harbor-helper-private/master.key" \
+  --host 127.0.0.1 --port 8000
 ```
 
-key 值由隐藏输入读取，默认本地执行授权 8 小时。已有受保护文件可直接引用；下面参数是**文件路径**，不是 key 值：
+保持此终端运行，在**部署机浏览器**打开 <http://127.0.0.1:8000/>。若8000被占用，换一个空闲端口并同步网址。供其他机器访问时，部署者须选择可达的`--host`和网址；`0.0.0.0`是监听地址，不是浏览器网址。HTTPS、代理、证书及域名由部署环境配置。
+
+### 首次管理员设置
+
+启动会自动生成权限0600的引导凭证文件，只提示文件位置。部署负责人在自己的受保护终端读取它，通过私下渠道交付管理员，勿贴到群聊、命令参数或Git：
 
 ```bash
-.venv/bin/harbor-helper --state /absolute/path/to/team auth login \
-  --key-file /absolute/path/to/protected/model-key --ttl 8h
+cat "$HOME/harbor-helper-private/setup-token"
 ```
 
-文件须由当前账号拥有、权限 `0600`，为普通文件且不是符号链接；产品不复制引用文件的值。不要把 key 放入命令、消息、team.json 或 bundle。交互输入会保存于账号私有区，目录 `0700`、文件 `0600`。
+管理员在首次网页填写引导凭证、团队名称、账户和密码（至少12位），完成后用新账户登录。首次设置只允许成功一次，随后关闭设置接口，不开放注册。无需先执行`service init`；该命令仅保留给兼容的终端初装方式。
 
-成功登录记住团队目录，SSH 重连后直接运行命令，无需 export、函数或手动刷新调度器。登录仅保存本地授权，不请求 provider、不证明认证可用。配置与自动刷新边界见[配置指南](docs/configuration.md#登录与调度器刷新)。
+主密钥在首次初始化时自动创建为32随机bytes，权限0600，存于上面的外置`master.key`；不要自己写一个短字符串代替。模型key和Hub PAT在服务端加密保存，原值不回传网页。备份和恢复必须保全**完整state及原外置主密钥**，不能换一个新master恢复旧密文。
 
-```bash
-.venv/bin/harbor-helper auth status
-.venv/bin/harbor-helper doctor --preset model
-```
+管理员随后在管理页：
 
-doctor 检查依赖、镜像、Hub 访问和非秘密配置，不发送模型请求，也不验证 key/provider。
+1. 配置团队Hub来源；保存数据集的`owner/name@版本`，验证任务清单并选择默认。
+2. 创建提供商、团队key和模型方案，明确选择绑定。列表筛选只改变查看范围，不修改绑定。
+3. 邀请成员账户，按需要设定容量与保留参数；将网址和初始账户通过受保护渠道交付成员。
 
-## 提交模型任务
+保存key不等于真实provider认证或推理成功，来源验证也不保证作者环境能执行。Harbor按作者Dockerfile/Compose构建运行；helper不替换作者镜像或网络。新模型实验可准备固定公共工具并在作者环境离线使用，旧已受理契约保留；细节见[服务指南](docs/guides/web-service.md)。
 
-普通 `submit` **默认 model**，包括共享配置的旧 default=oracle 情况；缺模型配置或有效登录时，在下载任务、创建 run、启动 worker 前失败，不回退 oracle。下例选择一题、一次尝试、一个并发、1200 秒墙钟预算：
+### 关闭与维护
 
-```bash
-.venv/bin/harbor-helper submit --task generation--box \
-  --attempts 1 --concurrency 1 --wall-seconds 1200
-```
+关闭浏览器不停止实验。上述前台终端`Ctrl-C`只停止HTTP，后台调度器及已受理任务继续；用同样的state和原主密钥重启`serve`可继续观察，**不要重新init**。
 
-提交返回 run ID，后台任务在退出 SSH 后继续。登录 TTL 在实际出队时再次校验：过期排队任务明确失败且不启动模型；已运行任务继续执行与审计收尾。
+完整停机由部署负责人停止接收新提交、等待或取消全部未终态任务并确认资源释放，停止HTTP后再停止该服务调度器；没有`service stop`命令。准确停机与备份步骤见[维护说明](docs/guides/web-service.md#完整停机)。这不是成员每天必做操作。
 
-团队配置中的 dataset 是默认值；`--dataset` 可为本次实验切换到其他 Hub 数据集，不修改默认值。选择数字 revision 或 sha256 digest，每次实验和 rerun 固定所选版本。例如用单题测试集做无模型自检：
 
-```bash
-.venv/bin/harbor-helper submit --dataset au12321ua/harbor-helper-switch-smoke@1 --agent oracle
-```
+## 其他入口
 
-省略 `--agent oracle` 即按正常模型流程提交。其他账号使用私有数据集前需取得 Hub 访问权限。
-
-墙钟不限制 token 或费用；实际费用未知时保留 unknown，reported cost=0 不代表免费。
-
-## 重连、状态与报告
-
-将下方 ID 替换为真实 ID；默认输出摘要/表格，脚本使用全局或命令后的 `--json`：
-
-```bash
-.venv/bin/harbor-helper list
-.venv/bin/harbor-helper status hh-替换为真实ID
-.venv/bin/harbor-helper logs hh-替换为真实ID
-.venv/bin/harbor-helper report hh-替换为真实ID
-.venv/bin/harbor-helper status hh-替换为真实ID --json
-```
-
-模型报告等待终态凭据审计，运行中用 status/logs 观测。报告显示有效尝试数、缺评分与异常；合法低分/零分仍有效。`compare` 检查题目、模型、环境等是否可比，不可比时显示原因。bundle、报告与证据操作见[操作指南](docs/operations.md)。
-
-需要取消时单独执行；终态 cancelled 才确认停止与清理：
-
-```bash
-.venv/bin/harbor-helper cancel hh-替换为真实ID
-```
-
-需要重新执行且已有预算授权时，`rerun` 新建 ID 并完整重跑固定输入，模型任务会再次发请求：
-
-```bash
-.venv/bin/harbor-helper rerun hh-替换为真实ID
-```
-
-## 显式 Oracle 自检
-
-无模型自检明确选择 oracle，不需要模型登录，不请求模型：
-
-```bash
-.venv/bin/harbor-helper submit --agent oracle --task generation--box \
-  --attempts 1 --concurrency 1 --wall-seconds 1200
-```
-
-oracle 自检评分不证明模型实际工具调用或产物。模型登录期间也可提交 oracle，无需随后刷新。
-
-## 注销与证据
-
-```bash
-.venv/bin/harbor-helper auth logout
-```
-
-存在未终态任务时拒绝轮换/logout，先等待或取消。logout 撤销新执行资格；已使用的历史审计来源仍受保护保留，不等于彻底抹除 key。外部引用失效时对应历史审计不完整；新任务按自身来源判断。
-
-证据交接前等待全部终态，再用原生 `stop` 确认调度器退出、`scan` 扫描整个 state。缺来源、扫描错误或命中不能宣称 clean；详见[操作指南](docs/operations.md#日志与证据交接)。
-
-## 文档导航
-
-- [配置指南](docs/configuration.md)：首次部署、team/model、隐藏输入、文件引用、TTL与刷新。
-- [操作指南](docs/operations.md)：bundle、镜像维护、比较、恢复、扫描及故障处理。
-- [原生入口设计](docs/usability-design.md)、[设计与范围](docs/v0-design.md)、[验收条件](docs/acceptance.md)。
-- [CLI + Web 服务设计](docs/service-design.md)、[服务验收标准](docs/service-acceptance.md)、[服务部署与使用](docs/service-operations.md)：受邀团队共享 HTTP 服务，本地账户、团队模型方案和统一队列。
-- 服务实施记录、服务独立验收报告：产品 `787ae3b` 的 S1–S17 在无付费限定范围内通过，真实模型与真人 A11 另列。
-- [成员验收](docs/member-acceptance.md)：真人提交、重连、比较与 rerun。
-- 实现证据、独立检查报告：来源、验证和限制。
-- [CLI 源码](src/harbor_helper/cli.py)、[配置示例](configs/team.example.json)。
+- [文档导航](docs/README.md)。
+- [开发交接](docs/HANDOFF.md)。

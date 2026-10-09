@@ -1,0 +1,1 @@
+"""Harbor Helper commands responsibilities."""
