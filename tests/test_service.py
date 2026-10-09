@@ -376,3 +376,65 @@ def test_live_log_tail_reads_only_complete_lines(data, preparation):
     text = Application(data.root).logs(run_id)["text"]
     assert set(text.splitlines()) <= {"line"}
     assert "partial" not in text
+
+
+@pytest.mark.parametrize(
+    "left,right,comparable", [(2, 3, False), (3, 3, True), (None, 1, True), (None, 2, False)]
+)
+def test_compare_api_startup_conditions(data, preparation, left, right, comparable):
+    from harbor_helper.reports import report
+    from harbor_helper.storage import write_json
+
+    c = client(data)
+    runs, manifests = [], []
+    for index, multiplier in enumerate((left, right)):
+        request = {
+            "agent": "oracle",
+            "dataset": "test/dataset@1",
+            "environment_build_timeout_multiplier": multiplier if multiplier is not None else 1,
+        }
+        accepted = c.post(
+            "/api/v1/submissions",
+            headers={**WRITE, "Idempotency-Key": f"compare-{index}"},
+            json=request,
+        )
+        assert accepted.status_code == 202
+        prepare_one(data.store)
+        run = data.submission(accepted.json()["id"])["run_id"]
+        folder = data.store.path(run)
+        if multiplier is None:
+            # Construct an old-format record only in this isolated fixture.
+            manifest = read_json(folder / "manifest.json")
+            manifest["effective"].pop("environment_build_timeout_multiplier")
+            write_json(folder / "manifest.json", manifest)
+        trial = folder / "harbor" / run / "box__fixture"
+        trial.mkdir(parents=True)
+        write_json(
+            trial / "result.json",
+            {
+                "task_name": "test/box",
+                "trial_name": "box__fixture",
+                "exception_info": None,
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+        data.store.update(run, status="succeeded", audit_status="clean")
+        report(data.store, run)
+        runs.append(run)
+        manifests.append((folder / "manifest.json").read_bytes())
+    response = c.post("/api/v1/compare", headers=WRITE, json={"left": runs[0], "right": runs[1]})
+    assert response.status_code == 200
+    value = response.json()
+    assert value["comparable"] is comparable
+    if comparable:
+        assert value["config_changes"] == {} and value["mean_task_delta"] == {"reward": 0.0}
+    else:
+        assert value["config_changes"]["environment_build_timeout_multiplier"] == {
+            "left": left if left is not None else 1,
+            "right": right,
+        }
+        assert (
+            "Experiment condition differs: environment_build_timeout_multiplier" in value["reasons"]
+        )
+        assert value["mean_task_delta"] is None
+    assert manifests == [(data.store.path(run) / "manifest.json").read_bytes() for run in runs]

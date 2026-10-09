@@ -495,3 +495,44 @@ def test_unavailable_image_observation_does_not_fail_valid_score(store):
     (evidence / "helper-environment-broken.json").write_text("broken observation")
     result = report(store, path.name)
     assert result["complete"] and result["environment_observations"] == [{"images": "unknown"}]
+
+
+@pytest.mark.parametrize(
+    "left,right,comparable",
+    [
+        (2, 3, False),
+        (2, 2, True),
+        (None, 1, True),
+        (1, None, True),
+        (None, None, True),
+        (None, 2, False),
+    ],
+)
+def test_comparison_uses_actual_startup_multiplier_and_preserves_history(
+    store, left, right, comparable
+):
+    folders = []
+    for name, multiplier, reward in [("a", left, 0), ("b", right, 1)]:
+        folder, manifest = add_run(store, name, "succeeded")
+        manifest["execution_mode"] = "harbor-native"
+        if multiplier is not None:
+            manifest["effective"]["environment_build_timeout_multiplier"] = multiplier
+        write_json(folder / "manifest.json", manifest)
+        trial(folder, reward)
+        folders.append(folder)
+    before = [(folder / "manifest.json").read_bytes() for folder in folders]
+    value = compare(store, "a", "b")
+    assert value["comparable"] is comparable
+    if comparable:
+        assert value["config_changes"] == {} and value["reasons"] == []
+        assert value["mean_task_delta"] == {"reward": 1.0}
+    else:
+        assert value["config_changes"]["environment_build_timeout_multiplier"] == {
+            "left": left if left is not None else 1,
+            "right": right if right is not None else 1,
+        }
+        assert (
+            "Experiment condition differs: environment_build_timeout_multiplier" in value["reasons"]
+        )
+        assert value["mean_task_delta"] is None
+    assert before == [(folder / "manifest.json").read_bytes() for folder in folders]

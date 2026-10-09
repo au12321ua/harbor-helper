@@ -235,15 +235,27 @@ def compare(store, left, right, published_reports=None):
         "attempts",
         "concurrency",
         "wall_seconds",
+        "environment_build_timeout_multiplier",
         "runtime_image",
         "runtime_image_env",
         "max_cpus_per_trial",
         "max_memory_mb_per_trial",
     )
+    # Missing in a historical snapshot means Harbor's actual multiplier 1,
+    # never the current new-submission default. Normalize only these local copies.
+    conditions = [
+        {
+            **m["effective"],
+            "environment_build_timeout_multiplier": m["effective"].get(
+                "environment_build_timeout_multiplier", 1
+            ),
+        }
+        for m in (a, b)
+    ]
     changes = {
-        k: {"left": a["effective"].get(k), "right": b["effective"].get(k)}
+        k: {"left": conditions[0].get(k), "right": conditions[1].get(k)}
         for k in keys
-        if a["effective"].get(k) != b["effective"].get(k)
+        if conditions[0].get(k) != conditions[1].get(k)
     }
     reasons.extend(f"Experiment condition differs: {k}" for k in changes)
     native = any(m.get("execution_mode") == "harbor-native" for m in (a, b))
