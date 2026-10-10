@@ -18,13 +18,13 @@ WRITE = {"X-Requested-With": "harbor-helper"}
 
 
 @pytest.fixture
-def scoped(tmp_path, monkeypatch):
+def scoped(tmp_path, monkeypatch, request):
     catalog = []
-    for name in ("alpha", "beta", "plain"):
+    for name in getattr(request, "param", ("alpha", "beta", "plain")):
         root = tmp_path / "authors" / name
         root.mkdir(parents=True)
         (root / "task.toml").write_text("[agent]\ntimeout_sec=1800\n[verifier]\ntimeout_sec=1800\n")
-        if name != "plain":
+        if name in {"alpha", "beta"}:
             (root / "environment").mkdir()
             (root / "environment/compose.yaml").write_text(
                 "services:\n  main:\n    image: ${BUILD_" + name.upper() + "_IMAGE:?required}\n"
@@ -101,7 +101,17 @@ def test_partial_full_cache_and_union_save_preserve_catalog(scoped):
 
 
 @pytest.mark.parametrize(
-    "names", [[], ["*"], ["alpha*"], ["unknown"], ["alpha", "alpha"], ["alpha"] * 51, None]
+    "names",
+    [
+        [],
+        ["*"],
+        ["alpha*"],
+        ["unknown"],
+        ["alpha", "unknown", "alpha"],
+        ["alpha", 7, "alpha"],
+        [""],
+        None,
+    ],
 )
 def test_explicit_invalid_selection_and_admin_permissions(scoped, names):
     data, _app, _dataset, calls = scoped
@@ -209,3 +219,83 @@ def test_legacy_full_discovery_survives_partial_refresh(scoped):
         "scope", {"BUILD_ALPHA_IMAGE": "base:a", "BUILD_BETA_IMAGE": "base:b"}
     )
     assert saved["status"] == "checked"
+
+
+@pytest.mark.parametrize("scoped", [[f"task-{i:02}" for i in range(52)]], indirect=True)
+def test_more_than_fifty_unique_tasks_and_reordered_duplicates_share_cache(scoped):
+    data, _app, _dataset, calls = scoped
+    client = TestClient(create_app(data.root, start_scheduler=False))
+    client.post(
+        "/api/v1/auth/login", headers=WRITE, json={"username": "admin", "password": PASSWORD}
+    )
+    url = "/api/v1/admin/datasets/scope/author-inputs/check"
+    first_order = [f"task-{i:02}" for i in reversed(range(51))]
+    names = first_order + [first_order[3], first_order[0]]
+    first = client.post(url, headers=WRITE, json={"task_names": names})
+    assert first.status_code == 200
+    record = first.json()
+    assert record["requested_task_names"] == first_order
+    assert record["scope"]["total"] == 52 and record["scope"]["unknown"] == 1
+    assert len(record["scope"]["tasks"]) == 51
+    assert [t["name"] for t in record["scope"]["tasks"]] == sorted(first_order)
+    assert calls == [sorted(first_order)]
+    reordered = client.post(url, headers=WRITE, json={"task_names": sorted(first_order) * 2})
+    assert reordered.status_code == 200
+    assert reordered.json()["requested_task_names"] == sorted(first_order)
+    assert reordered.json()["last_check_scope"] == record["last_check_scope"]
+    assert reordered.json()["scope"] == record["scope"]
+    assert calls == [sorted(first_order)]  # reorder and duplicate cannot trigger redownload
+    assert len(list((data.root / "author-inputs").iterdir())) == 1
+
+
+def test_duplicate_download_records_validate_all_members_before_dedup(monkeypatch, tmp_path):
+    from harbor_helper.execution.sources import TaskSelectionError, resolve_dataset
+
+    tasks = [
+        SimpleNamespace(
+            name=f"task-{i:02}",
+            ref="sha256:" + format(i, "064x"),
+            get_name=lambda i=i: f"test/task-{i:02}",
+        )
+        for i in range(52)
+    ]
+    metadata = SimpleNamespace(
+        version="sha256:" + "a" * 64, name="test/scoped", metrics=None, files=None, task_ids=tasks
+    )
+    downloaded = []
+
+    async def get_metadata(_self, _reference):
+        return metadata
+
+    async def download(_self, chosen, *, output_dir, **_kwargs):
+        task = chosen[0]
+        downloaded.append(task.name)
+        (output_dir / task.name).mkdir()
+        return SimpleNamespace(
+            results=[SimpleNamespace(content_hash=task.ref.removeprefix("sha256:"))]
+        )
+
+    monkeypatch.setattr(
+        "harbor_helper.execution.sources.PackageDatasetClient.get_dataset_metadata", get_metadata
+    )
+    monkeypatch.setattr("harbor_helper.execution.sources.TaskClient.download_tasks", download)
+    entries = [{"name": t.name, "package": t.get_name(), "ref": t.ref} for t in tasks[:51]]
+
+    async def verify():
+        result = await resolve_dataset(
+            SOURCE, tmp_path / "many", selected_tasks=list(reversed(entries)) + entries
+        )
+        assert len(result["tasks"]) == 51 and downloaded == [t.name for t in tasks[:51]]
+        for invalid in (
+            {**entries[0], "ref": "sha256:wrong"},
+            {**entries[0], "package": "wrong"},
+            {**entries[0], "name": "unknown"},
+            {**entries[0], "name": 7},
+        ):
+            with pytest.raises(TaskSelectionError):
+                await resolve_dataset(
+                    SOURCE, tmp_path / "invalid", selected_tasks=[entries[0], invalid, entries[0]]
+                )
+        assert len(downloaded) == 51
+
+    asyncio.run(verify())

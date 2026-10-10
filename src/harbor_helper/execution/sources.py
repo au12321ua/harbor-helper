@@ -14,6 +14,15 @@ class TaskSelectionError(ValueError):
     """Exact requested task names or immutable refs disagree with the catalog."""
 
 
+def exact_task_names(names, known_names):
+    """Validate every requested name, then deduplicate in first-occurrence order."""
+    if not isinstance(names, list) or not names:
+        raise TaskSelectionError("Select a nonempty list of exact catalog task names")
+    if any(not isinstance(name, str) or not name or name not in known_names for name in names):
+        raise TaskSelectionError("Selected task name is invalid or absent from the catalog")
+    return list(dict.fromkeys(names))
+
+
 async def resolve_dataset(reference, target, task_filter=None, *, selected_tasks=None):
     client = PackageDatasetClient()
     metadata = await client.get_dataset_metadata(reference)
@@ -23,22 +32,19 @@ async def resolve_dataset(reference, target, task_filter=None, *, selected_tasks
         raise UnsupportedDatasetError("Dataset-level custom metrics/files are not supported")
     tasks = metadata.task_ids
     if selected_tasks is not None:
-        if not isinstance(selected_tasks, list) or not 1 <= len(selected_tasks) <= 50:
-            raise TaskSelectionError("Select between one and fifty exact catalog tasks")
         catalog = {t.name: t for t in tasks}
-        chosen = []
+        if not isinstance(selected_tasks, list) or any(
+            not isinstance(entry, dict) for entry in selected_tasks
+        ):
+            raise TaskSelectionError("Select exact catalog task records")
+        names = exact_task_names([entry.get("name") for entry in selected_tasks], catalog)
+        # Check every record before deduplication: a repeated name cannot conceal
+        # an invalid package or immutable ref supplied later in the request.
         for entry in selected_tasks:
-            task = catalog.get(entry.get("name"))
-            if (
-                task is None
-                or task.ref != entry.get("ref")
-                or task.get_name() != entry.get("package")
-            ):
+            task = catalog[entry["name"]]
+            if task.ref != entry.get("ref") or task.get_name() != entry.get("package"):
                 raise TaskSelectionError("Selected task differs from verified catalog")
-            chosen.append(task)
-        if len({t.name for t in chosen}) != len(chosen):
-            raise TaskSelectionError("Duplicate selected task")
-        tasks = chosen
+        tasks = [catalog[name] for name in sorted(names)]
     elif task_filter:
         tasks = [
             t

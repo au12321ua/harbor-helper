@@ -1176,11 +1176,50 @@ test("administrator checks exact selected tasks and exposes partial scope", asyn
   );
   await page.goto("/admin");
   await page.getByRole("tab", { name: "数据集", exact: true }).click();
-  await page
-    .getByLabel("检查任务（可多选，最多50个）")
-    .selectOption(["answer"]);
+  await page.getByLabel("检查任务（可多选）").selectOption(["answer"]);
   await page.getByRole("button", { name: "检查选定任务", exact: true }).click();
   await expect(page.getByText(/不代表全集就绪/)).toBeVisible();
   expect(body).toEqual({ task_names: ["answer"] });
   await expect(page.getByText(/另有 224 个任务未扫描/)).toBeVisible();
+});
+
+test("administrator can check more than fifty legitimate task names", async ({
+  page,
+}) => {
+  await fixture(page);
+  const custom: any = structuredClone(catalog);
+  const names = Array.from(
+    { length: 52 },
+    (_, i) => `task-${String(i).padStart(2, "0")}`,
+  );
+  custom.datasets[0].tasks = names.map((name) => ({
+    name,
+    package: `test/${name}`,
+    ref: `sha256:${name}`,
+  }));
+  let submitted: any;
+  await page.route("**/api/v1/catalog", (route) =>
+    route.fulfill({ json: custom }),
+  );
+  await page.route(
+    "**/api/v1/admin/datasets/dataset1/author-inputs/check",
+    async (route) => {
+      submitted = route.request().postDataJSON();
+      await route.fulfill({ json: {} });
+    },
+  );
+  await page.goto("/admin");
+  await page.getByRole("tab", { name: "数据集", exact: true }).click();
+  await page
+    .getByLabel("检查任务（可多选）", { exact: true })
+    .selectOption(names.slice(0, 51));
+  const button = page.getByRole("button", {
+    name: "检查选定任务",
+    exact: true,
+  });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect
+    .poll(() => submitted)
+    .toEqual({ task_names: names.slice(0, 51) });
 });

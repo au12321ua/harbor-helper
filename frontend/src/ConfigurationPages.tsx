@@ -15,7 +15,12 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Field, FieldLabel, FieldGroup, FieldDescription } from "@/components/ui/field";
+import {
+  Field,
+  FieldLabel,
+  FieldGroup,
+  FieldDescription,
+} from "@/components/ui/field";
 import { toast } from "sonner";
 const limitLabels: Record<string, string> = {
   max_jobs: "全局任务并发",
@@ -340,7 +345,7 @@ function AuthorInputs({
       </Button>
       <Field>
         <FieldLabel htmlFor={`check-tasks-${dataset.id}`}>
-          检查任务（可多选，最多50个）
+          检查任务（可多选）
         </FieldLabel>
         <select
           id={`check-tasks-${dataset.id}`}
@@ -364,7 +369,7 @@ function AuthorInputs({
       </Field>
       <Button
         variant="outline"
-        disabled={!dataset.ready || !taskNames.length || taskNames.length > 50}
+        disabled={!dataset.ready || !taskNames.length}
         onClick={() =>
           check(`/admin/datasets/${dataset.id}/author-inputs/check`, {
             task_names: taskNames,

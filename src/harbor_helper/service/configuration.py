@@ -230,18 +230,18 @@ class TeamConfiguration:
         catalog = selected["tasks"]
         by_name = {task["name"]: task for task in catalog}
         partial = selection_supplied or task_names is not None
+        names = None
         if partial:
-            if (
-                not isinstance(task_names, list)
-                or not 1 <= len(task_names) <= 50
-                or any(not isinstance(name, str) or name not in by_name for name in task_names)
-                or len(set(task_names)) != len(task_names)
-            ):
+            from harbor_helper.execution.sources import TaskSelectionError, exact_task_names
+
+            try:
+                names = exact_task_names(task_names, by_name)
+            except TaskSelectionError:
                 raise ServiceError(
                     "author_task_selection",
-                    "请选择1至50个目录中的精确任务名；空列表、未知或重复任务无效",
-                )
-            chosen = [by_name[name] for name in sorted(task_names)]
+                    "请选择目录中的非空精确任务名；空列表或非法/未知名称无效",
+                ) from None
+            chosen = [by_name[name] for name in sorted(names)]
         else:
             chosen = catalog
         reference = selected["resolved"]
@@ -359,13 +359,15 @@ class TeamConfiguration:
                 records,
                 old["values"] if old.get("source") == reference else {},
                 request_scope,
+                names,
             )
 
     def _persist_author_discoveries(
-        self, object_id, reference, catalog, records, values, request_scope
+        self, object_id, reference, catalog, records, values, request_scope, requested_names
     ):
         from harbor_helper.execution.author_inputs import AuthorInputError, check_inputs
 
+        records = dict(sorted(records.items()))
         discovery = {
             "variables": {},
             "fixed_names": [],
@@ -415,6 +417,7 @@ class TeamConfiguration:
                 "checked_tasks": list(records.values()),
                 "scope": scope,
                 "last_check_scope": request_scope,
+                "requested_task_names": requested_names,
                 "status": status,
                 "issues": issues,
                 "checked": time.time(),
