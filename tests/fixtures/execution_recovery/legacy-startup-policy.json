@@ -1,0 +1,13 @@
+{
+  "multiplier": 10,
+  "wall_seconds": 600,
+  "scope": "Harbor environment.start (build/pull/up); agent setup and inference unchanged",
+  "tasks": [
+    {
+      "task": "generation--cylinder",
+      "author_build_timeout_sec": 600.0,
+      "start_wait_timeout_sec": 6000.0,
+      "author_network_mode": "public"
+    }
+  ]
+}

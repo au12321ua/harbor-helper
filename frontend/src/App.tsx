@@ -867,6 +867,10 @@ function RunDetailContent({ user }: { user: Item }) {
   if (loading) return <Loading />;
   const row = data?.row || {},
     manifest = data?.manifest || {};
+  const retryBudgets =
+    manifest.service?.author_input_diagnostics?.budgets ||
+    manifest.startup_policy?.tasks ||
+    [];
   const canCancel =
     !terminal(row.status) &&
     (user.role === "admin" || row.submitter === user.username);
@@ -974,12 +978,26 @@ function RunDetailContent({ user }: { user: Item }) {
               []
             ).some(
               (budget: Item) =>
+                Number.isFinite(budget.agent_seconds) &&
+                Number.isFinite(budget.verifier_seconds) &&
                 (retryWall ?? manifest.effective?.wall_seconds ?? 600) <=
-                (budget.agent_seconds || 0) + (budget.verifier_seconds || 0),
+                  budget.agent_seconds + budget.verifier_seconds,
             ) ? (
               <Alert>
                 <AlertDescription>
                   警告：总时长不足以覆盖作者预算和准备。保留父值，不自动修改。
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {!retryBudgets.length ||
+            retryBudgets.some(
+              (budget: Item) =>
+                !Number.isFinite(budget.agent_seconds) ||
+                !Number.isFinite(budget.verifier_seconds),
+            ) ? (
+              <Alert>
+                <AlertDescription>
+                  作者预算未知，无法判断总时长是否足够；保留父值，不自动修改。
                 </AlertDescription>
               </Alert>
             ) : null}

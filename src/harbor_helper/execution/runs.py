@@ -57,7 +57,7 @@ def check_bundle(path):
             raise ValueError("Credential files cannot be bundled")
 
 
-def startup_policy(run_dir, manifest):
+def startup_policy(run_dir, manifest, *, verify_snapshot=False):
     """Describe frozen author budgets without changing or exporting author env values."""
     from harbor.models.task.config import TaskConfig
 
@@ -65,6 +65,11 @@ def startup_policy(run_dir, manifest):
     tasks = []
     for task in manifest["source"]["tasks"]:
         try:
+            if (
+                verify_snapshot
+                and tree_digest(run_dir / "tasks" / task["directory"]) != task["snapshot_digest"]
+            ):
+                raise ValueError("Fixed task snapshot changed")
             task_config = TaskConfig.model_validate(
                 tomllib.loads((run_dir / "tasks" / task["directory"] / "task.toml").read_text())
             )
@@ -86,7 +91,7 @@ def startup_policy(run_dir, manifest):
                     "author_network_mode": network,
                 }
             )
-        except (ValueError, TypeError, OSError):
+        except (ValueError, TypeError, KeyError, OSError):
             tasks.append(
                 {
                     "task": task["package"].split("/", 1)[-1],
@@ -101,6 +106,26 @@ def startup_policy(run_dir, manifest):
         "scope": "Harbor environment.start (build/pull/up); agent setup and inference unchanged",
         "tasks": tasks,
     }
+
+
+def detail_startup_policy(run_dir, manifest):
+    """Enrich missing legacy budgets in memory from the parent's verified snapshot."""
+    policy = manifest.get("startup_policy")
+    if not policy:
+        return startup_policy(run_dir, manifest, verify_snapshot=True)
+    policy = deepcopy(policy)
+    tasks = policy.get("tasks", [])
+    if any("agent_seconds" not in task or "verifier_seconds" not in task for task in tasks):
+        derived = {
+            task["task"]: task
+            for task in startup_policy(run_dir, manifest, verify_snapshot=True)["tasks"]
+        }
+        for task in tasks:
+            budget = derived.get(task.get("task"), {})
+            for field in ("agent_seconds", "verifier_seconds"):
+                if field not in task:
+                    task[field] = budget.get(field)
+    return policy
 
 
 def job_config(run_dir, manifest):

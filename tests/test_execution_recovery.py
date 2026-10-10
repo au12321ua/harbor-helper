@@ -560,3 +560,92 @@ def test_discovery_failure_retains_resolved_source_without_run(recovery, monkeyp
         failed["frozen"]["service"]["author_input_issues"][0]["reason"]
         == "compose_discovery_failed"
     )
+
+
+@pytest.mark.parametrize("has_policy", [True, False])
+@pytest.mark.parametrize("snapshot_state", ["valid", "missing", "invalid", "tampered"])
+def test_legacy_parent_detail_budgets_are_read_only(recovery, snapshot_state, has_policy):
+    from pathlib import Path
+
+    data, app, actor, dataset, _task = recovery
+    configured(recovery)
+    accepted = app.accept(actor, {"agent": "oracle", "dataset_id": dataset["id"]}, "legacy")
+    prepare_one(data.store)
+    run_id = data.submission(accepted["id"])["run_id"]
+    root = data.store.path(run_id)
+    fixture = Path(__file__).parent / "fixtures/execution_recovery"
+    tasks = root / "tasks"
+    shutil.rmtree(tasks)
+    task_root = tasks / "generation--cylinder"
+    task_root.mkdir(parents=True)
+    (task_root / "task.toml").write_bytes((fixture / "cad-task.toml").read_bytes())
+    if snapshot_state == "invalid":
+        (task_root / "task.toml").write_text("not valid TOML")
+    manifest = read_json(root / "manifest.json")
+    manifest["startup_policy"] = read_json(fixture / "legacy-startup-policy.json")
+    if not has_policy:
+        manifest.pop("startup_policy")
+    manifest["effective"]["wall_seconds"] = 600
+    manifest["source"]["tasks"] = [
+        {
+            "package": "au12321ua/generation--cylinder",
+            "directory": "generation--cylinder",
+            "snapshot_digest": tree_digest(task_root),
+        }
+    ]
+    write_json(root / "manifest.json", manifest)
+    if snapshot_state == "missing":
+        shutil.rmtree(task_root)
+    elif snapshot_state == "tampered":
+        (task_root / "task.toml").write_text("[agent]\ntimeout_sec=1\n")
+    # Current dataset conditions must never substitute for the retained parent.
+    app.configuration.persist("dataset", {**dataset, "resolved": "test/new@9"})
+    before = {name: (root / name).read_bytes() for name in ("manifest.json", "job.json")}
+    with data.store.connect() as db:
+        database_before = list(db.iterdump())
+    client = TestClient(create_app(data.root, start_scheduler=False))
+    client.post(
+        "/api/v1/auth/login", json={"username": "admin", "password": PASSWORD}, headers=WRITE
+    )
+    # Login's own session writes are outside the read-only detail operation.
+    with data.store.connect() as db:
+        database_before = list(db.iterdump())
+    response = client.get("/api/v1/runs/" + run_id)
+    assert response.status_code == 200
+    view = response.json()["manifest"]
+    budget = view["startup_policy"]["tasks"][0]
+    assert view["effective"]["wall_seconds"] == 600
+    if snapshot_state == "valid":
+        assert budget["agent_seconds"] == 600 and budget["verifier_seconds"] == 180
+        assert 600 < budget["agent_seconds"] + budget["verifier_seconds"]
+    else:
+        assert budget.get("agent_seconds") is None and budget.get("verifier_seconds") is None
+    if has_policy or snapshot_state == "valid":
+        assert budget["author_build_timeout_sec"] == 600
+    assert {name: (root / name).read_bytes() for name in before} == before
+    with data.store.connect() as db:
+        assert list(db.iterdump()) == database_before
+
+
+def test_existing_detail_budgets_do_not_rederive(tmp_path):
+    from harbor_helper.execution.runs import detail_startup_policy
+
+    policy = {"tasks": [{"task": "task", "agent_seconds": 7, "verifier_seconds": 9}]}
+    assert detail_startup_policy(tmp_path, {"startup_policy": policy}) == policy
+
+
+def test_exact_rerun_missing_inputs_points_to_repair(recovery):
+    data, app, actor, dataset, _task = recovery
+    configured(recovery)
+    accepted = app.accept(actor, {"agent": "oracle", "dataset_id": dataset["id"]}, "parent")
+    prepare_one(data.store)
+    parent = data.submission(accepted["id"])["run_id"]
+    path = data.store.path(parent) / "manifest.json"
+    manifest = read_json(path)
+    manifest["effective"].pop("author_env")
+    write_json(path, manifest)
+    child = app.accept(actor, {}, "exact", parent=parent)
+    prepare_one(data.store)
+    failure = data.submission(child["id"])
+    assert failure["status"] == "failed"
+    assert "修复后重试" in failure["error"]

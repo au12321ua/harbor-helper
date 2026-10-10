@@ -970,3 +970,34 @@ test("dynamic author fields save without resetting source verification", async (
     page.getByLabel("CAD_BENCH_AGENT_IMAGE", { exact: true }),
   ).toHaveCount(0);
 });
+
+test("repair retry distinguishes unknown budgets from zero", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.route("**/api/v1/runs/hh-test-zero", (route) =>
+    route.fulfill({
+      json: {
+        row: { ...run, status: "failed" },
+        manifest: {
+          effective: { agent: "oracle", wall_seconds: 600 },
+          startup_policy: {
+            tasks: [
+              { task: "cylinder", agent_seconds: 600, verifier_seconds: null },
+            ],
+          },
+        },
+        artifacts: [],
+        report: null,
+      },
+    }),
+  );
+  await page.goto("/runs/hh-test-zero");
+  await expect(
+    page.getByText(/作者预算未知，无法判断总时长是否足够/),
+  ).toBeVisible();
+  await expect(page.getByText(/警告：总时长不足/)).toHaveCount(0);
+  await expect(page.getByLabel("总时长（秒；默认保留父值）")).toHaveValue(
+    "600",
+  );
+});

@@ -506,7 +506,7 @@ class Application:
         return safe_view(value)
 
     def detail(self, run_id):
-        from harbor_helper.execution.runs import startup_policy
+        from harbor_helper.execution.runs import detail_startup_policy
 
         row = self.store.get(run_id)
         manifest = read_json(self.store.path(run_id) / "manifest.json")
@@ -525,8 +525,7 @@ class Application:
             "failure_diagnosis": diagnosis,
             "row": self.summary(row),
             "manifest": {
-                "startup_policy": manifest.get("startup_policy")
-                or startup_policy(self.store.path(run_id), manifest),
+                "startup_policy": detail_startup_policy(self.store.path(run_id), manifest),
                 **{
                     k: manifest.get(k)
                     for k in (

@@ -1,0 +1,38 @@
+schema_version = "1.4"
+artifacts = [{ source = "/workspace/output", destination = "output" }]
+
+[task]
+name = "au12321ua/generation--cylinder"
+description = "Construct a radius 10 mm, height 20 mm cylinder using SimpleCADAPI."
+
+[metadata]
+task_revision = 1
+evaluator_revision = 2
+evaluator_revision_note = "Use sca export for CADIR 2.2; grading criteria are unchanged."
+category = "cad-generation"
+provenance = "New native task authored from explicit analytic dimensions; no legacy case or external CAD reference."
+automated_scope = "Required deliverables, trusted package export, one solid and geometric point-set equivalence to an analytic cylinder. No strict topology identity or source/selfcheck certification."
+
+[agent]
+timeout_sec = 600
+network_mode = "allowlist"
+allowed_hosts = ["api.openai.com"]
+
+[environment]
+workdir = "/workspace"
+skills_dir = "/skills"
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+timeout_sec = 180
+
+[verifier.environment]
+network_mode = "no-network"
+workdir = "/workspace"
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
