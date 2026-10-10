@@ -829,12 +829,23 @@ test("new submit defaults to 1800 and dynamic 900 plus 900 warning", async ({
 }) => {
   const calls = await fixture(page);
   const custom: any = structuredClone(catalog);
+  custom.datasets[0].resolved = "public/data@sha256:fixed";
+  custom.datasets[0].tasks = [
+    { name: "log", package: "public/log", ref: "sha256:task" },
+  ];
   custom.datasets[0].author_parameters = {
-    discovery: {
-      budgets: [
-        { task: "public/log", agent_seconds: 900, verifier_seconds: 900 },
-      ],
-    },
+    source: custom.datasets[0].resolved,
+    checked_tasks: [
+      {
+        name: "log",
+        ref: "sha256:task",
+        discovery: {
+          budgets: [
+            { task: "public/log", agent_seconds: 900, verifier_seconds: 900 },
+          ],
+        },
+      },
+    ],
   };
   await page.route("**/api/v1/catalog", (route) =>
     route.fulfill({ json: custom }),
@@ -1000,4 +1011,176 @@ test("repair retry distinguishes unknown budgets from zero", async ({
   await expect(page.getByLabel("总时长（秒；默认保留父值）")).toHaveValue(
     "600",
   );
+});
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 1280, height: 900 },
+]) {
+  test(`long dataset digest keeps advanced controls usable at ${viewport.width}px`, async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport,
+      isMobile: viewport.width === 390,
+    });
+    const page = await context.newPage();
+    try {
+      await fixture(page);
+      await page.route("**/api/v1/catalog", (route) =>
+        route.fulfill({
+          json: {
+            ...catalog,
+            datasets: [
+              {
+                ...catalog.datasets[0],
+                id: "public-proverb",
+                reference: `aider/aider-polyglot@sha256:${"a".repeat(64)}`,
+                tasks: [{ name: "polyglot_python_proverb" }],
+              },
+            ],
+            settings: { default_dataset_id: "public-proverb" },
+          },
+        }),
+      );
+      await page.goto("/new");
+      await page
+        .getByLabel("数据集", { exact: true })
+        .selectOption("public-proverb");
+      await page
+        .getByLabel("任务", { exact: true })
+        .selectOption("polyglot_python_proverb");
+      expect(
+        await page.evaluate(() => document.body.scrollWidth),
+      ).toBeLessThanOrEqual(viewport.width);
+      await page
+        .getByText("高级参数：启动等待、尝试次数、并发与运行时长", {
+          exact: true,
+        })
+        .click();
+      await expect(page.locator("details")).toHaveAttribute("open", "");
+      const wall = page.getByLabel("实验总时长上限（秒，含准备）", {
+        exact: true,
+      });
+      await wall.fill("1600");
+      await expect(wall).toHaveValue("1600");
+      expect(
+        await page.evaluate(() => document.body.scrollWidth),
+      ).toBeLessThanOrEqual(viewport.width);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+for (const mismatch of ["none", "source", "ref"]) {
+  test(`selected task budgets match source and ref: ${mismatch}`, async ({
+    page,
+  }) => {
+    await fixture(page);
+    const custom: any = structuredClone(catalog);
+    custom.limits.max_wall_seconds = 7200;
+    const dataset = custom.datasets[0];
+    dataset.resolved = "aider/aider-polyglot@sha256:fixed";
+    dataset.tasks = Array.from({ length: 225 }, (_, i) => ({
+      name: i ? `task-${i}` : "polyglot_python_proverb",
+      ref: `sha256:${i}`,
+      package: i ? `aider/task-${i}` : "aider/polyglot_python_proverb",
+    }));
+    dataset.author_parameters = {
+      source: mismatch === "source" ? "different/source" : dataset.resolved,
+      checked_tasks: [
+        {
+          name: "polyglot_python_proverb",
+          ref: mismatch === "ref" ? "sha256:wrong" : "sha256:0",
+          discovery: {
+            budgets: [
+              {
+                task: "aider/polyglot_python_proverb",
+                agent_seconds: 1800,
+                verifier_seconds: 1800,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    await page.route("**/api/v1/catalog", (route) =>
+      route.fulfill({ json: custom }),
+    );
+    await page.goto("/new");
+    await expect(
+      page.getByLabel("任务", { exact: true }).locator("option"),
+    ).toHaveCount(226);
+    await expect(
+      page.getByText(
+        new RegExp(
+          `另有 ${mismatch === "none" ? 224 : 225} 个所选任务作者预算未知`,
+        ),
+      ),
+    ).toBeVisible();
+    await page
+      .getByLabel("任务", { exact: true })
+      .selectOption("polyglot_python_proverb");
+    if (mismatch !== "none") {
+      await expect(
+        page.getByText(/另有 1 个所选任务作者预算未知/),
+      ).toBeVisible();
+      await expect(page.getByText(/agent 1800秒/)).toHaveCount(0);
+      await expect(page.getByText(/警告：整体上限不足/)).toHaveCount(0);
+    } else {
+      await expect(
+        page.getByText(/agent 1800秒 \+ verifier 1800秒/),
+      ).toBeVisible();
+      await expect(page.getByText(/警告：整体上限不足/)).toBeVisible();
+      await page.locator("summary").click();
+      await page.getByLabel("实验总时长上限（秒，含准备）").fill("3600");
+      await expect(page.getByText(/警告：整体上限不足/)).toBeVisible();
+      await page.getByLabel("实验总时长上限（秒，含准备）").fill("5400");
+      await expect(page.getByText(/警告：整体上限不足/)).toHaveCount(0);
+      await page.getByLabel("任务", { exact: true }).selectOption("task-1");
+      await expect(
+        page.getByText(/另有 1 个所选任务作者预算未知/),
+      ).toBeVisible();
+      await expect(page.getByText(/agent 1800秒/)).toHaveCount(0);
+    }
+  });
+}
+
+test("administrator checks exact selected tasks and exposes partial scope", async ({
+  page,
+}) => {
+  await fixture(page);
+  const custom: any = structuredClone(catalog);
+  let body: any;
+  await page.route("**/api/v1/catalog", (route) =>
+    route.fulfill({ json: custom }),
+  );
+  await page.route(
+    "**/api/v1/admin/datasets/dataset1/author-inputs/check",
+    async (route) => {
+      body = route.request().postDataJSON();
+      custom.datasets[0].author_parameters = {
+        status: "partial_checked",
+        values: {},
+        discovery: { variables: {}, budgets: [] },
+        scope: {
+          complete: false,
+          tasks: [{ name: "answer", ref: "fixed" }],
+          total: 225,
+          unknown: 224,
+        },
+      };
+      await route.fulfill({ json: custom.datasets[0].author_parameters });
+    },
+  );
+  await page.goto("/admin");
+  await page.getByRole("tab", { name: "数据集", exact: true }).click();
+  await page
+    .getByLabel("检查任务（可多选，最多50个）")
+    .selectOption(["answer"]);
+  await page.getByRole("button", { name: "检查选定任务", exact: true }).click();
+  await expect(page.getByText(/不代表全集就绪/)).toBeVisible();
+  expect(body).toEqual({ task_names: ["answer"] });
+  await expect(page.getByText(/另有 224 个任务未扫描/)).toBeVisible();
 });

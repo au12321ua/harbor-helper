@@ -412,8 +412,16 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         return discover_docker()
 
     @app.post("/api/v1/admin/datasets/{object_id}/author-inputs/check")
-    def inspect_author_inputs(object_id: str, user: Annotated[dict, Depends(administrator)]):
-        return application.configuration.inspect_author_parameters(object_id)
+    def inspect_author_inputs(
+        object_id: str, user: Annotated[dict, Depends(administrator)], body: dict | None = None
+    ):
+        if body is not None and set(body) - {"task_names"}:
+            raise ServiceError("author_task_selection", "Only task_names may be specified")
+        return application.configuration.inspect_author_parameters(
+            object_id,
+            task_names=body.get("task_names") if body and "task_names" in body else None,
+            selection_supplied=bool(body is not None and "task_names" in body),
+        )
 
     @app.put("/api/v1/admin/datasets/{object_id}/author-inputs")
     def save_author_inputs(

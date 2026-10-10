@@ -311,6 +311,7 @@ function NewExperiment() {
     [agent, setAgent] = useState(restored.agent || "opencode"),
     [profile, setProfile] = useState(restored.model_profile || ""),
     [bundle, setBundle] = useState(restored.bundle_id || ""),
+    [taskName, setTaskName] = useState(restored.task || ""),
     [wall, setWall] = useState<number | undefined>(restored.wall_seconds),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>(),
@@ -319,6 +320,29 @@ function NewExperiment() {
   const selectedDataset =
     dataset || data?.settings?.default_dataset_id || datasets[0]?.id || "";
   const selected = datasets.find((d: Item) => d.id === selectedDataset);
+  const selectedTasks = (selected?.tasks || []).filter(
+    (task: Item) => !taskName || task.name === taskName,
+  );
+  const parameters = selected?.author_parameters;
+  const checkedBudgets = selectedTasks.flatMap((task: Item) => {
+    if (
+      !selected?.resolved ||
+      !task.ref ||
+      parameters?.source !== selected.resolved
+    )
+      return [];
+    const record = parameters?.checked_tasks?.find(
+      (record: Item) => record.name === task.name && record.ref === task.ref,
+    );
+    return record?.discovery?.budgets || [];
+  });
+  const unknownBudgets =
+    selectedTasks.length -
+    checkedBudgets.filter(
+      (budget: Item) =>
+        Number.isFinite(budget.agent_seconds) &&
+        Number.isFinite(budget.verifier_seconds),
+    ).length;
   const selectedProfile =
     profile || data?.settings?.default_model_profile || "";
   if (loading) return <Loading />;
@@ -411,7 +435,10 @@ function NewExperiment() {
                   label="数据集"
                   name="dataset"
                   value={selectedDataset}
-                  onChange={setDataset}
+                  onChange={(value) => {
+                    setDataset(value);
+                    setTaskName("");
+                  }}
                   description={
                     selected
                       ? `${selected.reference} · 已验证版本 ${selected.version}`
@@ -431,7 +458,8 @@ function NewExperiment() {
                     key={selectedDataset}
                     id="task"
                     name="task"
-                    defaultValue={restored.task || ""}
+                    value={taskName}
+                    onChange={(e) => setTaskName(e.target.value)}
                   >
                     <option value="">全部任务</option>
                     {(selected?.tasks || []).map((t: Item) => (
@@ -598,21 +626,22 @@ function NewExperiment() {
           <Separator />
           <p>提交者记为当前账户。重跑时创建新的实验记录，不覆盖历史结果。</p>
           <p>提供商、模型与参数在提交后固定；执行前会再次检查凭据是否可用。</p>
-          {selected?.author_parameters?.discovery?.budgets?.map(
-            (budget: Item) => (
-              <p key={budget.task}>
-                作者预算 {budget.task}：agent {budget.agent_seconds ?? "未知"}秒
-                + verifier {budget.verifier_seconds ?? "未知"}秒。
-                {(wall ?? Math.min(1800, limits.max_wall_seconds || 1800)) <=
+          {checkedBudgets.map((budget: Item) => (
+            <p key={budget.task}>
+              作者预算 {budget.task}：agent {budget.agent_seconds ?? "未知"}秒 +
+              verifier {budget.verifier_seconds ?? "未知"}秒。
+              {Number.isFinite(budget.agent_seconds) &&
+              Number.isFinite(budget.verifier_seconds) &&
+              (wall ?? Math.min(1800, limits.max_wall_seconds || 1800)) <=
                 budget.agent_seconds + budget.verifier_seconds
-                  ? "警告：整体上限不足以覆盖作者预算及准备；建议显式增加总时长。"
-                  : "整体时长还需覆盖构建与工具准备。"}
-              </p>
-            ),
-          )}
-          {!selected?.author_parameters?.discovery ? (
+                ? "警告：整体上限不足以覆盖作者预算及准备；建议显式增加总时长。"
+                : "整体时长还需覆盖构建与工具准备。"}
+            </p>
+          ))}
+          {unknownBudgets > 0 ? (
             <p>
-              作者预算尚未检查；管理员可在数据集页检查作者参数。总时长包含准备，默认1800秒。
+              另有 {unknownBudgets}{" "}
+              个所选任务作者预算未知，无法判断总时长是否足够；管理员可选择任务检查。默认1800秒，总时长包含准备。
             </p>
           ) : null}
           <p>预算估算仅单task，重复尝试/多任务另需余量。</p>

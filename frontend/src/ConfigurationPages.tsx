@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
+import { Field, FieldLabel, FieldGroup, FieldDescription } from "@/components/ui/field";
 import { toast } from "sonner";
 const limitLabels: Record<string, string> = {
   max_jobs: "全局任务并发",
@@ -302,9 +302,10 @@ function AuthorInputs({
 }: {
   dataset: Item;
   save: (path: string, value: Item, method?: string) => Promise<Item>;
-  check: (path: string) => void;
+  check: (path: string, value?: Item) => void;
   docker?: Item;
 }) {
+  const [taskNames, setTaskNames] = useState<string[]>([]);
   const parameters = dataset.author_parameters || {};
   const variables = parameters.discovery?.variables || {};
   return (
@@ -313,11 +314,13 @@ function AuthorInputs({
         作者运行参数 · v{parameters.version || 0} ·{" "}
         {parameters.status === "checked"
           ? "运行参数已检查"
-          : parameters.status === "blocked"
-            ? "检查失败"
-            : parameters.status === "missing"
-              ? "缺配置"
-              : "尚未检查"}
+          : parameters.status?.startsWith("partial_")
+            ? "部分任务已检查（不代表全集就绪）"
+            : parameters.status === "blocked"
+              ? "检查失败"
+              : parameters.status === "missing"
+                ? "缺配置"
+                : "尚未检查"}
         {parameters.checked ? ` · ${date(parameters.checked)}` : ""}
       </p>
       <p className="text-sm text-muted-foreground">
@@ -335,6 +338,48 @@ function AuthorInputs({
       >
         检查作者参数
       </Button>
+      <Field>
+        <FieldLabel htmlFor={`check-tasks-${dataset.id}`}>
+          检查任务（可多选，最多50个）
+        </FieldLabel>
+        <select
+          id={`check-tasks-${dataset.id}`}
+          multiple
+          value={taskNames}
+          onChange={(e) =>
+            setTaskNames(
+              Array.from(e.target.selectedOptions, (option) => option.value),
+            )
+          }
+        >
+          {(dataset.tasks || []).map((task: Item) => (
+            <option key={task.name} value={task.name}>
+              {task.name}
+            </option>
+          ))}
+        </select>
+        <FieldDescription>
+          选定检查只下载所选任务；未选任务仍未知。上方按钮保留全部任务检查。
+        </FieldDescription>
+      </Field>
+      <Button
+        variant="outline"
+        disabled={!dataset.ready || !taskNames.length || taskNames.length > 50}
+        onClick={() =>
+          check(`/admin/datasets/${dataset.id}/author-inputs/check`, {
+            task_names: taskNames,
+          })
+        }
+      >
+        检查选定任务
+      </Button>
+      {parameters.scope ? (
+        <p>
+          检查范围：{parameters.scope.complete ? "全集" : "部分任务"} · 已扫描{" "}
+          {parameters.scope.tasks.length}/{parameters.scope.total} · 另有{" "}
+          {parameters.scope.unknown} 个任务未扫描
+        </p>
+      ) : null}
       {parameters.issues?.map((issue: Item, index: number) => (
         <Alert key={index} variant="destructive">
           <AlertDescription>
@@ -416,7 +461,7 @@ function AuthorInputs({
             />
           ) : (
             <p>
-              作者任务没有可网页配置的外部Compose变量；普通Dockerfile/镜像任务可直接提交。
+              已扫描任务没有可网页配置的外部Compose变量；其余任务仍需执行前完整校验。
             </p>
           )}
           <p>
@@ -524,7 +569,7 @@ export function Admin() {
                   <AuthorInputs
                     dataset={v}
                     save={save}
-                    check={(path) => void action(path)}
+                    check={(path, value) => void action(path, value)}
                     docker={docker}
                   />
                 </>

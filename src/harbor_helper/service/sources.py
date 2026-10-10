@@ -10,7 +10,7 @@ from pathlib import Path
 from harbor_helper.service.data import ServiceError
 
 
-def source_call(reference, *, key=None, target=None, task=None):
+def source_call(reference, *, key=None, target=None, task=None, selected_tasks=None):
     # Never inherit user HOME, Harbor credentials, model credentials or cloud profiles.
     with tempfile.TemporaryDirectory(prefix="hh-source-") as home:
         env = {
@@ -45,6 +45,7 @@ def source_call(reference, *, key=None, target=None, task=None):
                         "reference": reference,
                         "target": str(target) if target else None,
                         "task": task,
+                        "selected_tasks": selected_tasks,
                     }
                 ),
                 env=env,
@@ -56,7 +57,9 @@ def source_call(reference, *, key=None, target=None, task=None):
             value = json.loads(result.stdout)
         except (OSError, subprocess.TimeoutExpired, ValueError):
             raise ServiceError(
-                "source_network", "Hub 检查超时或网络不可用；管理员检查网络后重新验证", 409
+                "source_network",
+                "Hub 检查超时或网络不可用；管理员检查网络后重试。数据集较大可选择任务检查作者参数",
+                409,
             ) from None
         if result.returncode or "error" in value:
             raise ServiceError(
@@ -81,8 +84,11 @@ def main():
 
     async def execute():
         if request["target"]:
+            options = {}
+            if request.get("selected_tasks") is not None:
+                options["selected_tasks"] = request["selected_tasks"]
             return await resolve_dataset(
-                request["reference"], Path(request["target"]), request["task"]
+                request["reference"], Path(request["target"]), request["task"], **options
             )
         metadata = await PackageDatasetClient().get_dataset_metadata(request["reference"])
         if metadata.metrics or metadata.files:
@@ -109,6 +115,16 @@ def main():
     except Exception as error:  # noqa: BLE001 - third party exceptions must never escape
         # Use types only; remote text can carry credentials/paths.
         name = type(error).__name__
+        if name == "TaskSelectionError":
+            print(
+                json.dumps(
+                    {
+                        "error": "author_task_selection",
+                        "message": "所选任务与已验证目录的名称/ref不匹配；重新验证来源",
+                    }
+                )
+            )
+            sys.exit(1)
         if name == "UnsupportedDatasetError":
             print(
                 json.dumps(

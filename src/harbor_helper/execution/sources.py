@@ -10,7 +10,11 @@ class UnsupportedDatasetError(ValueError):
     """A source feature is outside this service's supported execution contract."""
 
 
-async def resolve_dataset(reference, target, task_filter=None):
+class TaskSelectionError(ValueError):
+    """Exact requested task names or immutable refs disagree with the catalog."""
+
+
+async def resolve_dataset(reference, target, task_filter=None, *, selected_tasks=None):
     client = PackageDatasetClient()
     metadata = await client.get_dataset_metadata(reference)
     if not metadata.version.startswith("sha256:"):
@@ -18,7 +22,24 @@ async def resolve_dataset(reference, target, task_filter=None):
     if metadata.metrics or metadata.files:
         raise UnsupportedDatasetError("Dataset-level custom metrics/files are not supported")
     tasks = metadata.task_ids
-    if task_filter:
+    if selected_tasks is not None:
+        if not isinstance(selected_tasks, list) or not 1 <= len(selected_tasks) <= 50:
+            raise TaskSelectionError("Select between one and fifty exact catalog tasks")
+        catalog = {t.name: t for t in tasks}
+        chosen = []
+        for entry in selected_tasks:
+            task = catalog.get(entry.get("name"))
+            if (
+                task is None
+                or task.ref != entry.get("ref")
+                or task.get_name() != entry.get("package")
+            ):
+                raise TaskSelectionError("Selected task differs from verified catalog")
+            chosen.append(task)
+        if len({t.name for t in chosen}) != len(chosen):
+            raise TaskSelectionError("Duplicate selected task")
+        tasks = chosen
+    elif task_filter:
         tasks = [
             t
             for t in tasks

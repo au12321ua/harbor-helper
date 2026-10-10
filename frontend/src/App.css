@@ -266,6 +266,7 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 270px;
   gap: 30px;
   align-items: start;
+  overflow-wrap: anywhere;
 }
 .form-aside {
   position: sticky;
