@@ -1,12 +1,12 @@
 # 项目工作入口
 
-先读 [docs/HANDOFF.md](docs/HANDOFF.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。
+先读 [docs/HANDOFF.md](docs/HANDOFF.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。若 `.local/LOCAL_ENVIRONMENT.md` 存在，先读其中的本地保护与恢复信息，再操作服务、state或镜像；该文件由部署者维护，不要求开源clone包含它。
 
 ## 目标与用户确认的边界
 
 让受邀的可信团队通过 CLI 和 Web 提交、观察、比较和重跑实验；数据集可选择，实验配置固定，结果全团队共享。
 
-本轮用户优先级：成员只用浏览器、不登录服务器完成实验操作，管理员日常配置也在网页完成；结构整理次要。当前交付从[HANDOFF](docs/HANDOFF.md)读取；此前Web流程的[独立报告](docs/evidence/web-usability/web-usability-checker-report.md)仅是旧固定版本证据，不覆盖本次P2。
+本轮用户优先级：成员只用浏览器、不登录服务器完成实验操作，管理员日常配置也在网页完成；结构整理次要。维护与验证边界从[HANDOFF](docs/HANDOFF.md)读取；独立报告只证明其固定版本与列出的覆盖范围。
 
 - 保留个人提交身份，仅成员/管理员两种角色；管理员邀请账户，不开放注册，不引入复杂 SSO。
 - 成员取消自己的任务；管理员可取消任何任务、删除产物、管理团队凭据与容量；重跑归当前提交者。
@@ -18,18 +18,18 @@
 
 ## 按任务查阅
 
-- 当前任务、现场与证据边界：[当前HANDOFF](docs/HANDOFF.md)。旧需求来源、版本现场和文档冲突见[历史交接](docs/archive/handoff-2026-10-09.md)，其中“当前”只属于原记录时点。
+- 维护入口与验证边界：[开发交接](docs/HANDOFF.md)。部署现场以存在时的 `.local/LOCAL_ENVIRONMENT.md` 为准；操作前实时核对身份与引用。
 - 服务设计/验收/运行：[service-design](docs/archive/team-service/service-design.md)、[service-acceptance](docs/reference/service-acceptance.md)、[service-operations](docs/guides/web-service.md)。技术细节的来源分类以交接为准。
 - 本地 CLI：[README](README.md)、[configuration](docs/guides/local-configuration.md)、[operations](docs/guides/local-operations.md)；历史验收：[acceptance](docs/archive/local-cli/acceptance.md)。
 - 职责与兼容：[源码结构](docs/architecture/source-layout.md)。应用/API/数据：`src/harbor_helper/service/{application,api,data}.py`；CLI：`commands/{main,service,remote}.py`。
 - 执行/调度：`execution/{runs,worker,processes,agents,environments,agent_tools}.py`；持久层：`persistence/`；安全：`security/`；报告：`results/`。这些短路径均相对`src/harbor_helper/`。Web：`frontend/src/App.tsx`、`frontend/src/api.ts`。
-- 当前使用与固定版本证据从[文档导航](docs/README.md)进入；历史设计/否定方案和失败独立报告保留原版本，不成为新约束。
+- 当前使用和历史设计从[文档导航](docs/README.md)进入；旧设计与报告不成为新增约束。
 
 ## 运行与验证入口
 
 当前实现需要 Linux、Python 3.12–3.13、uv；实际执行另需 Docker/Compose、可用镜像及 Hub 数据集权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
-- Python：`uv sync --locked --group dev`；`uv run pytest -q`；`uv run ruff check src tests`。测试隔离前提与版本证据见交接，不能默认这些命令无副作用。
+- Python：`uv sync --locked --group dev`；`uv run pytest -q`；`uv run ruff check src tests`。测试隔离前提与覆盖边界见交接，不能默认这些命令无副作用。
 - Web：在 `frontend/` 运行 `npm ci`、`npm run build`、`npm run lint`；构建会写入 `src/harbor_helper/static/`。`npm run test:ui` 另需 Playwright Chromium，使用拦截 API 的 UI fixture。
 - 服务：按操作说明用全新独立 state 执行 `service serve --root … --setup-token-file … --master-key-file … --host … --port …`，引导凭证和主密钥在 state 外；首管理员及业务设置在网页完成。`service init` 保留兼容。成员用浏览器，远程 CLI 用 `service login`，不使用本地 `auth login` 注入团队模型凭据。
 
