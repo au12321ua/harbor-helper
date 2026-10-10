@@ -42,11 +42,13 @@ def parser():
     for k in ("attempts", "concurrency", "wall-seconds"):
         submit_p.add_argument("--" + k, type=int)
     sub.add_parser("list")
-    for cmd in ("status", "logs", "cancel", "report", "rerun"):
+    for cmd in ("status", "logs", "cancel", "report", "rerun", "retry"):
         sp = sub.add_parser(cmd)
         sp.add_argument("run_id")
-        if cmd == "rerun":
-            sp.add_argument("--idempotency-key", help="Remote retry key for same rerun")
+        if cmd in {"rerun", "retry"}:
+            sp.add_argument("--idempotency-key", help="Remote retry key for same operation")
+        if cmd == "retry":
+            sp.add_argument("--wall-seconds", type=int, help="Explicit repair retry wall limit")
     comp = sub.add_parser("compare")
     comp.add_argument("left")
     comp.add_argument("right")

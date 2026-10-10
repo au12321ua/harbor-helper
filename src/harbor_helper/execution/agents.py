@@ -158,8 +158,8 @@ class HelperOpenCode(OpenCode):
                 "Agent setup blocked: author environment network_mode=no-network; "
                 "fixed OpenCode is not preinstalled and missing dependencies: "
                 + ", ".join(missing)
-                + ". No author network override was applied. Select the reference solution (Oracle) "
-                "or a benchmark whose author environment supports this fixed agent."
+                + ". No author network override was applied. Use the explicit repair retry action "
+                "to apply offline tool preparation when the parent strategy is missing."
             )
         await self.ensure_system_dependencies(
             environment, ("curl", "bash", "coreutils", "nodejs", "npm")

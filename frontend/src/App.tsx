@@ -310,7 +310,8 @@ function NewExperiment() {
   const [dataset, setDataset] = useState(restored.dataset_id || ""),
     [agent, setAgent] = useState(restored.agent || "opencode"),
     [profile, setProfile] = useState(restored.model_profile || ""),
-    [bundle, setBundle] = useState(""),
+    [bundle, setBundle] = useState(restored.bundle_id || ""),
+    [wall, setWall] = useState<number | undefined>(restored.wall_seconds),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>(),
     [uploadBusy, setUploadBusy] = useState(false);
@@ -362,7 +363,9 @@ function NewExperiment() {
                 attempts: Number(f.get("attempts")),
                 concurrency: Number(f.get("concurrency")),
                 wall_seconds: Number(f.get("wall_seconds")),
-                environment_build_timeout_multiplier: Number(f.get("environment_build_timeout_multiplier")),
+                environment_build_timeout_multiplier: Number(
+                  f.get("environment_build_timeout_multiplier"),
+                ),
               },
               submitKey.current,
             );
@@ -520,9 +523,25 @@ function NewExperiment() {
               <CardContent>
                 <FieldGroup className="numeric-fields">
                   <Field>
-                    <FieldLabel htmlFor="environment_build_timeout_multiplier">环境启动等待倍数</FieldLabel>
-                    <Input id="environment_build_timeout_multiplier" name="environment_build_timeout_multiplier" type="number" min="1" step="0.1" defaultValue={restored.environment_build_timeout_multiplier ?? 10} required />
-                    <FieldDescription>这是实验准备等待调整，作者声明的时限与文件保持不变。作者 build_timeout_sec × 此倍数，覆盖构建、拉取与容器启动等待。默认10：作者30秒时等待300秒；1保留作者时限。整体运行时长仍可提前终止，安装依赖与推理时限不受此项影响。提交后冻结，重跑沿用。</FieldDescription>
+                    <FieldLabel htmlFor="environment_build_timeout_multiplier">
+                      环境启动等待倍数
+                    </FieldLabel>
+                    <Input
+                      id="environment_build_timeout_multiplier"
+                      name="environment_build_timeout_multiplier"
+                      type="number"
+                      min="1"
+                      step="0.1"
+                      defaultValue={
+                        restored.environment_build_timeout_multiplier ?? 10
+                      }
+                      required
+                    />
+                    <FieldDescription>
+                      这是实验准备等待调整，作者声明的时限与文件保持不变。作者
+                      build_timeout_sec ×
+                      此倍数，覆盖构建、拉取与容器启动等待。默认10：作者30秒时等待300秒；1保留作者时限。整体运行时长仍可提前终止，安装依赖与推理时限不受此项影响。提交后冻结，重跑沿用。
+                    </FieldDescription>
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="attempts">每任务尝试次数</FieldLabel>
@@ -549,20 +568,24 @@ function NewExperiment() {
                     />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="wall_seconds">实验总时长上限（秒，含准备）</FieldLabel>
+                    <FieldLabel htmlFor="wall_seconds">
+                      实验总时长上限（秒，含准备）
+                    </FieldLabel>
                     <Input
                       id="wall_seconds"
                       name="wall_seconds"
                       type="number"
                       min="1"
                       max={limits.max_wall_seconds || 1800}
-                      defaultValue={
-                        restored.wall_seconds ||
-                        Math.min(600, limits.max_wall_seconds || 1800)
+                      value={
+                        wall ?? Math.min(1800, limits.max_wall_seconds || 1800)
                       }
+                      onChange={(e) => setWall(Number(e.target.value))}
                       required
                     />
-                    <FieldDescription>从实验进入执行阶段计时，包含环境准备、代理工具准备与安装、模型执行和评分；不含此前来源准备与排队。环境启动用作者时限×倍数，代理准备沿Harbor默认360秒保护，模型执行另受作者agent时限约束。总上限更早到期会中止；资源清理可能晚于上限完成。</FieldDescription>
+                    <FieldDescription>
+                      从实验进入执行阶段计时，包含环境准备、代理工具准备与安装、模型执行和评分；不含此前来源准备与排队。环境启动用作者时限×倍数，代理准备沿Harbor默认360秒保护，模型执行另受作者agent时限约束。总上限更早到期会中止；资源清理可能晚于上限完成。
+                    </FieldDescription>
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -575,8 +598,30 @@ function NewExperiment() {
           <Separator />
           <p>提交者记为当前账户。重跑时创建新的实验记录，不覆盖历史结果。</p>
           <p>提供商、模型与参数在提交后固定；执行前会再次检查凭据是否可用。</p>
-          <p>新实验环境准备等待默认为作者时限×10，可在高级参数改为1或其他倍数；整体运行上限仍生效。</p>
-          <p>新模型实验先复用匹配的预装OpenCode；否则在任务网络外下载校验固定公共工具，再上传到作者容器离线安装。任务仍按作者网络运行，所选模型地址沿Harbor显式允许主机策略。</p>
+          {selected?.author_parameters?.discovery?.budgets?.map(
+            (budget: Item) => (
+              <p key={budget.task}>
+                作者预算 {budget.task}：agent {budget.agent_seconds ?? "未知"}秒
+                + verifier {budget.verifier_seconds ?? "未知"}秒。
+                {(wall ?? Math.min(1800, limits.max_wall_seconds || 1800)) <=
+                budget.agent_seconds + budget.verifier_seconds
+                  ? "警告：整体上限不足以覆盖作者预算及准备；建议显式增加总时长。"
+                  : "整体时长还需覆盖构建与工具准备。"}
+              </p>
+            ),
+          )}
+          {!selected?.author_parameters?.discovery ? (
+            <p>
+              作者预算尚未检查；管理员可在数据集页检查作者参数。总时长包含准备，默认1800秒。
+            </p>
+          ) : null}
+          <p>预算估算仅单task，重复尝试/多任务另需余量。</p>
+          <p>
+            新实验环境准备等待默认为作者时限×10，可在高级参数改为1或其他倍数；整体运行上限仍生效。
+          </p>
+          <p>
+            新模型实验先复用匹配的预装OpenCode；否则在任务网络外下载校验固定公共工具，再上传到作者容器离线安装。任务仍按作者网络运行，所选模型地址沿Harbor显式允许主机策略。
+          </p>
           <Button
             type="submit"
             disabled={
@@ -602,6 +647,8 @@ function NewExperiment() {
 function Submission({ user }: { user: Item }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const recoveryKey = useRef(newIdempotencyKey());
+  const [recovering, setRecovering] = useState(false);
   const { data, error, loading, reload } = useLoad(
     () => api(`/submissions/${id}`),
     id || "",
@@ -625,7 +672,14 @@ function Submission({ user }: { user: Item }) {
         description={`提交 ${id}`}
       />
       <ErrorNotice error={error} />
-      {data?.legacy_override_removed ? <Alert><AlertDescription>本次重跑沿用父实验作者任务快照与模型参数，旧 helper 镜像覆盖不再沿用；实际环境可能变化。</AlertDescription></Alert> : null}
+      {data?.legacy_override_removed ? (
+        <Alert>
+          <AlertDescription>
+            本次重跑沿用父实验作者任务快照与模型参数，旧 helper
+            镜像覆盖不再沿用；实际环境可能变化。
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>
@@ -669,7 +723,32 @@ function Submission({ user }: { user: Item }) {
           ) : null}
           {data?.status === "failed" ? (
             <>
-              <Button asChild>
+              <Button
+                disabled={recovering}
+                onClick={async () => {
+                  setRecovering(true);
+                  try {
+                    const result = await post(
+                      `/submissions/${id}/retry`,
+                      {},
+                      recoveryKey.current,
+                    );
+                    navigate(`/submissions/${result.id}`);
+                  } catch (error) {
+                    toast.error((error as Error).message);
+                  } finally {
+                    setRecovering(false);
+                  }
+                }}
+              >
+                按当前配置再次提交（保留原来源）
+              </Button>
+              {data.diagnosis?.map((issue: Item, index: number) => (
+                <p key={index}>
+                  {issue.task}：{issue.variables.join("、")} · {issue.reason}
+                </p>
+              ))}
+              <Button variant="outline" asChild>
                 <Link to="/new" state={{ request: data.request }}>
                   修改输入后新提交
                 </Link>
@@ -754,6 +833,8 @@ function Rewards({ report }: { report: Item }) {
 }
 function RunDetailContent({ user }: { user: Item }) {
   const rerunKey = useRef(newIdempotencyKey());
+  const retryKey = useRef(newIdempotencyKey());
+  const [retryWall, setRetryWall] = useState<number | undefined>();
   const { id } = useParams();
   const { data, error, loading, reload } = useLoad(
     () => api(`/runs/${id}`),
@@ -824,6 +905,7 @@ function RunDetailContent({ user }: { user: Item }) {
               </Button>
             ) : null}
             <Button
+              variant="outline"
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
@@ -842,12 +924,101 @@ function RunDetailContent({ user }: { user: Item }) {
               }}
             >
               <RefreshCw data-icon="inline-start" />
-              重跑实验（按作者定义）
+              按原条件重跑
             </Button>
           </div>
         }
       />
       <ErrorNotice error={error} />
+      {row.status === "failed" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>修复后重试</CardTitle>
+            <CardDescription>
+              保留父作者快照及研究因素；仅补缺失工具策略/启动倍率，按当前数据集参数重新检查。普通重跑保持原冻结条件。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Field>
+              <FieldLabel htmlFor="retry-wall">
+                总时长（秒；默认保留父值）
+              </FieldLabel>
+              <Input
+                id="retry-wall"
+                type="number"
+                min="1"
+                value={retryWall ?? manifest.effective?.wall_seconds ?? 600}
+                onChange={(event) => {
+                  setRetryWall(Number(event.target.value));
+                  retryKey.current = newIdempotencyKey();
+                }}
+              />
+            </Field>
+            <p>
+              父总时长 {manifest.effective?.wall_seconds}秒。作者预算：
+              {(
+                manifest.service?.author_input_diagnostics?.budgets ||
+                manifest.startup_policy?.tasks ||
+                []
+              )
+                .map(
+                  (budget: Item) =>
+                    `${budget.task}：agent ${budget.agent_seconds ?? "未知"} + verifier ${budget.verifier_seconds ?? "未知"}秒`,
+                )
+                .join("；")}
+              。预算估算仅单task，重复尝试/多任务另需余量。总时长包含构建及工具准备；根据作者预算显式设置总时长，改值会记录差异。
+            </p>
+            {(
+              manifest.service?.author_input_diagnostics?.budgets ||
+              manifest.startup_policy?.tasks ||
+              []
+            ).some(
+              (budget: Item) =>
+                (retryWall ?? manifest.effective?.wall_seconds ?? 600) <=
+                (budget.agent_seconds || 0) + (budget.verifier_seconds || 0),
+            ) ? (
+              <Alert>
+                <AlertDescription>
+                  警告：总时长不足以覆盖作者预算和准备。保留父值，不自动修改。
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const result = await post(
+                    `/runs/${id}/retry`,
+                    retryWall === undefined ? {} : { wall_seconds: retryWall },
+                    retryKey.current,
+                  );
+                  navigate(`/submissions/${result.id}`);
+                } catch (error) {
+                  toast.error((error as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              修复后重试
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+      {manifest.service?.retry_changes &&
+      Object.keys(manifest.service.retry_changes).length ? (
+        <Alert>
+          <AlertDescription>
+            修复差异：{JSON.stringify(manifest.service.retry_changes)}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {data?.failure_diagnosis ? (
+        <Alert variant="destructive">
+          <AlertDescription>{data.failure_diagnosis.message}</AlertDescription>
+        </Alert>
+      ) : null}
       <div className="detail-status">
         <Status value={row.status} />
         <Status value={row.audit_status} />
@@ -855,8 +1026,22 @@ function RunDetailContent({ user }: { user: Item }) {
           <Link to={`/runs/${row.parent}`}>来源实验 {row.parent}</Link>
         ) : null}
       </div>
-      {manifest.legacy_override_removed ? <Alert><AlertDescription>本次重跑沿用父作者任务快照与模型参数，旧 helper 镜像覆盖不再沿用，实际环境可能变化。</AlertDescription></Alert> : null}
-      {manifest.execution_mode !== "harbor-native" ? <Alert><AlertDescription>此历史实验使用旧 helper 镜像覆盖。重跑将按父作者定义执行，旧覆盖不再沿用。</AlertDescription></Alert> : null}
+      {manifest.legacy_override_removed ? (
+        <Alert>
+          <AlertDescription>
+            本次重跑沿用父作者任务快照与模型参数，旧 helper
+            镜像覆盖不再沿用，实际环境可能变化。
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {manifest.execution_mode !== "harbor-native" ? (
+        <Alert>
+          <AlertDescription>
+            此历史实验使用旧 helper
+            镜像覆盖。重跑将按父作者定义执行，旧覆盖不再沿用。
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {row.audit_status === "incomplete" ? (
         <Alert variant="destructive">
           <AlertTitle>日志安全审计异常</AlertTitle>
@@ -865,19 +1050,93 @@ function RunDetailContent({ user }: { user: Item }) {
           </AlertDescription>
         </Alert>
       ) : null}
-      {data?.report?.tasks?.flatMap((task: Item) => task.attempts || []).filter((attempt: Item) => attempt.diagnosis).map((attempt: Item) => (
-        <Card key={attempt.trial || attempt.task}>
-          <CardHeader><CardTitle>{attempt.valid ? "执行阶段与耗时" : "失败定位与阶段耗时"} · {attempt.task}</CardTitle><CardDescription>{attempt.diagnosis.hint}</CardDescription></CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p>最后到达：{({environment_setup: "环境启动", agent_setup: "代理安装与准备", agent_execution: "推理/参考解执行", verifier: "评分"} as Record<string, string>)[attempt.diagnosis.phase] || "未知"} · 启动倍数 {attempt.diagnosis.startup_multiplier}</p>
-            <p>{attempt.diagnosis.phases.map((phase: Item) => `${({environment_setup: "环境启动", agent_setup: "代理准备", agent_execution: "执行", verifier: "评分"} as Record<string, string>)[phase.phase]}：${phase.reached ? phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒` : "未到达"}`).join("；")}</p>
-            {attempt.diagnosis.agent_installation?.missing_dependencies?.length ? <p>代理安装缺少：{attempt.diagnosis.agent_installation.missing_dependencies.join("、")}；请查看作者网络约束与已审计日志。</p> : null}
-            {attempt.diagnosis.agent_installation?.strategy === "offline-npm-binary-v1" ? <p>代理工具：任务外联网准备 → 容器内离线安装；阶段 {attempt.diagnosis.agent_installation.stage}，状态 {attempt.diagnosis.agent_installation.status}，缓存{attempt.diagnosis.agent_installation.cache_hit ? "复用" : "首次准备或未完成"}。{attempt.diagnosis.agent_installation.preparation_error_type ? `公共材料准备错误：${attempt.diagnosis.agent_installation.preparation_error_type}` : ""}</p> : null}
-            {attempt.diagnosis.agent_installation?.binary_sha256 ? <p style={{ overflowWrap: "anywhere" }}>工具版本 {attempt.diagnosis.agent_installation.version}；公共准备 {attempt.diagnosis.agent_installation.preparation_seconds?.toFixed(3) ?? "未知"} 秒；SHA256 {attempt.diagnosis.agent_installation.binary_sha256}；来源 {attempt.diagnosis.agent_installation.source}。</p> : null}
-            <p>Compose：{Array.isArray(attempt.diagnosis.compose) ? attempt.diagnosis.compose.map((phase: Item) => `${phase.phase} ${phase.status} ${phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒`}`).join("；") : "阶段记录未知（旧记录可能未保存）"}</p>
-          </CardContent>
-        </Card>
-      ))}
+      {data?.report?.tasks
+        ?.flatMap((task: Item) => task.attempts || [])
+        .filter((attempt: Item) => attempt.diagnosis)
+        .map((attempt: Item) => (
+          <Card key={attempt.trial || attempt.task}>
+            <CardHeader>
+              <CardTitle>
+                {attempt.valid ? "执行阶段与耗时" : "失败定位与阶段耗时"} ·{" "}
+                {attempt.task}
+              </CardTitle>
+              <CardDescription>{attempt.diagnosis.hint}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {attempt.diagnosis.model_status === "not_reached" ? (
+                <p>未执行模型（尚未到代理执行阶段）</p>
+              ) : null}
+              <p>
+                最后到达：
+                {(
+                  {
+                    environment_setup: "环境启动",
+                    agent_setup: "代理安装与准备",
+                    agent_execution: "推理/参考解执行",
+                    verifier: "评分",
+                  } as Record<string, string>
+                )[attempt.diagnosis.phase] || "未知"}{" "}
+                · 启动倍数 {attempt.diagnosis.startup_multiplier}
+              </p>
+              <p>
+                {attempt.diagnosis.phases
+                  .map(
+                    (phase: Item) =>
+                      `${({ environment_setup: "环境启动", agent_setup: "代理准备", agent_execution: "执行", verifier: "评分" } as Record<string, string>)[phase.phase]}：${phase.reached ? (phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒`) : "未到达"}`,
+                  )
+                  .join("；")}
+              </p>
+              {attempt.diagnosis.agent_installation?.missing_dependencies
+                ?.length ? (
+                <p>
+                  代理安装缺少：
+                  {attempt.diagnosis.agent_installation.missing_dependencies.join(
+                    "、",
+                  )}
+                  ；请查看作者网络约束与已审计日志。
+                </p>
+              ) : null}
+              {attempt.diagnosis.agent_installation?.strategy ===
+              "offline-npm-binary-v1" ? (
+                <p>
+                  代理工具：任务外联网准备 → 容器内离线安装；阶段{" "}
+                  {attempt.diagnosis.agent_installation.stage}，状态{" "}
+                  {attempt.diagnosis.agent_installation.status}，缓存
+                  {attempt.diagnosis.agent_installation.cache_hit
+                    ? "复用"
+                    : "首次准备或未完成"}
+                  。
+                  {attempt.diagnosis.agent_installation.preparation_error_type
+                    ? `公共材料准备错误：${attempt.diagnosis.agent_installation.preparation_error_type}`
+                    : ""}
+                </p>
+              ) : null}
+              {attempt.diagnosis.agent_installation?.binary_sha256 ? (
+                <p style={{ overflowWrap: "anywhere" }}>
+                  工具版本 {attempt.diagnosis.agent_installation.version}
+                  ；公共准备{" "}
+                  {attempt.diagnosis.agent_installation.preparation_seconds?.toFixed(
+                    3,
+                  ) ?? "未知"}{" "}
+                  秒；SHA256{" "}
+                  {attempt.diagnosis.agent_installation.binary_sha256}；来源{" "}
+                  {attempt.diagnosis.agent_installation.source}。
+                </p>
+              ) : null}
+              <p>
+                Compose：
+                {Array.isArray(attempt.diagnosis.compose)
+                  ? attempt.diagnosis.compose
+                      .map(
+                        (phase: Item) =>
+                          `${phase.phase} ${phase.status} ${phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒`}`,
+                      )
+                      .join("；")
+                  : "阶段记录未知（旧记录可能未保存）"}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="overview">配置与状态</TabsTrigger>
@@ -903,9 +1162,28 @@ function RunDetailContent({ user }: { user: Item }) {
                   完成时间: date(row.finished),
                   执行并发: row.concurrency,
                   状态原因: row.reason || "—",
-                  作者启动时限与有效等待: manifest.startup_policy?.tasks?.map((task: Item) => `${task.task}：作者 ${task.author_build_timeout_sec} 秒 × ${manifest.startup_policy.multiplier} = 准备等待 ${task.start_wait_timeout_sec} 秒；作者网络 ${task.author_network_mode}`).join("；") || "未知",
+                  作者预构建镜像缓存观察:
+                    manifest.service?.author_input_diagnostics?.images
+                      ?.map(
+                        (image: Item) =>
+                          `${image.role} ${image.reference}：${image.cached === true ? "已缓存，不证明兼容" : image.cached === false ? "未缓存；Harbor需向registry获取；up未完成请检查registry与阶段记录，不能直接断言网络根因" : "未知"}`,
+                      )
+                      .join("；") || "无声明或尚未观察",
+                  作者启动时限与有效等待:
+                    manifest.startup_policy?.tasks
+                      ?.map(
+                        (task: Item) =>
+                          `${task.task}：作者 ${task.author_build_timeout_sec} 秒 × ${manifest.startup_policy.multiplier} = 准备等待 ${task.start_wait_timeout_sec} 秒；作者网络 ${task.author_network_mode}`,
+                      )
+                      .join("；") || "未知",
                   环境启动策略: `作者 build_timeout_sec × ${manifest.effective?.environment_build_timeout_multiplier ?? 1}（冻结）；整体运行上限 ${manifest.effective?.wall_seconds ?? "未知"} 秒`,
-                  代理工具策略: manifest.effective?.agent === "opencode" ? (manifest.effective?.agent_tool_preparation === "offline-npm-binary-v1" ? "匹配预装优先；任务外公共工具准备 / Harbor上传离线安装（冻结）" : "旧受理：任务内安装（未暗改）") : "参考解，无模型工具安装",
+                  代理工具策略:
+                    manifest.effective?.agent === "opencode"
+                      ? manifest.effective?.agent_tool_preparation ===
+                        "offline-npm-binary-v1"
+                        ? "匹配预装优先；任务外公共工具准备 / Harbor上传离线安装（冻结）"
+                        : "旧受理：任务内安装（未暗改）"
+                      : "参考解，无模型工具安装",
                 }).map(([k, v]) => (
                   <div key={k}>
                     <dt>{k}</dt>

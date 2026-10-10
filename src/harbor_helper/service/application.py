@@ -24,6 +24,8 @@ def digest(value):
 
 def public_submission(value):
     return {
+        "diagnosis": value.get("frozen", {}).get("service", {}).get("author_input_issues"),
+        "retry_changes": value.get("frozen", {}).get("service", {}).get("retry_changes", {}),
         "execution_mode": value.get("frozen", {})
         .get("service", {})
         .get("execution_mode", "legacy-image-override"),
@@ -78,7 +80,7 @@ class Application:
             "default_dataset": default_dataset,
         }
 
-    def accept(self, actor, request, idem, parent=None):
+    def accept(self, actor, request, idem, parent=None, *, retry=False, recovery=None):
         if not isinstance(idem, str) or not 1 <= len(idem) <= 128:
             raise ServiceError("idempotency_required", "A stable Idempotency-Key is required")
         if not isinstance(request, dict) or set(request) - {
@@ -101,7 +103,13 @@ class Application:
             not isinstance(request["name"], str) or len(request["name"]) > 128
         ):
             raise ServiceError("experiment_name", "Experiment name must be at most 128 characters")
-        operation = "rerun:" + parent if parent else "submit"
+        if retry and set(request) - {"wall_seconds"}:
+            raise ServiceError("retry_options", "修复重试仅允许显式修改总时长")
+        operation = (
+            ("retry:" if retry else "rerun:") + parent
+            if parent
+            else ("recover:" + recovery if recovery else "submit")
+        )
         request_hash = digest(request)
         with self.store.control():
             with self.store.connect() as db:
@@ -131,8 +139,15 @@ class Application:
                 "submitter": actor["username"],
                 "name": request.get("name") or "",
             }
-            if parent:
-                old = read_json(self.store.path(parent) / "manifest.json")
+            recovery_row = self.data.submission(recovery) if recovery else None
+            if recovery_row and (recovery_row["status"] != "failed" or recovery_row["run_id"]):
+                raise ServiceError("recovery_state", "只能恢复尚未产生实验的失败提交", 409)
+            if parent or recovery_row:
+                old = (
+                    read_json(self.store.path(parent) / "manifest.json")
+                    if parent
+                    else recovery_row["frozen"]
+                )
                 cfg = json.loads(json.dumps(old["effective"]))
                 old_binding = old.get("service") or {}
                 service.update(
@@ -142,7 +157,9 @@ class Application:
                         if k not in {"user_id", "submitter", "submission_id", "name"}
                     }
                 )
-                service["name"] = ((old_binding.get("name") or parent) + " · 重跑")[:128]
+                service["name"] = ((old_binding.get("name") or parent or recovery) + " · 重跑")[
+                    :128
+                ]
                 if cfg["agent"] == "opencode":
                     original_profile = self.data.object("profile", old_binding.get("model_profile"))
                     if not original_profile["enabled"]:
@@ -229,7 +246,7 @@ class Application:
                     raise ServiceError(
                         "invalid_agent", "Use opencode with a model profile or explicit oracle"
                     )
-            if not parent:
+            if not parent and not recovery_row:
                 dataset_id = request.get("dataset_id")
                 if not dataset_id and not request.get("dataset"):
                     dataset_id = self.configuration.settings().get("default_dataset_id")
@@ -269,6 +286,59 @@ class Application:
                     service["source_version"] = (
                         status["version"] if status["mode"] == "team" else None
                     )
+            if recovery_row:
+                cfg = json.loads(json.dumps(recovery_row["frozen"]["effective"]))
+                original = recovery_row["frozen"]["service"]
+                # Retain accepted source digest and research factors; credentials still
+                # pass the normal current usability checks above using original input.
+                for key in ("dataset_id", "dataset_version", "dataset_name", "source_version"):
+                    if key in original:
+                        service[key] = original[key]
+                service["recovered_submission"] = recovery
+            service.pop("retry_changes", None)
+            service.pop("author_input_issues", None)
+            if not parent or retry:
+                dataset_id = service.get("dataset_id")
+                parameters = (
+                    self.configuration.author_parameters(dataset_id)
+                    if dataset_id
+                    else {"version": 0, "values": {}}
+                )
+                if (
+                    dataset_id
+                    and not (retry or recovery)
+                    and parameters.get("source") not in {None, cfg["dataset"]}
+                ):
+                    raise ServiceError(
+                        "author_inputs_unchecked", "作者参数对应不同来源；请重新检查", 409
+                    )
+                cfg["author_env"] = dict(parameters["values"])
+                service["author_parameters_version"] = parameters["version"]
+                service["author_parameters_source"] = parameters.get("source")
+                service["author_input_check"] = True
+                if retry:
+                    if cfg["agent"] == "opencode":
+                        cfg.setdefault("agent_tool_preparation", "offline-npm-binary-v1")
+                    cfg.setdefault("environment_build_timeout_multiplier", 10)
+                    if "wall_seconds" in request:
+                        cfg["wall_seconds"] = request["wall_seconds"]
+                    service["name"] = ((old_binding.get("name") or parent) + " · 修复重试")[:128]
+                    service["retry_changes"] = {
+                        key: {
+                            "old": old["effective"].get(key, {} if key == "author_env" else None),
+                            "new": cfg.get(key),
+                        }
+                        for key in (
+                            "author_env",
+                            "agent_tool_preparation",
+                            "environment_build_timeout_multiplier",
+                            "wall_seconds",
+                        )
+                        if old["effective"].get(key, {} if key == "author_env" else None)
+                        != cfg.get(key)
+                    }
+            service["author_input_check"] = True
+            # Ordinary rerun keeps its frozen author input and does not fill old defaults.
             cfg.pop("runtime_image", None)
             cfg.pop("runtime_image_env", None)
             service["execution_mode"] = "harbor-native"
@@ -277,7 +347,9 @@ class Application:
             service.pop("runtime_id", None)
             service.pop("runtime_version", None)
             validate_effective(team, cfg)
-            bundle = request.get("bundle_id")
+            bundle = (
+                recovery_row["frozen"]["bundle_id"] if recovery_row else request.get("bundle_id")
+            )
             if bundle and not parent:
                 with self.store.connect() as db:
                     if not db.execute("SELECT 1 FROM bundles WHERE id=?", (bundle,)).fetchone():
@@ -305,6 +377,10 @@ class Application:
                     ),
                 )
         return public_submission(self.data.submission(submission_id))
+
+    def recover_submission(self, actor, submission_id, idem):
+        row = self.data.submission(submission_id)
+        return self.accept(actor, row["request"], idem, recovery=submission_id)
 
     def cancel_submission(self, actor, submission_id):
         with self.store.control():
@@ -438,7 +514,15 @@ class Application:
             report = self.safe_report(run_id)
         except ServiceError:
             report = None
+        diagnosis = None
+        if row["reason"] == "Wall-clock budget exceeded":
+            diagnosis = {
+                "code": "wall_timeout",
+                "phase": "unknown",
+                "message": "整体时长耗尽；包含环境、工具准备、执行与评分。最后阶段见已审计报告；不能认定已执行模型。",
+            }
         return {
+            "failure_diagnosis": diagnosis,
             "row": self.summary(row),
             "manifest": {
                 "startup_policy": manifest.get("startup_policy")

@@ -75,7 +75,7 @@ def main():
 
     from harbor.registry.client.package import PackageDatasetClient
 
-    from harbor_helper.execution.sources import resolve_dataset
+    from harbor_helper.execution.sources import UnsupportedDatasetError, resolve_dataset
 
     request = json.load(sys.stdin)
 
@@ -85,7 +85,9 @@ def main():
                 request["reference"], Path(request["target"]), request["task"]
             )
         metadata = await PackageDatasetClient().get_dataset_metadata(request["reference"])
-        if not metadata.version.startswith("sha256:") or metadata.metrics or metadata.files:
+        if metadata.metrics or metadata.files:
+            raise UnsupportedDatasetError("Dataset-level custom metrics/files unsupported")
+        if not metadata.version.startswith("sha256:"):
             raise ValueError("Unsupported dataset")
         tasks = [{"name": t.name, "package": t.get_name(), "ref": t.ref} for t in metadata.task_ids]
         if not tasks or any(not t["ref"].startswith("sha256:") for t in tasks):
@@ -107,6 +109,16 @@ def main():
     except Exception as error:  # noqa: BLE001 - third party exceptions must never escape
         # Use types only; remote text can carry credentials/paths.
         name = type(error).__name__
+        if name == "UnsupportedDatasetError":
+            print(
+                json.dumps(
+                    {
+                        "error": "dataset_features_unsupported",
+                        "message": "当前服务不支持数据集级metrics/files；请选择不含这些扩展的数据集。不是凭据错误。",
+                    }
+                )
+            )
+            sys.exit(1)
         code = (
             "source_auth"
             if name in {"NotAuthenticatedError", "InvalidAPIKeyError", "RevokedAPIKeyError"}

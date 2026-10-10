@@ -1,8 +1,10 @@
 """Versioned web catalog consumed by immutable submissions."""
 
+import hashlib
 import json
 import re
 import secrets
+import tempfile
 import time
 import uuid
 
@@ -214,6 +216,108 @@ class TeamConfiguration:
             self.hub_key(value["source_version"])
         return value
 
+    def author_parameters(self, object_id):
+        values = self.data.objects("author_parameters")
+        return next(
+            (v for v in values if v["id"] == object_id),
+            {"id": object_id, "version": 0, "values": {}, "status": "unchecked"},
+        )
+
+    def inspect_author_parameters(self, object_id):
+        from harbor_helper.execution.author_inputs import AuthorInputError, check_inputs, discover
+
+        selected = self.ready_dataset(object_id)
+        base = self.data.root / "author-inputs"
+        base.mkdir(exist_ok=True, mode=0o700)
+        reference = selected["resolved"]
+        cache = base / hashlib.sha256(reference.encode()).hexdigest()
+        if not cache.exists():
+            with tempfile.TemporaryDirectory(dir=base) as tmp:
+                target = __import__("pathlib").Path(tmp)
+                source = source_call(
+                    reference,
+                    key=self.hub_key(selected.get("source_version"))
+                    if selected.get("source_version")
+                    else None,
+                    target=target / "tasks",
+                )
+                write_json(target / "source.json", source)
+                try:
+                    target.rename(cache)
+                except OSError:
+                    if not cache.is_dir():
+                        raise
+        source = read_json(cache / "source.json")
+        try:
+            discovery = discover(cache / "tasks", source)
+        except AuthorInputError as error:
+            with self.data.store.control():
+                if self.ready_dataset(object_id)["resolved"] != reference:
+                    raise ServiceError("configuration_changed", "数据集来源已变更；请重新检查", 409)
+                old = self.author_parameters(object_id)
+                return self.persist(
+                    "author_parameters",
+                    {
+                        "id": object_id,
+                        "values": old["values"],
+                        "source": reference,
+                        "status": "blocked",
+                        "issues": error.issues,
+                        "checked": time.time(),
+                        "error": {"code": error.code, "message": str(error)},
+                    },
+                )
+        with self.data.store.control():
+            if self.ready_dataset(object_id)["resolved"] != reference:
+                raise ServiceError("configuration_changed", "数据集来源已变更；请重新检查", 409)
+            old = self.author_parameters(object_id)
+            values = {k: v for k, v in old["values"].items() if k in discovery["variables"]}
+            issues = []
+            try:
+                check_inputs(discovery, values)
+            except AuthorInputError as error:
+                issues = error.issues
+            return self.persist(
+                "author_parameters",
+                {
+                    "id": object_id,
+                    "values": values,
+                    "discovery": discovery,
+                    "status": "missing" if issues else "checked",
+                    "issues": issues,
+                    "checked": time.time(),
+                    "source": reference,
+                },
+            )
+
+    def save_author_parameters(self, object_id, values):
+        from harbor_helper.execution.author_inputs import AuthorInputError, check_inputs
+
+        with self.data.store.control():
+            selected = self.ready_dataset(object_id)
+            old = self.author_parameters(object_id)
+            if old.get("source") != selected["resolved"] or "discovery" not in old:
+                raise ServiceError("author_inputs_unchecked", "先检查当前来源作者参数", 409)
+            issues = []
+            try:
+                check_inputs(old["discovery"], values)
+            except AuthorInputError as error:
+                issues = error.issues
+            except ValueError:
+                raise ServiceError(
+                    "author_input_invalid", "仅可填写已发现的非秘密作者参数"
+                ) from None
+            return self.persist(
+                "author_parameters",
+                {
+                    **old,
+                    "values": values,
+                    "status": "missing" if issues else "checked",
+                    "issues": issues,
+                    "checked": time.time(),
+                },
+            )
+
     def catalog(self):
         datasets = []
         for value in self.data.objects("dataset"):
@@ -224,7 +328,14 @@ class TeamConfiguration:
             except ServiceError as error:
                 ready = False
                 readiness_error = {"code": error.code, "message": str(error)}
-            datasets.append({**value, "ready": ready, "readiness_error": readiness_error})
+            datasets.append(
+                {
+                    **value,
+                    "ready": ready,
+                    "readiness_error": readiness_error,
+                    "author_parameters": self.author_parameters(value["id"]),
+                }
+            )
         return {
             "datasets": datasets,
             "runtimes": self.data.objects("runtime"),

@@ -32,7 +32,7 @@ def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypat
     def source(reference, *, target=None, **kwargs):
         directory = target / "task"
         directory.mkdir(parents=True)
-        (directory / "task.toml").write_text("author original input")
+        (directory / "task.toml").write_text('version = "1.0"\n# author original input')
         return {
             "requested": reference,
             "resolved": reference,
@@ -78,7 +78,7 @@ def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypat
     assert (folder / "manifest.json").read_bytes() == before
     assert (
         data.store.path(child) / "tasks/task/task.toml"
-    ).read_bytes() == b"author original input"
+    ).read_bytes() == b'version = "1.0"\n# author original input'
     assert "runtime_image" not in child_manifest["effective"]
     assert job_config(data.store.path(child), child_manifest)["environment"].get("env", {}) == {}
 
@@ -193,7 +193,7 @@ def test_already_accepted_legacy_preparation_retains_image_contract(tmp_path, mo
     def source(reference, *, target=None, **kwargs):
         directory = target / "task"
         directory.mkdir(parents=True)
-        (directory / "task.toml").write_text("author input")
+        (directory / "task.toml").write_text('version = "1.0"\n# author input')
         return {
             "resolved": reference,
             "tasks": [

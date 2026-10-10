@@ -295,6 +295,14 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
     def submission(submission_id: str, user: Annotated[dict, Depends(actor)]):
         return public_submission(data.submission(submission_id))
 
+    @app.post("/api/v1/submissions/{submission_id}/retry", status_code=202)
+    def recover_submission(
+        submission_id: str,
+        user: Annotated[dict, Depends(actor)],
+        idempotency_key: str | None = Header(default=None),
+    ):
+        return application.recover_submission(user, submission_id, idempotency_key)
+
     @app.post("/api/v1/submissions/{submission_id}/cancel")
     def cancel_submission(submission_id: str, user: Annotated[dict, Depends(actor)]):
         return application.cancel_submission(user, submission_id)
@@ -334,6 +342,15 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         idempotency_key: str | None = Header(default=None),
     ):
         return application.accept(user, {}, idempotency_key, parent=run_id)
+
+    @app.post("/api/v1/runs/{run_id}/retry", status_code=202)
+    def retry_run(
+        run_id: str,
+        body: dict,
+        user: Annotated[dict, Depends(actor)],
+        idempotency_key: str | None = Header(default=None),
+    ):
+        return application.accept(user, body, idempotency_key, parent=run_id, retry=True)
 
     @app.post("/api/v1/compare")
     def compare(body: dict, user: Annotated[dict, Depends(actor)]):
@@ -393,6 +410,18 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         from harbor_helper.service.docker import discover_docker
 
         return discover_docker()
+
+    @app.post("/api/v1/admin/datasets/{object_id}/author-inputs/check")
+    def inspect_author_inputs(object_id: str, user: Annotated[dict, Depends(administrator)]):
+        return application.configuration.inspect_author_parameters(object_id)
+
+    @app.put("/api/v1/admin/datasets/{object_id}/author-inputs")
+    def save_author_inputs(
+        object_id: str, body: dict, user: Annotated[dict, Depends(administrator)]
+    ):
+        if set(body) != {"values"}:
+            raise ServiceError("author_input_invalid", "Use only the discovered values object")
+        return application.configuration.save_author_parameters(object_id, body["values"])
 
     @app.post("/api/v1/admin/catalog/{kind}")
     def save_catalog(kind: str, body: dict, user: Annotated[dict, Depends(administrator)]):

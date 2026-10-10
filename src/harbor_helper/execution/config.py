@@ -113,6 +113,9 @@ def effective(team, args):
 
 
 def validate_effective(team, cfg):
+    from harbor_helper.execution.author_inputs import validate_values
+
+    validate_values(cfg.get("author_env", {}))
     for key, limit in (
         ("attempts", "max_attempts"),
         ("concurrency", "max_trials"),

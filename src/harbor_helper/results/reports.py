@@ -114,7 +114,7 @@ def trial_diagnosis(result, trial_dir, cfg):
     error_type = error.get("exception_type", "")
     phase = next((p["phase"] for p in reversed(phases) if p["reached"]), "unknown")
     if "author environment network_mode=no-network" in error.get("exception_message", ""):
-        hint = "作者环境禁止联网，且缺少固定OpenCode安装依赖；未覆盖作者策略。可选择参考解（不调用模型），或支持该代理的作者benchmark。此模型路径尚未执行成功。"
+        hint = "作者环境禁止联网，且缺少固定OpenCode安装依赖；未覆盖作者策略。请使用修复后重试为缺策略的旧受理补离线工具准备。未执行模型。"
     elif error_type == "EnvironmentStartTimeoutError":
         hint = "环境启动超过作者时限×冻结倍数；检查构建/拉取/启动记录和整体运行时长。up包含入口程序与Compose健康等待，不能据此单独认定健康检查失败。"
     elif phase == "agent_setup" and error:
@@ -125,6 +125,10 @@ def trial_diagnosis(result, trial_dir, cfg):
         hint = "阶段耗时为可观察证据；未到达的阶段不代表零耗时。"
     return {
         "phase": phase,
+        "model_status": "not_reached"
+        if cfg.get("agent") == "opencode"
+        and not any(p["phase"] == "agent_execution" and p["reached"] for p in phases)
+        else "unknown",
         "hint": hint,
         "phases": phases,
         "compose": compose or "unknown",
@@ -273,6 +277,7 @@ def compare(store, left, right, published_reports=None):
         "wall_seconds",
         "environment_build_timeout_multiplier",
         "agent_tool_preparation",
+        "author_env",
         "runtime_image",
         "runtime_image_env",
         "max_cpus_per_trial",
@@ -283,6 +288,7 @@ def compare(store, left, right, published_reports=None):
     conditions = [
         {
             **m["effective"],
+            "author_env": m["effective"].get("author_env", {}),
             "environment_build_timeout_multiplier": m["effective"].get(
                 "environment_build_timeout_multiplier", 1
             ),

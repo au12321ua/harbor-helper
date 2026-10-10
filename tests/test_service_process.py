@@ -49,7 +49,7 @@ async def resolve_dataset(reference, target, task_filter=None):
         await __import__('asyncio').sleep(.05)
     target.mkdir()
     folder=target/"box";folder.mkdir()
-    (folder/"task.toml").write_text("fixture fixed input")
+    (folder/"task.toml").write_text('version = "1.0"\\n# fixture fixed input')
     return {"requested":reference,"resolved":reference,"tasks":[{
         "package":"fixture/box","directory":"box","ref":"sha256:fixed",
         "snapshot_digest":tree_digest(folder)}]}

@@ -6,13 +6,17 @@ from harbor.tasks.client import TaskClient
 from harbor_helper.persistence.files import tree_digest
 
 
+class UnsupportedDatasetError(ValueError):
+    """A source feature is outside this service's supported execution contract."""
+
+
 async def resolve_dataset(reference, target, task_filter=None):
     client = PackageDatasetClient()
     metadata = await client.get_dataset_metadata(reference)
     if not metadata.version.startswith("sha256:"):
         raise ValueError("Dataset did not resolve to immutable digest")
     if metadata.metrics or metadata.files:
-        raise ValueError("Dataset-level custom metrics/files are not supported in v0")
+        raise UnsupportedDatasetError("Dataset-level custom metrics/files are not supported")
     tasks = metadata.task_ids
     if task_filter:
         tasks = [

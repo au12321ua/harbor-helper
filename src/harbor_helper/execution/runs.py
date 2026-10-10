@@ -59,19 +59,17 @@ def check_bundle(path):
 
 def startup_policy(run_dir, manifest):
     """Describe frozen author budgets without changing or exporting author env values."""
-    from harbor.models.task.config import EnvironmentConfig
+    from harbor.models.task.config import TaskConfig
 
     multiplier = manifest["effective"].get("environment_build_timeout_multiplier", 1)
     tasks = []
     for task in manifest["source"]["tasks"]:
         try:
-            author = tomllib.loads(
-                (run_dir / "tasks" / task["directory"] / "task.toml").read_text()
-            ).get("environment", {})
-            base = author.get("build_timeout_sec", EnvironmentConfig().build_timeout_sec)
-            network = author.get(
-                "network_mode", "public" if author.get("allow_internet", True) else "no-network"
+            task_config = TaskConfig.model_validate(
+                tomllib.loads((run_dir / "tasks" / task["directory"] / "task.toml").read_text())
             )
+            base = task_config.environment.build_timeout_sec
+            network = task_config.environment.network_mode.value
             if type(base) not in {int, float} or not math.isfinite(base) or base <= 0:
                 raise ValueError("Unrecognized author startup budget")
             network = network if network in {"public", "no-network", "allowlist"} else "unknown"
@@ -79,6 +77,8 @@ def startup_policy(run_dir, manifest):
             tasks.append(
                 {
                     "task": task["package"].split("/", 1)[-1],
+                    "agent_seconds": task_config.agent.timeout_sec,
+                    "verifier_seconds": task_config.verifier.timeout_sec,
                     "author_build_timeout_sec": base,
                     "start_wait_timeout_sec": wait
                     if math.isfinite(wait)
@@ -193,12 +193,15 @@ def job_config(run_dir, manifest):
                 "override_cpus": cfg["max_cpus_per_trial"],
                 "override_memory_mb": cfg["max_memory_mb_per_trial"],
                 "env": {
-                    k: manifest["image_alias"]
-                    for k in (
-                        cfg.get("runtime_image_env", DEFAULT["runtime_image_env"])
-                        if manifest.get("execution_mode") != "harbor-native"
-                        else []
-                    )
+                    **cfg.get("author_env", {}),
+                    **{
+                        k: manifest["image_alias"]
+                        for k in (
+                            cfg.get("runtime_image_env", DEFAULT["runtime_image_env"])
+                            if manifest.get("execution_mode") != "harbor-native"
+                            else []
+                        )
+                    },
                 },
             },
             "agents": [agent],
@@ -283,6 +286,86 @@ def submit(
                 shutil.copytree(bundle, path / "bundle")
                 digest = tree_digest(path / "bundle")
             image = None if native else image_identity(cfg["runtime_image"])
+        if native and service.get("author_input_check"):
+            from harbor_helper.execution.author_inputs import (
+                AuthorInputError,
+                check_inputs,
+                discover,
+            )
+
+            # Retain immutable source for recovery even when preparation yields no run.
+            from harbor_helper.service.data import ServiceData
+
+            with store.connect() as db:
+                frozen = ServiceData(store).submission(service["submission_id"])["frozen"]
+                frozen["effective"]["dataset"] = source["resolved"]
+                frozen["service"]["input_source"] = source
+                db.execute(
+                    "UPDATE submissions SET frozen=? WHERE id=?",
+                    (__import__("json").dumps(frozen), service["submission_id"]),
+                )
+            try:
+                discovery = discover(path / "tasks", source)
+                # Freeze only the whitelist consumed by this selected snapshot.
+                values = {
+                    k: v
+                    for k, v in cfg.get("author_env", {}).items()
+                    if k in discovery["variables"]
+                }
+                fixed = set(discovery["fixed_names"]) & set(values)
+                if fixed:
+                    raise AuthorInputError(
+                        [
+                            {
+                                "task": "selected tasks",
+                                "variables": sorted(fixed),
+                                "reason": "author_literal_protected",
+                            }
+                        ]
+                    )
+                if (
+                    not service.get("dataset_id")
+                    and any(
+                        use["required"] for uses in discovery["variables"].values() for use in uses
+                    )
+                    and not values
+                ):
+                    raise AuthorInputError(
+                        [
+                            {
+                                "task": use["task"],
+                                "variables": [name],
+                                "reason": "dataset_registration_required",
+                            }
+                            for name, uses in discovery["variables"].items()
+                            for use in uses
+                            if use["required"]
+                        ]
+                    )
+                check_inputs(discovery, values)
+            except AuthorInputError as error:
+                with store.connect() as db:
+                    frozen["service"]["author_input_issues"] = error.issues
+                    db.execute(
+                        "UPDATE submissions SET frozen=? WHERE id=?",
+                        (__import__("json").dumps(frozen), service["submission_id"]),
+                    )
+                raise
+            cfg["author_env"] = values
+            service.pop("author_input_issues", None)
+            service["author_input_diagnostics"] = discovery
+            if parent and "retry_changes" in service:
+                old_env = old["effective"].get("author_env", {})
+                service["retry_changes"].pop("author_env", None)
+                if old_env != values:
+                    service["retry_changes"]["author_env"] = {"old": old_env, "new": values}
+            with store.connect() as db:
+                frozen["effective"] = cfg
+                frozen["service"] = service
+                db.execute(
+                    "UPDATE submissions SET frozen=? WHERE id=?",
+                    (__import__("json").dumps(frozen), service["submission_id"]),
+                )
         alias = None
         if not native:
             alias = "harbor-helper/runtime:" + image.removeprefix("sha256:")

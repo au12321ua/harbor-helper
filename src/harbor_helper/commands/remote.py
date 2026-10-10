@@ -289,7 +289,7 @@ def dispatch(args, name):
             ].get("id"):
                 raise RemoteError("Saved operation belongs to another service/member")
             path = receipt.get("path", "")
-            if not re.fullmatch(r"/submissions|/runs/[A-Za-z0-9_.-]+/rerun", path):
+            if not re.fullmatch(r"/submissions|/runs/[A-Za-z0-9_.-]+/(?:rerun|retry)", path):
                 raise RemoteError("Invalid saved operation")
             return write_request(
                 name, profile, client, path, receipt["body"], receipt["idempotency_key"]
@@ -327,12 +327,21 @@ def dispatch(args, name):
             path + ("/cancel" if cmd == "cancel" else ""),
             body={} if cmd == "cancel" else None,
         )
-    if cmd in {"status", "logs", "report", "cancel", "rerun", "artifacts", "download"}:
+    if cmd in {"status", "logs", "report", "cancel", "rerun", "retry", "artifacts", "download"}:
         path = "/runs/" + identifier(args.run_id)
         if cmd == "status":
             return client.request("GET", path)
-        if cmd == "rerun":
-            return write_request(name, profile, client, path + "/rerun", {}, args.idempotency_key)
+        if cmd in {"rerun", "retry"}:
+            return write_request(
+                name,
+                profile,
+                client,
+                path + "/" + cmd,
+                {"wall_seconds": args.wall_seconds}
+                if cmd == "retry" and args.wall_seconds is not None
+                else {},
+                args.idempotency_key,
+            )
         if cmd == "logs":
             value = client.request("GET", path + "/logs")
             if value.get("truncated"):
@@ -382,7 +391,7 @@ def render(command, value, json_output=False):
         local_render("status", value["row"])
     elif command == "report" and value is None:
         print("No published report yet; use status to inspect preparation/execution")
-    elif command in {"submit", "rerun"}:
+    elif command in {"submit", "rerun", "retry"}:
         local_render("submission", value)
         print(f"Next: harbor-helper status {value['id']}")
     elif command == "artifacts":

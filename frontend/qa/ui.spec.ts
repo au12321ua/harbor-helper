@@ -194,17 +194,29 @@ async function fixture(page: Page, role = "admin", logged = true) {
 // Hold the refresh until assertions finish, rather than racing an arbitrary timeout.
 async function holdCatalogRefresh(page: Page) {
   let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  await page.route("**/api/v1/catalog", async (route) => {
-    await gate;
-    await route.fallback();
-  }, { times: 1 });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    "**/api/v1/catalog",
+    async (route) => {
+      await gate;
+      await route.fallback();
+    },
+    { times: 1 },
+  );
   return release;
 }
 async function expectEditorsLocked(page: Page) {
-  await expect(page.getByRole("status").filter({ hasText: "正在保存并刷新配置" })).toBeVisible();
-  await expect(page.locator("input:enabled, textarea:enabled, select:enabled")).toHaveCount(0);
-  await expect(page.getByRole("tab", { name: "模型与 key", exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole("status").filter({ hasText: "正在保存并刷新配置" }),
+  ).toBeVisible();
+  await expect(
+    page.locator("input:enabled, textarea:enabled, select:enabled"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("tab", { name: "模型与 key", exact: true }),
+  ).toBeDisabled();
 }
 test("model edits show current saved values and repeated save preserves them", async ({
   page,
@@ -241,7 +253,11 @@ test("model edits show current saved values and repeated save preserves them", a
     .getByLabel("高级参数 JSON")
     .fill('{"temperature":0.5,"max_tokens":100,"top_p":0.9}');
   const releaseRefresh = await holdCatalogRefresh(page);
-  const mutation = page.waitForResponse((r) => r.url().endsWith("/admin/model-profiles") && r.request().method() === "POST");
+  const mutation = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/admin/model-profiles") &&
+      r.request().method() === "POST",
+  );
   await form.getByRole("button", { name: "保存", exact: true }).click();
   expect((await mutation).ok()).toBe(true);
   await expectEditorsLocked(page);
@@ -301,7 +317,9 @@ test("model edits show current saved values and repeated save preserves them", a
   await expect(form.getByLabel("方案名称")).toHaveValue("待修正输入");
   await expect(form.getByLabel("Temperature（可选）")).toHaveValue("0.2");
   await expect(form.getByLabel("高级参数 JSON")).toHaveValue("{invalid");
-  expect(calls.filter((c) => c.path === "/admin/model-profiles" && c.body)).toHaveLength(3);
+  expect(
+    calls.filter((c) => c.path === "/admin/model-profiles" && c.body),
+  ).toHaveLength(3);
   // Server rejection also retains correction input after a valid JSON submission.
   await page.route("**/api/v1/admin/model-profiles", (route) =>
     route.fulfill({ status: 400, json: { detail: "测试拒绝保存" } }),
@@ -382,7 +400,9 @@ test("members share other runs but cannot cancel them or see admin navigation", 
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "取消实验" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "团队管理" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "重跑实验" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "按原条件重跑" }),
+  ).toBeVisible();
 });
 test("admin key write clears input and does not use browser storage", async ({
   page,
@@ -532,7 +552,9 @@ for (const kind of ["provider", "dataset"] as const) {
     await input.fill(spec.value);
     const form = page.locator("form").filter({ has: input });
     const releaseRefresh = await holdCatalogRefresh(page);
-    const mutation = page.waitForResponse((r) => r.url().endsWith(spec.path) && r.request().method() === "POST");
+    const mutation = page.waitForResponse(
+      (r) => r.url().endsWith(spec.path) && r.request().method() === "POST",
+    );
     await form.getByRole("button", { name: "保存", exact: true }).click();
     expect((await mutation).ok()).toBe(true);
     await expectEditorsLocked(page);
@@ -544,11 +566,7 @@ for (const kind of ["provider", "dataset"] as const) {
     await expect.poll(() => saves.length).toBe(2);
     expect(saves.map((v) => v.id)).toEqual([spec.id, spec.id]);
     expect(
-      saves.map((v) =>
-        kind === "provider"
-          ? v.endpoint
-          : v.reference,
-      ),
+      saves.map((v) => (kind === "provider" ? v.endpoint : v.reference)),
     ).toEqual([spec.value, spec.value]);
   });
 }
@@ -557,7 +575,9 @@ test("failed credential save retains nonsecret inputs and clears secret", async 
 }) => {
   await fixture(page);
   let releaseFailure!: () => void;
-  const gate = new Promise<void>((resolve) => { releaseFailure = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    releaseFailure = resolve;
+  });
   await page.route("**/api/v1/admin/credentials", async (route) => {
     await gate;
     await route.fulfill({
@@ -573,124 +593,380 @@ test("failed credential save retains nonsecret inputs and clears secret", async 
   await form.getByLabel("Key 名称").fill("待修正key名称");
   await form.getByLabel("提供商", { exact: true }).selectOption("p1");
   await form.getByLabel("密钥", { exact: true }).fill("fake-failed-save-key");
-  const request = page.waitForRequest((r) => r.url().endsWith("/admin/credentials") && r.method() === "POST");
+  const request = page.waitForRequest(
+    (r) => r.url().endsWith("/admin/credentials") && r.method() === "POST",
+  );
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await request;
   await expectEditorsLocked(page);
   await expect(form.getByLabel("密钥", { exact: true })).toBeDisabled();
   releaseFailure();
   await expect(form.getByLabel("Key 名称")).toBeEnabled();
-  await expect(form.getByText("操作未完成", {exact:true})).toBeVisible();
+  await expect(form.getByText("操作未完成", { exact: true })).toBeVisible();
   await expect(form.getByLabel("Key 名称")).toHaveValue("待修正key名称");
   await expect(form.getByLabel("提供商", { exact: true })).toHaveValue("p1");
   await expect(form.getByLabel("密钥", { exact: true })).toHaveValue("");
 });
 
-test("Hub status survives reload and distinguishes storage from access validation", async ({page}) => {
+test("Hub status survives reload and distinguishes storage from access validation", async ({
+  page,
+}) => {
   await fixture(page);
   const current: any = structuredClone(catalog);
-  current.hub = {state: "unset", mode: "anonymous", version: null, updated_at: null};
-  await page.route("**/api/v1/catalog", route => route.fulfill({json: current}));
-  await page.route("**/api/v1/admin/hub", async route => {
-    current.hub = {state: "active", mode: "team", version: (current.hub.version || 0) + 1, updated_at: 1791518000};
-    await route.fulfill({json: current.hub});
+  current.hub = {
+    state: "unset",
+    mode: "anonymous",
+    version: null,
+    updated_at: null,
+  };
+  await page.route("**/api/v1/catalog", (route) =>
+    route.fulfill({ json: current }),
+  );
+  await page.route("**/api/v1/admin/hub", async (route) => {
+    current.hub = {
+      state: "active",
+      mode: "team",
+      version: (current.hub.version || 0) + 1,
+      updated_at: 1791518000,
+    };
+    await route.fulfill({ json: current.hub });
   });
-  await page.route("**/api/v1/admin/hub/disable", async route => {
-    current.hub = {...current.hub, state: "disabled", mode: "anonymous"};
-    await route.fulfill({json: current.hub});
+  await page.route("**/api/v1/admin/hub/disable", async (route) => {
+    current.hub = { ...current.hub, state: "disabled", mode: "anonymous" };
+    await route.fulfill({ json: current.hub });
   });
   await page.goto("/admin");
-  await expect(page.getByText("凭据：未设置", {exact:true})).toBeVisible();
-  const form = page.locator("form").filter({has: page.getByLabel("Hub PAT", {exact:true})});
+  await expect(page.getByText("凭据：未设置", { exact: true })).toBeVisible();
+  const form = page
+    .locator("form")
+    .filter({ has: page.getByLabel("Hub PAT", { exact: true }) });
   for (let version = 1; version <= 2; version++) {
-    await form.getByLabel("Hub PAT", {exact:true}).fill("fake-hub-ui-pat");
-    await form.getByRole("button", {name:"保存", exact:true}).click();
-    await expect(page.getByText("凭据：已设置（启用）", {exact:true})).toBeVisible();
-    await expect(form.getByLabel("Hub PAT", {exact:true})).toHaveValue("");
+    await form.getByLabel("Hub PAT", { exact: true }).fill("fake-hub-ui-pat");
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(
+      page.getByText("凭据：已设置（启用）", { exact: true }),
+    ).toBeVisible();
+    await expect(form.getByLabel("Hub PAT", { exact: true })).toHaveValue("");
     await expect(page.getByText(new RegExp(`版本：v${version}`))).toBeVisible();
     await page.reload();
-    await expect(page.getByText("凭据：已设置（启用）", {exact:true})).toBeVisible();
+    await expect(
+      page.getByText("凭据：已设置（启用）", { exact: true }),
+    ).toBeVisible();
   }
-  await expect(page.getByText("保存仅代表加密持久化，未验证Hub身份或数据集访问权限。访问验证结果请查看数据集条目的验证状态。", {exact:true})).toBeVisible();
-  await page.getByRole("button", {name:"停用 Hub 凭据，改为匿名来源"}).click();
-  await expect(page.getByText("凭据：已停用", {exact:true})).toBeVisible();
+  await expect(
+    page.getByText(
+      "保存仅代表加密持久化，未验证Hub身份或数据集访问权限。访问验证结果请查看数据集条目的验证状态。",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "停用 Hub 凭据，改为匿名来源" })
+    .click();
+  await expect(page.getByText("凭据：已停用", { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("凭据：已停用", {exact:true})).toBeVisible();
+  await expect(page.getByText("凭据：已停用", { exact: true })).toBeVisible();
 });
 
-test("Docker inventory is read-only and source needs no runtime", async ({page}) => {
+test("Docker inventory is read-only and source needs no runtime", async ({
+  page,
+}) => {
   const calls = await fixture(page);
-  await page.route("**/api/v1/admin/docker", route => route.fulfill({json:{state:"ready", checked_at:1791518000, message:"Docker daemon 可达", images:[{reference:"python:local"}], truncated:false}}));
+  await page.route("**/api/v1/admin/docker", (route) =>
+    route.fulfill({
+      json: {
+        state: "ready",
+        checked_at: 1791518000,
+        message: "Docker daemon 可达",
+        images: [{ reference: "python:local" }],
+        truncated: false,
+      },
+    }),
+  );
   await page.goto("/admin");
-  await page.getByRole("tab", {name:"Docker 诊断", exact:true}).click();
-  await page.getByRole("button", {name:"发现本机 Docker 与镜像", exact:true}).click();
-  await expect(page.getByText("Docker daemon 可达", {exact:true})).toBeVisible();
-  await expect(page.getByText("python:local", {exact:true})).toBeVisible();
-  await expect(page.getByLabel("Docker 镜像引用", {exact:true})).toHaveCount(0);
-  await expect(page.getByLabel("任务镜像约定", {exact:true})).toHaveCount(0);
-  await page.getByRole("tab", {name:"数据集", exact:true}).click();
-  await expect(page.getByLabel("运行环境", {exact:true})).toHaveCount(0);
-  expect(calls.filter(c => c.path === "/admin/catalog/runtime" && c.body)).toHaveLength(0);
-  await page.getByRole("tab", {name:"Docker 诊断", exact:true}).click();
-  await page.route("**/api/v1/admin/docker", route => route.fulfill({json:{state:"permission_denied", checked_at:1791518001, message:"服务账户没有daemon访问权限", images:[], truncated:false}}));
-  await page.getByRole("button", {name:"发现本机 Docker 与镜像", exact:true}).click();
-  await expect(page.getByText("服务账户没有daemon访问权限", {exact:true})).toBeVisible();
+  await page.getByRole("tab", { name: "Docker 诊断", exact: true }).click();
+  await page
+    .getByRole("button", { name: "发现本机 Docker 与镜像", exact: true })
+    .click();
+  await expect(
+    page.getByText("Docker daemon 可达", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("python:local", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Docker 镜像引用", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByLabel("任务镜像约定", { exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "数据集", exact: true }).click();
+  await expect(page.getByLabel("运行环境", { exact: true })).toHaveCount(0);
+  expect(
+    calls.filter((c) => c.path === "/admin/catalog/runtime" && c.body),
+  ).toHaveLength(0);
+  await page.getByRole("tab", { name: "Docker 诊断", exact: true }).click();
+  await page.route("**/api/v1/admin/docker", (route) =>
+    route.fulfill({
+      json: {
+        state: "permission_denied",
+        checked_at: 1791518001,
+        message: "服务账户没有daemon访问权限",
+        images: [],
+        truncated: false,
+      },
+    }),
+  );
+  await page
+    .getByRole("button", { name: "发现本机 Docker 与镜像", exact: true })
+    .click();
+  await expect(
+    page.getByText("服务账户没有daemon访问权限", { exact: true }),
+  ).toBeVisible();
 });
 
-test("explicit new provider creates another object and editing preserves its peers", async ({page}) => {
+test("explicit new provider creates another object and editing preserves its peers", async ({
+  page,
+}) => {
   await fixture(page);
   const current: any = structuredClone(catalog);
   current.providers = [];
   const writes: any[] = [];
-  await page.route("**/api/v1/catalog", route => route.fulfill({json: current}));
-  await page.route("**/api/v1/admin/providers", async route => {
+  await page.route("**/api/v1/catalog", (route) =>
+    route.fulfill({ json: current }),
+  );
+  await page.route("**/api/v1/admin/providers", async (route) => {
     const v = route.request().postDataJSON();
     writes.push(v);
     const index = current.providers.findIndex((p: any) => p.id === v.id);
-    const saved = {...v, id: v.id || `provider${current.providers.length + 1}`, version: index < 0 ? 1 : current.providers[index].version + 1};
-    if (index < 0) current.providers.push(saved); else current.providers[index] = saved;
-    await route.fulfill({json: saved});
+    const saved = {
+      ...v,
+      id: v.id || `provider${current.providers.length + 1}`,
+      version: index < 0 ? 1 : current.providers[index].version + 1,
+    };
+    if (index < 0) current.providers.push(saved);
+    else current.providers[index] = saved;
+    await route.fulfill({ json: saved });
   });
   await page.goto("/admin");
-  await page.getByRole("tab", {name:"模型与 key", exact:true}).click();
-  const form = page.locator("form").filter({has:page.getByLabel("提供商名称", {exact:true})});
+  await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
+  const form = page
+    .locator("form")
+    .filter({ has: page.getByLabel("提供商名称", { exact: true }) });
   for (const name of ["A", "B"]) {
-    await page.getByRole("button", {name:"新建提供商", exact:true}).click();
-    await expect(page.getByLabel("提供商名称", {exact:true})).toHaveValue("");
-    await page.getByLabel("提供商名称", {exact:true}).fill(name);
-    await page.getByLabel("API 端点", {exact:true}).fill(`https://${name.toLowerCase()}.invalid/v1`);
-    await form.getByRole("button", {name:"保存", exact:true}).click();
-    await expect(page.getByText(`正在编辑：${name}`, {exact:false})).toBeVisible();
+    await page.getByRole("button", { name: "新建提供商", exact: true }).click();
+    await expect(page.getByLabel("提供商名称", { exact: true })).toHaveValue(
+      "",
+    );
+    await page.getByLabel("提供商名称", { exact: true }).fill(name);
+    await page
+      .getByLabel("API 端点", { exact: true })
+      .fill(`https://${name.toLowerCase()}.invalid/v1`);
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(
+      page.getByText(`正在编辑：${name}`, { exact: false }),
+    ).toBeVisible();
   }
   expect(current.providers).toHaveLength(2);
-  expect(writes.map(v => v.id)).toEqual([undefined, undefined]);
-  await page.locator(".font-semibold").filter({hasText:/^A$/}).locator("..").locator("..").getByRole("button", {name:"编辑提供商", exact:true}).click();
-  await page.getByLabel("API 端点", {exact:true}).fill("https://a-edited.invalid/v1");
-  await form.getByRole("button", {name:"保存", exact:true}).click();
+  expect(writes.map((v) => v.id)).toEqual([undefined, undefined]);
+  await page
+    .locator(".font-semibold")
+    .filter({ hasText: /^A$/ })
+    .locator("..")
+    .locator("..")
+    .getByRole("button", { name: "编辑提供商", exact: true })
+    .click();
+  await page
+    .getByLabel("API 端点", { exact: true })
+    .fill("https://a-edited.invalid/v1");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect.poll(() => writes.length).toBe(3);
   expect(writes[2].id).toBe("provider1");
   expect(current.providers[1].name).toBe("B");
   expect(current.providers[1].endpoint).toBe("https://b.invalid/v1");
 });
 
-test("list scope is separate from model binding and exposes empty state", async ({ page }) => {
+test("list scope is separate from model binding and exposes empty state", async ({
+  page,
+}) => {
   await fixture(page);
   await page.goto("/admin");
   await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
-  await expect(page.getByText("以下条件只缩小左侧列表；右侧新建或编辑表单中的提供商与团队 key 决定保存绑定。筛选不会修改表单或已有配置。", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      "以下条件只缩小左侧列表；右侧新建或编辑表单中的提供商与团队 key 决定保存绑定。筛选不会修改表单或已有配置。",
+      { exact: true },
+    ),
+  ).toBeVisible();
   await page.getByRole("button", { name: "编辑方案", exact: true }).click();
-  const form = page.locator("form").filter({ has: page.getByLabel("方案名称", { exact: true }) });
+  const form = page
+    .locator("form")
+    .filter({ has: page.getByLabel("方案名称", { exact: true }) });
   await form.getByLabel("Temperature（可选）").fill("0");
   await page.getByLabel("列表范围：提供商", { exact: true }).selectOption("p1");
-  await page.getByLabel("列表范围：团队 key", { exact: true }).selectOption("c1");
+  await page
+    .getByLabel("列表范围：团队 key", { exact: true })
+    .selectOption("c1");
   await expect(form.getByLabel("Temperature（可选）")).toHaveValue("0");
   await expect(page.getByLabel("团队 key", { exact: true })).toHaveValue("c1");
   await page.getByRole("button", { name: "显示全部配置", exact: true }).click();
-  await expect(page.getByLabel("列表范围：提供商", { exact: true })).toHaveValue("");
+  await expect(
+    page.getByLabel("列表范围：提供商", { exact: true }),
+  ).toHaveValue("");
   await expect(form.getByLabel("Temperature（可选）")).toHaveValue("0");
-  await page.route("**/api/v1/catalog", (route) => route.fulfill({ json: { ...catalog, credentials: [], model_profiles: [] } }));
+  await page.route("**/api/v1/catalog", (route) =>
+    route.fulfill({
+      json: { ...catalog, credentials: [], model_profiles: [] },
+    }),
+  );
   await page.reload();
   await page.getByRole("tab", { name: "模型与 key", exact: true }).click();
-  await expect(page.getByText("此范围暂无团队 key", { exact: true })).toBeVisible();
-  await expect(page.getByText("此范围暂无模型方案", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("此范围暂无团队 key", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("此范围暂无模型方案", { exact: true }),
+  ).toBeVisible();
+});
+
+test("new submit defaults to 1800 and dynamic 900 plus 900 warning", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  const custom: any = structuredClone(catalog);
+  custom.datasets[0].author_parameters = {
+    discovery: {
+      budgets: [
+        { task: "public/log", agent_seconds: 900, verifier_seconds: 900 },
+      ],
+    },
+  };
+  await page.route("**/api/v1/catalog", (route) =>
+    route.fulfill({ json: custom }),
+  );
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/new");
+  await expect(page).toHaveTitle("Harbor Helper · 团队实验室");
+  await expect(page.getByText(/agent 900秒 \+ verifier 900秒/)).toBeVisible();
+  await expect(page.getByText(/警告：整体上限不足/)).toBeVisible();
+  await page.locator("summary").click();
+  await expect(page.getByLabel("实验总时长上限（秒，含准备）")).toHaveValue(
+    "1800",
+  );
+  await page.getByLabel("实验总时长上限（秒，含准备）").fill("1801");
+  await expect(page.getByText(/警告：整体上限不足/)).toHaveCount(0);
+  await page.getByLabel("实验总时长上限（秒，含准备）").fill("1800");
+  await page.getByLabel("模型方案", { exact: true }).selectOption("plan1");
+  await page.getByRole("button", { name: "提交实验", exact: true }).click();
+  expect(
+    calls.find((call) => call.path === "/submissions")?.body.wall_seconds,
+  ).toBe(1800);
+  expect(errors).toEqual([]);
+});
+
+test("repair retry shows parent 600 and explicitly submits 1800", async ({
+  page,
+}) => {
+  await fixture(page);
+  const body = {
+    row: { ...run, status: "failed" },
+    manifest: {
+      effective: { agent: "oracle", wall_seconds: 600 },
+      startup_policy: {
+        multiplier: 1,
+        tasks: [
+          { task: "cad/cylinder", agent_seconds: 600, verifier_seconds: 180 },
+        ],
+      },
+    },
+    artifacts: [],
+    report: null,
+  };
+  await page.route("**/api/v1/runs/hh-test-zero", (route) =>
+    route.fulfill({ json: body }),
+  );
+  let submitted: any;
+  await page.route("**/api/v1/runs/hh-test-zero/retry", async (route) => {
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ json: { id: "submission-test" } });
+  });
+  await page.goto("/runs/hh-test-zero");
+  await expect(page.getByLabel("总时长（秒；默认保留父值）")).toHaveValue(
+    "600",
+  );
+  await expect(page.getByText(/警告：总时长不足/)).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/harbor-helper-web-retry-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: "/tmp/harbor-helper-web-retry-mobile.png",
+    fullPage: true,
+  });
+  await page.getByLabel("总时长（秒；默认保留父值）").fill("1800");
+  await expect(page.getByText(/警告：总时长不足/)).toHaveCount(0);
+  await page.getByRole("button", { name: "修复后重试", exact: true }).click();
+  await expect(page).toHaveURL(/submissions\/submission-test/);
+  expect(submitted).toEqual({ wall_seconds: 1800 });
+});
+
+test("dynamic author fields save without resetting source verification", async ({
+  page,
+}) => {
+  await fixture(page);
+  const custom: any = structuredClone(catalog);
+  const dataset = custom.datasets[0];
+  dataset.status = "verified";
+  dataset.author_parameters = {
+    version: 1,
+    status: "missing",
+    values: {},
+    source: "generic/task@sha256:fixed",
+    discovery: {
+      variables: {
+        BUILD_IMAGE: [
+          {
+            task: "generic/task",
+            file: "environment/docker-compose.yaml",
+            required: true,
+            default: "",
+          },
+        ],
+      },
+      budgets: [
+        { task: "generic/task", agent_seconds: 25, verifier_seconds: 10 },
+      ],
+    },
+    issues: [],
+  };
+  await page.route("**/api/v1/catalog", (route) =>
+    route.fulfill({ json: custom }),
+  );
+  let saved: any;
+  await page.route(
+    "**/api/v1/admin/datasets/dataset1/author-inputs",
+    async (route) => {
+      saved = route.request().postDataJSON();
+      dataset.author_parameters = {
+        ...dataset.author_parameters,
+        version: 2,
+        status: "checked",
+        values: saved.values,
+      };
+      await route.fulfill({ json: dataset.author_parameters });
+    },
+  );
+  await page.goto("/admin");
+  await page.getByRole("tab", { name: "数据集", exact: true }).click();
+  await expect(page.getByText("来源已验证", { exact: false })).toBeVisible();
+  await page
+    .getByLabel("BUILD_IMAGE", { exact: true })
+    .fill("generic/runtime:1");
+  const form = page
+    .locator("form")
+    .filter({ has: page.getByLabel("BUILD_IMAGE", { exact: true }) });
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText(/运行参数已检查/)).toBeVisible();
+  expect(saved).toEqual({ values: { BUILD_IMAGE: "generic/runtime:1" } });
+  await expect(page.getByText("来源已验证", { exact: false })).toBeVisible();
+  await expect(
+    page.getByLabel("CAD_BENCH_AGENT_IMAGE", { exact: true }),
+  ).toHaveCount(0);
 });

@@ -61,9 +61,14 @@ def prepare_one(store):
                 "UPDATE submissions SET status='ready',run_id=? WHERE id=?", (run_id, row["id"])
             )
     except Exception as error:  # noqa: BLE001 - third-party source errors may carry credentials
-        if isinstance(error, ServiceError):
+        from harbor_helper.execution.author_inputs import AuthorInputError
+
+        if isinstance(error, (AuthorInputError, ServiceError)):
             message = f"{error.code}: {error}"
-        elif isinstance(error, ValueError) and "image" in str(error).lower():
+        elif (
+            isinstance(error, ValueError)
+            and "fixed runtime image unavailable" in str(error).lower()
+        ):
             message = (
                 "runtime_missing: 固定运行镜像不可用；管理员检查环境并重新验证，成员修改后新提交"
             )
@@ -76,6 +81,15 @@ def prepare_one(store):
                 "input_preparation: 准备失败；管理员检查数据集权限、运行环境与实验包，修复后新提交"
             )
         with store.connect() as db:
+            if isinstance(error, AuthorInputError):
+                frozen["service"]["author_input_issues"] = error.issues
+                # Preserve the fixed source digest already recorded during download.
+                latest = app.data.submission(row["id"])["frozen"]
+                latest["service"]["author_input_issues"] = error.issues
+                db.execute(
+                    "UPDATE submissions SET frozen=? WHERE id=?",
+                    (__import__("json").dumps(latest), row["id"]),
+                )
             db.execute(
                 "UPDATE submissions SET status=CASE WHEN cancel=1 THEN 'cancelled' ELSE 'failed' END,error=? WHERE id=?",
                 (
