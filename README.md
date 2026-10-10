@@ -67,8 +67,9 @@ cat "$HOME/harbor-helper-private/setup-token"
 
 完整停机由部署负责人停止接收新提交、等待或取消全部未终态任务并确认资源释放，停止HTTP后再停止该服务调度器；没有`service stop`命令。准确停机与备份步骤见[维护说明](docs/guides/web-service.md#完整停机)。这不是成员每天必做操作。
 
-
 ## 其他入口
 
-- [文档导航](docs/README.md)。
-- [开发交接](docs/HANDOFF.md)。
+- [远程CLI](docs/guides/web-service.md#成员远程-cli)：可选的自动化入口，使用成员账户而非个人模型key。
+- [旧本地CLI](docs/guides/local-cli.md)：直接访问旧本地state的兼容模式，与团队Web身份分开。
+- [文档导航](docs/README.md)：安装、运行、架构、验收标准及历史设计。
+- [开发交接](docs/HANDOFF.md)：维护入口、兼容与验证边界。
