@@ -1,6 +1,8 @@
 # 项目工作入口
 
-先读 [docs/HANDOFF.md](docs/HANDOFF.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。若 `.local/LOCAL_ENVIRONMENT.md` 存在，先读其中的本地保护与恢复信息，再操作服务、state或镜像；该文件由部署者维护，不要求开源clone包含它。
+先读 [docs/HANDOFF.md](docs/HANDOFF.md)，开发前再读[分支、协作与发布规则](docs/guides/development-workflow.md)，然后按当前任务读取相关原始文件；启动时不必读完整个文档目录。若 `.local/LOCAL_ENVIRONMENT.md` 存在，先读其中的本地保护与恢复信息，再操作服务、state或镜像；该文件由部署者维护，不要求开源clone包含它。
+
+日常修改从 `dev` 新建短期分支和独立worktree，不在部署目录或 `master` 上开发。当前开发计划以项目飞书群的版本化记录为准，仓库与本地白板不另存一份路线；开始工作时核对当前计划版本和本次任务。
 
 ## 目标与用户确认的边界
 

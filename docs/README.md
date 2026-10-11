@@ -7,6 +7,7 @@
 - [Web服务指南](guides/web-service.md)：管理员配置、远程CLI、完整停机、备份与审计。
 - [本地CLI](guides/local-cli.md)、[配置](guides/local-configuration.md)、[操作](guides/local-operations.md)：旧本地模式兼容入口。
 - [前端开发](../frontend/README.md)、[源码职责与兼容](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
+- [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
 - [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
 
 ## 历史设计与验收条件
