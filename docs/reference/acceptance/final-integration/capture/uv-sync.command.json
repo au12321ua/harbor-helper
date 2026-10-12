@@ -1,0 +1,29 @@
+{
+  "argv": [
+    "/home/pc/.local/bin/uv",
+    "sync",
+    "--locked",
+    "--group",
+    "dev"
+  ],
+  "cwd": "/tmp/hh-final-integration",
+  "env_allowlist": {
+    "PATH": "/home/pc/.local/bin:/home/pc/.nvm/versions/node/v22.23.1/bin:/usr/local/bin:/usr/bin:/bin",
+    "HOME": "/tmp/hh-final-integration-evidence/home",
+    "UV_CACHE_DIR": "/tmp/hh-final-integration-evidence/uv-cache",
+    "npm_config_cache": "/tmp/hh-final-integration-evidence/npm-cache",
+    "PLAYWRIGHT_BROWSERS_PATH": "/home/pc/.cache/ms-playwright",
+    "HH_TEST_BROWSER": "1",
+    "LANG": "C.UTF-8",
+    "XDG_CONFIG_HOME": "/tmp/hh-final-integration-evidence/home/.config",
+    "XDG_CACHE_HOME": "/tmp/hh-final-integration-evidence/home/.cache",
+    "XDG_DATA_HOME": "/tmp/hh-final-integration-evidence/home/.local/share",
+    "HARBOR_HOME": "/tmp/hh-final-integration-evidence/profile",
+    "HARBOR_CONFIG": "/tmp/hh-final-integration-evidence/profile/.config",
+    "HARBOR_CACHE": "/tmp/hh-final-integration-evidence/profile/.cache",
+    "HF_HOME": "/tmp/hh-final-integration-evidence/profile/hf",
+    "DOCKER_CONFIG": "/tmp/hh-final-integration-evidence/profile/docker"
+  },
+  "version": "6db930d37b7e0f78e20fe3ec8221357b286b6352",
+  "started": 1791804786.0486028
+}

@@ -1,0 +1,6 @@
+research-fixed {'time': 1791805213.904, 'kind': 'teardown_identity', 'ports_closed': {'api': True, 'proxy': True}, 'worker_births_released': True}
+research-complete {'time': 1791805328.778, 'kind': 'teardown_identity', 'ports_closed': {'api': True, 'proxy': True}, 'worker_births_released': True}
+No task-local process remains; fixture ports closed; UI4173 closed; protected main tree clean at94513631. Formal service/state/master not mutated; not a state-content audit.
+6db930d37b7e0f78e20fe3ec8221357b286b6352	refs/heads/dev
+9451363155674f138123c94c5e1ba51687139b36	refs/heads/master
+

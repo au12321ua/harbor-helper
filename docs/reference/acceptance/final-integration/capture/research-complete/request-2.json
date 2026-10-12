@@ -1,0 +1,17 @@
+{
+  "url": "http://127.0.0.1:51195",
+  "member_id": "136c35ccab7c4ab18be11895614bcedf",
+  "operation": "submit",
+  "path": "/submissions",
+  "idempotency_key": "research-v1-20261012",
+  "body": {
+    "dataset": "fixture/research@1",
+    "agent": "oracle",
+    "task": "fixture/research-task",
+    "attempts": 1,
+    "concurrency": 1,
+    "wall_seconds": 120,
+    "attachment_version_id": "av-6db093af36d947038ca96815da465678"
+  },
+  "authorized_scope": "read+execute; isolated fixture Oracle"
+}

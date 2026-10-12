@@ -1,0 +1,107 @@
+[
+  {
+    "id": "sub-2a06e2c94c8b467f",
+    "user_id": "1ea08d880c3f4ebdab8b36fcb37aa704",
+    "access_credential_id": null,
+    "submitter": "fixture-member",
+    "operation": "submit",
+    "request": {
+      "dataset_id": "fixture-dataset",
+      "model_profile": null,
+      "agent": "oracle",
+      "bundle_id": null,
+      "attempts": 1,
+      "concurrency": 1,
+      "wall_seconds": 120,
+      "environment_build_timeout_multiplier": 10,
+      "task": null,
+      "name": ""
+    },
+    "run_id": null,
+    "status": "preparing",
+    "created": 1791805202.8008618,
+    "error": null,
+    "parent": null,
+    "attachment": {
+      "attachment_id": null,
+      "attachment_version_id": null,
+      "bundle_id": null,
+      "bundle_digest": null,
+      "attachment_lineage": "none"
+    },
+    "diagnosis": null,
+    "retry_changes": {},
+    "execution_mode": "harbor-native",
+    "legacy_override_removed": false
+  },
+  {
+    "id": "sub-bb1c12833638414e",
+    "user_id": "1ea08d880c3f4ebdab8b36fcb37aa704",
+    "access_credential_id": null,
+    "submitter": "fixture-member",
+    "operation": "submit",
+    "request": {
+      "dataset_id": "fixture-dataset",
+      "model_profile": null,
+      "agent": "oracle",
+      "attachment_version_id": "av-e9332dd92ae2411497ec7e9d03e938c3",
+      "attempts": 1,
+      "concurrency": 1,
+      "wall_seconds": 120,
+      "environment_build_timeout_multiplier": 10,
+      "task": null,
+      "name": ""
+    },
+    "run_id": null,
+    "status": "preparing",
+    "created": 1791805202.9873059,
+    "error": null,
+    "parent": null,
+    "attachment": {
+      "attachment_id": "att-b0e2617e300843fdb751046b4181aa4f",
+      "attachment_version_id": "av-e9332dd92ae2411497ec7e9d03e938c3",
+      "bundle_id": "bundle-2c6ee5d230d34823",
+      "bundle_digest": "sha256:e57b5aaeddc0e3a966d8fcb015385ccc56b2e5840f0a1c578dfb319f9750f1d2",
+      "attachment_lineage": "versioned"
+    },
+    "diagnosis": null,
+    "retry_changes": {},
+    "execution_mode": "harbor-native",
+    "legacy_override_removed": false
+  },
+  {
+    "id": "sub-c70dcfdd4fe347c5",
+    "user_id": "1ea08d880c3f4ebdab8b36fcb37aa704",
+    "access_credential_id": null,
+    "submitter": "fixture-member",
+    "operation": "submit",
+    "request": {
+      "dataset_id": "fixture-dataset",
+      "model_profile": null,
+      "agent": "oracle",
+      "attachment_version_id": "av-d7791fcc007b45de903857ec48e095be",
+      "attempts": 1,
+      "concurrency": 1,
+      "wall_seconds": 120,
+      "environment_build_timeout_multiplier": 10,
+      "task": null,
+      "name": ""
+    },
+    "run_id": null,
+    "status": "preparing",
+    "created": 1791805203.171121,
+    "error": null,
+    "parent": null,
+    "attachment": {
+      "attachment_id": "att-b0e2617e300843fdb751046b4181aa4f",
+      "attachment_version_id": "av-d7791fcc007b45de903857ec48e095be",
+      "bundle_id": "bundle-145dfffbee6346e2",
+      "bundle_digest": "sha256:d3f3cd68081b3bb95537aa92e92d1965732222112ff23d4bd44f3e7d42e2c45e",
+      "attachment_lineage": "versioned"
+    },
+    "diagnosis": null,
+    "retry_changes": {},
+    "execution_mode": "harbor-native",
+    "legacy_override_removed": false
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "tested_product": "6db930d37b7e0f78e20fe3ec8221357b286b6352",
+  "final_harness": "efbc35908fd608da3f6cf11f8bd185586c5e4c79",
+  "packaging_version": "0.1.0",
+  "scope": "isolated actual loopback HTTP/static/browser/CLI/scheduler; source/execution fixtures only",
+  "excluded": [
+    "screenshots",
+    "state",
+    "home",
+    "profile",
+    "cache",
+    "private",
+    "PAT/master values",
+    "binary distribution files"
+  ],
+  "artifacts": {
+    "harbor_helper-0.1.0-py3-none-any.whl": "477670bcc553338f2e735d13205e250a01f7338da23f7f41004c12fb34a2bfb0",
+    "harbor_helper-0.1.0.tar.gz": "ced0a847d62fa502d7be8a03697a5ec2bc4ef3a5215976513f1424d6b0b81606",
+    ".gitignore": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
+  },
+  "fixture_failed_first_run": "browser strict locator matched two new-experiment links;原stdout/stderr/exit及脚本快照保留",
+  "raw_capture_count": 145
+}

@@ -1,0 +1,480 @@
+current product/skill Markdown targets valid: 93 (existence; heading anchors checked separately)
+wheel metadata=0.1.0, CLI entrypoint and all static bytes match source
+sdist product docs, frontend source/QA and locks match fixed candidate; complete copyable research skill; wheel intentionally ships Python/static
+product/static/tests/skills/locks same as full-tested 6db930d; only new QA harness+archive
+release identifier 0.1.0 unchanged; no release tag selected or moved; Root must decide target before publication
+diff --git a/AGENTS.md b/AGENTS.md
+index 93a4a42..91e8b42 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1,6 +1,8 @@
+ # 项目工作入口
+ 
+-先读 [docs/HANDOFF.md](docs/HANDOFF.md)，再按当前任务读取相关原始文件；启动时不必读完整个文档目录。若 `.local/LOCAL_ENVIRONMENT.md` 存在，先读其中的本地保护与恢复信息，再操作服务、state或镜像；该文件由部署者维护，不要求开源clone包含它。
++先读 [docs/HANDOFF.md](docs/HANDOFF.md)，开发前再读[分支、协作与发布规则](docs/guides/development-workflow.md)，然后按当前任务读取相关原始文件；启动时不必读完整个文档目录。若 `.local/LOCAL_ENVIRONMENT.md` 存在，先读其中的本地保护与恢复信息，再操作服务、state或镜像；该文件由部署者维护，不要求开源clone包含它。
++
++日常修改从 `dev` 新建短期分支和独立worktree，不在部署目录或 `master` 上开发。当前开发计划以项目飞书群的版本化记录为准，仓库与本地白板不另存一份路线；开始工作时核对当前计划版本和本次任务。
+ 
+ ## 目标与用户确认的边界
+ 
+diff --git a/docs/HANDOFF.md b/docs/HANDOFF.md
+index 9d0e62f..dd9a5ee 100644
+--- a/docs/HANDOFF.md
++++ b/docs/HANDOFF.md
+@@ -2,6 +2,8 @@
+ 
+ 本页提供可移植的维护入口。团队服务的安装与成员使用见[项目README](../README.md)，详细运行说明见[Web服务指南](guides/web-service.md)。
+ 
++开始修改前读取[分支、协作与发布规则](guides/development-workflow.md)：从 `dev` 建立单项分支和独立工作树，固定候选验收后才发布到 `master`/tag。当前开发计划使用项目飞书群的版本化记录，不依赖本地计划副本。
++
+ ## 产品边界
+ 
+ 受邀的可信团队通过浏览器提交、观察、比较和重跑实验；管理员在网页邀请账户、配置数据集、多提供商/key及容量。只有成员与管理员两种角色，保留个人提交身份，结果全团队共享，无开放注册、个人模型key模式或private实验。
+diff --git a/docs/guides/attachments.md b/docs/guides/attachments.md
+new file mode 100644
+index 0000000..0f970ca
+--- /dev/null
++++ b/docs/guides/attachments.md
+@@ -0,0 +1,66 @@
++# 团队附件版本（HTTP v1 / 远程 CLI）
++
++附件与任务、评分器分别维护。成员可固定任务、基础 agent/model、作者参数、尝试次数和资源/时长等条件，主动新建无附件基线与明确 v1/v2 候选；普通重跑保留父输入，不切换附件。附件差异仍可比较，其他条件沿现有可比性门槛。fixture 中的分数差不证明模型效果或通用能力提高。
++
++浏览器“团队附件”提供创建、版本发布、派生、旧上传登记、名称/说明维护及附件/版本停用恢复。新建实验默认无附件；从目录或失败草稿带入版本时会显示明确 ID，可用“清除附件，使用无附件基线”清除。实验详情与比较仅展示冻结引用和原摘要；旧上传后来登记不会追认旧实验的版本身份。有摘要无版本谱系显示 legacy/unknown，无引用且无摘要显示无附件。
++
++## 认证、类型与权限
++
++沿用受邀成员的登录会话：浏览器同源 cookie，HTTP/CLI 可使用 `Authorization: Bearer <会话值>`。写操作须 `X-Requested-With: harbor-helper`；服务拒绝跨源写入。访问值不应出现在命令行、附件或日志中。自动化凭证签发、scope、客户端 skill/SDK/MCP 不属于本交付。
++
++类型定义在 `service/attachment_contracts.py`，HTTP 不接受未知 metadata 字段或将字符串当作 boolean。ZIP 校验、权限、事务、队列受理都由应用统一执行；Web 与远程 CLI 没有独立业务规则。现有全局 OpenAPI 入口保持关闭，本页描述新增附件 HTTP v1 契约，不声明后续机器发现/schema 已完成。
++
++| 操作 | 方法与路径（相对 `/api/v1`） | 当前会话权限 | 请求 |
++| --- | --- | --- | --- |
++| 目录 | `GET /attachments` | 任意启用成员/管理员 | 无 |
++| 新建与 v1 | `POST /attachments` | 任意启用成员/管理员 | multipart `file` + `metadata={name,description?}` |
++| 后续发布 | `POST /attachments/{attachment_id}/versions` | 创建者或管理员 | multipart `file` + `metadata={notes?}` |
++| 派生与 v1 | `POST /attachment-versions/{version_id}/derive` | 任意启用成员/管理员，来源须可用 | multipart `file` + `metadata={name,description?}`；上传自己的内容 |
++| 登记旧上传 | `POST /attachments/register` | 任意启用成员/管理员 | JSON `{bundle_id,name,description?}` |
++| 查回写入 | `GET /attachment-operations/{operation}/{key}` | 原成员，发布另校验维护权 | 固定操作类别与原键；键需 URL 编码 |
++| 名称/说明/启用状态 | `PATCH /attachments/{attachment_id}` | 创建者或管理员 | JSON 中至少一个 `name/description/enabled` |
++| 版本停用/恢复 | `PATCH /attachments/{attachment_id}/versions/{version_id}` | 创建者或管理员 | JSON `{enabled: boolean}` |
++
++名称1–128字符，说明/发布说明最多4096字符，可重名；调用选择 ID。创建者账户被停用不会隐式停用附件，团队仍可复用，管理员仍可维护。版本字节、序号、摘要、发布者/时间及来源不可变；版本只允许变更启用状态。没有下载、覆盖或物理删除版本库接口。
++
++目录返回 `{attachments,legacy_bundles}`。每个附件含 `id,name,description,creator_id,creator,created,enabled,versions`；versions 按序号倒序排列，含 `id,attachment_id,number,bundle_id,digest,publisher_id,publisher,created,notes,source_version_id,legacy,original_creator,enabled,availability`。时间为 Unix 秒，`availability` 为 `available/unavailable`，与启用状态分别表示。历史上传创建者为 unknown；登记记录当前登记者，绝不伪造旧作者。当前目录沿已有全量发现方式返回，不宣称分页机器发现已交付。
++
++所有附件写入返回 `{attachment,version}`，创建/发布/派生/登记 HTTP201。四种写操作须1–128字符 `Idempotency-Key`，按成员+固定操作类别+键查找：`attachment_create`、`attachment_publish`、`attachment_derive`、`attachment_register`。目标和来源属于请求摘要，不属于操作类别。摘要包括规范语义字段、默认空说明及实际解包树摘要（含文件名、内容及可执行位）；不同 ZIP 压缩字节不影响相同内容的查回。同键不同输入/目标 HTTP409 `idempotency_conflict`。校验失败不登记键；相同内容的不同键仍发布独立版本。
++
++通信失败保存原输入与原键重试，或按键查询；未知键404只表示尚未观察到已提交操作。键不能跨成员查回。停用后仍可查回已成写入；损坏/缺失字节返回 `availability=unavailable`，不能生成替代内容。旧 bundle ID 唯一登记，重复登记其他身份409 `bundle_registered`。
++
++## 明确引用与兼容
++
++`POST /submissions` 可传 `attachment_version_id` 或原 `bundle_id`，两字段同时出现（即使为 null）422 `attachment_reference`。省略附件字段或传空 `bundle_id` 是无附件基线。成员共享任意可用版本，受理冻结版本 ID、附件 ID、bundle ID 与摘要到 service binding；现有受理响应另有 `attachment` 引用字段。停用附件或版本409 `attachment_disabled`，旧 ID 登记后也执行同一检查，不能绕过停用。
++
++沿现有 `/runs/{id}/rerun`、`/runs/{id}/retry`、`/submissions/{id}/retry` 使用新键主动受理，保留谱系和父快照，受理身份始终取当前成员。已受理任务不受后来停用影响。完全没有旧谱系字段时复制父快照并标 legacy/unknown，不按摘要猜身份或改写旧 manifest。准备和执行前照常验证固定摘要，失配停止，不改用最新版。
++
++`POST /bundles` 和旧 bundle 响应 `{id,digest}` 保留。当前请求附件字节/路径与当前实际访问值相同会拒绝；所有上传、发布、派生、登记、历史使用/复制还拒绝 `hh_pat_v1_` 加43个 base64url 字符的可识别明文，包括二进制与跨读取块。后台只作格式扫描，不接收请求 token，不将其写入 worker/env。原路径、文件秘密限制和资源释放/证据审计门槛保留；此项不检测任意编码、加密或分片秘密。
++
++比较保留 `bundle_change`，新增 `attachment_inputs.left/right={kind,attachment_version_id,bundle_id,digest}`。kind 为 none/versioned/legacy/unknown（后者实际字符串为 `legacy/unknown`）。版本只取冻结字段，不查当前版本库。评分缺失、失败、任务/模型或其他条件变化仍不可比，不把附件变化当作拒绝理由。
++
++## 远程 CLI
++
++先按现有 `service login` 选择远程 profile；无登录不会落回本地队列。以下 ID/键仅为示例，文件不得含任何真实凭据：
++
++```bash
++harbor-helper --remote-profile team --json attachments list
++harbor-helper --remote-profile team --json attachments create --file input.zip --name SDK --idempotency-key create-sdk-v1
++harbor-helper --remote-profile team --json attachments lookup attachment_create create-sdk-v1
++harbor-helper --remote-profile team --json attachments publish att-ID --file updated.zip --notes '修订说明' --idempotency-key publish-sdk-v2
++harbor-helper --remote-profile team --json attachments derive av-ID --file fork.zip --name Fork --idempotency-key derive-fork-v1
++harbor-helper --remote-profile team --json attachments register bundle-ID --name Legacy --idempotency-key register-legacy
++harbor-helper --remote-profile team --json attachments update att-ID --version-id av-ID --enabled false
++harbor-helper --remote-profile team --json submit --agent oracle --idempotency-key baseline
++harbor-helper --remote-profile team --json submit --agent oracle --attachment-version-id av-ID --idempotency-key candidate
++```
++
++附件写操作要求显式原键；超时后使用 lookup 或原参数重发。`service retry` 保持已有实验受理回执恢复语义，不负责自动重发附件文件。`submit --attachment-version-id` 与本地 `--bundle` 上传选项互斥；新选项只在远程模式使用。HTTP 与 CLI 不自动换键、批量提交或执行付费模型。Oracle/fixture 只验证流程，不是实际研究 agent/模型效果。
++
++## 迁移与回退边界
++
++启动 `ServiceData` 时在既有 queue.sqlite 附加 `attachments`、`attachment_versions`、`attachment_operations` 三表，不重新 init、不改主密钥，不迁移/猜测旧 bundle 作者，不重写旧 manifest/评分。迁移报错则初始化失败，不能继续以该实例写入。正式升级前须按现场保护说明核所有写者、停服务、保全一致SQLite备份及外 master；本次开发没有操作正式 state。
++
++发布先校验并 fsync 私有 bundle 字节/目录，再用单一 SQLite 事务公开 bundle 行、身份、版本及幂等键；control锁串行化序号和停用/受理。进程退出可能遗留无引用字节，但目录/任务选择只读已提交行，不会出现可选半成品或空身份。本版不自动回收此类孤立字节，不清理历史或已有引用对象。
++
++旧代码能忽略附加表，但不能保障新版本停用/谱系语义，不能将“表可读”视为安全业务回退。已有版本数据的state应优先向前修复；如确需回退，先停止全部写者、保全最新业务数据并单独评审兼容策略。不得删除新表或回放旧WAL，不得用过期备份覆盖新业务；代码回退不代表 state 回退。日志/产物保留不删除附件版本库。
+diff --git a/docs/guides/development-workflow.md b/docs/guides/development-workflow.md
+new file mode 100644
+index 0000000..fab39a2
+--- /dev/null
++++ b/docs/guides/development-workflow.md
+@@ -0,0 +1,64 @@
++# 开发、协作与发布
++
++项目采用轻量的 `feature → dev → master + tag` 流程。开发使用独立分支和工作树，正式服务运行固定发布版本。
++
++## 分支职责
++
++| 分支 | 用途 |
++| --- | --- |
++| `master` | 已验收的发布主线；日常开发不直接在此提交，也不在部署目录编辑源码。 |
++| `dev` | 下一阶段的集成分支；功能、修复和文档修改从这里开始。它不等于生产部署版本。 |
++| `feature/<topic>`、`fix/<topic>`、`docs/<topic>` | 单项工作的短期分支；每个成员或bot使用自己的工作树。 |
++
++暂不常设 `release/*` 或 `hotfix/*` 分支。确有并行维护稳定版本或紧急发布需要时，再按当次任务确定流程；从发布版本修复的变更也应回到 `dev`，避免后续发布丢失修复。
++
++首次建立 `dev` 可从现有已发布的 `master` 创建；本指南以独立文档分支作为初始化修改，不移动已有部署的 `master`。
++
++## 开始一项工作
++
++先读[开发交接](../HANDOFF.md)和当前任务。已有工作目录有未提交修改时，保留现场，另建工作树；不要为切换分支清理或覆盖别人的修改。
++
++确认远端 `dev` 存在后，在自己的仓库执行以下示例；工作树路径与主题名按本次任务选择，不复用其他人的目录：
++
++```bash
++git fetch origin
++git worktree add -b feature/my-change ../harbor-helper-my-change origin/dev
++cd ../harbor-helper-my-change
++git status --short --branch
++```
++
++后续修改、构建和验证都在这项工作的工作树内。前端构建会更新包内 `static/`，应与对应前端源码一起交付。测试须沿交接的独立HOME/state/凭据隔离要求执行，不能使用正式团队state作随手测试。
++
++提交前按影响范围完成必要检查，再推送自己的分支：
++
++```bash
++git diff --check
++git add -- path/to/changed-file
++git commit -m "Describe the change"
++git push -u origin feature/my-change
++```
++
++## 集成与多人或多bot协作
++
++- 以PR/MR（目标 `dev`）交付单项工作，说明可观察变化、固定提交、实际验证及未覆盖范围。暂时无法使用PR/MR时，负责人也应基于同样的固定提交与证据完成审查后集成。
++- 不共用一个checkout写文件，不修改其他工作树的分支或未提交内容；一项任务的负责人负责自己的提交和冲突处理。
++- 集成前核对最新 `dev` 与候选提交。出现相关代码变化或冲突时，验证受影响的行为；旧提交的检查结论不能自动作为合并后版本的结论。
++- 只合并必要修改；需要的工程审查和独立验收按任务影响范围安排，不因文档排版等低影响修改机械调用完整产品测试。
++- 不改写已共享的 `master`/`dev` 历史，不强制推送；个人分支已被别人使用时，重写前先协调。
++
++这些是协作规则，不表示远端已配置分支保护、必需检查或自动CI。不能把尚未配置的保护当作已经生效。
++
++## 发布与运行版本
++
++1. 选定 `dev` 的固定候选提交，完成该版本需要的验证；之后若候选内容变化，补验受影响的部分。
++2. 将已验收候选集成到 `master`，为最终发布提交创建不再移动的版本tag（例如 `v0.2.0`）。tag、包版本、前端构建产物与依赖锁应对应同一发布；例子不是本轮已发布的版本。
++3. 记录发布提交、构建标识、检查范围及迁移要求。正式服务从独立发布目录启动，固定到commit/tag；不通过部署目录的日常编辑或自动拉取来跟随 `dev`。
++4. 服务state和外置主密钥独立于发布物。上线前核活动任务、资源与所有写者，按[Web维护指南](web-service.md)执行合适的升级和恢复步骤。
++
++数据库升级后的回退需要单独说明数据兼容或恢复路径；代码回退不代表state可以回退。旧备份不能覆盖后来新增的业务数据。现存已部署checkout在迁移到独立发布目录之前继续按现场保护说明维护，不能直接切分支或移动目录。
++
++## 开发计划与工作入口
++
++当前开发计划放在项目飞书群的版本化记录中：每个实质版本发布完整正文和变更摘要，保留旧消息，群内置顶和项目进度卡指向当前版本。开始工作时读取最新版本及本次明确任务，不把历史想法当作已批准的实施范围。修改示例中的 `path/to/changed-file` 等参数时，替换为本次实际文件和主题。
++
++仓库记录通用协作与发布规则，不维护另一份本地开发路线。botmux本地白板仅作当前计划入口和维护摘要；同机共享不保证跨主机可读。无法访问群记录的协作者应取得当前版本内容，不能根据旧本地副本猜测任务。
+diff --git a/docs/guides/research-skill.md b/docs/guides/research-skill.md
+new file mode 100644
+index 0000000..e1058ce
+--- /dev/null
++++ b/docs/guides/research-skill.md
+@@ -0,0 +1,15 @@
++# 研究客户端 skill
++
++发布源为 [harbor-helper-research](../../skills/harbor-helper-research/SKILL.md)，用于代成员调用团队服务，复用当前薄 CLI 或 HTTP。它与实验附件内提供给被评测 agent 的 `skills/`、`sdk/` 分开；不需要服务器登录，不新增 SDK/MCP、权限或队列。
++
++使用前安装支持 [机器 API v1](../reference/automation-api.md) 的 harbor-helper CLI，或使用可安全读取凭证的 HTTP 客户端。CLI 安装见 [Web 服务指南](web-service.md)。PAT 在网页签发后，经私有文件/stdin 配置；目标 URL/profile 均由调用者选择。安装 skill 不会配置服务连接或授权真实模型预算。
++
++本仓库保存发布源，**不自动安装到全局或改配置**。调用者可按自己的 agent 支持方式加载此 SKILL.md；Codex 使用者可主动将整个 `skills/harbor-helper-research/` 目录复制到自己选择的 skill 根目录（例如 `~/.codex/skills/harbor-helper-research/`），保留 `references/operations.md`，不要覆盖已有修改。随后在已发现该 skill 的会话中调用 `$harbor-helper-research`，例如：
++
++> 用 research profile 发现数据集和任务，整理无附件/v1/v2 的固定对照计划；本次只授权读取，先不提交。
++
++或在已有明确实验授权和真实模型预算的会话中委托其提交、找回原键、有限等待与比较。已授权步骤不需要重复确认；缺失执行授权/预算只推进读取。示例里的 profile/ID/数值按当前发现和授权替换，不能当默认业务限制。
++
++skill 目录的必要参考可随复制使用，完整 schema 以目标服务运行时发现为准；它不复制完整 API 手册。discovery/readiness 可读取持久维护状态、scheduler 活动与成员额度；暂停/未知就绪只限制新受理，原键恢复仍可用。具体以目标服务 schema 为准，旧服务器可能缺这些字段。工程验证与未覆盖见 [研究 skill 工程报告](../reference/acceptance/research-skill/engineering-report.md)；自动化服务固定版本独立结论另见 [50b0 归档](../reference/acceptance/automation-50b0/README.md)。
++
++前项独立验证的逐字原报告及 CLI 记录见[0b05daf 归档](../reference/acceptance/research-skill-0b05daf/README.md)，不证明后续额度维护版本已验收。
+diff --git a/docs/guides/web-service.md b/docs/guides/web-service.md
+index 1e67e46..2da5399 100644
+--- a/docs/guides/web-service.md
++++ b/docs/guides/web-service.md
+@@ -116,7 +116,7 @@ API 启动时启动或协调同一个后台 supervisor。关闭浏览器、成
+ 
+ 关闭网页不停止任务；前台`serve`的Ctrl-C只停HTTP。重新启动同一state会协调已有调度器，不能重复init或生成新master。
+ 
+-部署负责人需要完整停机时：先安排成员停止新提交，在网页确认所有受理与run终态，等待或取消自己的未终态；管理员可取消任何人的任务。准备中、queued/running、取消收尾和cleanup_blocked都要处理。先停止HTTP（前台Ctrl-C；后台部署按自己的进程管理器停止该HTTP），阻止继续提交；然后对**已存在的专用服务state**执行下面的空闲调度器停止检查。目录替换成该部署实际路径，维护已有部署须先核对进程归属，不按历史PID操作。
++部署负责人需要完整停机时：管理员先在“团队管理→容量与保留”暂停新受理并填写安全原因/可选建议重试时间；确认网页受理状态为暂停（重启保持），在网页确认所有受理与run终态，等待或取消自己的未终态；管理员可取消任何人的任务。准备中、queued/running、取消收尾和cleanup_blocked都要处理。先停止HTTP（前台Ctrl-C；后台部署按自己的进程管理器停止该HTTP），阻止继续提交；然后对**已存在的专用服务state**执行下面的空闲调度器停止检查。目录替换成该部署实际路径，维护已有部署须先核对进程归属，不按历史PID操作。
+ 
+ ```bash
+ uv run python - /absolute/path/to/service-state <<'PY_STOP'
+@@ -174,3 +174,15 @@ Docker 诊断页面点击“发现本机 Docker 与镜像”，只读取服务
+ 原生运行收尾保留镜像与 Docker 构建缓存，清理本次拥有的容器、网络、临时卷；不启用 keep_containers，不全机 prune。构建可能每次仍被调用，由 Docker 决定缓存命中。构建缓存不保留已删除容器可写层里的代理安装。实际镜像、Harbor 版本及阶段信息可通过安全评分报告取得，取不到时为 unknown。缓存会占磁盘，日常空间维护由部署负责人明确处理，不是每次实验自动删镜像。
+ 
+ 模型配置页可管理多个提供商，每个提供商多个key、每个key多个方案。保存提供商后点“新建提供商”才能新增另一个；点编辑则更新同一对象版本。用提供商/key筛选看绑定。方案始终选择一个提供商与其一个key，切换提供商需重新选择匹配key；模型保存不发真实模型请求、不证明认证成功。
++
++
++附件版本目录、权限、HTTP/CLI契约及迁移回退边界见[团队附件版本](attachments.md)。
++
++
++## 网页待处理额度与维护
++
++团队管理→容量与保留可调整“每成员待处理额度”，有效值不超过全局待处理上限。准备与排队合计按实验目标去重，所有凭证/网页共用成员身份，管理员也计入本人；默认配置10可调整，降低不取消存量。旧无身份实验仍占全局与执行容量。
++
++同页可持久暂停/恢复 submit/rerun/retry/recover 新受理。维护原因与可选建议重试时间仅授权成员可读，不能填秘密/内部路径，时间不触发自动恢复。已有准备/队列继续排空，查询、取消和安全报告可用；暂停不能代替完整停写或备份检查。管理员 PAT 没有维护配置能力。
++
++共享实验和新建页面显示受理状态、调度器活动及观察时间、本人/全局待处理计数。活动过旧显示未知并拒绝新键，既有原键找回仍可用；不提供预计开始时间。`/api/v1/health` 匿名只含存活/就绪布尔值，`/api/v1/readiness` 授权读取安全详情；就绪不保证 Docker/Hub/模型成功。迁移/回退的维护保护限制见[自动化接口](../reference/automation-api.md#兼容升级与回退)。
+diff --git a/docs/reference/automation-api.md b/docs/reference/automation-api.md
+new file mode 100644
+index 0000000..5e68aff
+--- /dev/null
++++ b/docs/reference/automation-api.md
+@@ -0,0 +1,119 @@
++# 自动化授权与机器 API v1.0
++
++这是当前分支的实施接口，候选验收范围另见[工程报告](acceptance/automation-v1/engineering-report.md)。成员额度、维护与就绪的当前契约见下文；设计来源见[定稿](../design/attachment-agent-contract.md)。原工程报告只证明其固定版本，当前改动范围见[额度维护工程报告](acceptance/admission/engineering-report.md)。
++
++## 身份与签发
++
++浏览器登录会话保留成员/管理员角色。网页“自动化凭证”签发有用途名称的凭证，默认 30 天，可选正整数天数，不设年度上限；API 可传有限且严格在未来的 Unix 秒 `expires`，省略使用 30 天。签发复核当前密码，失败保留网页会话并清空密码框。凭证形式为 `hh_pat_v1_` 加 32 随机字节的 43 字符 base64url，无填充。`token` 仅在成功签发响应中出现一次；关闭页面/原值后无法恢复。服务数据库只存 SHA256 摘要和非秘密元数据。
++
++| 浏览器操作 | 请求/输出 |
++| --- | --- |
++| `POST /api/v1/access-credentials` | JSON `{name,current_password,scopes?,expires?}` → 201 `{credential,token}`；只允许会话，须正确密码 |
++| `GET /api/v1/access-credentials` | 本人的元数据列表；没有 token/digest |
++| `GET /api/v1/admin/access-credentials` | 管理员会话读取全团队元数据 |
++| `POST /api/v1/access-credentials/{id}/revoke` | 所有人可撤自己的；管理员会话可撤任意 → `{id,revoked:true}` |
++
++元数据字段：`id,user_id,name,scopes,created,expires,revoked,last_used`；时间为 Unix 秒，尚未撤销/使用时为 null。`last_used` 表示成功认证时间，包含随后被 scope 拒绝的请求，不等同于成功执行。签发、撤销、写操作保留审计身份。账户停用、凭证到期/撤销、密码重置立即拒绝后续认证；恢复账户不恢复被撤销凭证。密码变更及管理员密码重置同时使旧浏览器会话失效。
++
++固定能力为 `read`、`attachments`、`execute`、`cancel_own`，默认 `['read']`，各能力独立勾选。`execute` 不隐含 read；按原键找回需要 execute。`GET /me` 仅返回已认证身份和能力，对所有有效凭证可用，供 CLI 安全配置验证。授权只属于该用户已有能力的子集；管理员签发的凭证也按成员权限执行，不能维护别人附件、取消别人任务或调用管理员/账户/凭证管理操作。持有凭证不能再铸造凭证或扩大权限。服务端按固定操作表鉴权，新或未列操作默认只允许会话，客户端隐藏按钮不是授权边界。
++
++自动化 HTTP 使用 `Authorization: Bearer <私有值>`；写请求另需 `X-Requested-With: harbor-helper`，有 Origin 时须与服务一致。不得将原值放 URL、命令参数、shell history、附件、日志或报告。HTTPS/代理日志由部署环境负责。请求原值仅在请求内存中用于验证/扫描，worker、env、冻结输入只得到非秘密 `access_credential_id`；该字段与模型 `credential_id/version` 分开。复制父实验输入时重新记录当前用户和访问凭证 ID；网页受理为 null（冻结绑定可能省略该键），不继承父授权。
++
++## 发现、输入及输出 schema
++
++`GET /api/v1/machine/schema` 返回限定的 OpenAPI 3.1 文档，版本 `1.0`，只含下表机器操作，包含命名输入/输出 schema、枚举、错误结构、Bearer 声明与每操作 `x-capability`、`x-operation`。不开放内部管理员 OpenAPI。multipart 的 `metadata` 是 JSON 字符串，其结构另由 `x-metadata-schema` 引用，不能按任意字符串解释。
++
++| 操作标识 | 方法与路径（相对 `/api/v1`） | 能力 | 类型/语义 |
++| --- | --- | --- | --- |
++| `machine_schema` | GET `/machine/schema` | read | 限定 OpenAPI 文档 |
++| `discovery` | GET `/machine/discovery` | read | `Discovery`：数据集验证/可用状态、模型方案、附件版本、容量、scheduler、本凭证允许操作、限制 |
++| `task_catalog` | GET `/machine/datasets/{dataset_id}/tasks?offset=0&limit=100` | read | `TaskCatalog`：已有验证任务目录的切片；offset≥0、limit 1–100，next_offset=null 结束；不下载任务字节 |
++| `machine_submission` | GET `/machine/submissions/{id}` | read | `MachineState`：受理及可能已生成实验的三轴视图 |
++| `machine_run` | GET `/machine/runs/{id}` | read | `MachineState`：实验三轴视图 |
++| `machine_report` | GET `/machine/runs/{id}/report` | read | `SafeReport`，仅可用时 200，否则安全错误；不返回原始异常/环境配置/诊断 |
++| `machine_compare` | POST `/machine/compare` | read | `CompareInput {left,right}` → `Comparison`；保留可比性/原因/附件身份/评分变化，配置仅显示 changed |
++| `submit` | POST `/submissions` | execute | `SubmissionInput` → 202 `Accepted` |
++| `rerun` | POST `/runs/{id}/rerun` | execute | 空正文/`{}` → 202 `Accepted`，继承固定研究输入 |
++| `retry_run` | POST `/runs/{id}/retry` | execute | `RetryInput {wall_seconds?}` → 202 `Accepted`；保留已有修复作者参数差别，附件不能替换 |
++| `recover_submission` | POST `/submissions/{id}/retry` | execute | 空正文/`{}` → 202 `Accepted`；只为尚未生成实验的失败准备新建恢复受理 |
++| `lookup_submission` | GET `/submission-operations/{operation}/{key}` | execute | `Accepted`；operation 固定 submit/rerun/retry/recover，按原成员+类别+键查找 |
++| `cancel` | POST `/runs/{id}/cancel` | cancel_own | `CancelResult`，只取消自己实验；取消请求不保证已完成清理 |
++| `cancel_submission` | POST `/submissions/{id}/cancel` | cancel_own | `Accepted`，只取消自己受理 |
++| `attachments` | GET `/attachments` | read | `AttachmentCatalog`，共享身份/版本与 legacy bundle 元信息 |
++| `upload` | POST `/bundles`，multipart file | attachments | 201 `BundleResult {id,digest}`，旧上传兼容 |
++| `create_attachment` | POST `/attachments`，multipart file+metadata | attachments | `AttachmentCreate {name,description?}` → 201 `AttachmentResult` |
++| `publish_attachment` | POST `/attachments/{id}/versions`，multipart file+metadata | attachments | `AttachmentPublish {notes?}` → 201 `AttachmentResult`；仅自己有权维护的附件 |
++| `derive_attachment` | POST `/attachment-versions/{id}/derive`，multipart file+metadata | attachments | `AttachmentCreate` → 201 `AttachmentResult`，上传自己的内容派生 |
++| `register_attachment` | POST `/attachments/register` | attachments | `AttachmentRegister {name,description?,bundle_id}` → 201 `AttachmentResult`，登记 legacy 输入 |
++| `attachment_lookup` | GET `/attachment-operations/{operation}/{key}` | attachments | `AttachmentResult`；固定 attachment_create/publish/derive/register |
++| `update_attachment` | PATCH `/attachments/{id}` | attachments | `AttachmentUpdate {name?,description?,enabled?}` → `{updated:true}`；创建者权限 |
++| `update_attachment_version` | PATCH `/attachments/{id}/versions/{version_id}` | attachments | `AttachmentVersionUpdate {enabled}` → `{updated:true}`；创建者权限 |
++
++`Discovery.allowed_operations` 使用上述操作标识，另包括有明确能力的旧兼容操作：me/catalog/usage/runs/submission/run/report/download_report/compare。这些别名保留 HTTP 兼容，但自动化 catalog/run/list/report 会采用安全投影；原始 logs/artifacts/download 只向浏览器会话开放。机器契约优先使用 `/machine/...`。旧会话远程 profile 保留原角色及旧响应。
++
++`SubmissionInput` 严格拒绝未知字段和错误类型，身份不由客户端提交。可用字段：`dataset_id`（网页配置的数据集，优先）、`dataset`（旧显式引用）、`model_profile`、`agent`（oracle/opencode）、`bundle_id` 或 `attachment_version_id`（互斥）、`attempts`、`concurrency`、`wall_seconds`、`environment_build_timeout_multiplier`、`task`、`name`。数值为正整数且继续受现有团队限额校验；name≤128 字符。选择 task 使用任务名 glob；省略 task 选择整个数据集。模型实验选择方案，Oracle 显式选择 agent。省略两个附件字段是无附件基线；版本必须明确，不接受 latest，不自动沿用。dataset 验证/ready 仅表示当前配置的来源检查，不证明作者输入、Docker、Hub 或模型下一次一定可执行。
++
++`Accepted` 保留旧 id/status/request/run_id/parent/submitter/created/error 及附件/执行模式字段，新增 user_id/access_credential_id。token 调用不输出原始作者诊断或配置变更值。输入和输出的详细字段、null/可选规则以运行时 schema 为准；机器报告只给各任务的有效性、聚合评分、尝试奖励和安全失败类别。有效 0.0 是合法评分；缺评分为 missing_score；执行异常为 execution_failure，证据不足为 unknown，不凭 run status 推断评分。
++
++## 幂等与通信恢复
++
++实验写操作必须携带 1–128 字符 `Idempotency-Key`。保存正文、固定操作、目标及原键再发请求；CLI 附件发布也要求显式键。新受理作用域是当前成员+固定操作类别+键；父 run/submission ID 属于请求摘要，不编入类别，因此同键换目标或正文都冲突。普通 rerun/retry/recover 是新研究尝试，必须主动用新键；通信重试重复原正文/原目标/原键。
++
++身份及 scope 在最前。已经匹配的受理先于当前容量等新受理检查返回；不会再次占用队列。跨同成员 token 或网页登录可查询原键；跨成员返回 404，不返回别人正文。未知键 404 只说明暂未观察到提交，下一步保持原键重发，不能以此自动换键。到期/撤销的凭证必须重新授权；键本身不随凭证或证据到期而删除。
++
++旧记录不改写：submit 沿用旧摘要；旧 `rerun:<target>` 等可按原目标原键通信重试，固定类别查询也匹配旧前缀。历史同类别同键对应多个目标时返回 `legacy_key_ambiguous`，用原记录 ID 查询并人工确认，不能任选一条。新写也不能拿已占用的旧键换目标。
++
++## 三轴状态与下一动作
++
++三轴来自现有受理/实验生命周期，不更改旧 manifest 或执行状态、不按显示状态追加容量阻塞：
++
++- resource：active（starting/running/cancelling）、cleanup_blocked（原执行资源未确认清理）、released（准备/排队未分配，或按原终态生命周期已释放）、unknown（不能解释的执行状态）。原容量仍只按实际执行/清理规则统计。
++- audit：pending/clean/incomplete；没有实验为 pending/not_started，未知旧审计信息不伪造 clean。
++- report：available 必须通过原安全报告门槛，含已过期证据的安全摘要；终态 clean 缺文件为 unavailable/missing_report，失败准备或提前取消为 unavailable。审计异常/资源清理阻塞为 blocked；审计 pending 且 scheduler 活动无法确认为 blocked/audit_progress_unknown。确有活动执行/准备/审计才 pending，建议 2 秒轮询。读取失败不以空报告假装成功。
++
++scheduler 仅提供可核进程身份和最近循环活动，`ready/unavailable/unknown`；身份匹配且 heartbeat≤10 秒（正常循环约 0.5 秒）才 ready，缺失/陈旧活动为 unknown，未核到存活进程为 unavailable。不输出 PID/birth/宿主路径/配置；`activity_observed` 为最后心跳时间，`observed` 为本次读取时间。判断身份与活动使用同一次 scheduler.json 读取，不把别的进程心跳拼到旧身份。
++
++错误统一含 `code,message,request_id,retryable,action,related_ids,poll_after_seconds,wait_seconds,wait_known`。action 枚举：retry_same_request、poll_existing、fix_input、reauthorize、contact_admin、explicit_new_attempt。原键未知/队列满/暂不可用建议 retry_same_request；待报告 poll_existing；401 或 scope 不足 reauthorize；幂等冲突 fix_input（保留原键/原正文调查，绝不自动换键）；审计/安全阻塞 contact_admin；报告确定不可用或无效恢复状态 explicit_new_attempt。没有故障来源证据不猜原因。429/503 当前不承诺等待时长：`wait_known=false,wait_seconds=null`，客户端做有限退避；不将等待建议当作完成时间保证。
++
++附件扫描沿既有完整树文件字节/路径扫描与输出脱敏，拒绝完整 PAT 格式（包括别人、撤销/过期值），请求内也检查当前实际 bearer；历史快照重跑时再核验，后台不接收原值。拒绝信息不回显命中内容。检查不声称识别任意编码、加密或分片秘密，可信成员仍须保护访问值。
++
++研究客户端可使用[独立操作 skill](../guides/research-skill.md)，它复用下述 CLI/HTTP，不成为实验附件或另一个服务授权入口。
++
++## 薄 CLI 非交互使用
++
++先在网页签发；将原值安全存入当前用户独占、0600、非 symlink 的文件。CLI 不接受原值 argv 参数。安全读取文件或 stdin，将 URL/身份/值写入已有 owner-only 0700 remote profile/0600 文件，`service configure-token` 只输出非秘密确认。stdin 的上游应使用秘密管理器/安全文件，勿直接在 shell history 写 literal token。
++
++```bash
++harbor-helper service configure-token --url http://127.0.0.1:8000 --token-file /private/access-token --profile research --json
++harbor-helper --remote-profile research service discover --json
++harbor-helper --remote-profile research service schema --json
++harbor-helper --remote-profile research service tasks DATASET_ID --limit 20 --json
++harbor-helper --remote-profile research submit --dataset team/data@VERSION --agent oracle --idempotency-key baseline-1 --json
++harbor-helper --remote-profile research service lookup submit baseline-1 --json
++harbor-helper --remote-profile research service query sub-RECEIPT --json
++harbor-helper --remote-profile research service report hh-RUN --json
++```
++
++模型实验改用 `--model-profile MODEL_ID`；明确版本对照新 submit 选择 `--attachment-version-id VERSION_ID` 和新键；不带该参数是无附件。`service retry` 重发最近一次保存的实验操作原正文/原键；单个 profile 只保存一个最近 receipt，研究客户端仍应自行保存并行请求。`rerun/retry` 原命令继续使用，失败准备的主动新恢复用 `service recover sub-ID --idempotency-key NEW_KEY`。`service logout` 对会话 profile 撤会话并删本地 profile；对自动化 profile 仅删本地副本，服务端撤销在网页完成。远程请求失败无本地执行回退，复用同一 HTTP 契约和队列。
++
++## 迁移与回退
++
++启动时用 SQLite 事务新增 `access_credentials`、`access_events` 表；无主密钥变更、无旧记录/manifest/评分重写。迁移失败异常退出，不允许新服务继续写。新表不保存原值；旧 sessions、submissions、模型凭据表保持结构。发布前核实际服务身份、所有 state 写者并保全最新一致 SQLite backup 和外主密钥，不能使用旧备份覆盖后来业务。本工程没有操作正式部署。
++
++旧代码可忽略新增表读旧数据，但不能把代码回退当作安全业务回退：旧版本不识别 PAT/机器端点，旧 per-target 幂等逻辑可能重复新 fixed-operation 受理。需要回退时先切断新写流量、停止所有写者并保全当前一致 state；优先回退前端/修复兼容服务器，或交付能读取新键规则的回退代码。禁止在仍有新客户端通信重试时直接恢复旧受理写服务；禁止删除新表/键或回放过时 state。此处是接口/数据兼容说明，不是生产恢复演练通过证据。
++
++
++## 新受理额度、维护与就绪
++
++- `GET /health` 匿名仅返回 `alive,ready` 两个布尔值；未初始化/维护暂停/活动未确认时 ready=false。`GET /readiness` 是授权只读（PAT 需 read），也收入机器 schema 与 discovery.readiness。返回 initialized、accepting、reason、observed、scheduler、maintenance、pending；没有内部路径/PID/配置/秘密。`accepting` 表示维护与调度活动门已开放，不保留容量，不保证下一次请求可受理或 Docker/Hub/模型成功。
++- `maintenance` 为 paused、reason、retry_at（可选 Unix 秒）、updated。管理员浏览器在团队管理→容量与保留调整；`PATCH /admin/maintenance` 支持这些前三项，权限默认拒绝管理员 PAT。原因最多500字符，禁止已配置秘密、PAT 和内部绝对路径；重试时间若填写须有限未来值，只是建议，不自动恢复。错误不回显输入。
++- 暂停在独立 `admission.json` 原子持久写入，与受理使用同一 control 锁。每次新受理在锁内读取最新值，多个 API 进程与重启不使用旧缓存。维护拒绝 submit/rerun/retry/recover 新键（503 maintenance_paused）；已受理准备/队列继续排空，读、取消与安全报告仍遵守原门槛。暂停不是 scheduler stop 或可立即备份。
++- 未确认 scheduler birth 返回 unavailable；身份可核但缺失、未来或超过10秒的心跳返回 unknown。unknown/unavailable 阻止新键（503 scheduler_unready）。身份/scope 先验证；成功原键找回在维护、就绪与额度检查前；参数冲突仍409，不通过新键补偿。
++- `limits.max_pending_per_member` 默认配置10，可由管理员网页改正整数；有效值 `min(配置,max_queue)`，不是硬用户数值。pending 包含 global_pending/member_pending/member_limit/global_limit。所有 CLI/Web/PAT 入口、同成员所有凭证以及管理员本人共用 user_id；429 member_queue_full 或 queue_full 的 action 为 retry_same_request，wait_known=false、wait_seconds=null，预计等待未知。额度降低不取消存量。
++- Preparing 与 queued 按 target_id 去重；已存在对应 run 后仅按当前 run queued 状态计待处理，即使 submission 未改 ready。开始执行、终态、准备失败或准备取消释放待处理；排队取消请求直到调度器确认为 cancelled 才释放。运行/cleanup_blocked 仍由原执行资源规则计容量，审计异常不额外占执行容量。旧 local/history 无可靠 user_id 不猜成员，保留全局与执行容量。没有公平调度保证或另一个配额账户系统。
++
++### 兼容、升级与回退
++
++本次不新增/更改 SQLite 表，不重写旧 manifest、冻结输入、密文或外主密钥。旧 limits.json 缺成员字段时读取默认10；不要求落盘迁移，维护文件缺失仅按首次默认开放解释，仍须 scheduler 就绪。维护文件损坏拒绝新受理并匿名 unready，不静默开放。按部署流程保全最新 state 和原外主密钥；生产升级需独立授权，本轮没有升级部署。
++
++代码回退到本轮之前会忽略 admission.json 和成员字段，并且不执行新就绪门；**暂停保护不能靠旧代码继续维持**。需先停止外部新写入口、确认全部写者与队列/资源状态，再按固定旧版本执行回退，保留新文件和所有受理/幂等/历史数据；不可删文件开放、重 init、更换 master 或用旧备份覆盖新业务。恢复本轮代码后读取原持久暂停值。暂停/就绪不替代一致备份和独立 scheduler 停机确认。
+diff --git a/skills/harbor-helper-research/SKILL.md b/skills/harbor-helper-research/SKILL.md
+new file mode 100644
+index 0000000..e993cd2
+--- /dev/null
++++ b/skills/harbor-helper-research/SKILL.md
+@@ -0,0 +1,46 @@
++---
++name: harbor-helper-research
++description: Operate a Harbor Helper team service as an authorized research client; discover inputs, submit attachment controls, recover requests and read safe results. Use for HTTP or remote CLI experiments, not skills/sdk inside experiment attachments.
++---
++
++# Harbor Helper 研究操作
++
++你是代成员调用团队服务的研究客户端；被评测 agent 在任务容器里。此 skill 及访问凭证不作为实验附件。服务负责身份、权限、队列与报告门槛。
++
++先读 [操作参考](references/operations.md)，按用户目标选择现有薄 CLI 或 HTTP。需要完整字段时读取目标服务 `/api/v1/machine/schema`，不凭旧示例猜接口。CLI 必须已安装支持机器 API v1 的 harbor-helper；复制整个 skill 目录后参考文件仍可用，不依赖仓库相对路径。
++
++## 授权与发现
++
++- 沿用当前用户已授权的操作和预算，不重复确认已授权步骤。缺少实验范围或真实模型预算时只推进发现/读取，澄清后再提交；本 skill 不扩大授权、不自动追加付费尝试。
++- 网页签发 PAT；通过当前用户独占、0600、非 symlink 文件或安全 stdin 配置明确 profile。原值不进入 argv/history、环境变量、附件、task、日志或报告。不打印 profile 文件，不使用调试 HTTP header 日志；模型方案的团队 key 与 PAT 分开。
++- 每次使用明确 `--remote-profile`，确认 `/me` 的成员 ID、服务 URL 和能力。失效/撤销/到期返回 reauthorize 时停止对应操作；scope 不足也停止，不能切换管理员会话绕过。不把本地 logout 当服务端撤销。
++- 读取 schema/discovery，核 `contract_version`、`allowed_operations`、数据集验证状态、模型方案、附件具体版本和限制；按 `next_offset` 续读任务切片。未知版本/缺少需要的操作时停止相关调用，报告差异。发现可用不保证 Hub/Docker/模型可执行；容量/时长/token 观测不是金额预算保证，费用 unknown 保持 unknown。
++
++## 固定对照并提交
++
++保存一个研究计划：数据集固定引用/已配置 ID 与版本、任务选择及评分来源、agent/模型方案、作者参数、attempts/concurrency/wall_seconds、环境构建倍率、明确附件身份/摘要、授权与预算范围。省略参数的服务默认也可能变动：核发现/schema，并在受理后检查冻结输入/比较条件；需要 CLI 未暴露字段时用 HTTP，不臆造 CLI flags。
++
++无附件、v1、v2 都用**新 submit**，分别明确新键；仅附件版本为计划中的变量。无附件省略 `bundle_id` 与 `attachment_version_id`；候选只指定明确 `attachment_version_id`，不用 latest、不自动沿用。普通 rerun/retry/recover 继承附件，不用于换版本。已有附件可直接选择；上传/发布只在用户授权且有 attachments 能力时做。
++
++**发写请求前**持久保存服务 URL、成员 ID、固定操作类别、目标路径、原键和完整原正文（或附件内容摘要及发布元信息）。不含 PAT。每个操作单独保全，不让后一个请求覆盖前一个记录。CLI 自动 receipt 在发请求前保存 path/body/user_id/key，但一个 profile 只保留最后一次；参考文件说明如何在下一次写前保全它。不要无键依赖 CLI 自动生成随机键。
++
++## 通信恢复与停止
++
++- 超时或响应丢失：先以原成员+操作+键 lookup，或原路径/正文/键重发。查不到不等于未受理，保持原键，不造新键；尚未解决的写操作先恢复，再开始下一次写。
++- CLI `service retry` 是**最近 receipt 的通信重发**；普通 `retry RUN` 是新研究尝试，两者不可混用。凭证更换仍须同一成员、同一服务，原记录/键不因撤销而消失。
++- 409 幂等冲突/action=fix_input：保留原记录，核正文/目标差异并修正误输后找回原操作；不通过换键继续制造任务。确实要改变实验是另一个需授权的新操作。legacy_key_ambiguous 用已保存记录 ID 查询并人工确认，不任选结果。
++- 新受理前读取 discovery.readiness（或授权 GET /readiness）：区分 initialized、accepting、scheduler 活动和观察时间、maintenance 原因及可选建议重试时间、pending 身份额度。旧服务缺字段时以实时 schema 为准；额度共用成员的全部凭证，不切换身份绕过。维护暂停/活动未知时只推进读、取消或原键找回；建议重试时间不触发自动恢复，就绪不保证执行成功。
++- 429/503 或 retry_same_request：在本轮约定等待期限/最大请求次数内有限退避，继续用原键；wait_known=false 不承诺多久可用。到期限返回记录、已知状态和下一步，不自动提交补偿任务。
++
++## 查询与结果
++
++按受理 ID query，拿到 run_id 后可 query run。分别呈现 resource/audit/report 的 state 与 reason，不把执行结束当报告可读。按 poll_after_seconds 建议轮询；用户未指定时可采用本次观察最多 60 秒/30 次的可调整上限（不是服务/实验限制）。上限到达交还受理 ID、run ID、原键、三轴与下一动作，不把超时解释成失败。
++
++- pending：继续查询原记录，直到本次观察期限。
++- resource=cleanup_blocked 或 report=blocked：说明资源/审计原因，contact_admin；不读取原始日志/产物绕过门槛，也不自动重复提交。
++- report=unavailable：给明确 reason，停止等报告；explicit_new_attempt 是建议，需在现有授权和预算内主动决定，不能自动补跑。
++- report=available：读取安全机器报告，按 attempts.valid/rewards/failure 解读。有效 reward=0.0 是零分；missing_score 是缺评分，execution_failure 是执行失败，unknown 是证据不足，均不能补成 0。报告自身 status/complete 与有效/缺失 attempt 数也保留。
++
++比较展示 comparable/reasons、`bundle_change`、`attachment_inputs` 的冻结版本身份以及有效评分 delta；附件差异是研究变量，不能仅凭它宣布不可比。其他条件变化仍呈现原因。fixture/Oracle/脚本化成功仅证明相应契约/流程，不能声称真实 LLM 能力提升；真实模型结果也须标明样本与条件，不扩展成通用结论。
++
++交付用户：服务/契约版本、输入与版本身份、受理/run ID、三轴、报告有效性及比较、下一动作、预算/证据的实际覆盖。不包含访问值或内部诊断。
+diff --git a/skills/harbor-helper-research/references/operations.md b/skills/harbor-helper-research/references/operations.md
+new file mode 100644
+index 0000000..7960fc6
+--- /dev/null
++++ b/skills/harbor-helper-research/references/operations.md
+@@ -0,0 +1,72 @@
++# v1 薄 CLI 与 HTTP 操作
++
++以下占位符用发现结果替换；`research` 是示例 profile。所有例子都调用团队服务，安装 CLI 依赖与目标服务兼容，不能用本地 auth login 注入团队 key。
++
++## 连接与发现
++
++```bash
++harbor-helper service configure-token --url https://YOUR_SERVICE --token-file /private/access-token --profile research --json
++# 或从现有安全文件读取 stdin（不在命令里写原值）
++harbor-helper service configure-token --url https://YOUR_SERVICE --token-stdin --profile research --json < /private/access-token
++harbor-helper --remote-profile research service status --json
++harbor-helper --remote-profile research service schema --json
++harbor-helper --remote-profile research service discover --json
++harbor-helper --remote-profile research service tasks DATASET_ID --offset 0 --limit 20 --json
++```
++
++status 返回已认证 `/me` 身份；schema/discovery/tasks 需要 read。任务切片 limit 1–100；使用返回 next_offset 续读，null 结束。PAT 默认 read；提交和 lookup 需要 execute，取消需要 cancel_own；execute 不隐含 read。
++
++## 三个新 submit
++
++示例为**已有授权和预算**的同条件模型实验；选择团队 MODEL_PROFILE_ID，DATASET_REFERENCE 用已发现的固定 reference，不把 DATASET_ID 填给 CLI `--dataset`。CLI 目前没有 `--dataset-id` 和环境构建倍率参数，需要这些字段时用 HTTP。`--task` 是任务名 glob，省略会选择整个数据集。以下示例数值只是待按授权替换的研究输入，不是预算保证。
++
++```bash
++harbor-helper --remote-profile research submit --dataset DATASET_REFERENCE --model-profile MODEL_PROFILE_ID --task TASK_GLOB --attempts 1 --concurrency 1 --wall-seconds 120 --idempotency-key STUDY-baseline --json
++# 完成保全与未知响应恢复后再开始下一次写
++harbor-helper --remote-profile research submit --dataset DATASET_REFERENCE --model-profile MODEL_PROFILE_ID --task TASK_GLOB --attempts 1 --concurrency 1 --wall-seconds 120 --attachment-version-id V1_ID --idempotency-key STUDY-v1 --json
++harbor-helper --remote-profile research submit --dataset DATASET_REFERENCE --model-profile MODEL_PROFILE_ID --task TASK_GLOB --attempts 1 --concurrency 1 --wall-seconds 120 --attachment-version-id V2_ID --idempotency-key STUDY-v2 --json
++```
++
++仅隔离验证且明确选择 Oracle 时改用 `--agent oracle` 代替模型方案；不把 Oracle 分数当模型效果。
++
++提交前在用户私有操作记录中保存确切正文（由 CLI 字段映射形成）：dataset、model_profile、task、attempts、concurrency、wall_seconds，候选另有 attachment_version_id。例子中的固定类别均为 submit、路径 `/submissions`，无附件正文不含附件字段。CLI 发请求前还自动写 `~/.config/harbor-helper/remote/receipt-research.json`（0600）。**每次写返回/失败后、下一次写前**复制该 receipt 到本次研究独立私有目录，保全其原 path/body/user_id/idempotency_key/url；给记录补固定类别与授权范围。不得复制 profiles 中含 token 的文件、整包 remote 目录或把记录放附件。并行操作优先各自保存 HTTP 请求记录，不能共用最近 receipt 恢复。
++
++```bash
++harbor-helper --remote-profile research service lookup submit STUDY-baseline --json
++harbor-helper --remote-profile research service retry --json
++harbor-helper --remote-profile research service query sub-RECEIPT --json
++harbor-helper --remote-profile research service query hh-RUN --json
++harbor-helper --remote-profile research service report hh-RUN --json
++harbor-helper --remote-profile research compare hh-BASELINE hh-V1 --json
++harbor-helper --remote-profile research compare hh-V1 hh-V2 --json
++harbor-helper --remote-profile research cancel sub-OWN_RECEIPT --json
++harbor-helper --remote-profile research cancel hh-OWN_RUN --json
++```
++
++service retry 仅在**最近 receipt 就是待恢复操作**时使用；其他记录用其原请求重发。compare 通过兼容 `/compare` 返回机器安全投影；comparable=false 时 CLI 退出 2，仍应读取输出 reasons。取消请求成功不代表资源已释放，继续查三轴。
++
++## 直接 HTTP（CLI 未暴露字段时）
++
++使用安全文件在进程内读取 PAT，构造 Authorization Bearer header；写请求含 `X-Requested-With: harbor-helper`。不使用会把 bearer 展开进 argv 的 `curl -H` 命令，不输出 header，不跟随跨站重定向。保存操作记录后才发 POST；没有秘密的输出仍须按安全报告解读。完整 schema 从目标服务读取，此处只列研究路径：
++
++| 操作 | `/api/v1` 下的方法与路径 |
++| --- | --- |
++| 身份/发现 | GET `/me`、`/machine/schema`、`/machine/discovery`、`/readiness` |
++| 任务切片 | GET `/machine/datasets/{id}/tasks?offset=0&limit=20` |
++| 新提交 | POST `/submissions`，header `Idempotency-Key: 原键` |
++| 找回 | GET `/submission-operations/{submit\|rerun\|retry\|recover}/{原键}`（URL 编码键） |
++| 状态/安全报告 | GET `/machine/submissions/{id}`、`/machine/runs/{id}`、`/machine/runs/{id}/report` |
++| 比较 | POST `/machine/compare`，正文 `{"left":"hh-LEFT","right":"hh-RIGHT"}` |
++| 取消本人记录 | POST `/submissions/{id}/cancel` 或 `/runs/{id}/cancel`，正文 `{}` |
++
++新提交正文示例（占位符按发现/授权替换，无附件省略 attachment_version_id；其余条件保持）：
++
++```json
++{"dataset_id":"DATASET_ID","model_profile":"MODEL_PROFILE_ID","task":"VERIFIED_TASK_NAME","attempts":1,"concurrency":1,"wall_seconds":120,"environment_build_timeout_multiplier":1,"attachment_version_id":"V1_ID"}
++```
++
++使用 dataset_id 时 task 选已验证目录里的确切任务名；显式 dataset reference 的 CLI task 可用 glob。
++
++HTTP 错误读取 code/action/request_id/related_ids/poll_after_seconds/wait_known，不记录原始网络诊断。retry_same_request 重发原请求；poll_existing 查已有记录；fix_input 修正误输与调查冲突；reauthorize 停止该操作待重新授权；contact_admin 呈现安全原因；explicit_new_attempt 不代表自动获准新实验。普通主动 rerun/retry/recover 使用新键并保持原附件；详细输入读 schema。
++
++`service discover` 返回 readiness 与 pending（若目标契约支持）；`accepting` 仅为初始化/维护/scheduler 活动门，不保留容量。503 maintenance_paused/scheduler_unready、429 member_queue_full/queue_full 用原键有限重试或查旧受理，等待未知时不要提供预计开始时间，也不要切换 PAT/成员绕过限额。匿名 health 不含维护原因；管理员配置只能通过获授权浏览器会话，管理员 PAT 也不能暂停/恢复服务。
+

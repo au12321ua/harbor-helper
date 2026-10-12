@@ -1,0 +1,61 @@
+{"time": 1791805307.916, "kind": "candidate", "sha": "efbc35908fd608da3f6cf11f8bd185586c5e4c79", "skill_copy": "/tmp/hh-final-integration-evidence/research-complete/skills/harbor-helper-research/SKILL.md"}
+{"time": 1791805308.754, "kind": "fixture_ready", "member_id": "136c35ccab7c4ab18be11895614bcedf", "dataset_id": "fixture-dataset", "attachment_id": "att-9999414f0f01465a9e758b72d1d83329", "attachment_versions": ["av-6db093af36d947038ca96815da465678", "av-59ee7eb0982e46239890fa87ef60711a"], "credential_scopes": {"read": ["read"], "execute": ["execute", "read"]}}
+{"time": 1791805308.991, "kind": "cli", "command": "service configure-token --url http://127.0.0.1:51195 --token-file /tmp/hh-final-integration-evidence/research-complete/private/research-read-only.pat --profile research", "exit_code": 0}
+{"time": 1791805309.232, "kind": "cli", "command": "--remote-profile research service status", "exit_code": 0}
+{"time": 1791805309.522, "kind": "cli", "command": "--remote-profile research service schema", "exit_code": 0}
+{"time": 1791805309.767, "kind": "cli", "command": "--remote-profile research service discover", "exit_code": 0}
+{"time": 1791805309.999, "kind": "cli", "command": "--remote-profile research service tasks fixture-dataset --offset 0 --limit 1", "exit_code": 0}
+{"time": 1791805310.235, "kind": "cli", "command": "--remote-profile research attachments list", "exit_code": 0}
+{"time": 1791805310.235, "kind": "read_only_discovery_complete", "contract_version": "1.0", "allowed_operations": ["attachments", "catalog", "compare", "discovery", "download_report", "machine_compare", "machine_report", "machine_run", "machine_schema", "machine_submission", "me", "readiness", "report", "run", "runs", "submission", "task_catalog", "usage"], "task_count": 1, "attachment_versions": ["av-6db093af36d947038ca96815da465678", "av-59ee7eb0982e46239890fa87ef60711a"]}
+{"time": 1791805310.631, "kind": "cli", "command": "service configure-token --url http://127.0.0.1:51195 --token-file /tmp/hh-final-integration-evidence/research-complete/private/research-execute.pat --profile research", "exit_code": 0}
+{"time": 1791805310.861, "kind": "cli", "command": "--remote-profile research service status", "exit_code": 0}
+{"time": 1791805311.088, "kind": "injected_response_loss", "method": "POST", "path": "/api/v1/submissions", "upstream_status": 202}
+{"time": 1791805311.116, "kind": "cli", "command": "--remote-profile research submit --dataset fixture/research@1 --agent oracle --task fixture/research-task --attempts 1 --concurrency 1 --wall-seconds 120 --idempotency-key research-baseline-20261012", "exit_code": 1}
+{"time": 1791805311.116, "kind": "submit_response_lost", "exit_code": 1, "stdout": "", "stderr": "Idempotency-Key: research-baseline-20261012; use service retry for this same operation\nharbor-helper: HTTP 504 fixture_gateway_timeout: Fixture proxy discarded the response after upstream acceptance; action=poll_existing\n"}
+{"time": 1791805311.353, "kind": "cli", "command": "service configure-token --url http://127.0.0.1:51195 --token-file /tmp/hh-final-integration-evidence/research-complete/private/research-replacement.pat --profile research", "exit_code": 0}
+{"time": 1791805311.592, "kind": "cli", "command": "--remote-profile research service status", "exit_code": 0}
+{"time": 1791805311.829, "kind": "cli", "command": "--remote-profile research service lookup submit research-baseline-20261012", "exit_code": 0}
+{"time": 1791805311.829, "kind": "same_member_recovery", "submission_id": "sub-1ae780e258b34e54", "status": "ready", "new_key_created": false}
+{"time": 1791805312.073, "kind": "cli", "command": "--remote-profile research submit --dataset fixture/research@1 --agent oracle --task fixture/research-task --attempts 1 --concurrency 1 --wall-seconds 120 --attachment-version-id av-6db093af36d947038ca96815da465678 --idempotency-key research-v1-20261012", "exit_code": 0}
+{"time": 1791805312.074, "kind": "submission_accepted", "index": 1, "submission_id": "sub-78d629b3713e4489", "attachment_version_id": "av-6db093af36d947038ca96815da465678"}
+{"time": 1791805312.318, "kind": "cli", "command": "--remote-profile research submit --dataset fixture/research@1 --agent oracle --task fixture/research-task --attempts 1 --concurrency 1 --wall-seconds 120 --attachment-version-id av-59ee7eb0982e46239890fa87ef60711a --idempotency-key research-v2-20261012", "exit_code": 0}
+{"time": 1791805312.318, "kind": "submission_accepted", "index": 2, "submission_id": "sub-36584a2f280f403b", "attachment_version_id": "av-59ee7eb0982e46239890fa87ef60711a"}
+{"time": 1791805322.058, "kind": "production_browser_submitted", "submissions": ["sub-7cc42e3187c04137", "sub-b1815a12e9ee4eb2", "sub-4188f9a41c3e4f65"]}
+{"time": 1791805322.309, "kind": "cli", "command": "--remote-profile research service query sub-1ae780e258b34e54", "exit_code": 0}
+{"time": 1791805322.554, "kind": "cli", "command": "--remote-profile research service query hh-9cedd57768e24271", "exit_code": 0}
+{"time": 1791805322.789, "kind": "cli", "command": "--remote-profile research service report hh-9cedd57768e24271", "exit_code": 0}
+{"time": 1791805322.789, "kind": "run_report", "submission_id": "sub-1ae780e258b34e54", "run_id": "hh-9cedd57768e24271", "resource": {"state": "released", "reason": "execution_lifecycle"}, "audit": {"state": "clean", "reason": "original_audit"}, "report_state": "available"}
+{"time": 1791805323.027, "kind": "cli", "command": "--remote-profile research service query sub-78d629b3713e4489", "exit_code": 0}
+{"time": 1791805323.275, "kind": "cli", "command": "--remote-profile research service query hh-66690f49fa8a4b9a", "exit_code": 0}
+{"time": 1791805323.529, "kind": "cli", "command": "--remote-profile research service report hh-66690f49fa8a4b9a", "exit_code": 0}
+{"time": 1791805323.529, "kind": "run_report", "submission_id": "sub-78d629b3713e4489", "run_id": "hh-66690f49fa8a4b9a", "resource": {"state": "released", "reason": "execution_lifecycle"}, "audit": {"state": "clean", "reason": "original_audit"}, "report_state": "available"}
+{"time": 1791805323.773, "kind": "cli", "command": "--remote-profile research service query sub-36584a2f280f403b", "exit_code": 0}
+{"time": 1791805324.008, "kind": "cli", "command": "--remote-profile research service query hh-af8f0c507c0f4340", "exit_code": 0}
+{"time": 1791805324.25, "kind": "cli", "command": "--remote-profile research service report hh-af8f0c507c0f4340", "exit_code": 0}
+{"time": 1791805324.25, "kind": "run_report", "submission_id": "sub-36584a2f280f403b", "run_id": "hh-af8f0c507c0f4340", "resource": {"state": "released", "reason": "execution_lifecycle"}, "audit": {"state": "clean", "reason": "original_audit"}, "report_state": "available"}
+{"time": 1791805324.486, "kind": "cli", "command": "--remote-profile research service query sub-7cc42e3187c04137", "exit_code": 0}
+{"time": 1791805324.724, "kind": "cli", "command": "--remote-profile research service query hh-bd010cf746bf4d60", "exit_code": 0}
+{"time": 1791805324.962, "kind": "cli", "command": "--remote-profile research service report hh-bd010cf746bf4d60", "exit_code": 0}
+{"time": 1791805324.962, "kind": "run_report", "submission_id": "sub-7cc42e3187c04137", "run_id": "hh-bd010cf746bf4d60", "resource": {"state": "released", "reason": "execution_lifecycle"}, "audit": {"state": "clean", "reason": "original_audit"}, "report_state": "available"}
+{"time": 1791805325.204, "kind": "cli", "command": "--remote-profile research service query sub-b1815a12e9ee4eb2", "exit_code": 0}
+{"time": 1791805325.448, "kind": "cli", "command": "--remote-profile research service query hh-294c03f362154842", "exit_code": 0}
+{"time": 1791805325.683, "kind": "cli", "command": "--remote-profile research service report hh-294c03f362154842", "exit_code": 0}
+{"time": 1791805325.683, "kind": "run_report", "submission_id": "sub-b1815a12e9ee4eb2", "run_id": "hh-294c03f362154842", "resource": {"state": "released", "reason": "execution_lifecycle"}, "audit": {"state": "clean", "reason": "original_audit"}, "report_state": "available"}
+{"time": 1791805325.924, "kind": "cli", "command": "--remote-profile research service query sub-4188f9a41c3e4f65", "exit_code": 0}
+{"time": 1791805326.16, "kind": "cli", "command": "--remote-profile research service query hh-7d9f7dc7a1f14f5c", "exit_code": 0}
+{"time": 1791805326.405, "kind": "cli", "command": "--remote-profile research service report hh-7d9f7dc7a1f14f5c", "exit_code": 0}
+{"time": 1791805326.405, "kind": "run_report", "submission_id": "sub-4188f9a41c3e4f65", "run_id": "hh-7d9f7dc7a1f14f5c", "resource": {"state": "released", "reason": "execution_lifecycle"}, "audit": {"state": "clean", "reason": "original_audit"}, "report_state": "available"}
+{"time": 1791805326.652, "kind": "cli", "command": "--remote-profile research compare hh-9cedd57768e24271 hh-66690f49fa8a4b9a", "exit_code": 0}
+{"time": 1791805326.652, "kind": "comparison", "left": "hh-9cedd57768e24271", "right": "hh-66690f49fa8a4b9a", "comparable": true, "score_delta": {"reward": 1.0}, "bundle_change": {"left": null, "right": "sha256:e57b5aaeddc0e3a966d8fcb015385ccc56b2e5840f0a1c578dfb319f9750f1d2"}}
+{"time": 1791805326.889, "kind": "cli", "command": "--remote-profile research compare hh-66690f49fa8a4b9a hh-af8f0c507c0f4340", "exit_code": 0}
+{"time": 1791805326.89, "kind": "comparison", "left": "hh-66690f49fa8a4b9a", "right": "hh-af8f0c507c0f4340", "comparable": true, "score_delta": {"reward": -1.0}, "bundle_change": {"left": "sha256:e57b5aaeddc0e3a966d8fcb015385ccc56b2e5840f0a1c578dfb319f9750f1d2", "right": "sha256:d3f3cd68081b3bb95537aa92e92d1965732222112ff23d4bd44f3e7d42e2c45e"}}
+{"time": 1791805327.12, "kind": "cli", "command": "--remote-profile research compare hh-bd010cf746bf4d60 hh-294c03f362154842", "exit_code": 0}
+{"time": 1791805327.12, "kind": "comparison", "left": "hh-bd010cf746bf4d60", "right": "hh-294c03f362154842", "comparable": true, "score_delta": {"reward": 1.0}, "bundle_change": {"left": null, "right": "sha256:e57b5aaeddc0e3a966d8fcb015385ccc56b2e5840f0a1c578dfb319f9750f1d2"}}
+{"time": 1791805327.364, "kind": "cli", "command": "--remote-profile research compare hh-294c03f362154842 hh-7d9f7dc7a1f14f5c", "exit_code": 0}
+{"time": 1791805327.364, "kind": "comparison", "left": "hh-294c03f362154842", "right": "hh-7d9f7dc7a1f14f5c", "comparable": true, "score_delta": {"reward": -1.0}, "bundle_change": {"left": "sha256:e57b5aaeddc0e3a966d8fcb015385ccc56b2e5840f0a1c578dfb319f9750f1d2", "right": "sha256:d3f3cd68081b3bb95537aa92e92d1965732222112ff23d4bd44f3e7d42e2c45e"}}
+{"time": 1791805327.621, "kind": "cli", "command": "--remote-profile research service lookup submit research-baseline-20261012", "exit_code": 0}
+{"time": 1791805327.857, "kind": "cli", "command": "--remote-profile research service query hh-7d9f7dc7a1f14f5c", "exit_code": 0}
+{"time": 1791805328.098, "kind": "cli", "command": "--remote-profile research service report hh-7d9f7dc7a1f14f5c", "exit_code": 1}
+{"time": 1791805328.099, "kind": "completed", "run_count": 6, "comparison_count": 4, "scheduler_pid": 2068209}
+{"time": 1791805328.777, "kind": "process_cleanup", "api_stopped": true, "supervisor_stopped": true, "proxy_stopped": true}
+{"time": 1791805328.778, "kind": "teardown_identity", "ports_closed": {"api": true, "proxy": true}, "worker_births_released": true}

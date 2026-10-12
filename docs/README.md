@@ -12,6 +12,8 @@
 - [研究客户端 skill](guides/research-skill.md)：可移植发布源、安装/调用与无附件/明确版本对照流程。
 - [自动化 API 固定 50b0 独立验收](reference/acceptance/automation-50b0/README.md)：限定 PASS / 54 与会话输出文字证据边界。
 - [附件候选独立安全报告](reference/acceptance/attachment-28102/README.md)：原 PARTIAL 和 Docker 补验各自版本/覆盖。
+- [最终集成工程证据](reference/acceptance/final-integration/README.md)：本轮全量、生产网页/CLI fixture串联及发布迁移交接；待最终独立验收。
+- [额度维护固定6db930独立原件](reference/acceptance/admission-independent-6db930/README.md)：原限定范围及安全原始归档。
 - [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
 
 ## 产品设计

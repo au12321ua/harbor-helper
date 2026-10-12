@@ -1,0 +1,6 @@
+{
+  "http_stopped": true,
+  "scheduler_stopped": true,
+  "worker_births_released": true,
+  "url": "http://127.0.0.1:54711"
+}
