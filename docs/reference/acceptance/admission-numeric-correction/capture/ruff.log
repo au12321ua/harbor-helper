@@ -1,0 +1,73 @@
+F811 Redefinition of unused `data` from line 6
+  --> tests/test_admission_numbers.py:18:46
+   |
+17 | @pytest.mark.parametrize("value", INVALID, ids=IDS)
+18 | def test_invalid_requested_retry_is_safe_422(data, value):
+   |                                              ^^^^ `data` redefined here
+19 |     admin = client(data, "admin")
+20 |     # Raw JSON also exercises nonfinite literals rejected by the service validation.
+   |
+  ::: tests/test_admission_numbers.py:6:36
+   |
+ 5 | import pytest
+ 6 | from test_admission import accept, data  # noqa: F401
+   |                                    ---- previous definition of `data` here
+ 7 | from test_service import WRITE, client
+   |
+help: Remove definition: `data`
+
+F811 Redefinition of unused `data` from line 6
+  --> tests/test_admission_numbers.py:33:66
+   |
+31 | @pytest.mark.parametrize("field", ["retry_at", "updated"])
+32 | @pytest.mark.parametrize("value", INVALID, ids=IDS)
+33 | def test_corrupt_persisted_timestamp_blocks_health_and_admission(data, field, value):
+   |                                                                  ^^^^ `data` redefined here
+34 |     old = accept(data, "old")
+35 |     web = client(data)
+   |
+  ::: tests/test_admission_numbers.py:6:36
+   |
+ 5 | import pytest
+ 6 | from test_admission import accept, data  # noqa: F401
+   |                                    ---- previous definition of `data` here
+ 7 | from test_service import WRITE, client
+   |
+help: Remove definition: `data`
+
+F811 Redefinition of unused `data` from line 6
+  --> tests/test_admission_numbers.py:50:70
+   |
+49 | @pytest.mark.parametrize("value", INVALID, ids=IDS)
+50 | def test_invalid_scheduler_timestamp_is_unknown_and_blocks_admission(data, value):
+   |                                                                      ^^^^ `data` redefined here
+51 |     old = accept(data, "old")
+52 |     state = read_json(data.root / "scheduler.json")
+   |
+  ::: tests/test_admission_numbers.py:6:36
+   |
+ 5 | import pytest
+ 6 | from test_admission import accept, data  # noqa: F401
+   |                                    ---- previous definition of `data` here
+ 7 | from test_service import WRITE, client
+   |
+help: Remove definition: `data`
+
+F811 Redefinition of unused `data` from line 6
+  --> tests/test_admission_numbers.py:68:64
+   |
+68 | def test_large_representable_numbers_have_no_arbitrary_ceiling(data):
+   |                                                                ^^^^ `data` redefined here
+69 |     value = 10**300
+70 |     with data.store.control():
+   |
+  ::: tests/test_admission_numbers.py:6:36
+   |
+ 5 | import pytest
+ 6 | from test_admission import accept, data  # noqa: F401
+   |                                    ---- previous definition of `data` here
+ 7 | from test_service import WRITE, client
+   |
+help: Remove definition: `data`
+
+Found 4 errors.
