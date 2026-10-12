@@ -1,0 +1,74 @@
+[
+  {
+    "file": "logs/fixed-d46e31a-python.log",
+    "sha256": "fd0aef5ab193c85b9183928f3af8ca65c77d54bbe6a5b0c798c7ac7f2c5058f5",
+    "bytes": 1260,
+    "scope": "fixed d46e31ae8f6bab129f7a3e03b984f9542c46730a"
+  },
+  {
+    "file": "logs/fixed-d46e31a-ui.log",
+    "sha256": "d876e2373fa07d5d8086fba7a3202dcef0c3caf915ece9fe4937469bcbd90290",
+    "bytes": 3224,
+    "scope": "fixed d46e31ae8f6bab129f7a3e03b984f9542c46730a"
+  },
+  {
+    "file": "logs/fixed-d46e31a-build.log",
+    "sha256": "fea622ff96609d7808b84b3a68212929caff018edfdf2d5e26af0f9805d3d2d1",
+    "bytes": 503,
+    "scope": "fixed d46e31ae8f6bab129f7a3e03b984f9542c46730a"
+  },
+  {
+    "file": "logs/fixed-d46e31a-lint.log",
+    "sha256": "6cccf6afaf6a94027b0a8574158f468e47753df8a9d4c97ddae5191f17bd6f99",
+    "bytes": 66,
+    "scope": "fixed d46e31ae8f6bab129f7a3e03b984f9542c46730a"
+  },
+  {
+    "file": "logs/fixed-d46e31a-ruff.log",
+    "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "bytes": 19,
+    "scope": "fixed d46e31ae8f6bab129f7a3e03b984f9542c46730a"
+  },
+  {
+    "file": "logs/fixed-d46e31a-diff-check.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0,
+    "scope": "fixed d46e31ae8f6bab129f7a3e03b984f9542c46730a"
+  },
+  {
+    "file": "logs/regression-initial.log",
+    "sha256": "00becbcbb0aedb23635ef7d27b11aae95571c65bb41a254bba6e3de4c53ab233",
+    "bytes": 2708,
+    "scope": "intermediate debugging; not fixed-version acceptance"
+  },
+  {
+    "file": "logs/http-initial.log",
+    "sha256": "d24c5597b452fa6487c9293174ab7be5d17ecf99f2baf47f2af18c4c43bd8323",
+    "bytes": 2499,
+    "scope": "intermediate debugging; not fixed-version acceptance"
+  },
+  {
+    "file": "logs/http-second.log",
+    "sha256": "f920011cb37c9082dd39de9644c61bd2af46cacb8bc855235468c6b3e320337e",
+    "bytes": 2765,
+    "scope": "intermediate debugging; not fixed-version acceptance"
+  },
+  {
+    "file": "logs/ui.log",
+    "sha256": "ff0d72871713f1d0587aa7bc72058e3592523be37cf88cda4610b0c891b29efa",
+    "bytes": 441,
+    "scope": "intermediate debugging; not fixed-version acceptance"
+  },
+  {
+    "file": "logs/ui-third.log",
+    "sha256": "e77d6ee03c591e0692d142a1f96bed4326c4f0731fe40f87ddbc7e63d47f0c04",
+    "bytes": 4522,
+    "scope": "intermediate debugging; not fixed-version acceptance"
+  },
+  {
+    "file": "logs/automation-final-initial.log",
+    "sha256": "8411ddfa58c7e8f9e3346d54000fb1c2d93322d516cb6bac841e7e992f0b4c6d",
+    "bytes": 2263,
+    "scope": "intermediate debugging; not fixed-version acceptance"
+  }
+]
