@@ -62,6 +62,50 @@ try {
       fullPage: true,
     });
   }
+  const runIds = [];
+  for (const row of accepted) {
+    const deadline = Date.now() + 60000;
+    let state;
+    do {
+      const response = await page.request.get(
+        inputs.url + `/api/v1/machine/submissions/${row.id}`,
+      );
+      assert.equal(response.status(), 200);
+      state = await response.json();
+      if (state.report.state === "available") break;
+      assert(Date.now() < deadline, "bounded browser observation timed out");
+      await page.waitForTimeout(100);
+    } while (true);
+    runIds.push(state.run_id);
+    await page.goto(inputs.url + `/runs/${state.run_id}`);
+    await page.getByRole("tab", { name: "评分报告", exact: true }).click();
+    await page
+      .getByRole("button", { name: "下载评分报告", exact: true })
+      .waitFor();
+    await page.getByText("reward", { exact: false }).first().waitFor();
+  }
+  assert.equal(
+    await page.getByRole("link", { name: "团队管理", exact: true }).count(),
+    0,
+  );
+  await page.getByRole("link", { name: "实验对比", exact: true }).click();
+  await page.getByLabel("实验 A", { exact: true }).selectOption(runIds[0]);
+  await page.getByLabel("实验 B", { exact: true }).selectOption(runIds[1]);
+  const compared = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/v1/compare") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "开始对比", exact: true }).click();
+  const comparison = await (await compared).json();
+  assert.equal(comparison.comparable, true);
+  assert.equal(comparison.mean_task_delta.reward, 1);
+  await page.getByText("对比结果", { exact: true }).waitFor();
+  await page.getByText("实验 A 附件：无附件", { exact: true }).waitFor();
+  await page.getByText(inputs.versions[0], { exact: false }).first().waitFor();
+  await page.screenshot({
+    path: evidence + "/browser-comparison-desktop.png",
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("link", { name: "共享实验", exact: true }).click();
   await page.getByRole("heading", { name: "共享实验", exact: true }).waitFor();
@@ -85,7 +129,7 @@ try {
     JSON.stringify(accepted, null, 2),
   );
   console.log(
-    "production browser: login -> actual no-attachment/v1/v2 submit -> shared mobile list; identity/content/overlay/interaction/pageerror checks passed; expected initial anonymous 401 only",
+    "production browser: login -> actual no-attachment/v1/v2 submit -> safe report -> comparable browser result -> shared mobile list; identity/content/overlay/interaction/pageerror checks passed; expected initial anonymous 401 only",
   );
 } finally {
   await browser.close();
