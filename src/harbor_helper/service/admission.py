@@ -12,6 +12,14 @@ from harbor_helper.service.data import ServiceError
 DEFAULT_MAINTENANCE = {"paused": False, "reason": "", "retry_at": None, "updated": None}
 
 
+def finite_number(value):
+    """Reject booleans and numbers that cannot be represented as finite floats."""
+    try:
+        return type(value) in {int, float} and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def maintenance(data):
     path = data.root / "admission.json"
     value = read_json(path) if path.exists() else DEFAULT_MAINTENANCE.copy()
@@ -22,7 +30,7 @@ def maintenance(data):
         or len(value["reason"]) > 500
         or any(
             value.get(k) is not None
-            and (type(value[k]) not in {int, float} or not math.isfinite(value[k]))
+            and not finite_number(value[k])
             for k in ("retry_at", "updated")
         )
     ):
@@ -51,7 +59,7 @@ def set_maintenance(data, body):
         )
     retry = value["retry_at"]
     if retry is not None and (
-        type(retry) not in {int, float} or not math.isfinite(retry) or retry <= time.time()
+        not finite_number(retry) or retry <= time.time()
     ):
         raise ServiceError("maintenance_retry", "Retry time must be a finite future timestamp")
     value = {"paused": value["paused"], "reason": reason, "retry_at": retry, "updated": time.time()}

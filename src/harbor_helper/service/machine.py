@@ -1,6 +1,5 @@
 """Versioned, allowlisted machine views; no internal admin OpenAPI is published."""
 
-import math
 import time
 from typing import Literal
 
@@ -146,6 +145,7 @@ def authorize(user, operation):
 
 def scheduler(app):
     from harbor_helper.execution.runs import scheduler_identity
+    from harbor_helper.service.admission import finite_number
 
     try:
         identity = scheduler_identity(app.store)
@@ -156,7 +156,7 @@ def scheduler(app):
                 "observed": time.time(),
             }
         heartbeat = identity.get("observed")
-        valid = type(heartbeat) in {int, float} and math.isfinite(heartbeat)
+        valid = finite_number(heartbeat)
         ready = valid and 0 <= time.time() - heartbeat <= 10
         return {
             "state": "ready" if ready else "unknown",
