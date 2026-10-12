@@ -1,0 +1,17 @@
+{
+  "implementation_commit": "7b77f5f3a922b131cef6522b46ed7b2f646e6fe1",
+  "baseline": "0b05daf92c8478f990af46e6edf45a6b10abb60f",
+  "python": "Python 3.13.13",
+  "node": "v22.23.1",
+  "npm": "12.2.0",
+  "isolation": "subprocess env constructed from PATH/LANG/LC_ALL/cache/browser-location whitelist; isolated HOME/XDG_CONFIG_HOME/XDG_CACHE_HOME/Harbor profile; no inherited model/cloud/PAT env",
+  "home": "/tmp/hh-admission-validation/home",
+  "profile": "/tmp/hh-admission-validation/profile",
+  "master": "per-fixture external private/master, never production master",
+  "browser": "Browser plugin not available; repo Playwright Chromium",
+  "lock_sha256": {
+    "uv.lock": "95c00733f7b931627eba0ae4c0c9564d98ae0e17c7bdd947a320cd5868dc68fe",
+    "frontend/package-lock.json": "0db5f8a27a872b53d3e92d960ea43ed1647431deb6b5afd88f4d1e35c1e722db",
+    "pyproject.toml": "4277b75f4b7286648a46c49bc04400be2fbf7080ff1f1e5247a5e7b3cfd31bea"
+  }
+}

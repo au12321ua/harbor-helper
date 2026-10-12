@@ -1,0 +1,10 @@
+npm notice run harbor-helper-web@0.1.0 test:ui
+npm notice run playwright test --grep 管理员网页
+[WebServer] npm notice run harbor-helper-web@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 4173
+
+Running 1 test using 1 worker
+
+  ✓  1 qa/ui.spec.ts:1533:1 › 管理员网页调整身份额度与维护暂停恢复 (793ms)
+
+  1 passed (1.6s)

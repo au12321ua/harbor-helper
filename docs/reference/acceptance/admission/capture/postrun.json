@@ -1,0 +1,39 @@
+{
+  "http_fixture_proofs": [
+    {
+      "http_stopped": true,
+      "scheduler_stopped": true,
+      "worker_births_released": true,
+      "url": "http://127.0.0.1:42661",
+      "listener_closed_now": true,
+      "fixture": "/tmp/hh-admission-validation/fixed-python/test_pause_two_http_processes_0"
+    },
+    {
+      "http_stopped": true,
+      "scheduler_stopped": true,
+      "worker_births_released": true,
+      "url": "http://127.0.0.1:34861",
+      "listener_closed_now": true,
+      "fixture": "/tmp/hh-admission-validation/fixed-python/test_production_admission_brow0"
+    },
+    {
+      "http_stopped": true,
+      "scheduler_stopped": true,
+      "worker_births_released": true,
+      "url": "http://127.0.0.1:41313",
+      "listener_closed_now": true,
+      "fixture": "/tmp/hh-admission-validation/fixed-python/test_noninteractive_cli_http_b0"
+    },
+    {
+      "http_stopped": true,
+      "scheduler_stopped": true,
+      "worker_births_released": true,
+      "url": "http://127.0.0.1:53909",
+      "listener_closed_now": true,
+      "fixture": "/tmp/hh-admission-validation/fixed-python/test_production_static_browser0"
+    }
+  ],
+  "remaining_matching_run_births": [],
+  "protected_state_touched": false,
+  "scope": "only this fixed isolated pytest directory; no host-wide scan/cleanup"
+}

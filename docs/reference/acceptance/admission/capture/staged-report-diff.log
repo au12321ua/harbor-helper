@@ -1,0 +1,62 @@
+docs/reference/acceptance/admission/capture/admission-first.log:29: trailing whitespace.
++tests/test_admission.py:148: 
+docs/reference/acceptance/admission/capture/admission-first.log:30: trailing whitespace.
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+docs/reference/acceptance/admission/capture/admission-first.log:34: trailing whitespace.
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+docs/reference/acceptance/admission/capture/admission-http-first.log:29: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/admission-http-first.log:32: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/admission-http-first.log:36: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/admission-http-first.log:48: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/admission-http-first.log:50: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-second.log:29: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-second.log:33: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-second.log:40: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-second.log:42: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-third.log:29: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-third.log:32: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-third.log:37: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-third.log:48: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/production-ui-third.log:50: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/python-initial.log:37: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/python-initial.log:72: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/python-initial.log:107: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/python-initial.log:132: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/python-initial.log:146: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/python-initial.log:148: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/python-initial.log:182: trailing whitespace.
++    
+docs/reference/acceptance/admission/capture/python-initial.log:185: trailing whitespace.
++    
+docs/reference/acceptance/admission/capture/python-initial.log:216: trailing whitespace.
++tests/test_service_cli.py:411: 
+docs/reference/acceptance/admission/capture/python-initial.log:217: trailing whitespace.
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+docs/reference/acceptance/admission/capture/python-initial.log:236: trailing whitespace.
++E         
+docs/reference/acceptance/admission/capture/targeted-second.log:14: trailing whitespace.
++    
+docs/reference/acceptance/admission/capture/targeted-second.log:17: trailing whitespace.
++    
+docs/reference/acceptance/admission/capture/targeted-second.log:21: trailing whitespace.
++    

@@ -1,0 +1,262 @@
+.............................................................FFF........ [ 22%]
+...........F............................................................ [ 45%]
+........................................................................ [ 68%]
+..................................F......................F.............. [ 91%]
+...........................                                              [100%]
+=================================== FAILURES ===================================
+_____ test_three_axes_report_scores_and_evidence_boundary[0.0-False-None] ______
+
+data = <harbor_helper.service.data.ServiceData object at 0x7b54f8bf49b0>
+preparation = None, reward = 0.0, failure = False, expected = None
+
+    @pytest.mark.parametrize(
+        "reward,failure,expected",
+        [(0.0, False, None), (None, False, "missing_score"), (1.0, True, "execution_failure")],
+    )
+    def test_three_axes_report_scores_and_evidence_boundary(
+        data, preparation, reward, failure, expected
+    ):
+        app, accepted, rid = finished(data, preparation, reward, failure)
+        state = machine.run_state(app, rid)
+        assert state["resource"]["state"] == "released" and state["audit"]["state"] == "clean"
+        assert state["report"]["state"] == "available"
+        _, p, _ = issue(data)
+        response = p.get(state["report_url"])
+        assert response.status_code == 200, response.text
+        value = response.json()["tasks"][0]["attempts"][0]
+        assert value["failure"] == expected
+        assert value["rewards"] == ({"reward": 0.0} if reward == 0.0 and not failure else None)
+        for bad in ["traceback", "private", str(data.root), "framework_exception", "exception_message"]:
+            assert bad not in response.text
+        data.store.update(rid, audit_status="incomplete")
+        assert machine.run_state(app, rid)["report"]["state"] == "blocked"
+        assert p.get(state["report_url"]).status_code == 409
+        data.store.update(rid, audit_status="pending")
+>       assert machine.run_state(app, rid)["report"]["reason"] == "audit_progress_unknown"
+E       AssertionError: assert 'audit_in_progress' == 'audit_progress_unknown'
+E         
+E         - audit_progress_unknown
+E         + audit_in_progress
+
+tests/test_automation.py:342: AssertionError
+_ test_three_axes_report_scores_and_evidence_boundary[None-False-missing_score] _
+
+data = <harbor_helper.service.data.ServiceData object at 0x7b54f8976ff0>
+preparation = None, reward = None, failure = False, expected = 'missing_score'
+
+    @pytest.mark.parametrize(
+        "reward,failure,expected",
+        [(0.0, False, None), (None, False, "missing_score"), (1.0, True, "execution_failure")],
+    )
+    def test_three_axes_report_scores_and_evidence_boundary(
+        data, preparation, reward, failure, expected
+    ):
+        app, accepted, rid = finished(data, preparation, reward, failure)
+        state = machine.run_state(app, rid)
+        assert state["resource"]["state"] == "released" and state["audit"]["state"] == "clean"
+        assert state["report"]["state"] == "available"
+        _, p, _ = issue(data)
+        response = p.get(state["report_url"])
+        assert response.status_code == 200, response.text
+        value = response.json()["tasks"][0]["attempts"][0]
+        assert value["failure"] == expected
+        assert value["rewards"] == ({"reward": 0.0} if reward == 0.0 and not failure else None)
+        for bad in ["traceback", "private", str(data.root), "framework_exception", "exception_message"]:
+            assert bad not in response.text
+        data.store.update(rid, audit_status="incomplete")
+        assert machine.run_state(app, rid)["report"]["state"] == "blocked"
+        assert p.get(state["report_url"]).status_code == 409
+        data.store.update(rid, audit_status="pending")
+>       assert machine.run_state(app, rid)["report"]["reason"] == "audit_progress_unknown"
+E       AssertionError: assert 'audit_in_progress' == 'audit_progress_unknown'
+E         
+E         - audit_progress_unknown
+E         + audit_in_progress
+
+tests/test_automation.py:342: AssertionError
+_ test_three_axes_report_scores_and_evidence_boundary[1.0-True-execution_failure] _
+
+data = <harbor_helper.service.data.ServiceData object at 0x7b54f8bf4cb0>
+preparation = None, reward = 1.0, failure = True, expected = 'execution_failure'
+
+    @pytest.mark.parametrize(
+        "reward,failure,expected",
+        [(0.0, False, None), (None, False, "missing_score"), (1.0, True, "execution_failure")],
+    )
+    def test_three_axes_report_scores_and_evidence_boundary(
+        data, preparation, reward, failure, expected
+    ):
+        app, accepted, rid = finished(data, preparation, reward, failure)
+        state = machine.run_state(app, rid)
+        assert state["resource"]["state"] == "released" and state["audit"]["state"] == "clean"
+        assert state["report"]["state"] == "available"
+        _, p, _ = issue(data)
+        response = p.get(state["report_url"])
+        assert response.status_code == 200, response.text
+        value = response.json()["tasks"][0]["attempts"][0]
+        assert value["failure"] == expected
+        assert value["rewards"] == ({"reward": 0.0} if reward == 0.0 and not failure else None)
+        for bad in ["traceback", "private", str(data.root), "framework_exception", "exception_message"]:
+            assert bad not in response.text
+        data.store.update(rid, audit_status="incomplete")
+        assert machine.run_state(app, rid)["report"]["state"] == "blocked"
+        assert p.get(state["report_url"]).status_code == 409
+        data.store.update(rid, audit_status="pending")
+>       assert machine.run_state(app, rid)["report"]["reason"] == "audit_progress_unknown"
+E       AssertionError: assert 'audit_in_progress' == 'audit_progress_unknown'
+E         
+E         - audit_progress_unknown
+E         + audit_in_progress
+
+tests/test_automation.py:342: AssertionError
+__________________ test_production_static_browser_credentials __________________
+
+http_service = (<test_service_process.Processes object at 0x7b54fa05a490>, 'http://127.0.0.1:43727', PosixPath('/tmp/pytest-of-pc/pytest-0/test_production_static_browser0'))
+
+    @pytest.mark.skipif(
+        os.environ.get("HH_TEST_BROWSER") != "1",
+        reason="Opt-in production UI; npm ci and Playwright Chromium required",
+    )
+    def test_production_static_browser_credentials(http_service):
+        p, url, root = http_service
+        # Node Playwright uses the already built UI from this production HTTP service.
+        script = Path(__file__).parents[1] / "frontend/qa/automation-production.mjs"
+        env = {**p.env, "HH_BROWSER_URL": url, "HH_BROWSER_EVIDENCE": str(root)}
+        result = subprocess.run(
+            ["node", str(script)], env=env, text=True, capture_output=True, check=False, timeout=60
+        )
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: node:internal/modules/run_main:123
+E             triggerUncaughtException(
+E             ^
+E         
+E         browserType.launch: Executable doesn't exist at /tmp/hh-admission-validation/home/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell
+E         ╔════════════════════════════════════════════════════════════╗
+E         ║ Looks like Playwright was just installed or updated.       ║
+E         ║ Please run the following command to download new browsers: ║
+E         ║                                                            ║
+E         ║     npx playwright install                                 ║
+E         ║                                                            ║
+E         ║ <3 Playwright Team                                         ║
+E         ╚════════════════════════════════════════════════════════════╝
+E             at /tmp/hh-admission-maintenance/frontend/qa/automation-production.mjs:3:32 {
+E           log: [],
+E           name: 'Error'
+E         }
+E         
+E         Node.js v22.23.1
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node', '/tmp/hh-admission-maintenance/frontend/qa/automation-production.mjs'], returncode=1, s...ission-maintenance/frontend/qa/automation-production.mjs:3:32 {\n  log: [],\n  name: 'Error'\n}\n\nNode.js v22.23.1\n").returncode
+
+tests/test_automation_http.py:227: AssertionError
+_____________ test_get_no_side_effect_security_headers_and_logout ______________
+
+data = <harbor_helper.service.data.ServiceData object at 0x7b54fabf86b0>
+preparation = None
+
+    def test_get_no_side_effect_security_headers_and_logout(data, preparation):
+        run_id = prepare(data, preparation)
+        c = client(data)
+        before = (data.root / "queue.sqlite").read_bytes()
+        r = c.get(f"/api/v1/runs/{run_id}")
+        assert r.status_code == 200
+        assert (data.root / "queue.sqlite").read_bytes() == before
+>       assert not (data.root / "scheduler.json").exists()
+E       AssertionError: assert not True
+E        +  where True = exists()
+E        +    where exists = (PosixPath('/tmp/pytest-of-pc/pytest-0/test_get_no_side_effect_securi0/state') / 'scheduler.json').exists
+E        +      where PosixPath('/tmp/pytest-of-pc/pytest-0/test_get_no_side_effect_securi0/state') = <harbor_helper.service.data.ServiceData object at 0x7b54fabf86b0>.root
+
+tests/test_service.py:327: AssertionError
+_________ test_true_http_application_member_cli_persistent_preparation _________
+
+api = ('http://127.0.0.1:45491', [], {})
+home = PosixPath('/tmp/pytest-of-pc/pytest-0/test_true_http_application_mem0/home')
+tmp_path = PosixPath('/tmp/pytest-of-pc/pytest-0/test_true_http_application_mem0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b54f60da5f0>
+
+    def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_path, monkeypatch):
+        """Actual API/data/SQLite over TCP; scheduler disabled to prohibit Hub/worker work."""
+        import uvicorn
+    
+        from harbor_helper.service.api import create_app
+        from harbor_helper.service.data import ServiceData
+    
+        root = tmp_path / "http-service"
+        data = ServiceData.initialize(root, tmp_path / "http-master", "admin", PASSWORD)
+        data.create_user("alice", PASSWORD)
+        app = create_app(root, start_scheduler=False)
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(16)
+        server = uvicorn.Server(uvicorn.Config(app, log_level="error", access_log=False))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 10
+        try:
+            while not server.started:
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            url = "http://127.0.0.1:" + str(sock.getsockname()[1])
+            monkeypatch.setattr("harbor_helper.commands.remote.hidden_input", lambda _: PASSWORD)
+            login(url, "alice")
+            accepted = json.loads(
+>               call(
+                    home,
+                    "submit",
+                    "--agent",
+                    "oracle",
+                    "--idempotency-key",
+                    "actual-api-once",
+                    "--json",
+                ).stdout
+            )
+
+tests/test_service_cli.py:411: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+home = PosixPath('/tmp/pytest-of-pc/pytest-0/test_true_http_application_mem0/home')
+code = 0
+args = ('submit', '--agent', 'oracle', '--idempotency-key', 'actual-api-once', '--json')
+
+    def call(home, *args, code=0):
+        env = {**os.environ, "HOME": str(home)}
+        value = subprocess.run(
+            [sys.executable, "-m", "harbor_helper.commands.main", *args],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+>       assert value.returncode == code, value.stderr
+E       AssertionError: Idempotency-Key: actual-api-once; use service retry for this same operation
+E         harbor-helper: HTTP 503 scheduler_unready: Scheduler activity not confirmed; action=retry_same_request (request 4813c368090c44e58f64c8e5ee3d0bf7)
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/hh-admission-maintenance/.venv/bin/python', '-m', 'harbor_helper.commands.main', 'submit'...ler_unready: Scheduler activity not confirmed; action=retry_same_request (request 4813c368090c44e58f64c8e5ee3d0bf7)\n').returncode
+
+tests/test_service_cli.py:174: AssertionError
+----------------------------- Captured stderr call -----------------------------
+Service: http://127.0.0.1:46909
+Member: alice
+Profile: default
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /tmp/hh-admission-maintenance/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_execution_recovery.py::test_no_compose_legacy_schema_empty_env_no_client_calls
+  /tmp/hh-admission-maintenance/.venv/lib/python3.13/site-packages/pydantic/main.py:732: DeprecationWarning: The 'allow_internet' field is deprecated. Use [environment].network_mode instead.
+    return cls.__pydantic_validator__.validate_python(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_automation.py::test_three_axes_report_scores_and_evidence_boundary[0.0-False-None]
+FAILED tests/test_automation.py::test_three_axes_report_scores_and_evidence_boundary[None-False-missing_score]
+FAILED tests/test_automation.py::test_three_axes_report_scores_and_evidence_boundary[1.0-True-execution_failure]
+FAILED tests/test_automation_http.py::test_production_static_browser_credentials
+FAILED tests/test_service.py::test_get_no_side_effect_security_headers_and_logout
+FAILED tests/test_service_cli.py::test_true_http_application_member_cli_persistent_preparation
+6 failed, 309 passed, 2 warnings in 116.74s (0:01:56)

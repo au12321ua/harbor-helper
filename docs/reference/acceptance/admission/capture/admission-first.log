@@ -1,0 +1,59 @@
+...F....                                                                 [100%]
+=================================== FAILURES ===================================
+________ test_unknown_legacy_owner_global_capacity_and_effective_limit _________
+
+data = <harbor_helper.service.data.ServiceData object at 0x7aa12c248f50>
+
+    def test_unknown_legacy_owner_global_capacity_and_effective_limit(data):
+        data.set_limits({"max_queue": 1, "max_pending_per_member": 20})
+        with data.store.connect() as db:
+            db.execute(
+                "INSERT INTO runs(id,status,created,concurrency) VALUES('legacy','queued',?,1)",
+                (time.time(),),
+            )
+        folder = data.root / "runs/legacy"
+        folder.mkdir()
+        write_json(folder / "manifest.json", {"service": {"submitter": "alice"}})
+        assert admission.pending(data, actor(data)["id"]) == {"global_pending": 1, "member_pending": 0}
+        assert (
+            admission.readiness(Application(data.root), actor(data)["id"])["pending"]["member_limit"]
+            == 1
+        )
+        with pytest.raises(ServiceError, match="Shared queue"):
+            accept(data, "new")
+        data.store.update("legacy", status="running")
+        assert admission.pending(data, actor(data)["id"])["global_pending"] == 0
+>       assert Application(data.root).usage()["active_jobs"] == 1
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_admission.py:148: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/harbor_helper/service/application.py:862: in usage
+    summary = self.summary(row)
+              ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <harbor_helper.service.application.Application object at 0x7aa12c291160>
+row = {'id': 'legacy', 'status': 'running', 'created': 1791801273.4933417, 'started': None, ...}
+
+    def summary(self, row):
+        manifest = read_json(self.store.path(row["id"]) / "manifest.json")
+        binding = manifest.get("service") or {}
+        audit_status = row.get("audit_status", "pending")
+        if (
+>           manifest["effective"]["agent"] == "opencode"
+            ^^^^^^^^^^^^^^^^^^^^^
+            and not (self.store.path(row["id"]) / "archived.json").exists()
+        ):
+E       KeyError: 'effective'
+
+src/harbor_helper/service/application.py:539: KeyError
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /tmp/hh-admission-maintenance/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_admission.py::test_unknown_legacy_owner_global_capacity_and_effective_limit
+1 failed, 7 passed, 1 warning in 3.14s
