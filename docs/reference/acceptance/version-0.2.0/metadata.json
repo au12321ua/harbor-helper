@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "implementation_sha": "2c104ac1bf5d3b565fef8264c44b7c74922b9752",
+  "previous_candidate": "8519109ee3c7d012d826fdfa5df7ec894b783c71",
+  "product_behavior_changed": false,
+  "full_or_integration_rerun": false,
+  "capture_count": 36,
+  "artifacts": {
+    ".gitignore": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1",
+    "harbor_helper-0.2.0-py3-none-any.whl": "69cecd3cbf91b14ed4490cfd1406451ec6e36505453055ee36fb17810b5bda1a",
+    "harbor_helper-0.2.0.tar.gz": "7debaf1dc3105c9a7e53b89828542227841265cc0cf908338d10467b3e9f86df"
+  },
+  "scope": "version/build/package/CLI-help only; no service/external execution"
+}

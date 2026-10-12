@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "/tmp/hh-final-integration/.venv/bin/python",
+    "-m",
+    "harbor_helper.cli",
+    "--help"
+  ],
+  "cwd": "/tmp/hh-version-020-evidence/wheel-inspect",
+  "env_override": {
+    "PYTHONPATH": "/tmp/hh-version-020-evidence/wheel-inspect"
+  },
+  "parent_env_allowlist": "version-check.command.json",
+  "source": "extracted built 0.2.0 wheel"
+}

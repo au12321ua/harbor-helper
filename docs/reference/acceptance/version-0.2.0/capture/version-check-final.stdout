@@ -1,0 +1,79 @@
+Only metadata versions and README label changed; all dependencies/resolutions/integrities unchanged; installed editable metadata 0.2.0; product/static/QA/tests/skills and all original evidence unchanged
+0.2.0 wheel metadata/CLI entrypoint and every tracked Python/static source byte match fixed candidate
+0.2.0 sdist every tracked file matches fixed candidate, including package/locks/docs/frontend/static/complete research skill and all historical raw evidence
+Built wheel CLI help entry executes without HTTP/source/execution calls
+{
+  "harbor_helper-0.2.0-py3-none-any.whl": "69cecd3cbf91b14ed4490cfd1406451ec6e36505453055ee36fb17810b5bda1a",
+  "harbor_helper-0.2.0.tar.gz": "7debaf1dc3105c9a7e53b89828542227841265cc0cf908338d10467b3e9f86df"
+}
+diff --git a/README.md b/README.md
+index dcd5d60..381c9a9 100644
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,7 @@
+ # harbor-helper
+ 
++包版本：`0.2.0`。部署须固定到经审查验收的提交/tag；源码版本号不代表候选已经发布或部署。
++
+ 受邀团队共享的 Harbor 实验工作台。成员通过浏览器提交、观察、取消自己的实验、比较、重跑和下载；管理员在网页邀请成员、配置数据集、团队模型/key及容量。所有人共享结果，提交身份保留。CLI与Web共用持久队列。
+ 
+ ## 成员使用
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index ceaca8b..c9d280a 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "harbor-helper-web",
+-  "version": "0.1.0",
++  "version": "0.2.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "harbor-helper-web",
+-      "version": "0.1.0",
++      "version": "0.2.0",
+       "dependencies": {
+         "@radix-ui/react-label": "^2.1.16",
+         "@radix-ui/react-separator": "^1.1.16",
+diff --git a/frontend/package.json b/frontend/package.json
+index 2a97c68..02d943f 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "harbor-helper-web",
+   "private": true,
+-  "version": "0.1.0",
++  "version": "0.2.0",
+   "type": "module",
+   "scripts": {
+     "dev": "vite",
+diff --git a/pyproject.toml b/pyproject.toml
+index 740115e..78e7866 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "harbor-helper"
+-version = "0.1.0"
++version = "0.2.0"
+ description = "Shared-machine Harbor experiment CLI"
+ requires-python = ">=3.12,<3.14"
+ dependencies = [
+diff --git a/uv.lock b/uv.lock
+index 48502fd..f4ccba0 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -563,7 +563,7 @@ wheels = [
+ 
+ [[package]]
+ name = "harbor-helper"
+-version = "0.1.0"
++version = "0.2.0"
+ source = { editable = "." }
+ dependencies = [
+     { name = "argon2-cffi" },
+

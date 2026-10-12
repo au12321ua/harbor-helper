@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/tmp/hh-final-integration/.venv/bin/python",
+    "/tmp/hh-version-020-evidence/audit.py"
+  ],
+  "cwd": "/tmp/hh-final-integration",
+  "env_allowlist": {
+    "PATH": "/home/pc/.local/bin:/home/pc/.nvm/versions/node/v22.23.1/bin:/usr/local/bin:/usr/bin:/bin",
+    "HOME": "/tmp/hh-version-020-evidence/home",
+    "UV_CACHE_DIR": "/tmp/hh-version-020-evidence/uv-cache",
+    "npm_config_cache": "/tmp/hh-version-020-evidence/npm-cache",
+    "PLAYWRIGHT_BROWSERS_PATH": "/home/pc/.cache/ms-playwright",
+    "HH_TEST_BROWSER": "1",
+    "LANG": "C.UTF-8",
+    "XDG_CONFIG_HOME": "/tmp/hh-version-020-evidence/home/.config",
+    "XDG_CACHE_HOME": "/tmp/hh-version-020-evidence/home/.cache",
+    "XDG_DATA_HOME": "/tmp/hh-version-020-evidence/home/.local/share",
+    "HARBOR_HOME": "/tmp/hh-version-020-evidence/profile",
+    "HARBOR_CONFIG": "/tmp/hh-version-020-evidence/profile/.config",
+    "HARBOR_CACHE": "/tmp/hh-version-020-evidence/profile/.cache",
+    "HF_HOME": "/tmp/hh-version-020-evidence/profile/hf",
+    "DOCKER_CONFIG": "/tmp/hh-version-020-evidence/profile/docker"
+  },
+  "version": "2c104ac1bf5d3b565fef8264c44b7c74922b9752",
+  "started": 1791809600.834968
+}

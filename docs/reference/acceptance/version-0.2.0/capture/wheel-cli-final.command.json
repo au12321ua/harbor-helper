@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "/tmp/hh-final-integration/.venv/bin/python",
+    "-c",
+    "import sys; from pathlib import Path; import harbor_helper.cli as cli; assert Path(cli.__file__).resolve().is_relative_to(Path.cwd()); sys.argv=['harbor-helper','--help']; sys.exit(cli.main())"
+  ],
+  "cwd": "/tmp/hh-version-020-evidence/wheel-inspect-final",
+  "env_override": {
+    "PYTHONPATH": "/tmp/hh-version-020-evidence/wheel-inspect-final"
+  },
+  "parent_env_allowlist": "version-check.command.json",
+  "source": "extracted built 0.2.0 wheel"
+}
