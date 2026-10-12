@@ -77,6 +77,8 @@ scheduler 仅提供可核进程身份和最近循环活动，`ready/unavailable/
 
 附件扫描沿既有完整树文件字节/路径扫描与输出脱敏，拒绝完整 PAT 格式（包括别人、撤销/过期值），请求内也检查当前实际 bearer；历史快照重跑时再核验，后台不接收原值。拒绝信息不回显命中内容。检查不声称识别任意编码、加密或分片秘密，可信成员仍须保护访问值。
 
+研究客户端可使用[独立操作 skill](../guides/research-skill.md)，它复用下述 CLI/HTTP，不成为实验附件或另一个服务授权入口。
+
 ## 薄 CLI 非交互使用
 
 先在网页签发；将原值安全存入当前用户独占、0600、非 symlink 的文件。CLI 不接受原值 argv 参数。安全读取文件或 stdin，将 URL/身份/值写入已有 owner-only 0700 remote profile/0600 文件，`service configure-token` 只输出非秘密确认。stdin 的上游应使用秘密管理器/安全文件，勿直接在 shell history 写 literal token。

@@ -9,6 +9,8 @@
 - [前端开发](../frontend/README.md)、[源码职责与兼容](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
 - [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
 - [自动化授权与机器 API](reference/automation-api.md)：固定能力、schema、状态、幂等与薄 CLI；迁移/回退边界。
+- [研究客户端 skill](guides/research-skill.md)：可移植发布源、安装/调用与无附件/明确版本对照流程。
+- [自动化 API 固定 50b0 独立验收](reference/acceptance/automation-50b0/README.md)：限定 PASS / 54 与会话输出文字证据边界。
 - [附件候选独立安全报告](reference/acceptance/attachment-28102/README.md)：原 PARTIAL 和 Docker 补验各自版本/覆盖。
 - [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
 

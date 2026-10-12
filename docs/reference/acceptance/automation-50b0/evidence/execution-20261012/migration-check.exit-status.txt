@@ -1,0 +1,2 @@
+exit_code=0
+Captured from functions.exec_command result. The JSON line above is the command's displayed stdout; it contains no master key bytes or state contents.

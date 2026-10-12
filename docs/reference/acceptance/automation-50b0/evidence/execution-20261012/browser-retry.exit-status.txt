@@ -1,0 +1,2 @@
+exit_code=0
+Captured from functions.write_stdin result for session 44894.
