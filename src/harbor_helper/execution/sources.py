@@ -82,6 +82,10 @@ async def resolve_dataset(reference, target, task_filter=None, *, selected_tasks
 
 
 def verify_inputs(run_dir, manifest):
+    if (run_dir / "bundle").exists():
+        from harbor_helper.security.access_tokens import check_access_tree
+
+        check_access_tree(run_dir / "bundle")
     for task in manifest["source"]["tasks"]:
         p = run_dir / "tasks" / task["directory"]
         if not p.is_dir() or tree_digest(p) != task["snapshot_digest"]:

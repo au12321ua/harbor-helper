@@ -141,7 +141,7 @@ class Client:
         self.token = token
         self.secrets = [*secrets, *([token] if token else [])]
 
-    def request(self, method, path, *, body=None, idem=None, files=None, binary=False):
+    def request(self, method, path, *, body=None, idem=None, files=None, form=None, binary=False):
         headers = {"X-Requested-With": "harbor-helper"}
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
@@ -150,7 +150,12 @@ class Client:
         try:
             with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
                 response = client.request(
-                    method, self.url + "/api/v1" + path, headers=headers, json=body, files=files
+                    method,
+                    self.url + "/api/v1" + path,
+                    headers=headers,
+                    json=body,
+                    files=files,
+                    data=form,
                 )
         except httpx.RequestError:
             raise RemoteError(
@@ -252,12 +257,12 @@ def write_request(name, profile, client, path, body, idem=None):
     return client.request("POST", path, body=body, idem=idem)
 
 
-def upload_bundle(client, bundle):
+def upload_bundle(client, bundle, *, path_url="/bundles", metadata=None, idem=None):
     path = Path(bundle).expanduser()
     if path.is_dir():
         from harbor_helper.execution.runs import check_bundle
 
-        check_bundle(path)
+        check_bundle(path, client.token)
         with tempfile.TemporaryFile() as stream:
             with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
                 for file in sorted(path.rglob("*")):
@@ -265,11 +270,19 @@ def upload_bundle(client, bundle):
                         archive.write(file, file.relative_to(path).as_posix())
             stream.seek(0)
             return client.request(
-                "POST", "/bundles", files={"file": ("bundle.zip", stream, "application/zip")}
+                "POST",
+                path_url,
+                files={"file": ("bundle.zip", stream, "application/zip")},
+                form={"metadata": json.dumps(metadata)} if metadata is not None else None,
+                idem=idem,
             )
     with path.open("rb") as stream:
         return client.request(
-            "POST", "/bundles", files={"file": ("bundle.zip", stream, "application/zip")}
+            "POST",
+            path_url,
+            files={"file": ("bundle.zip", stream, "application/zip")},
+            form={"metadata": json.dumps(metadata)} if metadata is not None else None,
+            idem=idem,
         )
 
 
@@ -294,6 +307,48 @@ def dispatch(args, name):
             return write_request(
                 name, profile, client, path, receipt["body"], receipt["idempotency_key"]
             )
+    if cmd == "attachments":
+        action = args.attachment_command
+        if action == "list":
+            return client.request("GET", "/attachments")
+        if action == "lookup":
+            return client.request(
+                "GET", "/attachment-operations/" + args.operation + "/" + quote(args.key, safe="")
+            )
+        if action == "update":
+            body = {
+                k: getattr(args, k) for k in ("name", "description") if getattr(args, k) is not None
+            }
+            if args.enabled is not None:
+                body["enabled"] = args.enabled == "true"
+            path = "/attachments/" + identifier(args.attachment_id)
+            if args.version_id:
+                path += "/versions/" + identifier(args.version_id)
+            return client.request("PATCH", path, body=body)
+        if action == "register":
+            return client.request(
+                "POST",
+                "/attachments/register",
+                idem=args.idempotency_key,
+                body={
+                    "bundle_id": args.bundle_id,
+                    "name": args.name,
+                    "description": args.description,
+                },
+            )
+        path = "/attachments"
+        body = (
+            {"name": args.name, "description": args.description}
+            if action != "publish"
+            else {"notes": args.notes}
+        )
+        if action == "publish":
+            path += "/" + identifier(args.attachment_id) + "/versions"
+        if action == "derive":
+            path = "/attachment-versions/" + identifier(args.source_version_id) + "/derive"
+        return upload_bundle(
+            client, args.file, path_url=path, metadata=body, idem=args.idempotency_key
+        )
     if cmd in {"catalog", "usage", "list"}:
         return client.request(
             "GET", {"catalog": "/catalog", "usage": "/usage", "list": "/runs"}[cmd]
@@ -314,6 +369,8 @@ def dispatch(args, name):
             raise RemoteError("Choose --model-profile from catalog (or explicitly --agent oracle)")
         if args.model_profile:
             body["model_profile"] = args.model_profile
+        if args.attachment_version_id:
+            body["attachment_version_id"] = args.attachment_version_id
         if args.bundle:
             body["bundle_id"] = upload_bundle(client, args.bundle)["id"]
         return write_request(name, profile, client, "/submissions", body, args.idempotency_key)

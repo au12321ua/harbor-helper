@@ -1,3 +1,4 @@
+import { AttachmentsPage } from "./AttachmentsPage";
 import { useLoad } from "./useLoad";
 import { Admin, SetupPage, AccountPage } from "./ConfigurationPages";
 import {
@@ -311,6 +312,7 @@ function NewExperiment() {
     [agent, setAgent] = useState(restored.agent || "opencode"),
     [profile, setProfile] = useState(restored.model_profile || ""),
     [bundle, setBundle] = useState(restored.bundle_id || ""),
+    [version, setVersion] = useState(restored.attachment_version_id || ""),
     [taskName, setTaskName] = useState(restored.task || ""),
     [wall, setWall] = useState<number | undefined>(restored.wall_seconds),
     [busy, setBusy] = useState(false),
@@ -382,7 +384,9 @@ function NewExperiment() {
                 name: f.get("experiment_name") || "",
                 agent,
                 model_profile: agent === "oracle" ? null : selectedProfile,
-                bundle_id: bundle || null,
+                ...(version
+                  ? { attachment_version_id: version }
+                  : { bundle_id: bundle || null }),
                 task: f.get("task") || null,
                 attempts: Number(f.get("attempts")),
                 concurrency: Number(f.get("concurrency")),
@@ -501,6 +505,51 @@ function NewExperiment() {
                     </AlertDescription>
                   </Alert>
                 )}
+                <SelectField
+                  label="团队附件版本（可选）"
+                  required={false}
+                  name="attachment_version"
+                  value={version}
+                  onChange={(v) => {
+                    setVersion(v);
+                    setBundle("");
+                  }}
+                >
+                  <option value="">无附件</option>
+                  {(data?.attachments || []).flatMap((a: Item) =>
+                    a.versions.map((v: Item) => (
+                      <option
+                        key={v.id}
+                        value={v.id}
+                        disabled={
+                          !a.enabled ||
+                          !v.enabled ||
+                          v.availability !== "available"
+                        }
+                      >
+                        {a.name} · v{v.number} · {v.id}
+                      </option>
+                    )),
+                  )}
+                </SelectField>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setVersion("");
+                    setBundle("");
+                    submitKey.current = newIdempotencyKey();
+                  }}
+                >
+                  清除附件，使用无附件基线
+                </Button>
+                <p>
+                  {version
+                    ? `当前附件版本：${version}`
+                    : bundle
+                      ? `当前历史附件：${bundle}`
+                      : "当前选择：无附件"}
+                </p>
                 <Field>
                   <FieldLabel htmlFor="bundle">实验包（可选 ZIP）</FieldLabel>
                   <Input
@@ -513,6 +562,7 @@ function NewExperiment() {
                       if (!file) return;
                       setUploadBusy(true);
                       setBundle("");
+                      setVersion("");
                       setFailure(undefined);
                       try {
                         const body = new FormData();
@@ -1184,6 +1234,30 @@ function RunDetailContent({ user }: { user: Item }) {
             </CardContent>
           </Card>
         ))}
+      <Card>
+        <CardHeader>
+          <CardTitle>冻结附件引用</CardTitle>
+          <CardDescription>本实验的固定输入谱系</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p>
+            {data?.manifest?.service?.attachment_version_id ||
+              (data?.manifest?.bundle_digest ||
+              data?.manifest?.service?.bundle_id
+                ? "legacy/unknown"
+                : "无附件")}
+          </p>
+          <p>
+            {data?.manifest?.service?.bundle_id ||
+              (data?.manifest?.bundle_digest
+                ? "旧实验未记录 bundle ID"
+                : "未绑定底层 bundle ID")}
+          </p>
+          <p className="break-all">
+            {data?.manifest?.bundle_digest || "无附件摘要"}
+          </p>
+        </CardContent>
+      </Card>
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="overview">配置与状态</TabsTrigger>
@@ -1392,6 +1466,23 @@ function RunDetailContent({ user }: { user: Item }) {
 function ComparisonResult({ value }: { value: Item }) {
   return (
     <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        {(["left", "right"] as const).map((side) => {
+          const input = value.attachment_inputs?.[side];
+          const digest = input?.digest || value.bundle_change?.[side];
+          return (
+            <p key={side} className="break-all">
+              实验 {side === "left" ? "A" : "B"} 附件：
+              {input?.attachment_version_id || input?.bundle_id || digest
+                ? `${input?.attachment_version_id || "legacy/unknown"} · ${digest || "摘要未知"}`
+                : "无附件"}
+            </p>
+          );
+        })}
+        <p className="text-muted-foreground">
+          附件差异是本次实验因素；可比性仍检查任务、评分、基础agent/模型及其他固定条件。
+        </p>
+      </div>
       {value.reasons?.length ? (
         <Alert>
           <AlertTitle>可比性检查</AlertTitle>
@@ -1565,6 +1656,10 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
             <Plus />
             新建实验
           </NavLink>
+          <NavLink to="/attachments">
+            <LayoutList />
+            团队附件
+          </NavLink>
           <NavLink to="/compare">
             <GitCompareArrows />
             实验对比
@@ -1616,6 +1711,10 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
             />
             <Route path="/" element={<ExperimentList />} />
             <Route path="/new" element={<NewExperiment />} />
+            <Route
+              path="/attachments"
+              element={<AttachmentsPage user={user} />}
+            />
             <Route
               path="/submissions/:id"
               element={<Submission user={user} />}

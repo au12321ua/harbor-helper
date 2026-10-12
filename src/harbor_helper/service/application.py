@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 import time
 import uuid
@@ -24,6 +25,16 @@ def digest(value):
 
 def public_submission(value):
     return {
+        "attachment": {
+            k: value.get("frozen", {}).get("service", {}).get(k)
+            for k in (
+                "attachment_id",
+                "attachment_version_id",
+                "bundle_id",
+                "bundle_digest",
+                "attachment_lineage",
+            )
+        },
         "diagnosis": value.get("frozen", {}).get("service", {}).get("author_input_issues"),
         "retry_changes": value.get("frozen", {}).get("service", {}).get("retry_changes", {}),
         "execution_mode": value.get("frozen", {})
@@ -64,6 +75,9 @@ class Application:
         self.data = ServiceData(root)
         self.store = self.data.store
         self.configuration = TeamConfiguration(self.data)
+        from harbor_helper.service.attachments import Attachments
+
+        self.attachments = Attachments(self)
 
     def catalog(self):
         settings = self.configuration.settings()
@@ -73,6 +87,7 @@ class Application:
             default_dataset = selected["reference"]
         return {
             **self.configuration.catalog(),
+            **self.attachments.catalog(),
             "providers": self.data.objects("provider"),
             "credentials": self.data.credentials(),
             "model_profiles": self.data.objects("profile"),
@@ -80,7 +95,9 @@ class Application:
             "default_dataset": default_dataset,
         }
 
-    def accept(self, actor, request, idem, parent=None, *, retry=False, recovery=None):
+    def accept(
+        self, actor, request, idem, parent=None, *, retry=False, recovery=None, access_value=None
+    ):
         if not isinstance(idem, str) or not 1 <= len(idem) <= 128:
             raise ServiceError("idempotency_required", "A stable Idempotency-Key is required")
         if not isinstance(request, dict) or set(request) - {
@@ -88,6 +105,7 @@ class Application:
             "model_profile",
             "agent",
             "bundle_id",
+            "attachment_version_id",
             "attempts",
             "concurrency",
             "wall_seconds",
@@ -99,6 +117,10 @@ class Application:
             raise ServiceError(
                 "invalid_submission", "Unknown submission fields; identity is supplied by server"
             )
+        if "bundle_id" in request and "attachment_version_id" in request:
+            raise ServiceError("attachment_reference", "Choose bundle_id OR attachment_version_id")
+        if parent and not retry and request:
+            raise ServiceError("rerun_options", "Rerun inherits fixed inputs")
         if request.get("name") is not None and (
             not isinstance(request["name"], str) or len(request["name"]) > 128
         ):
@@ -140,6 +162,7 @@ class Application:
                 "name": request.get("name") or "",
             }
             recovery_row = self.data.submission(recovery) if recovery else None
+            copy_parent = parent or (recovery_row.get("parent") if recovery_row else None)
             if recovery_row and (recovery_row["status"] != "failed" or recovery_row["run_id"]):
                 raise ServiceError("recovery_state", "只能恢复尚未产生实验的失败提交", 409)
             if parent or recovery_row:
@@ -154,7 +177,14 @@ class Application:
                     {
                         k: v
                         for k, v in old_binding.items()
-                        if k not in {"user_id", "submitter", "submission_id", "name"}
+                        if k
+                        not in {
+                            "user_id",
+                            "submitter",
+                            "submission_id",
+                            "name",
+                            "access_credential_id",
+                        }
                     }
                 )
                 service["name"] = ((old_binding.get("name") or parent or recovery) + " · 重跑")[
@@ -182,7 +212,14 @@ class Application:
                         {
                             k: v
                             for k, v in old_binding.items()
-                            if k not in {"user_id", "submitter", "submission_id"}
+                            if k
+                            not in {
+                                "user_id",
+                                "submitter",
+                                "submission_id",
+                                "access_credential_id",
+                                "name",
+                            }
                         }
                     )
                     service["credential_version"] = credential["version"]
@@ -347,13 +384,43 @@ class Application:
             service.pop("runtime_id", None)
             service.pop("runtime_version", None)
             validate_effective(team, cfg)
-            bundle = (
-                recovery_row["frozen"]["bundle_id"] if recovery_row else request.get("bundle_id")
-            )
-            if bundle and not parent:
-                with self.store.connect() as db:
-                    if not db.execute("SELECT 1 FROM bundles WHERE id=?", (bundle,)).fetchone():
-                        raise ServiceError("bundle_missing", "Bundle not found", 404)
+            if parent or recovery_row:
+                bundle = old_binding.get("bundle_id")
+                version_id = old_binding.get("attachment_version_id")
+                if recovery_row:
+                    bundle = bundle or old.get("bundle_id")
+                binding = self.attachments.binding(bundle, version_id, access_value=access_value)
+                if copy_parent:
+                    parent_manifest = read_json(self.store.path(copy_parent) / "manifest.json")
+                    snapshot = self.store.path(copy_parent) / "bundle"
+                    if parent_manifest.get("bundle_digest") or snapshot.exists():
+                        from harbor_helper.execution.runs import check_bundle
+
+                        try:
+                            check_bundle(snapshot, access_value)
+                            if tree_digest(snapshot) != parent_manifest.get("bundle_digest"):
+                                raise ValueError
+                        except (ValueError, OSError):
+                            raise ServiceError(
+                                "attachment_unavailable",
+                                "Parent attachment snapshot unsafe or changed",
+                                409,
+                            ) from None
+                if not bundle and not version_id:
+                    binding["attachment_lineage"] = "legacy/unknown"
+                    binding["bundle_digest"] = (
+                        parent_manifest.get("bundle_digest")
+                        if copy_parent
+                        else old_binding.get("bundle_digest")
+                    )
+            else:
+                binding = self.attachments.binding(
+                    request.get("bundle_id"),
+                    request.get("attachment_version_id"),
+                    access_value=access_value,
+                )
+            service.update(binding)
+            bundle = binding["bundle_id"]
             submission_id = "sub-" + uuid.uuid4().hex[:16]
             target_id = "hh-" + uuid.uuid4().hex[:16]
             service["submission_id"] = submission_id
@@ -373,14 +440,16 @@ class Application:
                         json.dumps(frozen),
                         target_id,
                         time.time(),
-                        parent,
+                        copy_parent,
                     ),
                 )
         return public_submission(self.data.submission(submission_id))
 
-    def recover_submission(self, actor, submission_id, idem):
+    def recover_submission(self, actor, submission_id, idem, *, access_value=None):
         row = self.data.submission(submission_id)
-        return self.accept(actor, row["request"], idem, recovery=submission_id)
+        return self.accept(
+            actor, row["request"], idem, recovery=submission_id, access_value=access_value
+        )
 
     def cancel_submission(self, actor, submission_id):
         with self.store.control():
@@ -440,6 +509,16 @@ class Application:
             "dataset": manifest["effective"]["dataset"],
             "agent": manifest["effective"]["agent"],
             "model_profile": binding.get("model_profile"),
+            "attachment": {
+                k: binding.get(k)
+                for k in (
+                    "attachment_id",
+                    "attachment_version_id",
+                    "bundle_id",
+                    "bundle_digest",
+                    "attachment_lineage",
+                )
+            },
         }
 
     def runs(self):
@@ -645,7 +724,7 @@ class Application:
                 )
         return {"id": file_id, "deleted": True}
 
-    def upload_bundle(self, archive):
+    def upload_bundle(self, archive, *, access_value=None, persist=True):
         limits = self.data.limits()
         archive.seek(0, 2)
         if archive.tell() > limits["max_upload_bytes"]:
@@ -687,10 +766,23 @@ class Application:
                         target.chmod(0o700 if mode & 0o111 else 0o600)
             from harbor_helper.execution.runs import check_bundle
 
-            check_bundle(path)
+            check_bundle(path, access_value)
             sha = tree_digest(path)
-            with self.store.connect() as db:
-                db.execute("INSERT INTO bundles VALUES(?,?,?)", (bundle_id, sha, time.time()))
+            # Publish durable bytes before committing the metadata pointing at them.
+            for file in path.rglob("*"):
+                if file.is_file():
+                    with file.open("rb") as source:
+                        os.fsync(source.fileno())
+            directories = sorted((p for p in path.rglob("*") if p.is_dir()), reverse=True)
+            for directory in [*directories, path, path.parent]:
+                fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+            if persist:
+                with self.store.connect() as db:
+                    db.execute("INSERT INTO bundles VALUES(?,?,?)", (bundle_id, sha, time.time()))
         except BaseException:
             shutil.rmtree(path, ignore_errors=True)
             raise
@@ -740,4 +832,4 @@ def safe_view(value):
         }
     if isinstance(value, list):
         return [safe_view(v) for v in value]
-    return value
+    return redact_value(value, []) if isinstance(value, str) else value

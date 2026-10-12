@@ -7,14 +7,14 @@ Python实现位于`src/harbor_helper/`的职责包。CLI参数、HTTP路径、�
 | 板块 | 实现 | 责任 |
 | --- | --- | --- |
 | CLI | `commands/main.py`、`local.py`、`remote.py`、`service.py` | 参数/模式分流、旧本地操作、远程HTTP与profile、服务启动与成员登录 |
-| 团队服务 | `service/api.py`、`application.py`、`lifecycle.py` | HTTP/SPA、受理/权限/安全结果、持久输入准备与保留维护 |
+| 团队服务 | `service/api.py`、`application.py`、`attachments.py`、`attachment_contracts.py`、`lifecycle.py` | HTTP/SPA、受理/权限/安全结果、持久输入准备与保留维护 |
 | 团队数据与配置 | `service/data.py`、`configuration.py`、`setup.py` | 受邀账户、会话、凭据版本/加密/容量、来源/default、外置引导 |
 | 外部客户端 | `service/sources.py`、`docker.py` | 隔离Hub子进程、只读Docker诊断 |
 | 执行调度 | `execution/runs.py`、`worker.py`、`processes.py` | 固定快照/Job/发布、调度/恢复/取消/审计、PID出生身份与安全进程环境 |
 | Harbor适配 | `execution/agents.py`、`environments.py`、`agent_tools.py` | 严格原生Options/实验包、作者环境窄stop/阶段证据、公共固定工具准备与暂存清理 |
 | 实验输入 | `execution/config.py`、`sources.py` | 非秘密配置/校验、作者任务下载与快照摘要 |
 | 持久基础 | `persistence/store.py`、`files.py` | SQLite队列/control锁、JSON与输入digest |
-| 安全 | `security/local_auth.py`、`files.py`、`errors.py`、`credentials.py` | 本地身份授权、私有客户端文件、共享异常、脱敏/审计/秘密上下文 |
+| 安全 | `security/local_auth.py`、`files.py`、`errors.py`、`credentials.py`、`access_tokens.py` | 本地身份授权、私有客户端文件、共享异常、脱敏/审计/秘密上下文 |
 | 结果 | `results/reports.py`、`presentation.py` | 评分与可比性、安全诊断、human/JSON展示 |
 
 包`__init__.py`仅说明职责，不汇聚业务或启动资源。内部调用、脚本和测试使用canonical路径，根部保留的文件只有必要兼容入口，业务实现不复制。

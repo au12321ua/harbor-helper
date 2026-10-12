@@ -34,7 +34,11 @@ def parser():
     submit_p.add_argument("--model-profile", help="Remote team model profile ID")
     submit_p.add_argument("--idempotency-key", help="Remote retry key for the same submission")
     submit_p.add_argument("--agent", choices=["oracle", "opencode"])
-    submit_p.add_argument("--bundle", type=Path)
+    bundle_choice = submit_p.add_mutually_exclusive_group()
+    bundle_choice.add_argument("--bundle", type=Path)
+    bundle_choice.add_argument(
+        "--attachment-version-id", help="Remote immutable attachment version"
+    )
     submit_p.add_argument(
         "--model", help="Served model ID at the maintainer-configured compatible endpoint"
     )
@@ -71,6 +75,41 @@ def parser():
     commands.add_parser("logout")
     for command in ("catalog", "usage"):
         sub.add_parser(command, help="Shared service metadata")
+    attachments = sub.add_parser("attachments", help="Shared service attachment versions")
+    attachment_ops = attachments.add_subparsers(dest="attachment_command", required=True)
+    attachment_ops.add_parser("list")
+    lookup = attachment_ops.add_parser("lookup")
+    lookup.add_argument(
+        "operation",
+        choices=[
+            "attachment_create",
+            "attachment_publish",
+            "attachment_derive",
+            "attachment_register",
+        ],
+    )
+    lookup.add_argument("key")
+    for action in ("create", "publish", "derive", "register"):
+        ap = attachment_ops.add_parser(action)
+        ap.add_argument("--idempotency-key", required=True)
+        if action != "register":
+            ap.add_argument("--file", required=True, type=Path, help="ZIP or bundle directory")
+        if action != "publish":
+            ap.add_argument("--name", required=True)
+            ap.add_argument("--description", default="")
+        if action == "publish":
+            ap.add_argument("attachment_id")
+            ap.add_argument("--notes", default="")
+        if action == "derive":
+            ap.add_argument("source_version_id")
+        if action == "register":
+            ap.add_argument("bundle_id")
+    update = attachment_ops.add_parser("update")
+    update.add_argument("attachment_id")
+    update.add_argument("--version-id")
+    update.add_argument("--name")
+    update.add_argument("--description")
+    update.add_argument("--enabled", choices=["true", "false"])
     artifacts = sub.add_parser("artifacts", help="Shared service artifacts")
     artifacts.add_argument("run_id")
     download = sub.add_parser("download", help="Download safe service artifact (new file only)")
@@ -80,7 +119,12 @@ def parser():
     from harbor_helper.commands.service import add_parsers
 
     service_parsers = add_parsers(sub)
-    for sp in [*sub.choices.values(), *commands.choices.values(), *service_parsers[1:]]:
+    for sp in [
+        *sub.choices.values(),
+        *commands.choices.values(),
+        *service_parsers[1:],
+        *attachment_ops.choices.values(),
+    ]:
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     return p
 
@@ -123,8 +167,10 @@ def main():
                 value, exit_code = value
             remote_render(args.command, value, args.json)
             return exit_code
-        if args.command in {"catalog", "usage", "artifacts", "download"} or getattr(
-            args, "model_profile", None
+        if (
+            args.command in {"catalog", "usage", "artifacts", "download", "attachments"}
+            or getattr(args, "model_profile", None)
+            or getattr(args, "attachment_version_id", None)
         ):
             raise RemoteError("This operation requires service login --url URL")
         args.state = resolve_state(args.state)

@@ -353,6 +353,21 @@ def compare(store, left, right, published_reports=None):
             "right": rb.get("environment_observations", "unknown"),
         },
         "bundle_change": {"left": a["bundle_digest"], "right": b["bundle_digest"]},
+        "attachment_inputs": {
+            side: {
+                "kind": "versioned"
+                if m.get("service", {}).get("attachment_version_id")
+                else (
+                    "legacy/unknown"
+                    if m.get("bundle_digest") or m.get("service", {}).get("bundle_id")
+                    else "none"
+                ),
+                "attachment_version_id": m.get("service", {}).get("attachment_version_id"),
+                "bundle_id": m.get("service", {}).get("bundle_id"),
+                "digest": m.get("bundle_digest"),
+            }
+            for side, m in (("left", a), ("right", b))
+        },
         "tasks": deltas,
         "mean_task_delta": aggregate,
     }

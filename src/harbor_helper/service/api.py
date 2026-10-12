@@ -7,15 +7,23 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, Header, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError
 from starlette.exceptions import HTTPException
 
 from harbor_helper.persistence.store import Store
 from harbor_helper.service.application import Application, admin, public_submission, safe_view
+from harbor_helper.service.attachment_contracts import (
+    AttachmentCreate,
+    AttachmentPublish,
+    AttachmentRegister,
+    AttachmentResult,
+    AttachmentUpdate,
+    AttachmentVersionUpdate,
+)
 from harbor_helper.service.data import LIMITS, ServiceData, ServiceError
 from harbor_helper.service.setup import protected_file
 
@@ -153,6 +161,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
             maximum = (
                 (data.limits() if data else LIMITS)["max_upload_bytes"] + 65536
                 if request.url.path == "/api/v1/bundles"
+                or request.headers.get("content-type", "").startswith("multipart/form-data")
                 else 65536
             )
             received, parts = 0, []
@@ -285,11 +294,12 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.post("/api/v1/submissions", status_code=202)
     def submit(
+        request: Request,
         body: dict,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
     ):
-        return application.accept(user, body, idempotency_key)
+        return application.accept(user, body, idempotency_key, access_value=token(request))
 
     @app.get("/api/v1/submissions/{submission_id}")
     def submission(submission_id: str, user: Annotated[dict, Depends(actor)]):
@@ -297,11 +307,14 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.post("/api/v1/submissions/{submission_id}/retry", status_code=202)
     def recover_submission(
+        request: Request,
         submission_id: str,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
     ):
-        return application.recover_submission(user, submission_id, idempotency_key)
+        return application.recover_submission(
+            user, submission_id, idempotency_key, access_value=token(request)
+        )
 
     @app.post("/api/v1/submissions/{submission_id}/cancel")
     def cancel_submission(submission_id: str, user: Annotated[dict, Depends(actor)]):
@@ -337,20 +350,26 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.post("/api/v1/runs/{run_id}/rerun", status_code=202)
     def rerun(
+        request: Request,
         run_id: str,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
     ):
-        return application.accept(user, {}, idempotency_key, parent=run_id)
+        return application.accept(
+            user, {}, idempotency_key, parent=run_id, access_value=token(request)
+        )
 
     @app.post("/api/v1/runs/{run_id}/retry", status_code=202)
     def retry_run(
+        request: Request,
         run_id: str,
         body: dict,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
     ):
-        return application.accept(user, body, idempotency_key, parent=run_id, retry=True)
+        return application.accept(
+            user, body, idempotency_key, parent=run_id, retry=True, access_value=token(request)
+        )
 
     @app.post("/api/v1/compare")
     def compare(body: dict, user: Annotated[dict, Depends(actor)]):
@@ -366,8 +385,136 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         )
 
     @app.post("/api/v1/bundles", status_code=201)
-    def upload(file: Annotated[UploadFile, File()], user: Annotated[dict, Depends(actor)]):
-        return application.upload_bundle(file.file)
+    def upload(
+        request: Request, file: Annotated[UploadFile, File()], user: Annotated[dict, Depends(actor)]
+    ):
+        return application.upload_bundle(file.file, access_value=token(request))
+
+    @app.get("/api/v1/attachments")
+    def attachments(user: Annotated[dict, Depends(actor)]):
+        return application.attachments.catalog()
+
+    @app.get(
+        "/api/v1/attachment-operations/{operation}/{key:path}", response_model=AttachmentResult
+    )
+    def attachment_lookup(operation: str, key: str, user: Annotated[dict, Depends(actor)]):
+        return application.attachments.lookup(user, operation, key)
+
+    def attachment_metadata(metadata, model):
+        try:
+            value = model.model_validate(json.loads(metadata)).model_dump()
+        except (ValueError, ValidationError):
+            raise ServiceError(
+                "attachment_fields", "metadata must match the attachment operation"
+            ) from None
+        if not isinstance(value, dict):
+            raise ServiceError("attachment_fields", "metadata must be a JSON object")
+        return value
+
+    @app.post("/api/v1/attachments", status_code=201, response_model=AttachmentResult)
+    def create_attachment(
+        request: Request,
+        file: Annotated[UploadFile, File()],
+        user: Annotated[dict, Depends(actor)],
+        metadata: Annotated[str, Form()] = "{}",
+        idempotency_key: str | None = Header(default=None),
+    ):
+        return application.attachments.write(
+            user,
+            "attachment_create",
+            idempotency_key,
+            attachment_metadata(metadata, AttachmentCreate),
+            file.file,
+            access_value=token(request),
+        )
+
+    @app.post(
+        "/api/v1/attachments/{attachment_id}/versions",
+        status_code=201,
+        response_model=AttachmentResult,
+    )
+    def publish_attachment(
+        request: Request,
+        attachment_id: str,
+        file: Annotated[UploadFile, File()],
+        user: Annotated[dict, Depends(actor)],
+        metadata: Annotated[str, Form()] = "{}",
+        idempotency_key: str | None = Header(default=None),
+    ):
+        body = attachment_metadata(metadata, AttachmentPublish)
+        if "attachment_id" in body:
+            raise ServiceError("attachment_fields", "Target is supplied by path")
+        return application.attachments.write(
+            user,
+            "attachment_publish",
+            idempotency_key,
+            {**body, "attachment_id": attachment_id},
+            file.file,
+            access_value=token(request),
+        )
+
+    @app.post(
+        "/api/v1/attachment-versions/{version_id}/derive",
+        status_code=201,
+        response_model=AttachmentResult,
+    )
+    def derive_attachment(
+        request: Request,
+        version_id: str,
+        file: Annotated[UploadFile, File()],
+        user: Annotated[dict, Depends(actor)],
+        metadata: Annotated[str, Form()] = "{}",
+        idempotency_key: str | None = Header(default=None),
+    ):
+        body = attachment_metadata(metadata, AttachmentCreate)
+        if "source_version_id" in body:
+            raise ServiceError("attachment_fields", "Source is supplied by path")
+        return application.attachments.write(
+            user,
+            "attachment_derive",
+            idempotency_key,
+            {**body, "source_version_id": version_id},
+            file.file,
+            access_value=token(request),
+        )
+
+    @app.post("/api/v1/attachments/register", status_code=201, response_model=AttachmentResult)
+    def register_attachment(
+        request: Request,
+        body: AttachmentRegister,
+        user: Annotated[dict, Depends(actor)],
+        idempotency_key: str | None = Header(default=None),
+    ):
+        return application.attachments.write(
+            user,
+            "attachment_register",
+            idempotency_key,
+            body.model_dump(),
+            access_value=token(request),
+        )
+
+    @app.patch("/api/v1/attachments/{attachment_id}")
+    def update_attachment(
+        request: Request,
+        attachment_id: str,
+        body: AttachmentUpdate,
+        user: Annotated[dict, Depends(actor)],
+    ):
+        return application.attachments.update(
+            user, attachment_id, body.model_dump(exclude_unset=True), access_value=token(request)
+        )
+
+    @app.patch("/api/v1/attachments/{attachment_id}/versions/{version_id}")
+    def update_attachment_version(
+        request: Request,
+        attachment_id: str,
+        version_id: str,
+        body: AttachmentVersionUpdate,
+        user: Annotated[dict, Depends(actor)],
+    ):
+        return application.attachments.update(
+            user, attachment_id, body.model_dump(), version_id, access_value=token(request)
+        )
 
     @app.get("/api/v1/runs/{run_id}/artifacts/{file_id}")
     def artifact(run_id: str, file_id: str, user: Annotated[dict, Depends(actor)]):

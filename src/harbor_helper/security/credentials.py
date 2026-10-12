@@ -4,12 +4,15 @@ import base64
 import functools
 import json
 import os
+import re
 import sqlite3
 import stat
 import tempfile
 from contextvars import ContextVar
 from pathlib import Path
 from urllib.parse import quote
+
+from harbor_helper.security.access_tokens import ACCESS_TOKEN, ACCESS_TOKEN_TEXT
 
 KEY_ENV = "VLLM_API_KEY"
 AUDIT_SECRETS = []
@@ -35,7 +38,7 @@ def redact_value(value, secrets):
         return value
     for pattern in secret_patterns(secrets):
         value = value.replace(pattern.decode(), "[REDACTED]")
-    return value
+    return ACCESS_TOKEN_TEXT.sub("[REDACTED]", value)
 
 
 def read_key_file(path):
@@ -73,7 +76,15 @@ class RedactedStream:
         text = self.pending + value
         for secret in self.secrets:
             text = text.replace(secret, "[REDACTED]")
+        text = ACCESS_TOKEN_TEXT.sub("[REDACTED]", text)
         keep = 0
+        partial = re.search(r"hh_pat_v1_[A-Za-z0-9_-]{0,42}$", text)
+        if partial:
+            keep = len(partial.group())
+        prefix = "hh_pat_v1_"
+        for n in range(1, len(prefix)):
+            if text.endswith(prefix[:n]):
+                keep = max(keep, n)
         for secret in self.secrets:
             for n in range(1, min(len(secret), len(text) + 1)):
                 if text.endswith(secret[:n]):
@@ -117,7 +128,7 @@ def scan_tree(root, secrets):
     """Scan every regular file, including binary/large files; never print matches."""
     patterns = secret_patterns(secrets)
     counts = {"files_scanned": 0, "matched_files": 0, "unreadable_files": 0}
-    overlap = max(map(len, patterns), default=1) - 1
+    overlap = max(53, max(map(len, patterns), default=1)) - 1
     root = Path(root)
     if not root.exists() or root.is_symlink():
         return {**counts, "unreadable_files": 1, "clean": False}
@@ -154,7 +165,11 @@ def scan_tree(root, secrets):
                 counts["unreadable_files"] += 1
             continue
         relative = path.relative_to(root).as_posix() if root.is_dir() else path.name
-        found, tail = any(pattern in relative.encode() for pattern in patterns), b""
+        found, tail = (
+            bool(ACCESS_TOKEN.search(relative.encode()))
+            or any(pattern in relative.encode() for pattern in patterns),
+            b"",
+        )
         try:
             with path.open("rb") as source:
                 if source.read(16) == b"SQLite format 3\0":
@@ -166,7 +181,9 @@ def scan_tree(root, secrets):
                             quoted = table.replace('"', '""')
                             for row in db.execute(f'SELECT * FROM "{quoted}"'):
                                 found |= any(
-                                    p in str(value).encode() for value in row for p in patterns
+                                    ACCESS_TOKEN.search(str(value).encode())
+                                    or any(p in str(value).encode() for p in patterns)
+                                    for value in row
                                 )
                     counts["files_scanned"] += 1
                     counts["matched_files"] += int(found)
@@ -174,7 +191,7 @@ def scan_tree(root, secrets):
                 source.seek(0)
                 while chunk := source.read(65536):
                     data = tail + chunk
-                    found |= any(p in data for p in patterns)
+                    found |= bool(ACCESS_TOKEN.search(data)) or any(p in data for p in patterns)
                     tail = data[-overlap:] if overlap else b""
             counts["files_scanned"] += 1
             counts["matched_files"] += int(found)

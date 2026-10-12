@@ -101,6 +101,19 @@ class ServiceData:
                     UNIQUE(user_id,operation,idem));
                 CREATE TABLE IF NOT EXISTS bundles (
                     id TEXT PRIMARY KEY, digest TEXT NOT NULL, created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
+                    creator_id TEXT NOT NULL, created REAL NOT NULL, enabled INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS attachment_versions (
+                    id TEXT PRIMARY KEY, attachment_id TEXT NOT NULL, number INTEGER NOT NULL,
+                    bundle_id TEXT NOT NULL UNIQUE, digest TEXT NOT NULL,
+                    publisher_id TEXT NOT NULL, created REAL NOT NULL, notes TEXT NOT NULL,
+                    source_version_id TEXT, legacy INTEGER NOT NULL, enabled INTEGER NOT NULL,
+                    UNIQUE(attachment_id,number));
+                CREATE TABLE IF NOT EXISTS attachment_operations (
+                    user_id TEXT NOT NULL, operation TEXT NOT NULL, idem TEXT NOT NULL,
+                    request_hash TEXT NOT NULL, version_id TEXT NOT NULL,
+                    PRIMARY KEY(user_id,operation,idem));
                 CREATE TABLE IF NOT EXISTS artifact_deletions (
                     run_id TEXT NOT NULL, file_id TEXT NOT NULL, actor TEXT NOT NULL,
                     time REAL NOT NULL, PRIMARY KEY(run_id,file_id));

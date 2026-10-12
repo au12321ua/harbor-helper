@@ -38,7 +38,10 @@ def image_identity(reference):
     return r.stdout.strip()
 
 
-def check_bundle(path):
+def check_bundle(path, access_value=None):
+    from harbor_helper.security.access_tokens import check_access_tree
+
+    check_access_tree(path, access_value)
     allowed = {"skills", "sdk", "config", "bootstrap.sh"}
     if {p.name for p in path.iterdir()} - allowed:
         raise ValueError("Bundle supports skills/, sdk/, config/opencode.json, bootstrap.sh")
@@ -280,6 +283,8 @@ def submit(
             for name in ("tasks", "bundle"):
                 if (old_path / name).exists():
                     shutil.copytree(old_path / name, path / name)
+            if (path / "bundle").exists():
+                check_bundle(path / "bundle")
             source, digest = old["source"], old["bundle_digest"]
             image = old.get("image_id")
             if not native and image_identity(image) != image:
@@ -309,7 +314,10 @@ def submit(
                 bundle = Path(bundle).expanduser().resolve()
                 check_bundle(bundle)
                 shutil.copytree(bundle, path / "bundle")
+                check_bundle(path / "bundle")
                 digest = tree_digest(path / "bundle")
+                if service and service.get("bundle_digest") and service["bundle_digest"] != digest:
+                    raise ValueError("Fixed bundle snapshot unavailable or changed")
             image = None if native else image_identity(cfg["runtime_image"])
         if native and service.get("author_input_check"):
             from harbor_helper.execution.author_inputs import (
