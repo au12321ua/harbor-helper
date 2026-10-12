@@ -174,6 +174,8 @@ class Client:
             )
             request_id = value.get("request_id") if isinstance(value, dict) else None
             detail = f"HTTP {response.status_code} {str(code)[:128]}: {str(message)[:2048]}"
+            if value.get("action"):
+                detail += f"; action={value['action']}"
             if request_id:
                 detail += f" (request {str(request_id)[:128]})"
             raise RemoteError(redact_value(detail, self.secrets))
@@ -212,6 +214,29 @@ def login(url, username, name="default"):
     return {"profile": name, "url": url, "user": user, "logged_in": True}
 
 
+def configure_access(url, name, token_file=None, token_stdin=False):
+    name, url = profile_name(name), service_url(url)
+    if token_stdin:
+        token = sys.stdin.readline(4097).strip()
+    elif token_file:
+        # Ownership/mode/symlink checks are identical to model credential files.
+        from harbor_helper.security.credentials import read_key_file
+
+        token = read_key_file(Path(token_file).expanduser())
+    else:
+        token = hidden_input("Automation credential (hidden): ")
+    if not re.fullmatch(r"hh_pat_v1_[A-Za-z0-9_-]{43}", token):
+        raise RemoteError("Invalid automation credential format")
+    user = Client(url, token).request("GET", "/me")
+    with profile_lock() as root:
+        secure_write(
+            root / "profiles" / (name + ".json"),
+            {"url": url, "token": token, "user": user, "authentication": "automation"},
+        )
+        secure_write(root / "selected.json", {"profile": name})
+    return {"profile": name, "url": url, "user": user, "configured": True}
+
+
 def connection(name):
     profile = load_profile(name)
     return profile, Client(profile["url"], profile["token"])
@@ -220,7 +245,8 @@ def connection(name):
 def logout(name):
     with profile_lock() as root:
         profile, client = connection(name)
-        client.request("POST", "/auth/logout", body={})
+        if profile.get("authentication") != "automation":
+            client.request("POST", "/auth/logout", body={})
         (root / "profiles" / (name + ".json")).unlink()
         (root / ("receipt-" + name + ".json")).unlink(missing_ok=True)
         # Keep the selected marker: ordinary commands must not silently become local.
@@ -228,7 +254,7 @@ def logout(name):
         "profile": name,
         "url": profile["url"],
         "logged_in": False,
-        "detail": "Member session revoked; accepted experiments continue. Log in or use --local explicitly",
+        "detail": "Local profile removed; revoke automation credentials in the website. Accepted experiments continue",
     }
 
 
@@ -240,6 +266,11 @@ def identifier(value):
 
 def write_request(name, profile, client, path, body, idem=None):
     idem = idem or uuid.uuid4().hex
+    from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
+
+    text = json.dumps([body, idem])
+    if ACCESS_TOKEN_TEXT.search(text) or (client.token and client.token in text):
+        raise RemoteError("Access credential plaintext forbidden in request/key")
     if not 1 <= len(idem) <= 128 or any(ord(c) < 33 or ord(c) > 126 for c in idem):
         raise RemoteError("Idempotency key must be 1–128 visible ASCII characters")
     with profile_lock() as root:
@@ -295,6 +326,35 @@ def dispatch(args, name):
             return {"profile": name, "url": profile["url"], "user": client.request("GET", "/me")}
         if operation == "logout":
             return logout(name)
+        if operation == "discover":
+            return client.request("GET", "/machine/discovery")
+        if operation == "schema":
+            return client.request("GET", "/machine/schema")
+        if operation == "tasks":
+            return client.request(
+                "GET",
+                "/machine/datasets/"
+                + identifier(args.dataset_id)
+                + f"/tasks?offset={args.offset}&limit={args.limit}",
+            )
+        if operation == "lookup":
+            return client.request(
+                "GET", "/submission-operations/" + args.operation + "/" + quote(args.key, safe="")
+            )
+        if operation == "query":
+            kind = "submissions" if args.record_id.startswith("sub-") else "runs"
+            return client.request("GET", "/machine/" + kind + "/" + identifier(args.record_id))
+        if operation == "report":
+            return client.request("GET", "/machine/runs/" + identifier(args.run_id) + "/report")
+        if operation == "recover":
+            return write_request(
+                name,
+                profile,
+                client,
+                "/submissions/" + identifier(args.submission_id) + "/retry",
+                {},
+                args.idempotency_key,
+            )
         if operation == "retry":
             receipt = secure_read(remote_root() / ("receipt-" + name + ".json"))
             if receipt.get("url") != profile["url"] or receipt.get("user_id") != profile[
@@ -302,7 +362,10 @@ def dispatch(args, name):
             ].get("id"):
                 raise RemoteError("Saved operation belongs to another service/member")
             path = receipt.get("path", "")
-            if not re.fullmatch(r"/submissions|/runs/[A-Za-z0-9_.-]+/(?:rerun|retry)", path):
+            if not re.fullmatch(
+                r"/submissions|/submissions/[A-Za-z0-9_.-]+/retry|/runs/[A-Za-z0-9_.-]+/(?:rerun|retry)",
+                path,
+            ):
                 raise RemoteError("Invalid saved operation")
             return write_request(
                 name, profile, client, path, receipt["body"], receipt["idempotency_key"]

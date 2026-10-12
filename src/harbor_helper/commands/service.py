@@ -41,9 +41,42 @@ def add_parsers(sub):
     member_login.add_argument("--url", required=True)
     member_login.add_argument("--username")
     member_login.add_argument("--profile", default="default")
-    for command in ("status", "logout", "retry"):
+    automation = operations.add_parser(
+        "configure-token", help="Store automation credential privately; never pass token in argv"
+    )
+    automation.add_argument("--url", required=True)
+    automation.add_argument("--profile", default="default")
+    source = automation.add_mutually_exclusive_group()
+    source.add_argument("--token-file", type=Path)
+    source.add_argument("--token-stdin", action="store_true")
+    for command in (
+        "status",
+        "logout",
+        "retry",
+        "discover",
+        "schema",
+        "tasks",
+        "lookup",
+        "query",
+        "report",
+        "recover",
+    ):
         child = operations.add_parser(command)
         child.add_argument("--profile")
+        if command == "tasks":
+            child.add_argument("dataset_id")
+            child.add_argument("--offset", type=int, default=0)
+            child.add_argument("--limit", type=int, default=100)
+        if command == "lookup":
+            child.add_argument("operation", choices=["submit", "rerun", "retry", "recover"])
+            child.add_argument("key")
+        if command == "query":
+            child.add_argument("record_id")
+        if command == "report":
+            child.add_argument("run_id")
+        if command == "recover":
+            child.add_argument("submission_id")
+            child.add_argument("--idempotency-key", required=True)
     return [service, *operations.choices.values()]
 
 
@@ -109,6 +142,10 @@ def dispatch(args):
             "state": str(root),
             "detail": "Accepted experiments and supervisor continue independently",
         }
+    if cmd == "configure-token":
+        from harbor_helper.commands.remote import configure_access
+
+        return configure_access(args.url, args.profile, args.token_file, args.token_stdin)
     if cmd == "login":
         return login(args.url, args.username, args.profile)
     name = selected_profile(getattr(args, "profile", None) or args.remote_profile)

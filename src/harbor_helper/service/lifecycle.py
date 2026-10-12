@@ -65,7 +65,7 @@ def prepare_one(store):
 
         if isinstance(error, (AuthorInputError, ServiceError)):
             message = f"{error.code}: {error}"
-            if isinstance(error, AuthorInputError) and row["operation"].startswith("rerun:"):
+            if isinstance(error, AuthorInputError) and row["operation"].split(":", 1)[0] == "rerun":
                 message += "；原条件重跑保留冻结参数，请在父实验选择修复后重试，或恢复本次失败提交"
         elif (
             isinstance(error, ValueError)

@@ -35,6 +35,10 @@ def public_submission(value):
                 "attachment_lineage",
             )
         },
+        "user_id": value.get("user_id"),
+        "access_credential_id": value.get("frozen", {})
+        .get("service", {})
+        .get("access_credential_id"),
         "diagnosis": value.get("frozen", {}).get("service", {}).get("author_input_issues"),
         "retry_changes": value.get("frozen", {}).get("service", {}).get("retry_changes", {}),
         "execution_mode": value.get("frozen", {})
@@ -61,7 +65,7 @@ def public_submission(value):
 
 
 def admin(actor):
-    if actor["role"] != "admin":
+    if actor.get("access_credential_id") or actor["role"] != "admin":
         raise ServiceError("admin_required", "Administrator permission required", 403)
 
 
@@ -98,6 +102,13 @@ class Application:
     def accept(
         self, actor, request, idem, parent=None, *, retry=False, recovery=None, access_value=None
     ):
+        from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
+
+        text = json.dumps([request, idem], ensure_ascii=False)
+        if ACCESS_TOKEN_TEXT.search(text) or (access_value and access_value in text):
+            raise ServiceError(
+                "access_plaintext", "Access credential plaintext forbidden in inputs"
+            )
         if not isinstance(idem, str) or not 1 <= len(idem) <= 128:
             raise ServiceError("idempotency_required", "A stable Idempotency-Key is required")
         if not isinstance(request, dict) or set(request) - {
@@ -127,20 +138,39 @@ class Application:
             raise ServiceError("experiment_name", "Experiment name must be at most 128 characters")
         if retry and set(request) - {"wall_seconds"}:
             raise ServiceError("retry_options", "修复重试仅允许显式修改总时长")
-        operation = (
-            ("retry:" if retry else "rerun:") + parent
-            if parent
-            else ("recover:" + recovery if recovery else "submit")
+        operation = "retry" if retry else "rerun" if parent else "recover" if recovery else "submit"
+        request_hash = (
+            digest({"request": request, "parent": parent, "recovery": recovery})
+            if parent or recovery
+            else digest(request)
         )
-        request_hash = digest(request)
         with self.store.control():
             with self.store.connect() as db:
                 old = db.execute(
                     "SELECT id,request_hash FROM submissions WHERE user_id=? AND operation=? AND idem=?",
                     (actor["id"], operation, idem),
                 ).fetchone()
+            legacy = False
+            if not old and (parent or recovery):
+                legacy_operation = operation + ":" + (parent or recovery)
+                with self.store.connect() as db:
+                    old = db.execute(
+                        "SELECT id,request_hash FROM submissions WHERE user_id=? AND operation=? AND idem=?",
+                        (actor["id"], legacy_operation, idem),
+                    ).fetchone()
+                    other_legacy = db.execute(
+                        "SELECT 1 FROM submissions WHERE user_id=? AND idem=? AND operation LIKE ? AND operation<>?",
+                        (actor["id"], idem, operation + ":%", legacy_operation),
+                    ).fetchone()
+                if other_legacy:
+                    raise ServiceError(
+                        "idempotency_conflict",
+                        "Legacy key already used for another target; retain original key and target",
+                        409,
+                    )
+                legacy = old is not None
             if old:
-                if old["request_hash"] != request_hash:
+                if old["request_hash"] != (digest(request) if legacy else request_hash):
                     raise ServiceError(
                         "idempotency_conflict", "Idempotency key reused with different input", 409
                     )
@@ -161,6 +191,8 @@ class Application:
                 "submitter": actor["username"],
                 "name": request.get("name") or "",
             }
+            if actor.get("access_credential_id"):
+                service["access_credential_id"] = actor["access_credential_id"]
             recovery_row = self.data.submission(recovery) if recovery else None
             copy_parent = parent or (recovery_row.get("parent") if recovery_row else None)
             if recovery_row and (recovery_row["status"] != "failed" or recovery_row["run_id"]):
@@ -441,6 +473,16 @@ class Application:
                         target_id,
                         time.time(),
                         copy_parent,
+                    ),
+                )
+                db.execute(
+                    "INSERT INTO access_events(user_id,access_credential_id,action,object_id,time) VALUES(?,?,?,?,?)",
+                    (
+                        actor["id"],
+                        actor.get("access_credential_id"),
+                        operation,
+                        submission_id,
+                        time.time(),
                     ),
                 )
         return public_submission(self.data.submission(submission_id))

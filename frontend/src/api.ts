@@ -25,7 +25,7 @@ export async function api<T = Item>(
     .json()
     .catch(() => ({ message: `请求失败 (${response.status})` }));
   if (!response.ok) {
-    if (response.status === 401)
+    if (response.status === 401 && body.code !== "invalid_login")
       window.dispatchEvent(new Event("session-expired"));
     throw new ApiError(body, response.status);
   }

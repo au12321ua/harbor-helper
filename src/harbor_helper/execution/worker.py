@@ -347,6 +347,14 @@ def supervise(root):
         maintained = time.monotonic()
         while True:
             try:
+                write_json(
+                    store.root / "scheduler.json",
+                    {
+                        "pid": os.getpid(),
+                        "birth": process_birth(os.getpid()),
+                        "observed": time.time(),
+                    },
+                )
                 if preparation_pool and (preparation is None or preparation.done()):
                     from harbor_helper.service.lifecycle import prepare_one
 

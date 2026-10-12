@@ -1,3 +1,4 @@
+import { AccessCredentialsPage } from "./AccessCredentialsPage";
 import { AttachmentsPage } from "./AttachmentsPage";
 import { useLoad } from "./useLoad";
 import { Admin, SetupPage, AccountPage } from "./ConfigurationPages";
@@ -1656,6 +1657,7 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
             <Plus />
             新建实验
           </NavLink>
+          <NavLink to="/access-credentials"><Settings2 />自动化凭证</NavLink>
           <NavLink to="/attachments">
             <LayoutList />
             团队附件
@@ -1711,6 +1713,7 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
             />
             <Route path="/" element={<ExperimentList />} />
             <Route path="/new" element={<NewExperiment />} />
+            <Route path="/access-credentials" element={<AccessCredentialsPage user={user} />} />
             <Route
               path="/attachments"
               element={<AttachmentsPage user={user} />}

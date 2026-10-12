@@ -1310,13 +1310,11 @@ test("shared attachment versions, maintenance, explicit selection and write reco
   expect(accepted?.body).not.toHaveProperty("bundle_id");
   await page.goto("/attachments");
   await page.getByLabel("显示名称").fill("My shared input");
-  await page
-    .getByLabel("附件 ZIP")
-    .setInputFiles({
-      name: "input.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from("fixture"),
-    });
+  await page.getByLabel("附件 ZIP").setInputFiles({
+    name: "input.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("fixture"),
+  });
   await page.getByRole("button", { name: "提交附件操作" }).click();
   await expect(page.getByRole("status")).toContainText("av-v1");
   await page.reload();
@@ -1423,4 +1421,77 @@ test("comparison displays baseline without attachment and fixed candidate versio
       exact: true,
     }),
   ).toBeVisible();
+});
+
+test("automation credential explicit capabilities, password and one-time value", async ({
+  page,
+}) => {
+  await fixture(page, "member");
+  const rows: any[] = [];
+  const signed: any[] = [];
+  const raw = "hh_pat_v1_" + "A".repeat(43);
+  await page.route("**/api/v1/access-credentials**", async (route) => {
+    const req = route.request();
+    let value: any = rows,
+      status = 200;
+    if (req.method() === "POST" && req.url().endsWith("/revoke")) {
+      rows[0].revoked = 1791460100;
+      value = { revoked: true };
+    } else if (req.method() === "POST") {
+      const body = req.postDataJSON();
+      signed.push(body);
+      if (body.current_password !== "correct-password") {
+        status = 401;
+        value = { code: "invalid_login", message: "密码复核失败" };
+      } else {
+        const credential = {
+          id: "pat1",
+          user_id: "u1",
+          name: body.name,
+          scopes: body.scopes,
+          expires: body.expires,
+          last_used: null,
+          revoked: null,
+        };
+        rows.push(credential);
+        value = { credential, token: raw };
+      }
+    }
+    await route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(value),
+    });
+  });
+  await page.goto("/access-credentials");
+  await expect(page.getByLabel("有效天数")).toHaveValue("30");
+  await expect(
+    page.getByRole("checkbox", { name: "发现与读取共享实验" }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "提交、重跑、修复与恢复实验" }),
+  ).not.toBeChecked();
+  await page.getByLabel("用途名称").fill("research");
+  await page.getByLabel("当前密码").fill("wrong");
+  await page.getByRole("button", { name: "签发凭证", exact: true }).click();
+  await expect(page.getByText("密码复核失败")).toBeVisible();
+  await expect(page.getByLabel("当前密码")).toHaveValue("");
+  await page.getByLabel("当前密码").fill("correct-password");
+  await page
+    .getByRole("checkbox", { name: "提交、重跑、修复与恢复实验" })
+    .check();
+  await page.getByRole("button", { name: "签发凭证", exact: true }).click();
+  await expect(page.getByLabel("新签发凭证")).toHaveValue(raw);
+  expect(signed[1].scopes).toEqual(["read", "execute"]);
+  await page.getByRole("button", { name: "已安全保存，关闭原值" }).click();
+  await expect(page.getByLabel("新签发凭证")).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "撤销 research" }),
+  ).toBeVisible();
+  expect(await page.content()).not.toContain(raw);
+  await page.getByRole("button", { name: "撤销 research" }).click();
+  await expect(
+    page.getByRole("button", { name: "撤销 research" }),
+  ).toBeDisabled();
 });

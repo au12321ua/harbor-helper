@@ -122,6 +122,11 @@ class ServiceData:
                     object_id TEXT NOT NULL, time REAL NOT NULL);
             """)
 
+        from harbor_helper.service.access import initialize
+
+        with self.store.connect() as db:
+            initialize(db)
+
     @classmethod
     def initialize(cls, root, master_file, username, password, team=None):
         store = root if isinstance(root, Store) else Store(root)
@@ -242,6 +247,11 @@ class ServiceData:
                     "UPDATE users SET password=? WHERE id=?", (PASSWORDS.hash(password), user_id)
                 )
             db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            if password is not None or enabled is False:
+                db.execute(
+                    "UPDATE access_credentials SET revoked=COALESCE(revoked,?) WHERE user_id=?",
+                    (time.time(), user_id),
+                )
         return self.user(user_id)
 
     def login(self, username, password):
@@ -288,14 +298,33 @@ class ServiceData:
     def actor(self, token):
         digest = hashlib.sha256((token or "").encode()).hexdigest()
         with self.store.connect() as db:
-            row = db.execute(
-                """SELECT u.id,u.username,u.role,u.enabled FROM sessions s
-                JOIN users u ON u.id=s.user_id WHERE digest=? AND expires>? AND enabled=1""",
-                (digest, time.time()),
-            ).fetchone()
-        if row is None:
-            raise ServiceError("login_required", "Please log in", 401)
-        return public_user(row)
+            if (token or "").startswith("hh_pat_v1_"):
+                row = db.execute(
+                    """SELECT u.id,u.username,u.enabled,c.id access_credential_id,c.scopes
+                    FROM access_credentials c JOIN users u ON u.id=c.user_id
+                    WHERE c.digest=? AND c.expires>? AND c.revoked IS NULL AND u.enabled=1""",
+                    (digest, time.time()),
+                ).fetchone()
+                if row is not None:
+                    db.execute(
+                        "UPDATE access_credentials SET last_used=? WHERE id=?",
+                        (time.time(), row["access_credential_id"]),
+                    )
+                    return {
+                        **dict(row),
+                        "enabled": True,
+                        "role": "member",
+                        "scopes": json.loads(row["scopes"]),
+                    }
+            else:
+                row = db.execute(
+                    """SELECT u.id,u.username,u.role,u.enabled FROM sessions s
+                    JOIN users u ON u.id=s.user_id WHERE digest=? AND expires>? AND enabled=1""",
+                    (digest, time.time()),
+                ).fetchone()
+                if row is not None:
+                    return public_user(row)
+        raise ServiceError("login_required", "Please log in or renew automation authorization", 401)
 
     def logout(self, token):
         with self.store.connect() as db:

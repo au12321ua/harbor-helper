@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError
 from starlette.exceptions import HTTPException
 
 from harbor_helper.persistence.store import Store
+from harbor_helper.security.credentials import redact_value
+from harbor_helper.service import access, machine
 from harbor_helper.service.application import Application, admin, public_submission, safe_view
 from harbor_helper.service.attachment_contracts import (
     AttachmentCreate,
@@ -25,6 +27,7 @@ from harbor_helper.service.attachment_contracts import (
     AttachmentVersionUpdate,
 )
 from harbor_helper.service.data import LIMITS, ServiceData, ServiceError
+from harbor_helper.service.machine import AccessIssue, MachineState, RetryInput, SubmissionInput
 from harbor_helper.service.setup import protected_file
 
 
@@ -109,6 +112,15 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
                 "message": message,
                 "request_id": getattr(request.state, "request_id", uuid.uuid4().hex),
                 "retryable": status in {429, 503},
+                "action": machine.error_action(code, status),
+                "wait_seconds": None,
+                "wait_known": False,
+                "related_ids": {
+                    k: redact_value(v, [token(request)])
+                    for k, v in request.path_params.items()
+                    if k in {"run_id", "submission_id"}
+                },
+                "poll_after_seconds": 2 if code in {"report_pending", "audit_pending"} else None,
             },
             status_code=status,
         )
@@ -175,6 +187,19 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
             # Starlette's cached request forwards this bounded body to route parsing.
             request._body = b"".join(parts)
         response = await call_next(request)
+        user = getattr(request.state, "actor", None)
+        if user and request.method not in {"GET", "HEAD", "OPTIONS"} and response.status_code < 400:
+            with data.store.connect() as db:
+                db.execute(
+                    "INSERT INTO access_events(user_id,access_credential_id,action,object_id,time) VALUES(?,?,?,?,?)",
+                    (
+                        user["id"],
+                        user.get("access_credential_id"),
+                        request.scope["route"].endpoint.__name__,
+                        next(iter(request.path_params.values()), ""),
+                        __import__("time").time(),
+                    ),
+                )
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -218,11 +243,139 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         )
 
     def actor(request: Request):
-        return data.actor(token(request))
+        user = data.actor(token(request))
+        machine.authorize(user, request.scope["route"].endpoint.__name__)
+        request.state.actor = user
+        return user
 
     def administrator(user: Annotated[dict, Depends(actor)]):
         admin(user)
         return user
+
+    @app.post("/api/v1/access-credentials", status_code=201)
+    def issue_access(request: Request, body: AccessIssue, user: Annotated[dict, Depends(actor)]):
+        return access.issue(
+            data,
+            user,
+            body.name,
+            body.current_password.get_secret_value(),
+            body.scopes,
+            body.expires,
+            access_value=token(request),
+        )
+
+    @app.get("/api/v1/access-credentials")
+    def list_access(user: Annotated[dict, Depends(actor)]):
+        return access.listing(data, user)
+
+    @app.get("/api/v1/admin/access-credentials")
+    def list_all_access(user: Annotated[dict, Depends(administrator)]):
+        return access.listing(data, user, all_users=True)
+
+    @app.post("/api/v1/access-credentials/{credential_id}/revoke")
+    def revoke_access(credential_id: str, user: Annotated[dict, Depends(actor)]):
+        return access.revoke(data, user, credential_id)
+
+    @app.get("/api/v1/machine/discovery", response_model=machine.Discovery)
+    def discovery(user: Annotated[dict, Depends(actor)]):
+        return machine.discovery(application, user)
+
+    @app.get("/api/v1/machine/datasets/{dataset_id}/tasks", response_model=machine.TaskCatalog)
+    def task_catalog(
+        dataset_id: str, user: Annotated[dict, Depends(actor)], offset: int = 0, limit: int = 100
+    ):
+        if offset < 0 or not 1 <= limit <= 100:
+            raise ServiceError("invalid_range", "offset >= 0; limit 1–100 required")
+        value = data.object("dataset", dataset_id)
+        tasks = value.get("tasks", [])
+        # Use the verified metadata catalog; no task materialization or Hub download.
+        return {
+            "dataset_id": dataset_id,
+            "version": value["version"],
+            "status": value.get("status", "unknown"),
+            "offset": offset,
+            "tasks": [
+                {k: t.get(k) for k in ("name", "package", "ref")}
+                for t in tasks[offset : offset + limit]
+            ],
+            "next_offset": offset + limit if offset + limit < len(tasks) else None,
+            "total": len(tasks),
+        }
+
+    @app.get(
+        "/api/v1/submission-operations/{operation}/{key:path}",
+        response_model=machine.Accepted,
+        response_model_exclude_unset=True,
+    )
+    def lookup_submission(
+        operation: machine.Operation, key: str, user: Annotated[dict, Depends(actor)]
+    ):
+        return machine.accepted_view(user, machine.lookup(application, user, operation, key))
+
+    @app.get("/api/v1/machine/submissions/{submission_id}", response_model=MachineState)
+    def machine_submission(submission_id: str, user: Annotated[dict, Depends(actor)]):
+        return machine.submission_state(application, submission_id)
+
+    @app.get("/api/v1/machine/runs/{run_id}", response_model=MachineState)
+    def machine_run(run_id: str, user: Annotated[dict, Depends(actor)]):
+        return machine.run_state(application, run_id)
+
+    @app.get("/api/v1/machine/runs/{run_id}/report", response_model=machine.SafeReport)
+    def machine_report(run_id: str, user: Annotated[dict, Depends(actor)]):
+        state = machine.run_state(application, run_id)
+        if state["report"]["state"] != "available":
+            raise ServiceError("report_" + state["report"]["state"], state["report"]["reason"], 409)
+        return machine.report_view(application.safe_report(run_id))
+
+    @app.get("/api/v1/machine/schema")
+    def machine_schema(user: Annotated[dict, Depends(actor)]):
+        from fastapi.openapi.utils import get_openapi
+
+        routes = [
+            r
+            for r in app.routes
+            if getattr(r, "endpoint", None) and r.endpoint.__name__ in machine.SCHEMA_OPERATIONS
+        ]
+        schema = get_openapi(title="Harbor Helper member machine API", version="1.0", routes=routes)
+        for model in (
+            AttachmentCreate,
+            AttachmentPublish,
+            AttachmentRegister,
+            machine.ErrorResponse,
+        ):
+            typed = model.model_json_schema(ref_template="#/components/schemas/{model}")
+            definitions = typed.pop("$defs", {})
+            schema.setdefault("components", {}).setdefault("schemas", {}).update(definitions)
+            schema["components"]["schemas"][model.__name__] = typed
+        embedded = {
+            "create_attachment": "AttachmentCreate",
+            "derive_attachment": "AttachmentCreate",
+            "publish_attachment": "AttachmentPublish",
+        }
+        for route in routes:
+            for method in route.methods:
+                op = schema.get("paths", {}).get(route.path_format, {}).get(method.lower())
+                if op is not None:
+                    op["x-capability"] = machine.CAPABILITIES[route.endpoint.__name__]
+                    op["security"] = [{"MemberBearer": []}]
+                    op["x-operation"] = route.endpoint.__name__
+                    if route.endpoint.__name__ in embedded:
+                        op["x-metadata-schema"] = {
+                            "$ref": "#/components/schemas/" + embedded[route.endpoint.__name__]
+                        }
+                    for status in ("401", "403", "404", "409", "422", "429", "503"):
+                        op["responses"][status] = {
+                            "description": "Safe machine error",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+                                }
+                            },
+                        }
+        schema.setdefault("components", {})["securitySchemes"] = {
+            "MemberBearer": {"type": "http", "scheme": "bearer"}
+        }
+        return schema
 
     @app.get("/api/v1/setup")
     def setup_status():
@@ -282,7 +435,11 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.get("/api/v1/catalog")
     def catalog(user: Annotated[dict, Depends(actor)]):
-        return application.catalog()
+        return (
+            machine.discovery(application, user)
+            if user.get("access_credential_id")
+            else application.catalog()
+        )
 
     @app.get("/api/v1/usage")
     def usage(user: Annotated[dict, Depends(actor)]):
@@ -290,43 +447,86 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.get("/api/v1/runs")
     def runs(user: Annotated[dict, Depends(actor)]):
+        if user.get("access_credential_id"):
+            with store.connect() as db:
+                ids = [r[0] for r in db.execute("SELECT id FROM submissions ORDER BY created DESC")]
+            return {
+                "runs": [machine.run_state(application, r["id"]) for r in store.runs()],
+                "submissions": [machine.submission_state(application, i) for i in ids],
+            }
         return application.runs()
 
-    @app.post("/api/v1/submissions", status_code=202)
+    @app.post(
+        "/api/v1/submissions",
+        status_code=202,
+        response_model=machine.Accepted,
+        response_model_exclude_unset=True,
+    )
     def submit(
         request: Request,
-        body: dict,
+        body: SubmissionInput,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
     ):
-        return application.accept(user, body, idempotency_key, access_value=token(request))
+        return machine.accepted_view(
+            user,
+            application.accept(
+                user,
+                body.model_dump(exclude_unset=True),
+                idempotency_key,
+                access_value=token(request),
+            ),
+        )
 
     @app.get("/api/v1/submissions/{submission_id}")
     def submission(submission_id: str, user: Annotated[dict, Depends(actor)]):
-        return public_submission(data.submission(submission_id))
+        return machine.accepted_view(user, public_submission(data.submission(submission_id)))
 
-    @app.post("/api/v1/submissions/{submission_id}/retry", status_code=202)
+    @app.post(
+        "/api/v1/submissions/{submission_id}/retry",
+        status_code=202,
+        response_model=machine.Accepted,
+        response_model_exclude_unset=True,
+    )
     def recover_submission(
         request: Request,
         submission_id: str,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
+        body: machine.EmptyInput | None = None,
     ):
-        return application.recover_submission(
-            user, submission_id, idempotency_key, access_value=token(request)
+        return machine.accepted_view(
+            user,
+            application.recover_submission(
+                user, submission_id, idempotency_key, access_value=token(request)
+            ),
         )
 
-    @app.post("/api/v1/submissions/{submission_id}/cancel")
-    def cancel_submission(submission_id: str, user: Annotated[dict, Depends(actor)]):
-        return application.cancel_submission(user, submission_id)
+    @app.post(
+        "/api/v1/submissions/{submission_id}/cancel",
+        response_model=machine.Accepted,
+        response_model_exclude_unset=True,
+    )
+    def cancel_submission(
+        submission_id: str,
+        user: Annotated[dict, Depends(actor)],
+        body: machine.EmptyInput | None = None,
+    ):
+        return machine.accepted_view(user, application.cancel_submission(user, submission_id))
 
     @app.get("/api/v1/runs/{run_id}")
     def run(run_id: str, user: Annotated[dict, Depends(actor)]):
-        return application.detail(run_id)
+        return (
+            machine.run_state(application, run_id)
+            if user.get("access_credential_id")
+            else application.detail(run_id)
+        )
 
     @app.get("/api/v1/runs/{run_id}/report/download")
     def download_report(run_id: str, user: Annotated[dict, Depends(actor)]):
         report = application.safe_report(run_id)
+        if report is not None and user.get("access_credential_id"):
+            report = machine.report_view(report)
         if report is None:
             raise ServiceError("report_pending", "Report not available", 409)
         # run identifier is generated and resolved by Store; never an arbitrary filename.
@@ -342,55 +542,94 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.get("/api/v1/runs/{run_id}/report")
     def report(run_id: str, user: Annotated[dict, Depends(actor)]):
-        return application.safe_report(run_id)
+        value = application.safe_report(run_id)
+        return (
+            machine.report_view(value)
+            if value is not None and user.get("access_credential_id")
+            else value
+        )
 
-    @app.post("/api/v1/runs/{run_id}/cancel")
-    def cancel(run_id: str, user: Annotated[dict, Depends(actor)]):
+    @app.post("/api/v1/runs/{run_id}/cancel", response_model=machine.CancelResult)
+    def cancel(
+        run_id: str, user: Annotated[dict, Depends(actor)], body: machine.EmptyInput | None = None
+    ):
         return application.cancel_run(user, run_id)
 
-    @app.post("/api/v1/runs/{run_id}/rerun", status_code=202)
+    @app.post(
+        "/api/v1/runs/{run_id}/rerun",
+        status_code=202,
+        response_model=machine.Accepted,
+        response_model_exclude_unset=True,
+    )
     def rerun(
         request: Request,
         run_id: str,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
+        body: machine.EmptyInput | None = None,
     ):
-        return application.accept(
-            user, {}, idempotency_key, parent=run_id, access_value=token(request)
+        return machine.accepted_view(
+            user,
+            application.accept(
+                user, {}, idempotency_key, parent=run_id, access_value=token(request)
+            ),
         )
 
-    @app.post("/api/v1/runs/{run_id}/retry", status_code=202)
+    @app.post(
+        "/api/v1/runs/{run_id}/retry",
+        status_code=202,
+        response_model=machine.Accepted,
+        response_model_exclude_unset=True,
+    )
     def retry_run(
         request: Request,
         run_id: str,
-        body: dict,
+        body: RetryInput,
         user: Annotated[dict, Depends(actor)],
         idempotency_key: str | None = Header(default=None),
     ):
-        return application.accept(
-            user, body, idempotency_key, parent=run_id, retry=True, access_value=token(request)
+        return machine.accepted_view(
+            user,
+            application.accept(
+                user,
+                body.model_dump(exclude_unset=True),
+                idempotency_key,
+                parent=run_id,
+                retry=True,
+                access_value=token(request),
+            ),
         )
 
     @app.post("/api/v1/compare")
-    def compare(body: dict, user: Annotated[dict, Depends(actor)]):
+    def compare(body: machine.CompareInput, user: Annotated[dict, Depends(actor)]):
         from harbor_helper.results.reports import compare
 
-        if set(body) != {"left", "right"}:
-            raise ServiceError("invalid_compare", "Choose left and right experiments")
+        body = body.model_dump()
         reports = tuple(application.safe_report(body[k]) for k in ("left", "right"))
         if any(r is None for r in reports):
             raise ServiceError("report_pending", "Both published reports are required", 409)
-        return safe_view(
+        value = safe_view(
             compare(application.store, body["left"], body["right"], published_reports=reports)
         )
+        if user.get("access_credential_id"):
+            value.pop("environment_observations", None)
+            value["config_changes"] = {k: {"changed": True} for k in value["config_changes"]}
+        return value
 
-    @app.post("/api/v1/bundles", status_code=201)
+    @app.post("/api/v1/machine/compare", response_model=machine.Comparison)
+    def machine_compare(body: machine.CompareInput, user: Annotated[dict, Depends(actor)]):
+        value = compare(body, user)
+        value.pop("environment_observations", None)
+        value["config_changes"] = {k: {"changed": True} for k in value["config_changes"]}
+        return value
+
+    @app.post("/api/v1/bundles", status_code=201, response_model=machine.BundleResult)
     def upload(
         request: Request, file: Annotated[UploadFile, File()], user: Annotated[dict, Depends(actor)]
     ):
         return application.upload_bundle(file.file, access_value=token(request))
 
-    @app.get("/api/v1/attachments")
+    @app.get("/api/v1/attachments", response_model=machine.AttachmentCatalog)
     def attachments(user: Annotated[dict, Depends(actor)]):
         return application.attachments.catalog()
 
@@ -493,7 +732,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
             access_value=token(request),
         )
 
-    @app.patch("/api/v1/attachments/{attachment_id}")
+    @app.patch("/api/v1/attachments/{attachment_id}", response_model=machine.Updated)
     def update_attachment(
         request: Request,
         attachment_id: str,
@@ -504,7 +743,9 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
             user, attachment_id, body.model_dump(exclude_unset=True), access_value=token(request)
         )
 
-    @app.patch("/api/v1/attachments/{attachment_id}/versions/{version_id}")
+    @app.patch(
+        "/api/v1/attachments/{attachment_id}/versions/{version_id}", response_model=machine.Updated
+    )
     def update_attachment_version(
         request: Request,
         attachment_id: str,

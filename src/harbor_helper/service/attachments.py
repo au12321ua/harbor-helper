@@ -125,6 +125,10 @@ class Attachments:
             }
 
     def lookup(self, actor, operation, idem):
+        from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
+
+        if isinstance(idem, str) and (ACCESS_TOKEN_TEXT.search(idem)):
+            raise ServiceError("access_plaintext", "Access credential plaintext forbidden in key")
         if operation not in OPERATIONS:
             raise ServiceError("attachment_operation", "Unknown attachment operation")
         with self.store.connect() as db:
@@ -142,6 +146,12 @@ class Attachments:
             return self.public(db, row[0])
 
     def write(self, actor, operation, idem, body, archive=None, *, access_value=None):
+        from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
+
+        if isinstance(idem, str) and (
+            ACCESS_TOKEN_TEXT.search(idem) or (access_value and access_value in idem)
+        ):
+            raise ServiceError("access_plaintext", "Access credential plaintext forbidden in key")
         from harbor_helper.service.application import digest
 
         if operation not in OPERATIONS:
