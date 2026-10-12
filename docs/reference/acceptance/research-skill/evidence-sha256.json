@@ -1,0 +1,27 @@
+[
+  {
+    "file": "logs/copied-quick-validate.log",
+    "bytes": 16,
+    "sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+  },
+  {
+    "file": "logs/fixed-scenario.log",
+    "bytes": 617,
+    "sha256": "1b950f1769a3259de8b9a3a4331bde1f4c56385ec7ba058f4886119fdeb537cd"
+  },
+  {
+    "file": "logs/initial-scenario-failure.log",
+    "bytes": 6782,
+    "sha256": "722158ce209aac7681131c68fe1cfb6f1d4c8bf8dd543194f0cc537ba050f1ad"
+  },
+  {
+    "file": "logs/quick-validate.log",
+    "bytes": 16,
+    "sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+  },
+  {
+    "file": "logs/second-scenario-failure.log",
+    "bytes": 7107,
+    "sha256": "4deb21825a673937cb99f2b8ed31489f96969c2f3f0b90b70a1a468a6959d345"
+  }
+]
