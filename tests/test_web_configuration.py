@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
 
 from harbor_helper.persistence.files import read_json
@@ -58,6 +59,7 @@ def web(tmp_path, monkeypatch):
         tmp_path / "state", tmp_path / "private/master", "admin", PASSWORD
     )
     data.create_user("member", PASSWORD)
+    synthetic_activity(data)
     app = Application(data.root)
     client = TestClient(create_app(data.root, start_scheduler=False))
     client.post(

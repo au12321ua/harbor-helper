@@ -43,12 +43,27 @@ def http_service(tmp_path):
 
     try:
         wait(connected)
+        p.start()
         yield p, url, tmp_path
     finally:
         server.terminate()
         server.wait(timeout=10)
         p.close()
         log.close()
+        from harbor_helper.execution.processes import process_birth
+
+        proof = {
+            "http_stopped": server.poll() is not None,
+            "scheduler_stopped": p.child is None or p.child.poll() is not None,
+            "worker_births_released": all(
+                not r["pid"] or process_birth(r["pid"]) != r["birth"] for r in p.data.store.runs()
+            ),
+            "url": url,
+        }
+        (tmp_path / "teardown.json").write_text(json.dumps(proof, indent=2))
+        assert all(
+            proof[k] for k in ("http_stopped", "scheduler_stopped", "worker_births_released")
+        )
 
 
 def cli(p, *argv, stdin=None):
@@ -157,7 +172,6 @@ def test_noninteractive_cli_http_baseline_version_and_response_recovery(http_ser
             "--idempotency-key",
             "candidate2",
         )
-        p.start()
         ids = []
         for accepted in [baseline, candidate, candidate2]:
             rid = p.run_id(accepted)

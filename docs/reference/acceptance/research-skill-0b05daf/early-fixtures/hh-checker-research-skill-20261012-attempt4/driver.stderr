@@ -1,0 +1,7 @@
+Using CPython 3.12.3 interpreter at: /usr/bin/python3
+Creating virtual environment at: /tmp/hh-checker-research-skill-20261012-attempt4/venv
+Installed 99 packages in 189ms
+Traceback (most recent call last):
+  File "/tmp/hh-checker-research-skill-20261012/capture/drive.py", line 297, in <module>
+    raise RuntimeError(f"fixture attachment create failed: {created.status_code}: {created.text}")
+RuntimeError: fixture attachment create failed: 422: {"code":"invalid_operation","message":"Invalid configuration or experiment reference","request_id":"641d5c24c7ca49339d9b51a632636f14","retryable":false,"action":"fix_input","wait_seconds":null,"wait_known":false,"related_ids":{},"poll_after_seconds":null}

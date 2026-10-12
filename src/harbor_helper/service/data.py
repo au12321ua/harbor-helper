@@ -27,6 +27,7 @@ LIMITS = {
     "max_jobs": 1,
     "max_trials": 2,
     "max_queue": 100,
+    "max_pending_per_member": 10,
     "max_attempts": 3,
     "max_wall_seconds": 3600,
     "max_cpus_per_trial": 2,
@@ -505,6 +506,32 @@ class ServiceData:
             raise ServiceError(
                 "credential_unavailable", "Bound credential cannot be decrypted", 409
             ) from None
+
+    def notice_secrets(self):
+        """Known team keys for validating a public maintenance notice, never metadata."""
+        with self.store.connect() as db:
+            credentials = db.execute(
+                "SELECT id,version,provider_id FROM credential_versions"
+            ).fetchall()
+            has_sources = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='source_credentials'"
+            ).fetchone()
+            sources = (
+                db.execute("SELECT * FROM source_credentials").fetchall() if has_sources else []
+            )
+        values = [self.key(r["id"], r["version"], r["provider_id"]) for r in credentials]
+        try:
+            for row in sources:
+                values.append(
+                    AESGCM(self._master())
+                    .decrypt(row["nonce"], row["ciphertext"], f"hub/{row['version']}".encode())
+                    .decode()
+                )
+        except (InvalidTag, UnicodeError):
+            raise ServiceError(
+                "admission_state_unavailable", "Notice safety unavailable", 503
+            ) from None
+        return values
 
     def run_key(self, run_id, execution=False):
         manifest = read_json(self.store.path(run_id) / "manifest.json")

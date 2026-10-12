@@ -7,7 +7,7 @@ Python实现位于`src/harbor_helper/`的职责包。CLI参数、HTTP路径、�
 | 板块 | 实现 | 责任 |
 | --- | --- | --- |
 | CLI | `commands/main.py`、`local.py`、`remote.py`、`service.py` | 参数/模式分流、旧本地操作、远程HTTP与profile、服务启动与成员登录 |
-| 团队服务 | `service/api.py`、`application.py`、`attachments.py`、`attachment_contracts.py`、`lifecycle.py` | HTTP/SPA、受理/权限/安全结果、持久输入准备与保留维护 |
+| 团队服务 | `service/api.py`、`application.py`、`attachments.py`、`attachment_contracts.py`、`admission.py`、`machine.py`、`lifecycle.py` | HTTP/SPA、受理/权限/额度维护与就绪/机器安全视图、持久输入准备与保留维护 |
 | 团队数据与配置 | `service/data.py`、`configuration.py`、`setup.py` | 受邀账户、会话、凭据版本/加密/容量、来源/default、外置引导 |
 | 外部客户端 | `service/sources.py`、`docker.py` | 隔离Hub子进程、只读Docker诊断 |
 | 执行调度 | `execution/runs.py`、`worker.py`、`processes.py` | 固定快照/Job/发布、调度/恢复/取消/审计、PID出生身份与安全进程环境 |

@@ -56,6 +56,7 @@ const catalog = {
     max_jobs: 1,
     max_trials: 2,
     max_queue: 20,
+    max_pending_per_member: 10,
     max_wall_seconds: 1800,
     max_attempts: 3,
     max_cpus_per_trial: 2,
@@ -68,6 +69,8 @@ const catalog = {
 async function fixture(page: Page, role = "admin", logged = true) {
   let authenticated = logged;
   const currentCatalog = structuredClone(catalog);
+  let paused = false;
+  let maintenanceReason = "";
   const calls: { path: string; body: any; headers: Record<string, string> }[] =
     [];
   await page.route("**/api/v1/**", async (route) => {
@@ -93,6 +96,31 @@ async function fixture(page: Page, role = "admin", logged = true) {
     } else if (path === "/auth/logout") {
       authenticated = false;
       value = { ok: true };
+    } else if (path === "/readiness")
+      value = {
+        initialized: true,
+        accepting: !paused,
+        observed: 1791460000,
+        scheduler: {
+          state: "ready",
+          reason: "recent_activity",
+          observed: 1791460000,
+        },
+        maintenance: { paused, reason: maintenanceReason, retry_at: null },
+        pending: {
+          member_pending: 0,
+          global_pending: 0,
+          member_limit: currentCatalog.limits.max_pending_per_member,
+          global_limit: currentCatalog.limits.max_queue,
+        },
+      };
+    else if (path === "/admin/maintenance") {
+      paused = body.paused;
+      maintenanceReason = body.reason;
+      value = { paused };
+    } else if (path === "/admin/limits") {
+      Object.assign(currentCatalog.limits, body);
+      value = currentCatalog.limits;
     } else if (path === "/catalog") value = currentCatalog;
     else if (path === "/admin/model-profiles" && request.method() === "POST") {
       const index = currentCatalog.model_profiles.findIndex(
@@ -1486,7 +1514,9 @@ test("automation credential explicit capabilities, password and one-time value",
   await expect(page.getByLabel("新签发凭证")).toHaveValue(raw);
   expect(signed[1].scopes).toEqual(["read", "execute"]);
   expect(signed[1].expires - Date.now() / 1000).toBeGreaterThan(729 * 86400);
-  expect(signed[1].expires - Date.now() / 1000).toBeLessThanOrEqual(730 * 86400);
+  expect(signed[1].expires - Date.now() / 1000).toBeLessThanOrEqual(
+    730 * 86400,
+  );
   await page.getByRole("button", { name: "已安全保存，关闭原值" }).click();
   await expect(page.getByLabel("新签发凭证")).toHaveCount(0);
   await page.reload();
@@ -1498,4 +1528,33 @@ test("automation credential explicit capabilities, password and one-time value",
   await expect(
     page.getByRole("button", { name: "撤销 research" }),
   ).toBeDisabled();
+});
+
+test("管理员网页调整身份额度与维护暂停恢复", async ({ page }) => {
+  const calls = await fixture(page);
+  await page.goto("/admin");
+  await page.getByRole("tab", { name: "容量与保留" }).click();
+  const quota = page.getByLabel("每成员待处理额度（有效值不超过全局上限）");
+  await quota.fill("3");
+  const form = page
+    .getByText("容量与保留", { exact: true })
+    .filter({ hasNot: page.locator("*") })
+    .locator("../..");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        calls.find((c) => c.path === "/admin/limits" && c.body)?.body
+          .max_pending_per_member,
+    )
+    .toBe(3);
+  await page.getByLabel("维护原因").fill("版本维护");
+  await page.getByRole("button", { name: "暂停新受理", exact: true }).click();
+  await expect(page.getByText("维护暂停：版本维护")).toBeVisible();
+  await page.reload();
+  await page.getByRole("tab", { name: "容量与保留" }).click();
+  await expect(quota).toHaveValue("3");
+  await expect(page.getByText("维护暂停：版本维护")).toBeVisible();
+  await page.getByRole("button", { name: "恢复新受理", exact: true }).click();
+  await expect(page.getByText("允许新受理", { exact: true })).toBeVisible();
 });

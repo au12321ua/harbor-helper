@@ -1,5 +1,6 @@
 """Versioned, allowlisted machine views; no internal admin OpenAPI is published."""
 
+import math
 import time
 from typing import Literal
 
@@ -103,6 +104,7 @@ READ = {
     "compare",
     "attachments",
     "discovery",
+    "readiness",
     "machine_schema",
     "task_catalog",
     "lookup_submission",
@@ -153,12 +155,14 @@ def scheduler(app):
                 "reason": "process_not_confirmed",
                 "observed": time.time(),
             }
-        heartbeat = read_json(app.store.root / "scheduler.json").get("observed")
-        ready = heartbeat is not None and 0 <= time.time() - heartbeat <= 10
+        heartbeat = identity.get("observed")
+        valid = type(heartbeat) in {int, float} and math.isfinite(heartbeat)
+        ready = valid and 0 <= time.time() - heartbeat <= 10
         return {
             "state": "ready" if ready else "unknown",
             "reason": "recent_activity" if ready else "activity_unknown",
             "observed": time.time(),
+            "activity_observed": heartbeat if valid else None,
         }
     except (ValueError, OSError, KeyError, TypeError):
         return {"state": "unknown", "reason": "observation_unavailable", "observed": time.time()}
@@ -306,6 +310,8 @@ def lookup(app, user, operation, key):
 
 
 def discovery(app, user):
+    from harbor_helper.service.admission import readiness
+
     catalog = app.configuration.catalog()
     datasets = [
         {k: d.get(k) for k in ("id", "name", "version", "enabled", "status", "ready", "checked")}
@@ -323,6 +329,7 @@ def discovery(app, user):
         **app.attachments.catalog(),
         "limits": app.data.limits(),
         "scheduler": scheduler(app),
+        "readiness": readiness(app, user["id"]),
         "allowed_operations": sorted(
             k for k, v in CAPABILITIES.items() if v in scopes or k == "me"
         ),
@@ -338,7 +345,6 @@ def discovery(app, user):
         "limitations": [
             "trusted_team",
             "no_admin_automation",
-            "no_maintenance_or_member_quota",
             "discovery_is_not_execution_readiness",
             "explicit_attachment_version_or_none",
         ],
@@ -404,10 +410,28 @@ class ModelInfo(BaseModel):
     enabled: bool
 
 
+class MaintenanceInfo(BaseModel):
+    paused: bool
+    reason: str
+    retry_at: float | None
+    updated: float | None
+
+
+class Readiness(BaseModel):
+    initialized: bool
+    accepting: bool
+    reason: str
+    observed: float
+    scheduler: "SchedulerInfo"
+    maintenance: MaintenanceInfo
+    pending: dict[str, int]
+
+
 class SchedulerInfo(BaseModel):
     state: Literal["ready", "unavailable", "unknown"]
     reason: str
     observed: float
+    activity_observed: float | None = None
 
 
 class AttachmentEntry(AttachmentIdentity):
@@ -430,6 +454,7 @@ class Discovery(BaseModel):
     legacy_bundles: list[LegacyBundle]
     limits: dict[str, int]
     scheduler: SchedulerInfo
+    readiness: Readiness
     allowed_operations: list[str]
     scopes: list[str]
     task_selection: dict
@@ -537,6 +562,7 @@ def report_view(value):
 
 SCHEMA_OPERATIONS = {
     "discovery",
+    "readiness",
     "machine_schema",
     "task_catalog",
     "lookup_submission",

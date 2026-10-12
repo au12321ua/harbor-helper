@@ -391,6 +391,9 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
 
     root = tmp_path / "http-service"
     data = ServiceData.initialize(root, tmp_path / "http-master", "admin", PASSWORD)
+    from admission_fixture import synthetic_activity
+
+    synthetic_activity(data)  # Synthetic activity only; this fixture never prepares inputs.
     data.create_user("alice", PASSWORD)
     app = create_app(root, start_scheduler=False)
     sock = socket.socket()
@@ -419,6 +422,7 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
             ).stdout
         )
         assert accepted["status"] == "preparing" and accepted["run_id"] is None
+        (root / "scheduler.json").unlink()  # Remove synthetic activity; old-key/read/cancel remain available.
         assert json.loads(call(home, "service", "retry", "--json").stdout)["id"] == accepted["id"]
         listing = json.loads(call(home, "list", "--json").stdout)
         assert len(listing["submissions"]) == 1

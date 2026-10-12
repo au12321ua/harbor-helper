@@ -3,6 +3,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from admission_fixture import synthetic_activity
 from harbor.environments.docker.docker import DockerEnvironment
 from harbor.models.task.config import NetworkMode, NetworkPolicy
 
@@ -20,6 +21,7 @@ def test_policy_frozen_and_legacy_rerun_preserved(tmp_path, monkeypatch):
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", "fake-startup-password-2026"
     )
+    synthetic_activity(data)
     app, actor = Application(data.root), data.users()[0]
 
     def source(reference, *, target, **kwargs):
@@ -167,6 +169,7 @@ def test_legacy_safe_report_enrichment_is_read_only(tmp_path):
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", "fake-startup-password-2026"
     )
+    synthetic_activity(data)
     app = Application(data.root)
     run = "hh-legacy"
     folder = data.root / "runs" / run

@@ -10,4 +10,6 @@
 
 或在已有明确实验授权和真实模型预算的会话中委托其提交、找回原键、有限等待与比较。已授权步骤不需要重复确认；缺失执行授权/预算只推进读取。示例里的 profile/ID/数值按当前发现和授权替换，不能当默认业务限制。
 
-skill 目录的必要参考可随复制使用，完整 schema 以目标服务运行时发现为准；它不复制完整 API 手册。当前未实现的成员额度/维护契约不由 skill 假装提供。工程验证与未覆盖见 [研究 skill 工程报告](../reference/acceptance/research-skill/engineering-report.md)；自动化服务固定版本独立结论另见 [50b0 归档](../reference/acceptance/automation-50b0/README.md)。
+skill 目录的必要参考可随复制使用，完整 schema 以目标服务运行时发现为准；它不复制完整 API 手册。discovery/readiness 可读取持久维护状态、scheduler 活动与成员额度；暂停/未知就绪只限制新受理，原键恢复仍可用。具体以目标服务 schema 为准，旧服务器可能缺这些字段。工程验证与未覆盖见 [研究 skill 工程报告](../reference/acceptance/research-skill/engineering-report.md)；自动化服务固定版本独立结论另见 [50b0 归档](../reference/acceptance/automation-50b0/README.md)。
+
+前项独立验证的逐字原报告及 CLI 记录见[0b05daf 归档](../reference/acceptance/research-skill-0b05daf/README.md)，不证明后续额度维护版本已验收。

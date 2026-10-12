@@ -7,6 +7,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from admission_fixture import synthetic_activity
 from harbor.environments.docker.docker import DockerEnvironment
 
 from harbor_helper.execution.environments import (
@@ -26,6 +27,7 @@ def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypat
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", "fake-native-password-2026"
     )
+    synthetic_activity(data)
     app = Application(data.root)
     actor = data.users()[0]
 
@@ -178,6 +180,7 @@ def test_already_accepted_legacy_preparation_retains_image_contract(tmp_path, mo
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", "fake-native-password-2026"
     )
+    synthetic_activity(data)
     app = Application(data.root)
     accepted = app.accept(data.users()[0], {"agent": "oracle", "dataset": "test/data@1"}, "old")
     original = data.submission(accepted["id"])["frozen"]

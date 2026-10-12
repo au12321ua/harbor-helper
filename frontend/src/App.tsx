@@ -1,3 +1,4 @@
+import { ReadinessNotice } from "./ReadinessPanel";
 import { AccessCredentialsPage } from "./AccessCredentialsPage";
 import { AttachmentsPage } from "./AttachmentsPage";
 import { useLoad } from "./useLoad";
@@ -181,6 +182,7 @@ function ExperimentList() {
         }
       />
       <ErrorNotice error={error} />
+      <ReadinessNotice />
       <div className="usage-strip">
         <div>
           <span>累计实验</span>
@@ -367,6 +369,7 @@ function NewExperiment() {
         description="选择数据集与模型方案；提交后固定本次实验的配置。"
       />
       <ErrorNotice error={error || failure} />
+      <ReadinessNotice />
       <form
         className="form-layout"
         onChange={() => {
@@ -1657,7 +1660,10 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
             <Plus />
             新建实验
           </NavLink>
-          <NavLink to="/access-credentials"><Settings2 />自动化凭证</NavLink>
+          <NavLink to="/access-credentials">
+            <Settings2 />
+            自动化凭证
+          </NavLink>
           <NavLink to="/attachments">
             <LayoutList />
             团队附件
@@ -1713,7 +1719,10 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
             />
             <Route path="/" element={<ExperimentList />} />
             <Route path="/new" element={<NewExperiment />} />
-            <Route path="/access-credentials" element={<AccessCredentialsPage user={user} />} />
+            <Route
+              path="/access-credentials"
+              element={<AccessCredentialsPage user={user} />}
+            />
             <Route
               path="/attachments"
               element={<AttachmentsPage user={user} />}

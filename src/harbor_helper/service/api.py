@@ -136,7 +136,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         if (
             request.url.path.startswith("/api/")
             and application is None
-            and request.url.path != "/api/v1/setup"
+            and request.url.path not in {"/api/v1/setup", "/api/v1/health"}
         ):
             return failure(
                 request, "service_not_initialized", "Complete protected website setup", 503
@@ -275,6 +275,35 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
     @app.post("/api/v1/access-credentials/{credential_id}/revoke")
     def revoke_access(credential_id: str, user: Annotated[dict, Depends(actor)]):
         return access.revoke(data, user, credential_id)
+
+    @app.get("/api/v1/health")
+    def health():
+        from harbor_helper.service.admission import readiness as observe
+
+        try:
+            ready = application is not None and observe(application)["accepting"]
+        except (ValueError, OSError, TypeError):
+            ready = False
+        return {"alive": True, "ready": ready}
+
+    @app.get("/api/v1/readiness", response_model=machine.Readiness)
+    def readiness(user: Annotated[dict, Depends(actor)]):
+        from harbor_helper.service.admission import readiness as observe
+
+        return observe(application, user["id"])
+
+    @app.patch("/api/v1/admin/maintenance")
+    def set_maintenance(
+        request: Request, body: dict, user: Annotated[dict, Depends(administrator)]
+    ):
+        from harbor_helper.service.admission import set_maintenance as update
+
+        if token(request) in json.dumps(body):
+            raise ServiceError("maintenance_reason", "Notice must not contain credentials")
+        with application.store.control():
+            result = update(data, body)
+            data.event(user, "set_maintenance", "admission")
+            return result
 
     @app.get("/api/v1/machine/discovery", response_model=machine.Discovery)
     def discovery(user: Annotated[dict, Depends(actor)]):
@@ -438,7 +467,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         return (
             machine.discovery(application, user)
             if user.get("access_credential_id")
-            else application.catalog()
+            else application.catalog(user["id"])
         )
 
     @app.get("/api/v1/usage")

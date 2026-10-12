@@ -20,6 +20,7 @@ from harbor_helper.execution.worker import process_birth
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.application import Application
 from harbor_helper.service.data import ServiceData, ServiceError
+from harbor_helper.service.machine import scheduler
 
 
 def wait(predicate, timeout=20):
@@ -153,6 +154,7 @@ async def execute(store,run_id):
             lambda: (
                 (self.data.root / "scheduler.json").exists()
                 and read_json(self.data.root / "scheduler.json")["pid"] == self.child.pid
+                and scheduler(self.app)["state"] == "ready"
             )
         )
 
@@ -204,8 +206,8 @@ def processes(tmp_path):
 def test_three_bound_credentials_actual_workers_no_cross_use(processes):
     p = processes
     p.data.set_limits({"max_jobs": 2, "max_trials": 2})
-    submissions = [p.submit(f"m{i}", str(i)) for i in (1, 2, 3)]
     p.start()
+    submissions = [p.submit(f"m{i}", str(i)) for i in (1, 2, 3)]
     for i, submission in enumerate(submissions):
         run_id = p.run_id(submission)
         assert p.terminal(run_id)["status"] == "succeeded"
@@ -224,8 +226,8 @@ def test_preparation_cancel_and_scheduler_restart_no_orphan(processes):
     p = processes
     hold = p.data.root / "prepare-hold"
     hold.touch()
-    first = p.submit()
     p.start()
+    first = p.submit()
     time.sleep(0.3)
     p.app.cancel_submission(p.actor, first["id"])
     hold.unlink()
@@ -247,9 +249,9 @@ def test_hard_worker_missing_key_releases_capacity_other_key_proceeds(processes)
     p = processes
     hold = p.data.root / "worker-hold"
     hold.touch()
+    p.start()
     first = p.submit()
     second = p.submit("m2", "second")
-    p.start()
     run_id = p.run_id(first)
     wait(lambda: (p.data.store.path(run_id) / "boundary.json").exists())
     row = p.data.store.get(run_id)

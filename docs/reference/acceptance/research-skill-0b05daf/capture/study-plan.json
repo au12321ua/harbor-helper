@@ -1,0 +1,18 @@
+{
+  "service_url": "http://127.0.0.1:49457",
+  "member_id": "28bace2b88fc49eabcde67c27a3ce351",
+  "dataset_id": "fixture-dataset",
+  "dataset_reference": "fixture/research@1",
+  "task": "fixture/research-task",
+  "agent": "oracle",
+  "score_source": "fixture-oracle-v1",
+  "attempts": 1,
+  "concurrency": 1,
+  "wall_seconds": 120,
+  "environment_build_timeout_multiplier": "service default, frozen value to verify",
+  "attachment_versions": [
+    "av-d786cde771c744ad9cda5b89bd4d38e1",
+    "av-a0f66465ed05445e8f8177e5ee9cb505"
+  ],
+  "authorization": "read-only discovery completed; separately authorized isolated Oracle submissions"
+}

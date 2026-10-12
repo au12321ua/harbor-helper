@@ -6,6 +6,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
 
 from harbor_helper.execution.worker import finish
@@ -51,6 +52,7 @@ def data(tmp_path):
                 "params": {"temperature": 0},
             },
         )
+    synthetic_activity(data)
     return data
 
 
@@ -318,6 +320,7 @@ def test_bundle_bounds_paths_symlinks_and_secret_names(data):
 def test_get_no_side_effect_security_headers_and_logout(data, preparation):
     run_id = prepare(data, preparation)
     c = client(data)
+    (data.root / "scheduler.json").unlink()  # Explicitly unavailable during read-only check.
     before = (data.root / "queue.sqlite").read_bytes()
     r = c.get(f"/api/v1/runs/{run_id}")
     assert r.status_code == 200

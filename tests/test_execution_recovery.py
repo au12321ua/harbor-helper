@@ -4,6 +4,7 @@ import json
 import shutil
 
 import pytest
+from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
 from harbor.models.job.config import JobConfig
 
@@ -62,6 +63,7 @@ def recovery(tmp_path, monkeypatch):
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", PASSWORD
     )
+    synthetic_activity(data)
     app = Application(data.root)
     actor = data.users()[0]
 

@@ -83,7 +83,9 @@ class Application:
 
         self.attachments = Attachments(self)
 
-    def catalog(self):
+    def catalog(self, user_id=None):
+        from harbor_helper.service.admission import readiness
+
         settings = self.configuration.settings()
         default_dataset = load_team(self.store)["dataset"]
         if settings.get("default_dataset_id"):
@@ -97,12 +99,27 @@ class Application:
             "model_profiles": self.data.objects("profile"),
             "limits": self.data.limits(),
             "default_dataset": default_dataset,
+            "readiness": readiness(self, user_id),
         }
 
     def accept(
         self, actor, request, idem, parent=None, *, retry=False, recovery=None, access_value=None
     ):
         from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
+        from harbor_helper.service.machine import authorize
+
+        authorize(
+            actor,
+            "retry_run"
+            if retry
+            else "rerun"
+            if parent
+            else "recover_submission"
+            if recovery
+            else "submit",
+        )
+        if not self.data.user(actor["id"])["enabled"]:
+            raise ServiceError("member_disabled", "Account disabled", 403)
 
         text = json.dumps([request, idem], ensure_ascii=False)
         if ACCESS_TOKEN_TEXT.search(text) or (access_value and access_value in text):
@@ -145,6 +162,8 @@ class Application:
             else digest(request)
         )
         with self.store.control():
+            if not self.data.user(actor["id"])["enabled"]:
+                raise ServiceError("member_disabled", "Account disabled", 403)
             with self.store.connect() as db:
                 old = db.execute(
                     "SELECT id,request_hash FROM submissions WHERE user_id=? AND operation=? AND idem=?",
@@ -175,17 +194,11 @@ class Application:
                         "idempotency_conflict", "Idempotency key reused with different input", 409
                     )
                 return public_submission(self.data.submission(old["id"]))
-            if not self.data.user(actor["id"])["enabled"]:
-                raise ServiceError("member_disabled", "Account disabled", 403)
             team = load_team(self.store)
             limits = self.data.limits()
-            with self.store.connect() as db:
-                preparing = db.execute(
-                    "SELECT COUNT(*) FROM submissions WHERE status='preparing'"
-                ).fetchone()[0]
-            queued = sum(r["status"] == "queued" for r in self.store.runs())
-            if preparing + queued >= limits["max_queue"]:
-                raise ServiceError("queue_full", "Shared queue capacity reached", 429)
+            from harbor_helper.service.admission import check
+
+            check(self, actor)
             service = {
                 "user_id": actor["id"],
                 "submitter": actor["username"],

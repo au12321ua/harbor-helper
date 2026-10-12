@@ -4,6 +4,7 @@ import shutil
 from types import SimpleNamespace
 
 import pytest
+from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
 
 from harbor_helper.persistence.files import tree_digest
@@ -62,6 +63,7 @@ def scoped(tmp_path, monkeypatch, request):
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", PASSWORD
     )
+    synthetic_activity(data)
     app = Application(data.root)
     dataset = app.configuration.save(
         "dataset", {"id": "scope", "name": "Scoped", "reference": "test/scoped@1"}

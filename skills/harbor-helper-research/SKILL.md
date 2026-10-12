@@ -29,6 +29,7 @@ description: Operate a Harbor Helper team service as an authorized research clie
 - 超时或响应丢失：先以原成员+操作+键 lookup，或原路径/正文/键重发。查不到不等于未受理，保持原键，不造新键；尚未解决的写操作先恢复，再开始下一次写。
 - CLI `service retry` 是**最近 receipt 的通信重发**；普通 `retry RUN` 是新研究尝试，两者不可混用。凭证更换仍须同一成员、同一服务，原记录/键不因撤销而消失。
 - 409 幂等冲突/action=fix_input：保留原记录，核正文/目标差异并修正误输后找回原操作；不通过换键继续制造任务。确实要改变实验是另一个需授权的新操作。legacy_key_ambiguous 用已保存记录 ID 查询并人工确认，不任选结果。
+- 新受理前读取 discovery.readiness（或授权 GET /readiness）：区分 initialized、accepting、scheduler 活动和观察时间、maintenance 原因及可选建议重试时间、pending 身份额度。旧服务缺字段时以实时 schema 为准；额度共用成员的全部凭证，不切换身份绕过。维护暂停/活动未知时只推进读、取消或原键找回；建议重试时间不触发自动恢复，就绪不保证执行成功。
 - 429/503 或 retry_same_request：在本轮约定等待期限/最大请求次数内有限退避，继续用原键；wait_known=false 不承诺多久可用。到期限返回记录、已知状态和下一步，不自动提交补偿任务。
 
 ## 查询与结果

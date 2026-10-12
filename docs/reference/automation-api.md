@@ -1,6 +1,6 @@
 # 自动化授权与机器 API v1.0
 
-这是当前分支的实施接口，候选验收范围另见[工程报告](acceptance/automation-v1/engineering-report.md)。设计及后续成员额度/维护契约见[定稿](../design/attachment-agent-contract.md)，本项没有实现这些后续功能。
+这是当前分支的实施接口，候选验收范围另见[工程报告](acceptance/automation-v1/engineering-report.md)。成员额度、维护与就绪的当前契约见下文；设计来源见[定稿](../design/attachment-agent-contract.md)。原工程报告只证明其固定版本，当前改动范围见[额度维护工程报告](acceptance/admission/engineering-report.md)。
 
 ## 身份与签发
 
@@ -71,7 +71,7 @@
 - audit：pending/clean/incomplete；没有实验为 pending/not_started，未知旧审计信息不伪造 clean。
 - report：available 必须通过原安全报告门槛，含已过期证据的安全摘要；终态 clean 缺文件为 unavailable/missing_report，失败准备或提前取消为 unavailable。审计异常/资源清理阻塞为 blocked；审计 pending 且 scheduler 活动无法确认为 blocked/audit_progress_unknown。确有活动执行/准备/审计才 pending，建议 2 秒轮询。读取失败不以空报告假装成功。
 
-scheduler 仅提供可核进程身份和最近循环活动，`ready/unavailable/unknown`；身份匹配且 heartbeat≤10 秒（正常循环约 0.5 秒）才 ready，缺失/陈旧活动为 unknown，未核到存活进程为 unavailable。不输出 PID/宿主路径；不代表维护开关或统一就绪拒绝新受理已完成。
+scheduler 仅提供可核进程身份和最近循环活动，`ready/unavailable/unknown`；身份匹配且 heartbeat≤10 秒（正常循环约 0.5 秒）才 ready，缺失/陈旧活动为 unknown，未核到存活进程为 unavailable。不输出 PID/birth/宿主路径/配置；`activity_observed` 为最后心跳时间，`observed` 为本次读取时间。判断身份与活动使用同一次 scheduler.json 读取，不把别的进程心跳拼到旧身份。
 
 错误统一含 `code,message,request_id,retryable,action,related_ids,poll_after_seconds,wait_seconds,wait_known`。action 枚举：retry_same_request、poll_existing、fix_input、reauthorize、contact_admin、explicit_new_attempt。原键未知/队列满/暂不可用建议 retry_same_request；待报告 poll_existing；401 或 scope 不足 reauthorize；幂等冲突 fix_input（保留原键/原正文调查，绝不自动换键）；审计/安全阻塞 contact_admin；报告确定不可用或无效恢复状态 explicit_new_attempt。没有故障来源证据不猜原因。429/503 当前不承诺等待时长：`wait_known=false,wait_seconds=null`，客户端做有限退避；不将等待建议当作完成时间保证。
 
@@ -101,3 +101,19 @@ harbor-helper --remote-profile research service report hh-RUN --json
 启动时用 SQLite 事务新增 `access_credentials`、`access_events` 表；无主密钥变更、无旧记录/manifest/评分重写。迁移失败异常退出，不允许新服务继续写。新表不保存原值；旧 sessions、submissions、模型凭据表保持结构。发布前核实际服务身份、所有 state 写者并保全最新一致 SQLite backup 和外主密钥，不能使用旧备份覆盖后来业务。本工程没有操作正式部署。
 
 旧代码可忽略新增表读旧数据，但不能把代码回退当作安全业务回退：旧版本不识别 PAT/机器端点，旧 per-target 幂等逻辑可能重复新 fixed-operation 受理。需要回退时先切断新写流量、停止所有写者并保全当前一致 state；优先回退前端/修复兼容服务器，或交付能读取新键规则的回退代码。禁止在仍有新客户端通信重试时直接恢复旧受理写服务；禁止删除新表/键或回放过时 state。此处是接口/数据兼容说明，不是生产恢复演练通过证据。
+
+
+## 新受理额度、维护与就绪
+
+- `GET /health` 匿名仅返回 `alive,ready` 两个布尔值；未初始化/维护暂停/活动未确认时 ready=false。`GET /readiness` 是授权只读（PAT 需 read），也收入机器 schema 与 discovery.readiness。返回 initialized、accepting、reason、observed、scheduler、maintenance、pending；没有内部路径/PID/配置/秘密。`accepting` 表示维护与调度活动门已开放，不保留容量，不保证下一次请求可受理或 Docker/Hub/模型成功。
+- `maintenance` 为 paused、reason、retry_at（可选 Unix 秒）、updated。管理员浏览器在团队管理→容量与保留调整；`PATCH /admin/maintenance` 支持这些前三项，权限默认拒绝管理员 PAT。原因最多500字符，禁止已配置秘密、PAT 和内部绝对路径；重试时间若填写须有限未来值，只是建议，不自动恢复。错误不回显输入。
+- 暂停在独立 `admission.json` 原子持久写入，与受理使用同一 control 锁。每次新受理在锁内读取最新值，多个 API 进程与重启不使用旧缓存。维护拒绝 submit/rerun/retry/recover 新键（503 maintenance_paused）；已受理准备/队列继续排空，读、取消与安全报告仍遵守原门槛。暂停不是 scheduler stop 或可立即备份。
+- 未确认 scheduler birth 返回 unavailable；身份可核但缺失、未来或超过10秒的心跳返回 unknown。unknown/unavailable 阻止新键（503 scheduler_unready）。身份/scope 先验证；成功原键找回在维护、就绪与额度检查前；参数冲突仍409，不通过新键补偿。
+- `limits.max_pending_per_member` 默认配置10，可由管理员网页改正整数；有效值 `min(配置,max_queue)`，不是硬用户数值。pending 包含 global_pending/member_pending/member_limit/global_limit。所有 CLI/Web/PAT 入口、同成员所有凭证以及管理员本人共用 user_id；429 member_queue_full 或 queue_full 的 action 为 retry_same_request，wait_known=false、wait_seconds=null，预计等待未知。额度降低不取消存量。
+- Preparing 与 queued 按 target_id 去重；已存在对应 run 后仅按当前 run queued 状态计待处理，即使 submission 未改 ready。开始执行、终态、准备失败或准备取消释放待处理；排队取消请求直到调度器确认为 cancelled 才释放。运行/cleanup_blocked 仍由原执行资源规则计容量，审计异常不额外占执行容量。旧 local/history 无可靠 user_id 不猜成员，保留全局与执行容量。没有公平调度保证或另一个配额账户系统。
+
+### 兼容、升级与回退
+
+本次不新增/更改 SQLite 表，不重写旧 manifest、冻结输入、密文或外主密钥。旧 limits.json 缺成员字段时读取默认10；不要求落盘迁移，维护文件缺失仅按首次默认开放解释，仍须 scheduler 就绪。维护文件损坏拒绝新受理并匿名 unready，不静默开放。按部署流程保全最新 state 和原外主密钥；生产升级需独立授权，本轮没有升级部署。
+
+代码回退到本轮之前会忽略 admission.json 和成员字段，并且不执行新就绪门；**暂停保护不能靠旧代码继续维持**。需先停止外部新写入口、确认全部写者与队列/资源状态，再按固定旧版本执行回退，保留新文件和所有受理/幂等/历史数据；不可删文件开放、重 init、更换 master 或用旧备份覆盖新业务。恢复本轮代码后读取原持久暂停值。暂停/就绪不替代一致备份和独立 scheduler 停机确认。

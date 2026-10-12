@@ -51,7 +51,7 @@ service retry 仅在**最近 receipt 就是待恢复操作**时使用；其他�
 
 | 操作 | `/api/v1` 下的方法与路径 |
 | --- | --- |
-| 身份/发现 | GET `/me`、`/machine/schema`、`/machine/discovery` |
+| 身份/发现 | GET `/me`、`/machine/schema`、`/machine/discovery`、`/readiness` |
 | 任务切片 | GET `/machine/datasets/{id}/tasks?offset=0&limit=20` |
 | 新提交 | POST `/submissions`，header `Idempotency-Key: 原键` |
 | 找回 | GET `/submission-operations/{submit\|rerun\|retry\|recover}/{原键}`（URL 编码键） |
@@ -68,3 +68,5 @@ service retry 仅在**最近 receipt 就是待恢复操作**时使用；其他�
 使用 dataset_id 时 task 选已验证目录里的确切任务名；显式 dataset reference 的 CLI task 可用 glob。
 
 HTTP 错误读取 code/action/request_id/related_ids/poll_after_seconds/wait_known，不记录原始网络诊断。retry_same_request 重发原请求；poll_existing 查已有记录；fix_input 修正误输与调查冲突；reauthorize 停止该操作待重新授权；contact_admin 呈现安全原因；explicit_new_attempt 不代表自动获准新实验。普通主动 rerun/retry/recover 使用新键并保持原附件；详细输入读 schema。
+
+`service discover` 返回 readiness 与 pending（若目标契约支持）；`accepting` 仅为初始化/维护/scheduler 活动门，不保留容量。503 maintenance_paused/scheduler_unready、429 member_queue_full/queue_full 用原键有限重试或查旧受理，等待未知时不要提供预计开始时间，也不要切换 PAT/成员绕过限额。匿名 health 不含维护原因；管理员配置只能通过获授权浏览器会话，管理员 PAT 也不能暂停/恢复服务。

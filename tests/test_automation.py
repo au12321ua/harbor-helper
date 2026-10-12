@@ -339,6 +339,7 @@ def test_three_axes_report_scores_and_evidence_boundary(
     assert machine.run_state(app, rid)["report"]["state"] == "blocked"
     assert p.get(state["report_url"]).status_code == 409
     data.store.update(rid, audit_status="pending")
+    (data.root / "scheduler.json").unlink()  # No activity: keep original unknown audit gate.
     assert machine.run_state(app, rid)["report"]["reason"] == "audit_progress_unknown"
     data.store.update(rid, status="cleanup_blocked")
     assert machine.run_state(app, rid)["resource"]["state"] == "cleanup_blocked"
