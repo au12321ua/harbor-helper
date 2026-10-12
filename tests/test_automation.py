@@ -15,7 +15,7 @@ from test_service import preparation as fake_preparation
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.results.reports import report
-from harbor_helper.service import machine
+from harbor_helper.service import access, machine
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application, digest
 from harbor_helper.service.data import ServiceError
@@ -589,3 +589,36 @@ def test_all_machine_schema_operations_have_types_permissions_and_safe_errors(da
         "cleanup_blocked",
         "unknown",
     ]
+
+
+@pytest.mark.parametrize(
+    "expires", [float("nan"), float("inf"), -float("inf"), 0, True, "future", 10**400]
+)
+def test_access_expiry_rejects_invalid_numbers(data, expires):
+    _, actor = data.login("alice", PASSWORD)
+    with pytest.raises(ServiceError) as exc:
+        access.issue(data, actor, "expiry", PASSWORD, ["read"], expires)
+    assert exc.value.code == "invalid_expiry"
+    with data.store.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM access_credentials").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("offset", [-1, 0, 0.001, 730 * 86400])
+def test_access_expiry_strict_future_without_annual_cap(data, monkeypatch, offset):
+    _, actor = data.login("alice", PASSWORD)
+    now = time.time()
+    monkeypatch.setattr(access.time, "time", lambda: now)
+    if offset <= 0:
+        with pytest.raises(ServiceError) as exc:
+            access.issue(data, actor, "expiry", PASSWORD, ["read"], now + offset)
+        assert exc.value.code == "invalid_expiry"
+    else:
+        value = access.issue(data, actor, "expiry", PASSWORD, ["read"], now + offset)
+        assert value["credential"]["expires"] == now + offset
+
+
+def test_access_http_expiry_beyond_one_year(data):
+    expires = time.time() + 730 * 86400
+    _, pat, value = issue(data, expires=expires)
+    assert value["credential"]["expires"] == expires
+    assert pat.get("/api/v1/machine/discovery").status_code == 200

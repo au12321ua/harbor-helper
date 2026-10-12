@@ -174,8 +174,9 @@ class Client:
             )
             request_id = value.get("request_id") if isinstance(value, dict) else None
             detail = f"HTTP {response.status_code} {str(code)[:128]}: {str(message)[:2048]}"
-            if value.get("action"):
-                detail += f"; action={value['action']}"
+            action = value.get("action") if isinstance(value, dict) else None
+            if isinstance(action, str) and action:
+                detail += f"; action={redact_value(action, self.secrets)[:128]}"
             if request_id:
                 detail += f" (request {str(request_id)[:128]})"
             raise RemoteError(redact_value(detail, self.secrets))

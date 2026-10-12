@@ -11,10 +11,12 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import pytest
 
 from harbor_helper.commands.main import parser
 from harbor_helper.commands.remote import (
+    Client,
     RemoteError,
     load_profile,
     login,
@@ -435,3 +437,35 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
         thread.join(timeout=10)
         sock.close()
         assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("body", [[], [TOKEN], None, TOKEN])
+def test_remote_nonobject_error_is_safe_remote_error(monkeypatch, body):
+    def request(*args, **kwargs):
+        return httpx.Response(503, json=body)
+
+    monkeypatch.setattr(httpx.Client, "request", request)
+    with pytest.raises(RemoteError, match="HTTP 503 remote_error: Service request failed") as exc:
+        Client("http://127.0.0.1:1", token=TOKEN).request("GET", "/machine/discovery")
+    assert TOKEN not in str(exc.value)
+
+
+@pytest.mark.parametrize("action", [None, [], {}, 42, True, "retry_same_request", TOKEN + "x" * 200])
+def test_remote_error_action_type_length_and_redaction(monkeypatch, action):
+    monkeypatch.setattr(
+        httpx.Client, "request",
+        lambda *args, **kwargs: httpx.Response(403, json={"action": action}),
+    )
+    with pytest.raises(RemoteError) as exc:
+        Client("http://127.0.0.1:1", token=TOKEN).request("POST", "/submissions")
+    detail = str(exc.value)
+    assert TOKEN not in detail
+    if isinstance(action, str):
+        shown = detail.split("; action=", 1)[1]
+        assert len(shown) <= 128
+        if action == "retry_same_request":
+            assert shown == action
+        else:
+            assert "[REDACTED]" in shown
+    else:
+        assert "; action=" not in detail

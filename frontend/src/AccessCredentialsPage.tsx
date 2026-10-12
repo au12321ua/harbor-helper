@@ -111,7 +111,6 @@ export function AccessCredentialsPage({ user }: { user: Item }) {
                   type="number"
                   required
                   min={1}
-                  max={365}
                   defaultValue={30}
                 />
               </Field>

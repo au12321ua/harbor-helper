@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import secrets
 import time
 import uuid
@@ -45,8 +46,12 @@ def issue(data, actor, name, password, scopes, expires, *, access_value=None):
         raise ServiceError("access_plaintext", "Access credential plaintext forbidden in name")
     now = time.time()
     expires = now + 30 * 86400 if expires is None else expires
-    if type(expires) not in {int, float} or not now < expires <= now + 366 * 86400:
-        raise ServiceError("invalid_expiry", "Expiry must be in the next 366 days")
+    try:
+        valid_expiry = type(expires) in {int, float} and math.isfinite(expires) and expires > now
+    except OverflowError:
+        valid_expiry = False
+    if not valid_expiry:
+        raise ServiceError("invalid_expiry", "Expiry must be a finite future Unix timestamp")
     # Reuse login's password verification/rate limit; immediately remove temporary session.
     session, _ = data.login(actor["username"], password)
     data.logout(session)

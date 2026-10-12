@@ -1477,12 +1477,16 @@ test("automation credential explicit capabilities, password and one-time value",
   await expect(page.getByText("密码复核失败")).toBeVisible();
   await expect(page.getByLabel("当前密码")).toHaveValue("");
   await page.getByLabel("当前密码").fill("correct-password");
+  await page.getByLabel("有效天数").fill("730");
+  await expect(page.getByLabel("有效天数")).not.toHaveAttribute("max");
   await page
     .getByRole("checkbox", { name: "提交、重跑、修复与恢复实验" })
     .check();
   await page.getByRole("button", { name: "签发凭证", exact: true }).click();
   await expect(page.getByLabel("新签发凭证")).toHaveValue(raw);
   expect(signed[1].scopes).toEqual(["read", "execute"]);
+  expect(signed[1].expires - Date.now() / 1000).toBeGreaterThan(729 * 86400);
+  expect(signed[1].expires - Date.now() / 1000).toBeLessThanOrEqual(730 * 86400);
   await page.getByRole("button", { name: "已安全保存，关闭原值" }).click();
   await expect(page.getByLabel("新签发凭证")).toHaveCount(0);
   await page.reload();
