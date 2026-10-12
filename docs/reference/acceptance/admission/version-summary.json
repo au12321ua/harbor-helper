@@ -10,12 +10,16 @@
     "uv.lock": "48502fd943ea71c8aaac20fc6a8ee56c22964c2d",
     "frontend/package-lock.json": "ceaca8be86d5b846131927b1fa5a478ca8a465ab"
   },
-  "evidence_items": 68,
+  "evidence_items": 72,
   "status": "engineering complete, pending Root review and bounded independent Checker",
   "version_log": [
     {
       "commit": "7b77f5f3a922b131cef6522b46ed7b2f646e6fe1",
       "change": "shared identity pending capacity, persistent same-lock admission maintenance, safe scheduler readiness, frontend/static/docs/skill references, explicit fixture prerequisites and safety regression"
+    },
+    {
+      "commit": "8d74c350601eb4c0e392244db3923caca7b20514",
+      "change": "raw validation/failure stdout and exits, CLI originals, SHA/environment/shutdown indices and engineering report; product trees unchanged"
     }
   ]
 }
