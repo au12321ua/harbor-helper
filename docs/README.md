@@ -10,6 +10,10 @@
 - [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
 - [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
 
+## 待审产品设计
+
+- [附件版本与研究 agent 调用契约](design/attachment-agent-contract.md)：设计候选，描述版本复用、授权、受理恢复及机器状态；不表示已经实现，开发计划仍以群内版本记录为准。
+
 ## 历史设计与验收条件
 
 - [团队服务设计](archive/team-service/service-design.md)。
