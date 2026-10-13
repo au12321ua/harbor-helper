@@ -7,3 +7,6 @@ __pycache__/
 .local/
 
 dist/
+
+# One-off acceptance reports/captures belong in ignored .local/, never in docs.
+/docs/reference/acceptance/

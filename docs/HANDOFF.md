@@ -28,4 +28,4 @@ Harbor按作者Dockerfile、Compose、镜像及网络定义执行；helper管理
 - 前端：在`frontend/`执行`npm ci`、`npm run build`、`npm run lint`；`npm run test:ui`另需Playwright Chromium，使用拦截API的fixture。build会更新包内static。
 - 验证使用独立HOME/state/master，隔离Harbor/profile并清除继承的真实凭据环境。测试含本地子进程，不能默认没有副作用；真实Hub、Docker、模型请求与fixture验证分列，真实模型请求须核当前授权与预算。
 
-[验收标准](reference/service-acceptance.md)定义通过条件，不代表当前环境或任意版本已经验证。变更报告记录固定代码版本、实际执行的检查及未覆盖范围；历史设计和独立报告的结论只属于受审版本。
+[验收标准](reference/service-acceptance.md)定义通过条件，不代表当前环境或任意版本已经验证。现场报告与原始证据只保存到主仓 ignored `.local/`；Agent 提供的原件路径不构成入库要求。公开文档只留短的固定代码版本、实际覆盖与未覆盖范围摘要；历史设计和独立报告的结论只属于受审版本。集成后的 worktree/短期分支收尾与群新版入口归档按[协作规则](guides/development-workflow.md)执行。
