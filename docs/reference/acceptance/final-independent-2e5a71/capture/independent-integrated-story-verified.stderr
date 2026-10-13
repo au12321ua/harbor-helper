@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "/tmp/hh-checker-independent-2e5a71-20261012/independent-drive.py", line 711, in <module>
-    assert blocked.returncode == 1
-           ^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError

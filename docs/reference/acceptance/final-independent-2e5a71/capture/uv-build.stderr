@@ -1,3 +1,0 @@
-Building source distribution...
-error: Failed to build `/tmp/hh-checker-wt-2e5a71-20261012/frontend`
-  Caused by: /tmp/hh-checker-wt-2e5a71-20261012/frontend does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory

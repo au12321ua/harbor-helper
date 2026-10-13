@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "/tmp/hh-final-integration/docs/reference/acceptance/final-integration/drive.py", line 443, in <module>
-    assert browser.returncode == 0, "Browser submission flow failed; see raw browser.stderr"
-           ^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: Browser submission flow failed; see raw browser.stderr

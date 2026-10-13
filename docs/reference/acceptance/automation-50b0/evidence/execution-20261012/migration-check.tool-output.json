@@ -1,1 +1,0 @@
-{"synthetic_old_schema_migration":"PASS","new_tables":["access_credentials","access_events"],"prior_table_ddl_preserved":true,"users_and_encrypted_credential_rows_preserved":true,"credential_decrypt_after_migration":true,"external_master_unchanged_and_outside_state":true,"state":"/tmp/hh-checker-automation-v1-50b0dde/migration/state","master_path_reported":false}

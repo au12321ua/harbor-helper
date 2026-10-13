@@ -1,8 +1,0 @@
-Resolved 100 packages in 0.49ms
-   Building harbor-helper @ file:///tmp/hh-final-integration
-      Built harbor-helper @ file:///tmp/hh-final-integration
-Prepared 1 package in 2.47s
-Uninstalled 1 package in 0.17ms
-Installed 1 package in 0.29ms
- - harbor-helper==0.1.0 (from file:///tmp/hh-final-integration)
- + harbor-helper==0.2.0 (from file:///tmp/hh-final-integration)

@@ -5,7 +5,6 @@
 ## 使用、维护与开发
 
 - [0.2.0交付说明](releases/0.2.0.md)、[升级后的浏览器体验](guides/0.2.0-browser.md)、[发布与升级交接](guides/0.2.0-upgrade.md)：dev已整合，正式旧版尚未升级/tag/发布。
-- [固定2e5a71最终独立归档](reference/acceptance/final-independent-2e5a71/README.md)：逐字原报告、1230项源索引与安全白名单原始证据；只证明列明范围。
 
 - [Web服务指南](guides/web-service.md)：管理员配置、远程CLI、完整停机、备份与审计。
 - [本地CLI](guides/local-cli.md)、[配置](guides/local-configuration.md)、[操作](guides/local-operations.md)：旧本地模式兼容入口。
@@ -13,11 +12,6 @@
 - [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
 - [自动化授权与机器 API](reference/automation-api.md)：固定能力、schema、状态、幂等与薄 CLI；迁移/回退边界。
 - [研究客户端 skill](guides/research-skill.md)：可移植发布源、安装/调用与无附件/明确版本对照流程。
-- [自动化 API 固定 50b0 独立验收](reference/acceptance/automation-50b0/README.md)：限定 PASS / 54 与会话输出文字证据边界。
-- [附件候选独立安全报告](reference/acceptance/attachment-28102/README.md)：原 PARTIAL 和 Docker 补验各自版本/覆盖。
-- [0.2.0版本标识补验](reference/acceptance/version-0.2.0/README.md)：固定标识同步、包内容/CLI入口一致性；旧全量和串联证据原范围保留。
-- [最终集成工程证据](reference/acceptance/final-integration/README.md)：本轮全量、生产网页/CLI fixture串联及发布迁移交接；工程固定范围。
-- [额度维护固定6db930独立原件](reference/acceptance/admission-independent-6db930/README.md)：原限定范围及安全原始归档。
 - [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
 
 ## 产品设计

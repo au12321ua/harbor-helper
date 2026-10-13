@@ -1,6 +1,6 @@
 # 自动化授权与机器 API v1.0
 
-这是当前分支的实施接口，候选验收范围另见[工程报告](acceptance/automation-v1/engineering-report.md)。成员额度、维护与就绪的当前契约见下文；设计来源见[定稿](../design/attachment-agent-contract.md)。原工程报告只证明其固定版本，当前改动范围见[额度维护工程报告](acceptance/admission/engineering-report.md)。
+这是当前分支的实施接口。成员额度、维护与就绪的当前契约见下文；设计来源见[定稿](../design/attachment-agent-contract.md)。验收标准和固定版本结论不能替代当前部署核验。
 
 ## 身份与签发
 

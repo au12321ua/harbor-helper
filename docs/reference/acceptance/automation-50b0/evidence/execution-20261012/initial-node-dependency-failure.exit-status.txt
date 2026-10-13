@@ -1,2 +1,0 @@
-exit_code=1
-Captured from functions.write_stdin result for session 82714. 53 passed; the single browser test failed before page launch because Node could not resolve @playwright/test; Node was v18.19.1.

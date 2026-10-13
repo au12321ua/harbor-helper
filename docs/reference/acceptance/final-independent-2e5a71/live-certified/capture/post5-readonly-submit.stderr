@@ -1,2 +1,0 @@
-Idempotency-Key: checker-readonly-denied-20261012; use service retry for this same operation
-harbor-helper: HTTP 403 scope_required: Automation capability required: execute; action=reauthorize (request 4142ca4773be42139b47905e961624dc)

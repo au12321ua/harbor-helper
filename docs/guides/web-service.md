@@ -2,6 +2,29 @@
 
 服务使用一个独立的共享 state。CLI 与 Web 都访问同一个 HTTP API、持久队列和容量限制；成员登录只保存访问 token，模型密钥由管理员在服务端配置。旧本地团队 state 与会话不迁入此目录。
 
+## 一条命令启动本机空实例
+
+在干净的 Git checkout 中运行（Linux、Python 3.12–3.13、uv）：
+
+```bash
+./scripts/start-local.sh
+```
+
+入口复用已提交的生产 static，不需要 Node 或前端构建。它从当前固定提交导出独立发布目录并锁定安装依赖；默认仅监听 `127.0.0.1` 的空闲端口。代码、独立 HOME、持久 state、外置 master/setup 和日志位于 `~/.local/share/harbor-helper-local/`，不使用仓库旧 state 或个人模型/Hub 登录。
+
+1. 打开输出的 URL，按终端给出的本机读取方式取得引导凭证。
+2. 网页首次设置创建管理员，然后登录，在“团队管理”配置业务。新空实例不迁入旧账户或实验；首次设置无需 Docker/Hub/key，真实实验仍需这些依赖和授权。
+3. 再运行显示已有实例；`./scripts/start-local.sh stop` 停止自己的 HTTP 和空闲调度器，重新运行后原账户与主密钥保留。
+
+```bash
+./scripts/start-local.sh status
+./scripts/start-local.sh restart
+./scripts/start-local.sh --port 8780
+./scripts/start-local.sh --directory /absolute/private/local-instance
+```
+
+`--port` 用于停止状态下选端口；多实例用不同 `--directory`，后续 status/stop 使用同一路径。日志路径随状态输出。stop 遇未终态任务会拒绝停止调度器，需重新启动网页取消/等待；它不会强杀执行任务。坏记录或主密钥缺失时按诊断检查原文件，不重新初始化。更换代码版本前先确认 stop 成功；旧发布目录不会自动删除。此入口用于同机本地使用，远程访问、HTTPS和生产迁移见下文。
+
 ## 管理员首次启动
 
 在项目根目录安装 Python 依赖并构建页面：

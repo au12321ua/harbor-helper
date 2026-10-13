@@ -1,4 +1,0 @@
-Candidate worktree: /tmp/hh-checker-research-skill-20261012/worktree (detached 0b05daf92c8478f990af46e6edf45a6b10abb60f)
-Final isolated run root: /tmp/hh-checker-research-skill-20261012-attempt5
-Runtime was launched with env -i and only HOME, PATH, UV_CACHE_DIR, UV_PROJECT_ENVIRONMENT, UV_LINK_MODE, PYTHONUNBUFFERED, HH_TASK_ROOT, and HH_CANDIDATE_ROOT set. No inherited environment, service/master/PAT from another install, Docker, Hub, model, or production state was used.
-Service and response-loss proxy each bound 127.0.0.1 on ephemeral ports. Service and supervisor stdout/stderr were redirected to http-service.log and supervisor.log; driver stdout/stderr and exit code were redirected to driver.stdout, driver.stderr, and driver.exit. Each CLI subprocess captured stdout/stderr/exit code in cli-transcript.jsonl.
