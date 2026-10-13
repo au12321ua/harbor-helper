@@ -1,6 +1,7 @@
 """Private fixed-commit local deployment; no inherited provider credentials."""
 
 import argparse
+import ctypes
 import fcntl
 import json
 import os
@@ -34,6 +35,24 @@ else:
 
 def fail(message):
     raise RuntimeError(message)
+
+
+def open_pidfd(pid):
+    if hasattr(os, "pidfd_open"):
+        return os.pidfd_open(pid)
+    # Some Linux Python builds omit os.pidfd_open despite kernel/glibc support.
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        call = libc.pidfd_open
+    except AttributeError:
+        fail("This Linux/Python build lacks pidfd support; cannot manage processes safely.")
+    call.argtypes = [ctypes.c_int, ctypes.c_uint]
+    call.restype = ctypes.c_int
+    fd = call(pid, 0)
+    if fd < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    return fd
 
 
 def birth(pid):
@@ -140,7 +159,7 @@ def stop(base, record, env):
         if not matches(record):
             fail(f"HTTP identity mismatch in {base / 'http.json'}; no process stopped.")
         # A pidfd binds the signal to this process even if the PID is subsequently reused.
-        fd = os.pidfd_open(record["pid"])
+        fd = open_pidfd(record["pid"])
         try:
             if not matches(record):
                 fail("HTTP identity changed; no process stopped.")
@@ -262,6 +281,9 @@ def start(base, record, env, port):
         except OSError:
             fail(f"Port {port} unavailable; choose --port or stop its owner.")
         chosen = probe.getsockname()[1]
+    if not hasattr(signal, "pidfd_send_signal"):
+        fail("This Python build lacks pidfd_send_signal; use a supported Linux Python.")
+    os.close(open_pidfd(os.getpid()))
     code = release(base, env)
     argv = [
         str(code / ".venv/bin/python"),
@@ -302,7 +324,7 @@ def start(base, record, env, port):
         "port": chosen,
     }
     (base / "http.json").write_text(json.dumps(record, indent=2) + "\n")
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + 60
     while matches(record) and time.monotonic() < deadline:
         if health(record):
             describe(base, record)
