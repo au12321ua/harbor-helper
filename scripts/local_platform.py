@@ -132,6 +132,8 @@ def health(record):
 def describe(base, record):
     running = bool(record and matches(record))
     print(f"HTTP: {'running' if running else 'stopped'}")
+    if record and birth(record["pid"]) and not running:
+        print("HTTP record identity mismatch; no process will be signalled.")
     scheduler = base / "state/scheduler.json"
     try:
         data = json.loads(scheduler.read_text())
@@ -255,6 +257,7 @@ def release(base, env):
 
 
 def start(base, record, env, port):
+    check_master(base)
     if record and matches(record):
         if port is not None and port != record["port"]:
             fail("Instance already running on another port; stop before changing port.")
