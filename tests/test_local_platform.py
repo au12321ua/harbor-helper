@@ -80,3 +80,42 @@ def test_existing_master_missing_is_not_regenerated(local_instance):
     with pytest.raises(RuntimeError, match="master reference"):
         platform.start(base, None, platform.environment(base), None)
     assert not (base / "private/master.key").exists()
+
+
+@pytest.mark.parametrize(
+    ("tty", "reveal", "initialized", "expect_value"),
+    [
+        (True, True, False, True),
+        (False, True, False, False),
+        (True, False, False, False),
+        (True, True, True, False),
+    ],
+)
+def test_bootstrap_value_only_on_uninitialized_interactive_start(
+    local_instance, monkeypatch, tty, reveal, initialized, expect_value
+):
+    import io
+    import secrets
+
+    base = local_instance
+    value = secrets.token_urlsafe(32)
+    token_file = base / "private/setup-token"
+    token_file.write_text(value)
+    token_file.chmod(0o600)
+    if initialized:
+        (base / "state/service.json").write_text("{}")
+    output = io.StringIO()
+    monkeypatch.setattr(output, "isatty", lambda: tty)
+    monkeypatch.setattr(platform.sys, "stdout", output)
+    platform.setup_notice(base, reveal)
+    captured = output.getvalue()
+    has_value = value in captured
+    # Assert only redacted output/booleans so a failed check cannot log the value.
+    redacted = captured.replace(value, "[REDACTED]")
+    assert has_value == expect_value
+    if initialized:
+        assert redacted == ""
+    elif not expect_value:
+        assert str(token_file) in redacted and "[REDACTED]" not in redacted
+    else:
+        assert "[REDACTED]" in redacted

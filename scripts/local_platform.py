@@ -129,7 +129,30 @@ def health(record):
         return False
 
 
-def describe(base, record):
+def setup_notice(base, reveal):
+    if (base / "state/service.json").exists():
+        return
+    path = base / "private/setup-token"
+    if reveal and sys.stdout.isatty() and path.exists():
+        # Read only the deployment-owned bootstrap file, never an inherited key.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd) as file:
+            info = os.fstat(file.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) & 0o077
+            ):
+                fail("Bootstrap file must be a regular owner-only file.")
+            value = file.read(1025).strip()
+        if not 32 <= len(value) <= 1024 or not all(c.isalnum() or c in "_-" for c in value):
+            fail("Invalid bootstrap file; inspect it locally without resetting state.")
+        print(f"First setup bootstrap (local terminal only): {value}")
+    else:
+        print(f"First setup bootstrap file (read locally): {path}")
+
+
+def describe(base, record, *, reveal_setup=False):
     running = bool(record and matches(record))
     print(f"HTTP: {'running' if running else 'stopped'}")
     if record and birth(record["pid"]) and not running:
@@ -145,10 +168,7 @@ def describe(base, record):
         print(f"Scheduler: invalid record; inspect {scheduler}")
     if running:
         print(f"Browser: http://127.0.0.1:{record['port']}/")
-    if not (base / "state/service.json").exists():
-        print(
-            f"First setup: read locally with cat {shlex.quote(str(base / 'private/setup-token'))}"
-        )
+    setup_notice(base, reveal_setup)
     print(f"Logs: {base / 'logs'} (scheduler log: {base / 'state/supervisor.log'})")
     command = (
         f"{shlex.quote(str(REPO / 'scripts/start-local.sh'))} --directory {shlex.quote(str(base))}"
@@ -264,7 +284,7 @@ def start(base, record, env, port):
         if not health(record):
             fail("Recorded HTTP is alive but not healthy; inspect logs/status before restarting.")
         print("Already running")
-        describe(base, record)
+        describe(base, record, reveal_setup=True)
         return
     if record and birth(record["pid"]):
         fail("Recorded PID belongs to a different process; inspect http.json. No signal sent.")
@@ -332,7 +352,7 @@ def start(base, record, env, port):
     # child, requiring full identity plus socket ownership only for readiness.
     while process.poll() is None and time.monotonic() < deadline:
         if matches(record) and health(record):
-            describe(base, record)
+            describe(base, record, reveal_setup=True)
             return
         time.sleep(0.2)
     stop(base, record, env)
