@@ -328,8 +328,10 @@ def start(base, record, env, port):
     }
     (base / "http.json").write_text(json.dumps(record, indent=2) + "\n")
     deadline = time.monotonic() + 60
-    while matches(record) and time.monotonic() < deadline:
-        if health(record):
+    # /proc/cmdline can briefly be empty during exec. Wait on our Popen
+    # child, requiring full identity plus socket ownership only for readiness.
+    while process.poll() is None and time.monotonic() < deadline:
+        if matches(record) and health(record):
             describe(base, record)
             return
         time.sleep(0.2)
