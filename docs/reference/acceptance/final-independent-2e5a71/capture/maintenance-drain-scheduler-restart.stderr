@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/hh-checker-independent-2e5a71-20261012/restart-drain-recovery.py", line 31, in <module>
+    assert a['status']=='succeeded',a
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'id': 'hh-6f386af263f64b11', 'status': 'failed', 'created': 1791812081.2650452, 'started': 1791812081.7428217, 'finished': 1791812251.449607, 'pid': 2269275, 'birth': '104950447', 'concurrency': 1, 'cancel': 0, 'reason': 'Wall-clock budget exceeded', 'parent': None, 'audit_status': 'clean', 'audit_reason': None}

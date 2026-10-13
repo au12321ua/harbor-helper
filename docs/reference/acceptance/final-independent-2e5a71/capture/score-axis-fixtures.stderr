@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/tmp/hh-checker-independent-2e5a71-20261012/score-axis-fixture.py", line 23, in <module>
+    values=[case('zero',{'reward':0.0},None),case('missing',{},None),case('execution-failure',{'reward':0.0},{'exception_type':'SyntheticExecutionFailure','exception_message':'fixture-only failure'})]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/hh-checker-independent-2e5a71-20261012/score-axis-fixture.py", line 21, in case
+    store=Store(out/name); value=report(store,'sample'); view=report_view(value).model_dump()
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'dict' object has no attribute 'model_dump'

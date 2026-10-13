@@ -1,0 +1,16 @@
+{
+  "profile": "postcheck",
+  "url": "http://127.0.0.1:58477",
+  "user": {
+    "id": "721984516867427a93db572e903bd130",
+    "username": "fixture-member",
+    "enabled": true,
+    "access_credential_id": "c48f1b006fa0487faf90f9b3b3ac1c8d",
+    "scopes": [
+      "execute",
+      "read"
+    ],
+    "role": "member"
+  },
+  "configured": true
+}

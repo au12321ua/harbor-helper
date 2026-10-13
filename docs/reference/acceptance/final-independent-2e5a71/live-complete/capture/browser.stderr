@@ -1,0 +1,18 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+422 !== 202
+
+    at file:///tmp/hh-checker-wt-2e5a71-20261012/frontend/qa/independent-final-browser.mjs:69:10 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 422,
+  expected: 202,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.23.1

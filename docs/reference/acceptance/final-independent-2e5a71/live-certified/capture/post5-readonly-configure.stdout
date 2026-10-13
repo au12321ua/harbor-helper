@@ -1,0 +1,15 @@
+{
+  "profile": "readonly-probe",
+  "url": "http://127.0.0.1:50317",
+  "user": {
+    "id": "044e53195e1742edae3a14fa6d569322",
+    "username": "fixture-member",
+    "enabled": true,
+    "access_credential_id": "58b486dc69134f3e85e3366bcbe4e38e",
+    "scopes": [
+      "read"
+    ],
+    "role": "member"
+  },
+  "configured": true
+}

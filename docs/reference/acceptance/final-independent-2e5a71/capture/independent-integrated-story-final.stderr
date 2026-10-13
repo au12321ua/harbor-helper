@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/hh-checker-independent-2e5a71-20261012/independent-drive.py", line 299, in <module>
+    env["PLAYWRIGHT_BROWSERS_PATH"] = "/home/pc/.cache/ms-playwright"
+    ^^^
+NameError: name 'env' is not defined

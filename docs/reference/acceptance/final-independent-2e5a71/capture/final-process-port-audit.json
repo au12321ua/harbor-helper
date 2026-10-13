@@ -1,0 +1,47 @@
+{
+  "active_exact_worker_births": [],
+  "isolated_api_ports": [
+    {
+      "capture": "live-maintenance-drain-final3/capture/cleanup.json",
+      "api_port": 49639,
+      "recorded_closed": true,
+      "currently_open": false,
+      "recorded_live_worker_birth_matches": 0
+    },
+    {
+      "capture": "live-maintenance-drain-retry/capture/cleanup.json",
+      "api_port": 37673,
+      "recorded_closed": true,
+      "currently_open": false,
+      "recorded_live_worker_birth_matches": 0
+    },
+    {
+      "capture": "live-maintenance-drain-final/capture/cleanup.json",
+      "api_port": 60945,
+      "recorded_closed": true,
+      "currently_open": false,
+      "recorded_live_worker_birth_matches": 1
+    },
+    {
+      "capture": "live-maintenance-drain/capture/cleanup.json",
+      "api_port": 49865,
+      "recorded_closed": true,
+      "currently_open": false,
+      "recorded_live_worker_birth_matches": 1
+    },
+    {
+      "capture": "live-maintenance-drain-final2/capture/cleanup.json",
+      "api_port": 41677,
+      "recorded_closed": true,
+      "currently_open": false,
+      "recorded_live_worker_birth_matches": 1
+    },
+    {
+      "capture": "live-maintenance-drain-certified/capture/cleanup.json",
+      "api_port": 59463,
+      "recorded_closed": true,
+      "currently_open": false,
+      "recorded_live_worker_birth_matches": 1
+    }
+  ]
+}

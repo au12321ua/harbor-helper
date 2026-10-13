@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/hh-checker-independent-2e5a71-20261012/independent-drive.py", line 575, in <module>
+    assert browser.returncode == 0, "Browser submission flow failed; see raw browser.stderr"
+           ^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Browser submission flow failed; see raw browser.stderr

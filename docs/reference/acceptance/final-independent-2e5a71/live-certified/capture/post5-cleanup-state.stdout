@@ -1,0 +1,31 @@
+{
+  "contract_version": "1.0",
+  "kind": "run",
+  "id": "hh-0cc2e2de04cd4633",
+  "status": "cleanup_blocked",
+  "user_id": "044e53195e1742edae3a14fa6d569322",
+  "access_credential_id": null,
+  "run_id": "hh-0cc2e2de04cd4633",
+  "parent": null,
+  "resource": {
+    "state": "cleanup_blocked",
+    "reason": "execution_lifecycle"
+  },
+  "audit": {
+    "state": "clean",
+    "reason": "original_audit"
+  },
+  "report": {
+    "state": "blocked",
+    "reason": "cleanup_blocked"
+  },
+  "poll_after_seconds": null,
+  "report_url": null,
+  "attachment": {
+    "attachment_id": "att-48a26cd59db34890b0259057bcae5d37",
+    "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+    "bundle_id": "bundle-f90ee567452c44a2",
+    "bundle_digest": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9",
+    "attachment_lineage": "versioned"
+  }
+}

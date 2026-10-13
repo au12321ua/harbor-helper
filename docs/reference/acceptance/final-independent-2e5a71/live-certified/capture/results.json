@@ -1,0 +1,449 @@
+{
+  "fixed_candidate": "2e5a71f2e7e47c6b19cca2d2219ae62384502097",
+  "dataset_reference": "fixture/checker-cedar@1",
+  "dataset_id": "fixture-dataset",
+  "task": "fixture/checker-task",
+  "score_source": "checker-verifier-v1",
+  "member_id": "044e53195e1742edae3a14fa6d569322",
+  "profile_rotated_after_response_loss": true,
+  "read_only_discovery": {
+    "contract_version": "1.0",
+    "allowed_operations": [
+      "attachments",
+      "catalog",
+      "compare",
+      "discovery",
+      "download_report",
+      "machine_compare",
+      "machine_report",
+      "machine_run",
+      "machine_schema",
+      "machine_submission",
+      "me",
+      "readiness",
+      "report",
+      "run",
+      "runs",
+      "submission",
+      "task_catalog",
+      "usage"
+    ],
+    "task_count": 1,
+    "attachment_versions": [
+      "av-cb4b315c924e42c1a61d67d312df030f",
+      "av-1c53279e90614307897f2dcebcdfec60"
+    ]
+  },
+  "runs": [
+    {
+      "submission_id": "sub-00b8b2a376cb4438",
+      "run_id": "hh-0bc8ba4a98e04993",
+      "attachment": {
+        "attachment_id": null,
+        "attachment_version_id": null,
+        "bundle_id": null,
+        "bundle_digest": null,
+        "attachment_lineage": "none"
+      },
+      "resource": {
+        "state": "released",
+        "reason": "execution_lifecycle"
+      },
+      "audit": {
+        "state": "clean",
+        "reason": "original_audit"
+      },
+      "report_state": "available",
+      "score": {
+        "reward": 0.0
+      },
+      "valid_attempts": 1,
+      "effective": {
+        "dataset": "fixture/checker-cedar@1",
+        "agent": "oracle",
+        "attempts": 1,
+        "concurrency": 1,
+        "wall_seconds": 120,
+        "task": "fixture/checker-task"
+      }
+    },
+    {
+      "submission_id": "sub-92773dc1325e4734",
+      "run_id": "hh-77c2e1f133c4424f",
+      "attachment": {
+        "attachment_id": "att-48a26cd59db34890b0259057bcae5d37",
+        "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+        "bundle_id": "bundle-f90ee567452c44a2",
+        "bundle_digest": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9",
+        "attachment_lineage": "versioned"
+      },
+      "resource": {
+        "state": "released",
+        "reason": "execution_lifecycle"
+      },
+      "audit": {
+        "state": "clean",
+        "reason": "original_audit"
+      },
+      "report_state": "available",
+      "score": {
+        "reward": 1.0
+      },
+      "valid_attempts": 1,
+      "effective": {
+        "dataset": "fixture/checker-cedar@1",
+        "agent": "oracle",
+        "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+        "attempts": 1,
+        "concurrency": 1,
+        "wall_seconds": 120,
+        "task": "fixture/checker-task"
+      }
+    },
+    {
+      "submission_id": "sub-d6f79abd37e64605",
+      "run_id": "hh-d8a17750dcdc4992",
+      "attachment": {
+        "attachment_id": "att-48a26cd59db34890b0259057bcae5d37",
+        "attachment_version_id": "av-1c53279e90614307897f2dcebcdfec60",
+        "bundle_id": "bundle-946e6848c24a4b90",
+        "bundle_digest": "sha256:aa65235d12a05a04e1e27e47cb337c37d540e21541a50b4adaa3918e7c26d0d9",
+        "attachment_lineage": "versioned"
+      },
+      "resource": {
+        "state": "released",
+        "reason": "execution_lifecycle"
+      },
+      "audit": {
+        "state": "clean",
+        "reason": "original_audit"
+      },
+      "report_state": "available",
+      "score": {
+        "reward": 0.0
+      },
+      "valid_attempts": 1,
+      "effective": {
+        "dataset": "fixture/checker-cedar@1",
+        "agent": "oracle",
+        "attachment_version_id": "av-1c53279e90614307897f2dcebcdfec60",
+        "attempts": 1,
+        "concurrency": 1,
+        "wall_seconds": 120,
+        "task": "fixture/checker-task"
+      }
+    },
+    {
+      "submission_id": "sub-f4c2ccf518034cee",
+      "run_id": "hh-e61e4e2b7626413e",
+      "attachment": {
+        "attachment_id": null,
+        "attachment_version_id": null,
+        "bundle_id": null,
+        "bundle_digest": null,
+        "attachment_lineage": "none"
+      },
+      "resource": {
+        "state": "released",
+        "reason": "execution_lifecycle"
+      },
+      "audit": {
+        "state": "clean",
+        "reason": "original_audit"
+      },
+      "report_state": "available",
+      "score": {
+        "reward": 0.0
+      },
+      "valid_attempts": 1,
+      "effective": {
+        "dataset_id": "fixture-dataset",
+        "model_profile": null,
+        "agent": "oracle",
+        "bundle_id": null,
+        "attempts": 1,
+        "concurrency": 1,
+        "wall_seconds": 120,
+        "environment_build_timeout_multiplier": 10,
+        "task": null,
+        "name": ""
+      }
+    },
+    {
+      "submission_id": "sub-c30498f8263b4813",
+      "run_id": "hh-0cc2e2de04cd4633",
+      "attachment": {
+        "attachment_id": "att-48a26cd59db34890b0259057bcae5d37",
+        "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+        "bundle_id": "bundle-f90ee567452c44a2",
+        "bundle_digest": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9",
+        "attachment_lineage": "versioned"
+      },
+      "resource": {
+        "state": "released",
+        "reason": "execution_lifecycle"
+      },
+      "audit": {
+        "state": "clean",
+        "reason": "original_audit"
+      },
+      "report_state": "available",
+      "score": {
+        "reward": 1.0
+      },
+      "valid_attempts": 1,
+      "effective": {
+        "dataset_id": "fixture-dataset",
+        "model_profile": null,
+        "agent": "oracle",
+        "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+        "attempts": 1,
+        "concurrency": 1,
+        "wall_seconds": 120,
+        "environment_build_timeout_multiplier": 10,
+        "task": null,
+        "name": ""
+      }
+    },
+    {
+      "submission_id": "sub-a0220b06bd814f51",
+      "run_id": "hh-e1a601396c904d6f",
+      "attachment": {
+        "attachment_id": "att-48a26cd59db34890b0259057bcae5d37",
+        "attachment_version_id": "av-1c53279e90614307897f2dcebcdfec60",
+        "bundle_id": "bundle-946e6848c24a4b90",
+        "bundle_digest": "sha256:aa65235d12a05a04e1e27e47cb337c37d540e21541a50b4adaa3918e7c26d0d9",
+        "attachment_lineage": "versioned"
+      },
+      "resource": {
+        "state": "released",
+        "reason": "execution_lifecycle"
+      },
+      "audit": {
+        "state": "clean",
+        "reason": "original_audit"
+      },
+      "report_state": "available",
+      "score": {
+        "reward": 0.0
+      },
+      "valid_attempts": 1,
+      "effective": {
+        "dataset_id": "fixture-dataset",
+        "model_profile": null,
+        "agent": "oracle",
+        "attachment_version_id": "av-1c53279e90614307897f2dcebcdfec60",
+        "attempts": 1,
+        "concurrency": 1,
+        "wall_seconds": 120,
+        "environment_build_timeout_multiplier": 10,
+        "task": null,
+        "name": ""
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "left": "hh-0bc8ba4a98e04993",
+      "right": "hh-77c2e1f133c4424f",
+      "comparable": true,
+      "reasons": [],
+      "config_changes": {},
+      "bundle_change": {
+        "left": null,
+        "right": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9"
+      },
+      "attachment_inputs": {
+        "left": {
+          "kind": "none",
+          "attachment_version_id": null,
+          "bundle_id": null,
+          "digest": null
+        },
+        "right": {
+          "kind": "versioned",
+          "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+          "bundle_id": "bundle-f90ee567452c44a2",
+          "digest": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9"
+        }
+      },
+      "tasks": [
+        {
+          "task": "checker-task",
+          "left": {
+            "reward": 0.0
+          },
+          "right": {
+            "reward": 1.0
+          },
+          "delta": {
+            "reward": 1.0
+          }
+        }
+      ],
+      "mean_task_delta": {
+        "reward": 1.0
+      }
+    },
+    {
+      "left": "hh-77c2e1f133c4424f",
+      "right": "hh-d8a17750dcdc4992",
+      "comparable": true,
+      "reasons": [],
+      "config_changes": {},
+      "bundle_change": {
+        "left": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9",
+        "right": "sha256:aa65235d12a05a04e1e27e47cb337c37d540e21541a50b4adaa3918e7c26d0d9"
+      },
+      "attachment_inputs": {
+        "left": {
+          "kind": "versioned",
+          "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+          "bundle_id": "bundle-f90ee567452c44a2",
+          "digest": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9"
+        },
+        "right": {
+          "kind": "versioned",
+          "attachment_version_id": "av-1c53279e90614307897f2dcebcdfec60",
+          "bundle_id": "bundle-946e6848c24a4b90",
+          "digest": "sha256:aa65235d12a05a04e1e27e47cb337c37d540e21541a50b4adaa3918e7c26d0d9"
+        }
+      },
+      "tasks": [
+        {
+          "task": "checker-task",
+          "left": {
+            "reward": 1.0
+          },
+          "right": {
+            "reward": 0.0
+          },
+          "delta": {
+            "reward": -1.0
+          }
+        }
+      ],
+      "mean_task_delta": {
+        "reward": -1.0
+      }
+    },
+    {
+      "left": "hh-e61e4e2b7626413e",
+      "right": "hh-0cc2e2de04cd4633",
+      "comparable": true,
+      "reasons": [],
+      "config_changes": {},
+      "bundle_change": {
+        "left": null,
+        "right": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9"
+      },
+      "attachment_inputs": {
+        "left": {
+          "kind": "none",
+          "attachment_version_id": null,
+          "bundle_id": null,
+          "digest": null
+        },
+        "right": {
+          "kind": "versioned",
+          "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+          "bundle_id": "bundle-f90ee567452c44a2",
+          "digest": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9"
+        }
+      },
+      "tasks": [
+        {
+          "task": "checker-task",
+          "left": {
+            "reward": 0.0
+          },
+          "right": {
+            "reward": 1.0
+          },
+          "delta": {
+            "reward": 1.0
+          }
+        }
+      ],
+      "mean_task_delta": {
+        "reward": 1.0
+      }
+    },
+    {
+      "left": "hh-0cc2e2de04cd4633",
+      "right": "hh-e1a601396c904d6f",
+      "comparable": true,
+      "reasons": [],
+      "config_changes": {},
+      "bundle_change": {
+        "left": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9",
+        "right": "sha256:aa65235d12a05a04e1e27e47cb337c37d540e21541a50b4adaa3918e7c26d0d9"
+      },
+      "attachment_inputs": {
+        "left": {
+          "kind": "versioned",
+          "attachment_version_id": "av-cb4b315c924e42c1a61d67d312df030f",
+          "bundle_id": "bundle-f90ee567452c44a2",
+          "digest": "sha256:a67378fe851a0aee68e1b937e1b8cad0d98fe84d9c610eff7fe19d4d26dea8f9"
+        },
+        "right": {
+          "kind": "versioned",
+          "attachment_version_id": "av-1c53279e90614307897f2dcebcdfec60",
+          "bundle_id": "bundle-946e6848c24a4b90",
+          "digest": "sha256:aa65235d12a05a04e1e27e47cb337c37d540e21541a50b4adaa3918e7c26d0d9"
+        }
+      },
+      "tasks": [
+        {
+          "task": "checker-task",
+          "left": {
+            "reward": 1.0
+          },
+          "right": {
+            "reward": 0.0
+          },
+          "delta": {
+            "reward": -1.0
+          }
+        }
+      ],
+      "mean_task_delta": {
+        "reward": -1.0
+      }
+    }
+  ],
+  "scope": "independent checker story (cedar/quartz/opal inputs) on candidate Python service + loopback HTTP + fixture source/execution adapters; no Hub, Docker, Harbor, model or paid request",
+  "synthetic_audit_damage": {
+    "contract_version": "1.0",
+    "kind": "run",
+    "id": "hh-e1a601396c904d6f",
+    "status": "succeeded",
+    "user_id": "044e53195e1742edae3a14fa6d569322",
+    "access_credential_id": null,
+    "run_id": "hh-e1a601396c904d6f",
+    "parent": null,
+    "resource": {
+      "state": "released",
+      "reason": "execution_lifecycle"
+    },
+    "audit": {
+      "state": "incomplete",
+      "reason": "original_audit"
+    },
+    "report": {
+      "state": "blocked",
+      "reason": "audit_incomplete"
+    },
+    "poll_after_seconds": null,
+    "report_url": null,
+    "attachment": {
+      "attachment_id": "att-48a26cd59db34890b0259057bcae5d37",
+      "attachment_version_id": "av-1c53279e90614307897f2dcebcdfec60",
+      "bundle_id": "bundle-946e6848c24a4b90",
+      "bundle_digest": "sha256:aa65235d12a05a04e1e27e47cb337c37d540e21541a50b4adaa3918e7c26d0d9",
+      "attachment_lineage": "versioned"
+    }
+  },
+  "old_token_revoked": true,
+  "historical_v1_manifest_unchanged_after_v3": "93638bd150af3e7186e7bc00cb22441de0fdb5eb651da093668fe93cd4785bd4"
+}

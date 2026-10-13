@@ -1,0 +1,18 @@
+{
+  "service_url": "http://127.0.0.1:53599",
+  "member_id": "044e53195e1742edae3a14fa6d569322",
+  "dataset_id": "fixture-dataset",
+  "dataset_reference": "fixture/checker-cedar@1",
+  "task": "fixture/checker-task",
+  "agent": "oracle",
+  "score_source": "checker-verifier-v1",
+  "attempts": 1,
+  "concurrency": 1,
+  "wall_seconds": 120,
+  "environment_build_timeout_multiplier": "service default, frozen value to verify",
+  "attachment_versions": [
+    "av-cb4b315c924e42c1a61d67d312df030f",
+    "av-1c53279e90614307897f2dcebcdfec60"
+  ],
+  "authorization": "read-only discovery completed; separately authorized isolated Oracle submissions"
+}

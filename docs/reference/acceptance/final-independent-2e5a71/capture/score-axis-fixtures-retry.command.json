@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "uv",
+    "run",
+    "--locked",
+    "python",
+    "/tmp/hh-checker-independent-2e5a71-20261012/score-axis-fixture.py"
+  ],
+  "cwd": "/tmp/hh-checker-wt-2e5a71-20261012",
+  "env_allowlist": {
+    "PATH": "/home/pc/.local/bin:/usr/bin:/bin",
+    "HOME": "/tmp/hh-checker-independent-2e5a71-20261012/home",
+    "XDG_CONFIG_HOME": "/tmp/hh-checker-independent-2e5a71-20261012/home/.config",
+    "XDG_CACHE_HOME": "/tmp/hh-checker-independent-2e5a71-20261012/home/.cache",
+    "XDG_DATA_HOME": "/tmp/hh-checker-independent-2e5a71-20261012/home/.local/share",
+    "UV_CACHE_DIR": "/tmp/hh-checker-independent-2e5a71-20261012/uv-cache",
+    "LANG": "C.UTF-8"
+  },
+  "candidate_sha": "2e5a71f2e7e47c6b19cca2d2219ae62384502097",
+  "started_unix": 1791811530.0759878
+}

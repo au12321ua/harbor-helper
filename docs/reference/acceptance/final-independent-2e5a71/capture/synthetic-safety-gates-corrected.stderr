@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/hh-checker-independent-2e5a71-20261012/post-run-safety.py", line 38, in <module>
+    assert a['resource']['state']=='released' and a['audit']['state']=='incomplete' and a['report']['state']=='blocked',a
+           ~^^^^^^^^^^^^
+TypeError: 'NoneType' object is not subscriptable

@@ -1,0 +1,31 @@
+{
+  "contract_version": "1.0",
+  "kind": "submission",
+  "id": "sub-51ff84c70732463b",
+  "status": "ready",
+  "user_id": "044e53195e1742edae3a14fa6d569322",
+  "access_credential_id": null,
+  "run_id": "hh-adaca83b0ffc4a39",
+  "parent": "hh-e61e4e2b7626413e",
+  "resource": {
+    "state": "released",
+    "reason": "execution_lifecycle"
+  },
+  "audit": {
+    "state": "clean",
+    "reason": "original_audit"
+  },
+  "report": {
+    "state": "available",
+    "reason": "safe_report"
+  },
+  "poll_after_seconds": null,
+  "report_url": "/api/v1/machine/runs/hh-adaca83b0ffc4a39/report",
+  "attachment": {
+    "attachment_id": null,
+    "attachment_version_id": null,
+    "bundle_id": null,
+    "bundle_digest": null,
+    "attachment_lineage": "legacy/unknown"
+  }
+}

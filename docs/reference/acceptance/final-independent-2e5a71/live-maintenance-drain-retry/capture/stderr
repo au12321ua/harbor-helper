@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/hh-checker-independent-2e5a71-20261012/maintenance-drain-driver.py", line 42, in <module>
+    if browser.returncode:raise RuntimeError('browser drain flow failed; raw browser stderr retained')
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: browser drain flow failed; raw browser stderr retained

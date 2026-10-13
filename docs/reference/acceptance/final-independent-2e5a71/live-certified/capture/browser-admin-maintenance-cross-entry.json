@@ -1,0 +1,17 @@
+{
+  "paused": {
+    "paused": true,
+    "reason": "独立验收维护窗口",
+    "retry_at": null,
+    "updated": 1791811766.507143
+  },
+  "rejected_status": 503,
+  "rejected_code": "maintenance_paused",
+  "old_key_lookup_id": "sub-00b8b2a376cb4438",
+  "resumed": {
+    "paused": false,
+    "reason": "",
+    "retry_at": null,
+    "updated": 1791811766.557536
+  }
+}

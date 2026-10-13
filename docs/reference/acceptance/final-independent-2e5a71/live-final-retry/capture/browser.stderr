@@ -1,0 +1,16 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '新建实验', exact: true })
+
+    at /tmp/hh-checker-wt-2e5a71-20261012/frontend/qa/independent-final-browser.mjs:34:8 {
+  log: [
+    "  - waiting for getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '新建实验', exact: true })"
+  ],
+  name: 'TimeoutError'
+}
+
+Node.js v22.23.1

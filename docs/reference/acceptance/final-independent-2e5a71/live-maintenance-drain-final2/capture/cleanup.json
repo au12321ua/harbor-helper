@@ -1,0 +1,11 @@
+{
+  "api_pid": 2290772,
+  "api_exit": -15,
+  "supervisor_pid": 2290787,
+  "supervisor_exit": -15,
+  "api_port": 41677,
+  "api_port_closed": true,
+  "live_worker_birth_matches": [
+    "hh-c3e172cd12c54e1a"
+  ]
+}

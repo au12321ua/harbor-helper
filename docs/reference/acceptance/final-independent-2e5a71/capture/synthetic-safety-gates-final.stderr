@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/hh-checker-independent-2e5a71-20261012/post-run-safety.py", line 31, in <module>
+    assert readonly.returncode==0,readonly.stderr
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b"harbor-helper: [Errno 2] No such file or directory: '/tmp/hh-checker-independent-2e5a71-20261012/live-verified/private/research-read-only.pat'\n"

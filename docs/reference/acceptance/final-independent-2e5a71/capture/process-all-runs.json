@@ -1,0 +1,85 @@
+{
+  "candidate_sha": "2e5a71f2e7e47c6b19cca2d2219ae62384502097",
+  "isolated_roots": [
+    {
+      "root": "live",
+      "run_rows": 3,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": []
+    },
+    {
+      "root": "live-certified",
+      "run_rows": 7,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": [
+        true
+      ]
+    },
+    {
+      "root": "live-complete",
+      "run_rows": 4,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": []
+    },
+    {
+      "root": "live-corrected",
+      "run_rows": 4,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": []
+    },
+    {
+      "root": "live-final",
+      "run_rows": 0,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": []
+    },
+    {
+      "root": "live-final-retry",
+      "run_rows": 3,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": []
+    },
+    {
+      "root": "live-retry",
+      "run_rows": 3,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": []
+    },
+    {
+      "root": "live-verified",
+      "run_rows": 6,
+      "live_birth_matches": [],
+      "recorded_service_proxy_ports_closed": [
+        true
+      ],
+      "post_run_ports_closed": [
+        true,
+        true,
+        true,
+        true
+      ]
+    }
+  ],
+  "live_worker_birth_matches": []
+}
