@@ -51,7 +51,7 @@ cd ..
 
 构建写入`src/harbor_helper/static/`。生产只运行下面一个HTTP服务，它同时提供网页和相对`/api/v1`接口；不需要启动Vite或单独部署前端。
 
-选择全新服务目录和**state之外**的私有部署目录。下面是当前账号可写的示例；不要用旧本地团队目录或已有服务重新初始化：
+选择全新服务目录和**state之外**的私有部署目录。下面是当前账号可写的示例；不要用已有服务目录重新初始化：
 
 ```bash
 mkdir -p "$HOME/harbor-helper/service" "$HOME/harbor-helper-private"
@@ -95,6 +95,5 @@ cat "$HOME/harbor-helper-private/setup-token"
 ## 其他入口
 
 - [远程CLI](docs/guides/web-service.md#成员远程-cli)：可选的自动化入口，使用成员账户而非个人模型key。
-- [旧本地CLI](docs/guides/local-cli.md)：直接访问旧本地state的兼容模式，与团队Web身份分开。
 - [文档导航](docs/README.md)：安装、运行、架构、验收标准及历史设计。
-- [开发交接](docs/HANDOFF.md)：维护入口、兼容与验证边界。
+- [开发交接](docs/HANDOFF.md)：维护入口、兼容策略与验证边界。

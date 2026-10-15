@@ -20,7 +20,6 @@ from harbor_helper.security.credentials import (
     RedactedStream,
     audit_run,
     install_docker_credential_forwarding,
-    legacy_secrets,
     redact_value,
     runtime_secrets,
     scrub_file,
@@ -125,35 +124,18 @@ def stop_group(row):
     raise RuntimeError("Worker descendants still active; capacity retained")
 
 
-def service_mode(store):
-    return (store.root / "service.json").exists()
-
-
 def audit_finished(store, row):
     """Publish evidence only with a complete audit; never reserve execution capacity."""
-    secrets = [] if service_mode(store) else runtime_secrets()
+    secrets = []
     audit = None
     try:
         path = store.path(row["id"])
         manifest = read_json(path / "manifest.json")
         cfg = manifest["effective"]
-        if service_mode(store):
-            from harbor_helper.service.data import ServiceData
+        from harbor_helper.service.data import ServiceData
 
-            key = ServiceData(store.root).run_key(row["id"], execution=False)
-        else:
-            from harbor_helper.security.local_auth import Auth
-
-            auth = Auth(store.root)
-            key = auth.audit_run_key(row["id"])
-            if (
-                cfg["agent"] == "opencode"
-                and cfg["model"].get("credential_env")
-                and auth.bound_record(row["id"]) is None
-                and not legacy_secrets()
-            ):
-                raise RuntimeError("Legacy credential audit source unavailable")
-        if key and key not in secrets:
+        key = ServiceData(store.root).run_key(row["id"], execution=False)
+        if key:
             secrets.append(key)
         if cfg["agent"] == "opencode" and cfg["model"].get("credential_env") and not secrets:
             raise RuntimeError("Credential audit source unavailable")
@@ -189,7 +171,6 @@ def audit_finished(store, row):
 
 
 def finish(store, row, status, reason):
-    secrets = [] if service_mode(store) else runtime_secrets()
     try:
         stop_group(row)
         cleanup(store.path(row["id"]))
@@ -205,21 +186,14 @@ def finish(store, row, status, reason):
     store.update(
         row["id"],
         status=status,
-        reason=redact_value(reason, secrets),
+        reason=redact_value(reason, []),
         finished=time.time(),
     )
     audit_finished(store, store.get(row["id"]))
 
 
 def tick(store, children):
-    if service_mode(store):
-        with store.control():
-            _tick(store, children)
-        return
-    from harbor_helper.security.local_auth import runtime_context
-
-    legacy = legacy_secrets()
-    with store.control(), runtime_context(store.root, legacy_key=legacy[0] if legacy else None):
+    with store.control():
         _tick(store, children)
 
 
@@ -261,36 +235,23 @@ def _tick(store, children):
             )
             audit_finished(store, store.get(row["id"]))
             continue
-        from harbor_helper.security.credentials import KEY_ENV, LEGACY_KEY_ENV
+        from harbor_helper.security.credentials import KEY_ENV
+        from harbor_helper.service.data import ServiceData
 
-        path = store.path(row["id"])
-        cfg = read_json(path / "manifest.json")["effective"]
         environment = safe_environment()
-        environment.pop(KEY_ENV, None)
-        environment.pop(LEGACY_KEY_ENV, None)
-        if cfg["agent"] == "opencode" or service_mode(store):
-            try:
-                if service_mode(store):
-                    from harbor_helper.service.data import ServiceData
-
-                    key = ServiceData(store.root).run_key(row["id"], execution=True)
-                else:
-                    from harbor_helper.security.local_auth import Auth
-
-                    _, key = Auth(store.root).worker_credentials(
-                        row["id"], cfg["model"]["endpoint"]
-                    )
-                if key:
-                    environment[KEY_ENV] = key
-            except ValueError:
-                store.update(
-                    row["id"],
-                    status="failed",
-                    finished=time.time(),
-                    reason="Execution authorization unavailable; worker not started",
-                )
-                audit_finished(store, store.get(row["id"]))
-                continue
+        try:
+            key = ServiceData(store.root).run_key(row["id"], execution=True)
+            if key:
+                environment[KEY_ENV] = key
+        except ValueError:
+            store.update(
+                row["id"],
+                status="failed",
+                finished=time.time(),
+                reason="Execution authorization unavailable; worker not started",
+            )
+            audit_finished(store, store.get(row["id"]))
+            continue
         if len(active) >= team["max_jobs"] or slots + row["concurrency"] > team["max_trials"]:
             continue
         path = store.path(row["id"])
@@ -321,14 +282,8 @@ def _tick(store, children):
 def supervise(root):
     from harbor_helper.security import credentials
 
-    # Native auto-loaded KEY_ENV is not an explicit historical source.
     store = Store(root)
-    if service_mode(store):
-        os.environ.pop(credentials.KEY_ENV, None)
-        os.environ.pop(credentials.LEGACY_KEY_ENV, None)
-        credentials.AUDIT_SECRETS = []
-    legacy = os.environ.get(credentials.LEGACY_KEY_ENV)
-    credentials.LEGACY_SECRETS = [legacy] if legacy else []
+    os.environ.pop(credentials.KEY_ENV, None)
     secrets = runtime_secrets()
     sys.stdout = RedactedStream(sys.stdout, secrets)
     sys.stderr = RedactedStream(sys.stderr, secrets)
@@ -342,7 +297,7 @@ def supervise(root):
         )
         children = {}
         # Keep cancellation/recovery/wall checks responsive during Hub downloads.
-        preparation_pool = ThreadPoolExecutor(max_workers=1) if service_mode(store) else None
+        preparation_pool = ThreadPoolExecutor(max_workers=1)
         preparation = None
         maintained = time.monotonic()
         while True:
@@ -355,7 +310,7 @@ def supervise(root):
                         "observed": time.time(),
                     },
                 )
-                if preparation_pool and (preparation is None or preparation.done()):
+                if preparation is None or preparation.done():
                     from harbor_helper.service.lifecycle import prepare_one
 
                     if preparation is not None:
@@ -363,17 +318,14 @@ def supervise(root):
                         completed.result()
                     preparation = preparation_pool.submit(prepare_one, store)
                 tick(store, children)
-                if preparation_pool and time.monotonic() - maintained >= 30:
+                if time.monotonic() - maintained >= 30:
                     from harbor_helper.service.lifecycle import maintenance
 
                     with store.control():
                         maintenance(store)
                     maintained = time.monotonic()
             except Exception as e:  # noqa: BLE001 - persist/diagnose third-party Harbor errors
-                if service_mode(store):
-                    print(f"Scheduler error: {type(e).__name__}", flush=True)
-                else:
-                    print(f"Scheduler error: {type(e).__name__}: {e}", flush=True)
+                print(f"Scheduler error: {type(e).__name__}", flush=True)
             time.sleep(0.5)
 
 
@@ -402,19 +354,13 @@ async def execute(store, run_id):
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise RuntimeError("Worker loaded the wrong Harbor version")
     model = manifest["effective"]["model"]
-    if manifest["effective"]["agent"] == "opencode" or service_mode(store):
-        if service_mode(store):
-            from harbor_helper.service.data import ServiceData
+    from harbor_helper.service.data import ServiceData
 
-            key = ServiceData(store.root).run_key(run_id, execution=True)
-        else:
-            from harbor_helper.security.local_auth import Auth
-
-            _, key = Auth(store.root).worker_credentials(run_id, model["endpoint"])
-        if key:
-            os.environ["VLLM_API_KEY"] = key
-        elif manifest["effective"]["agent"] == "opencode" and model.get("credential_env"):
-            raise RuntimeError("Model credential unavailable; worker execution refused")
+    key = ServiceData(store.root).run_key(run_id, execution=True)
+    if key:
+        os.environ["VLLM_API_KEY"] = key
+    elif manifest["effective"]["agent"] == "opencode" and model.get("credential_env"):
+        raise RuntimeError("Model credential unavailable; worker execution refused")
     job = await Job.create(JobConfig.model_validate(read_json(path / "job.json")))
     projects, trials = [], []
     for cfg in job._trial_configs:
@@ -466,14 +412,10 @@ def run(root, run_id):
         try:
             outcome = asyncio.run(execute(store, run_id))
         except Exception as e:  # noqa: BLE001 - persist/diagnose third-party Harbor errors
-            if service_mode(store):
-                # Do not persist provider payloads from exception strings. Complete
-                # details remain available only in separately audited task evidence.
-                print(f"Harbor startup/execution failed: {type(e).__name__}", flush=True)
-                outcome = {"status": "failed", "reason": "Worker execution failed"}
-            else:
-                print(f"Harbor startup/execution failed: {type(e).__name__}: {e}", flush=True)
-                outcome = {"status": "failed", "reason": f"{type(e).__name__}: {e}"}
+            # Do not persist provider payloads from exception strings. Complete
+            # details remain available only in separately audited task evidence.
+            print(f"Harbor startup/execution failed: {type(e).__name__}", flush=True)
+            outcome = {"status": "failed", "reason": "Worker execution failed"}
         sys.stdout.finish()
         sys.stderr.finish()
         redact_files(path, secrets)

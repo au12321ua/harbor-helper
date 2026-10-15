@@ -19,8 +19,7 @@ STATUS = {
     "cancelled": "已取消",
 }
 LABELS = {
-    "state": "团队目录",
-    "config": "配置文件",
+    "state": "服务目录",
     "run_id": "运行 ID",
     "id": "运行 ID",
     "created": "提交时间",
@@ -28,34 +27,9 @@ LABELS = {
     "finished": "完成时间",
     "concurrency": "并发数",
     "parent": "原运行 ID",
-    "evidence": "证据目录",
     "status": "状态",
     "reason": "说明",
-    "endpoint": "模型服务",
-    "source": "凭据来源",
-    "valid": "登录可用",
-    "logged_in": "已登录",
-    "logged_out": "已退出登录",
-    "expired": "已到期",
-    "expires_at": "到期时间",
-    "key_available": "凭据可读取",
-    "endpoint_matches": "服务配置匹配",
-    "authentication_verified": "已验证服务认证",
-    "execution_revoked": "新执行资格已撤销",
-    "historical_audit_retained": "保留历史审计来源",
-    "audit_retained": "保留历史审计来源",
-    "audit_sessions": "历史审计来源数",
-    "audit_incomplete": "审计不完整",
-    "audit_complete": "审计完整",
-    "unavailable_sources": "不可用审计来源数",
-    "files_scanned": "已扫描文件",
-    "matched_files": "命中文件",
-    "unreadable_files": "不可读文件",
-    "clean": "扫描通过",
-    "scheduler": "调度器",
-    "stopped": "已确认停止",
     "detail": "说明",
-    "next_command": "下一步",
 }
 
 
@@ -96,7 +70,7 @@ def _fields(console, value, *, title=None, omit=()):
     for key, item in value.items():
         if key in omit:
             continue
-        if key in {"expires_at", "created", "started", "finished"}:
+        if key in {"created", "started", "finished"}:
             content = _timestamp(item)
         elif key == "status":
             content = _status(item)
@@ -190,26 +164,9 @@ def render(command, value, *, json_output=False):
         _report(console, value)
     elif command == "compare":
         _compare(console, value)
-    elif command == "doctor":
-        rows = _table("环境检查", "检查项", "结果", "说明 / 修复")
-        for check in value.get("checks", []):
-            state = "通过" if check["ok"] else "失败" if check.get("required", True) else "可选"
-            detail = (
-                check.get("detail", check.get("actual", ""))
-                if check["ok"]
-                else check.get("fix", check.get("detail", ""))
-            )
-            rows.add_row(Text(str(check["check"])), Text(state), Text(_display(detail)))
-        console.print(rows)
-        console.print("未发送模型请求；环境检查不验证模型认证。", markup=False)
     else:
         _fields(console, value, title=command, omit=("status_command", "pid", "birth", "cancel"))
-        if command in {"submit", "rerun"} and value.get("run_id"):
-            _hint(console, "status", value["run_id"])
-            _hint(console, "logs", value["run_id"])
-        elif command == "status":
+        if command == "status":
             _hint(console, "report", value.get("id", value.get("run_id", "<run-id>")))
-        elif command.startswith("auth"):
-            console.print("仅为本地登录状态，不代表服务认证已验证。", markup=False)
         elif command == "cancel":
             console.print("取消请求已记录；终态 cancelled 才确认停止与清理。", markup=False)

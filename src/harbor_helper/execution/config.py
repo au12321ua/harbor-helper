@@ -80,38 +80,6 @@ def load_team(store):
     return team
 
 
-def effective(team, args):
-    preset = args.preset
-    if preset not in team["presets"]:
-        raise ValueError(f"Unknown preset: {preset}")
-    cfg = dict(team["presets"][preset])
-    if set(cfg) - {"agent", "attempts", "concurrency", "wall_seconds"}:
-        raise ValueError("Unknown preset option")
-    cfg.update(
-        dataset=team["dataset"],
-        model=team["model"],
-        runtime_image=team["runtime_image"],
-        runtime_image_env=team["runtime_image_env"],
-        max_cpus_per_trial=team["max_cpus_per_trial"],
-        max_memory_mb_per_trial=team["max_memory_mb_per_trial"],
-    )
-    for k in ("agent", "attempts", "concurrency", "wall_seconds", "dataset"):
-        if getattr(args, k, None) is not None:
-            cfg[k] = getattr(args, k)
-    selected_model = getattr(args, "model", None)
-    if selected_model:
-        if not cfg["model"]:
-            raise ValueError(
-                "Configure the maintainer compatible endpoint before selecting a model"
-            )
-        cfg["model"] = dict(cfg["model"])
-        if selected_model != cfg["model"]["name"]:
-            cfg["model"].update(name=selected_model, declared_version="unknown")
-    cfg["task_filter"] = getattr(args, "task", None)
-    validate_effective(team, cfg)
-    return cfg
-
-
 def validate_effective(team, cfg):
     from harbor_helper.execution.author_inputs import validate_values
 

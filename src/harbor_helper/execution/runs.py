@@ -1,4 +1,3 @@
-import asyncio
 import importlib.metadata
 import math
 import os
@@ -21,7 +20,7 @@ from harbor_helper.execution.config import (
     validate_effective,
 )
 from harbor_helper.execution.processes import safe_environment
-from harbor_helper.execution.sources import resolve_dataset, verify_inputs
+from harbor_helper.execution.sources import verify_inputs
 from harbor_helper.persistence.files import read_json, tree_digest, write_json
 
 
@@ -251,19 +250,14 @@ def submit(
     bundle=None,
     parent=None,
     *,
-    service=None,
+    service,
     run_id=None,
     start_supervisor=True,
 ):
-    from harbor_helper.security.local_auth import Auth
-
-    if parent and (service is None or cfg is None):
+    if parent and cfg is None:
         cfg = read_json(store.path(parent) / "manifest.json")["effective"]
     validate_effective(team, cfg)
-    native = service is not None and service.get("execution_mode") == "harbor-native"
-    session = None
-    if cfg["agent"] == "opencode" and service is None:
-        session, _ = Auth(store.root).execution(cfg["model"]["endpoint"])
+    native = service.get("execution_mode") == "harbor-native"
 
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise ValueError("Wrong Harbor version; install with uv sync --locked")
@@ -277,8 +271,6 @@ def submit(
             old_path = store.path(parent)
             old = read_json(old_path / "manifest.json")
             verify_inputs(old_path, old)
-            if service is None:
-                cfg = old["effective"]
             validate_effective(team, cfg)
             for name in ("tasks", "bundle"):
                 if (old_path / name).exists():
@@ -291,24 +283,17 @@ def submit(
                 raise ValueError("Fixed runtime image unavailable")
         else:
             validate_effective(team, cfg)
-            if service is not None:
-                from harbor_helper.service.configuration import TeamConfiguration
-                from harbor_helper.service.data import ServiceData
-                from harbor_helper.service.sources import source_call
+            from harbor_helper.service.configuration import TeamConfiguration
+            from harbor_helper.service.data import ServiceData
+            from harbor_helper.service.sources import source_call
 
-                config = TeamConfiguration(ServiceData(store))
-                key = (
-                    config.hub_key(service["source_version"])
-                    if service.get("source_version")
-                    else None
-                )
-                source = source_call(
-                    cfg["dataset"], key=key, target=path / "tasks", task=cfg["task_filter"]
-                )
-            else:
-                source = asyncio.run(
-                    resolve_dataset(cfg["dataset"], path / "tasks", cfg["task_filter"])
-                )
+            config = TeamConfiguration(ServiceData(store))
+            key = (
+                config.hub_key(service["source_version"]) if service.get("source_version") else None
+            )
+            source = source_call(
+                cfg["dataset"], key=key, target=path / "tasks", task=cfg["task_filter"]
+            )
             digest = None
             if bundle:
                 bundle = Path(bundle).expanduser().resolve()
@@ -316,7 +301,7 @@ def submit(
                 shutil.copytree(bundle, path / "bundle")
                 check_bundle(path / "bundle")
                 digest = tree_digest(path / "bundle")
-                if service and service.get("bundle_digest") and service["bundle_digest"] != digest:
+                if service.get("bundle_digest") and service["bundle_digest"] != digest:
                     raise ValueError("Fixed bundle snapshot unavailable or changed")
             image = None if native else image_identity(cfg["runtime_image"])
         if native and service.get("author_input_check"):
@@ -430,45 +415,29 @@ def submit(
             )
             manifest.pop("image_id")
             manifest.pop("image_alias")
-        if service is not None:
-            manifest["service"] = service
+        manifest["service"] = service
         if native and "environment_build_timeout_multiplier" in cfg:
             manifest["startup_policy"] = startup_policy(path, manifest)
         verify_inputs(path, manifest)
         write_json(path / "manifest.json", manifest)
         write_json(path / "job.json", job_config(path, manifest))
-        if session:
-            Auth(store.root).bind(run_id, session["id"])
+        from harbor_helper.service.data import ServiceData
 
-        def publish():
-            if service is not None:
-                from harbor_helper.service.data import ServiceData
-
-                if not ServiceData(store.root).allow_publish(service["submission_id"]):
-                    raise ValueError("Submission cancelled before queue publication")
+        # Network preparation above is deliberately outside the shared queue lock.
+        with store.control():
+            if not ServiceData(store.root).allow_publish(service["submission_id"]):
+                raise ValueError("Submission cancelled before queue publication")
             with store.connect() as db:
                 db.execute(
                     "INSERT INTO runs(id,status,created,concurrency,parent) VALUES(?,?,?,?,?)",
                     (run_id, "queued", time.time(), cfg["concurrency"], parent),
                 )
-
-        # Network preparation above is deliberately outside the shared queue lock.
-        # The local CLI already holds this lock; do not acquire a second flock.
-        if service is not None:
-            with store.control():
-                publish()
-        else:
-            publish()
     except BaseException:
         shutil.rmtree(path)
         raise
     if start_supervisor:
         ensure_supervisor(store)
-    return {
-        "run_id": run_id,
-        "state": str(store.root),
-        "status_command": f"harbor-helper --state {store.root} status {run_id}",
-    }
+    return {"run_id": run_id}
 
 
 def scheduler_identity(store):
@@ -488,10 +457,9 @@ def stop_supervisor(store, timeout=10):
 
     if any(row["status"] not in TERMINAL for row in store.runs()):
         raise ValueError("Only stop idle scheduler; cancel/wait for all tasks first")
-    if (store.root / "service.json").exists():
-        with store.connect() as db:
-            if db.execute("SELECT 1 FROM submissions WHERE status='preparing' LIMIT 1").fetchone():
-                raise ValueError("Input preparation active; wait before stopping scheduler")
+    with store.connect() as db:
+        if db.execute("SELECT 1 FROM submissions WHERE status='preparing' LIMIT 1").fetchone():
+            raise ValueError("Input preparation active; wait before stopping scheduler")
     identity = scheduler_identity(store)
     if identity:
         try:
@@ -512,11 +480,6 @@ def ensure_supervisor(store):
     if scheduler_identity(store):
         return
     environment = safe_environment()
-    if (store.root / "service.json").exists():
-        from harbor_helper.security.credentials import KEY_ENV, LEGACY_KEY_ENV
-
-        environment.pop(KEY_ENV, None)
-        environment.pop(LEGACY_KEY_ENV, None)
     with (store.root / "supervisor.log").open("a") as log:
         subprocess.Popen(
             [sys.executable, "-m", "harbor_helper.execution.worker", "supervise", str(store.root)],

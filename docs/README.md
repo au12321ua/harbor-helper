@@ -7,8 +7,7 @@
 - [0.2.0交付说明](releases/0.2.0.md)、[升级后的浏览器体验](guides/0.2.0-browser.md)、[发布与升级交接](guides/0.2.0-upgrade.md)：dev已整合，正式旧版尚未升级/tag/发布。
 
 - [Web服务指南](guides/web-service.md)：管理员配置、远程CLI、完整停机、备份与审计。
-- [本地CLI](guides/local-cli.md)、[配置](guides/local-configuration.md)、[操作](guides/local-operations.md)：旧本地模式兼容入口。
-- [前端开发](../frontend/README.md)、[源码职责与兼容](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
+- [前端开发](../frontend/README.md)、[源码职责](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
 - [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
 - [自动化授权与机器 API](reference/automation-api.md)：固定能力、schema、状态、幂等与薄 CLI；迁移/回退边界。
 - [研究客户端 skill](guides/research-skill.md)：可移植发布源、安装/调用与无附件/明确版本对照流程。
@@ -21,7 +20,7 @@
 ## 历史设计与验收条件
 
 - [团队服务设计](archive/team-service/service-design.md)。
-- [早期本地CLI设计](archive/local-cli/v0-design.md)、[一次登录设计](archive/local-cli/usability-design.md)、[本地CLI验收条件](archive/local-cli/acceptance.md)、[成员试用步骤](archive/local-cli/member-acceptance.md)。
+- 已移除的旧本地CLI：[早期设计](archive/local-cli/v0-design.md)、[一次登录设计](archive/local-cli/usability-design.md)、[本地CLI验收条件](archive/local-cli/acceptance.md)、[成员试用步骤](archive/local-cli/member-acceptance.md)。
 - [Harbor原生环境与缓存设计](archive/harbor-native/harbor-native-environment-design.md)。
 - [已否定的任务环境方案](archive/rejected-task-environment/task-environment-design.md)：只用于解释历史取舍，不能恢复为当前约束。
 

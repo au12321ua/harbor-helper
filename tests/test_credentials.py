@@ -1,5 +1,4 @@
 import asyncio
-import importlib.util
 import io
 import json
 import os
@@ -8,7 +7,6 @@ import sqlite3
 import subprocess
 import sys
 import time
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -277,9 +275,10 @@ def test_opencode_rejects_wrong_version_after_install(tmp_path):
 def test_hard_exit_scrubs_before_report_and_audits_database(tmp_path, monkeypatch):
     from harbor_helper.execution.config import DEFAULT
 
-    monkeypatch.setenv("VLLM_API_KEY", MARKER)
     store, path = fixture_run(tmp_path / "state")
     write_json(store.root / "team.json", DEFAULT)
+    write_json(store.root / "service.json", {})
+    monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", lambda *_, **__: MARKER)
     native = path / "harbor" / "job" / "box"
     native.mkdir(parents=True)
     write_json(
@@ -309,27 +308,3 @@ def test_hard_exit_scrubs_before_report_and_audits_database(tmp_path, monkeypatc
     assert json.loads((path / "credential-audit.json").read_text())["clean"]
     assert MARKER not in (path / "report.json").read_text()
     assert frozen.read_text() == "unchanged task"
-
-
-def test_launcher_restores_env_and_redacts_cli_error(tmp_path, monkeypatch, capsys):
-    key = tmp_path / "key"
-    key.write_text(MARKER)
-    key.chmod(0o600)
-    spec = importlib.util.spec_from_file_location("launcher", Path("scripts/with_model_key.py"))
-    launcher = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(launcher)
-    monkeypatch.setenv("VLLM_API_KEY", "previous-runtime-value")
-    monkeypatch.setattr(sys, "argv", ["launcher", "--key-file", str(key), "--", "recover"])
-
-    def fake_cli():
-        assert os.environ["VLLM_API_KEY"] == MARKER
-        print(MARKER[:10], end="")
-        print(MARKER[10:])
-        raise RuntimeError(MARKER)
-
-    monkeypatch.setattr("harbor_helper.commands.main.main", fake_cli)
-    assert launcher.main() == 1
-    assert os.environ["VLLM_API_KEY"] == "previous-runtime-value"
-    output = capsys.readouterr()
-    assert MARKER not in output.out + output.err
-    assert "[REDACTED]" in output.out

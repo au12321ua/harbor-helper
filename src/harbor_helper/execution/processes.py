@@ -47,6 +47,4 @@ def safe_environment():
         "no_proxy",
         "SSL_CERT_FILE",
     }
-    from harbor_helper.security.credentials import KEY_ENV, LEGACY_KEY_ENV
-
-    return {k: v for k, v in os.environ.items() if k in keep or k in {KEY_ENV, LEGACY_KEY_ENV}}
+    return {k: v for k, v in os.environ.items() if k in keep}

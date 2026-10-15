@@ -1,4 +1,3 @@
-import argparse
 import copy
 import fcntl
 import json
@@ -10,7 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from harbor_helper.execution.config import DEFAULT, effective, load_team, reject_secrets
+from harbor_helper.execution.config import (
+    DEFAULT,
+    load_team,
+    reject_secrets,
+    validate_effective,
+)
 from harbor_helper.execution.runs import job_config, safe_environment, submit
 from harbor_helper.execution.sources import verify_inputs
 from harbor_helper.execution.worker import cleanup, finish, tick
@@ -20,10 +24,27 @@ from harbor_helper.results.reports import compare, report
 
 
 @pytest.fixture
-def store(tmp_path):
+def store(tmp_path, monkeypatch):
     s = Store(tmp_path / "state")
     write_json(s.root / "team.json", DEFAULT)
+    write_json(s.root / "service.json", {})
+    # Oracle fixtures carry no service binding; credentials are covered separately.
+    monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", lambda *_, **__: None)
     return s
+
+
+def default_cfg(**changes):
+    cfg = {
+        **DEFAULT["presets"]["default"],
+        "dataset": DEFAULT["dataset"],
+        "model": DEFAULT["model"],
+        "runtime_image": DEFAULT["runtime_image"],
+        "runtime_image_env": DEFAULT["runtime_image_env"],
+        "max_cpus_per_trial": DEFAULT["max_cpus_per_trial"],
+        "max_memory_mb_per_trial": DEFAULT["max_memory_mb_per_trial"],
+        "task_filter": None,
+    }
+    return {**cfg, **changes}
 
 
 def add_run(store, name="hh-test", status="queued", concurrency=1):
@@ -32,8 +53,7 @@ def add_run(store, name="hh-test", status="queued", concurrency=1):
     tasks = path / "tasks" / "box"
     tasks.mkdir(parents=True)
     (tasks / "task.toml").write_text("fixed grader")
-    cfg = effective(copy.deepcopy(DEFAULT), argparse.Namespace(preset="default"))
-    cfg["concurrency"] = concurrency
+    cfg = default_cfg(concurrency=concurrency)
     manifest = {
         "run_id": name,
         "effective": cfg,
@@ -139,7 +159,7 @@ def test_rerun_refuses_modified_grader(store):
     verify_inputs(p, m)
     (p / "tasks" / "box" / "task.toml").write_text("changed grader")
     with pytest.raises(ValueError, match="Fixed task snapshot"):
-        submit(store, load_team(store), parent=p.name)
+        submit(store, load_team(store), parent=p.name, service={"submission_id": "s"})
     assert len(store.runs()) == 1
 
 
@@ -180,17 +200,17 @@ def test_runtime_environment_drops_other_provider_keys(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "never-inherit")
     monkeypatch.setenv("VLLM_API_KEY", "explicit-credential")
     value = safe_environment()
-    assert "OPENAI_API_KEY" not in value and value["VLLM_API_KEY"] == "explicit-credential"
+    assert "OPENAI_API_KEY" not in value and "VLLM_API_KEY" not in value
 
 
 def test_missing_model_no_requests(store):
     with pytest.raises(ValueError, match="Model not configured"):
-        effective(load_team(store), argparse.Namespace(preset="model"))
+        validate_effective(load_team(store), default_cfg(agent="opencode"))
 
 
 def test_cap_enforced(store):
     with pytest.raises(ValueError, match="concurrency"):
-        effective(load_team(store), argparse.Namespace(preset="default", concurrency=2))
+        validate_effective(load_team(store), default_cfg(concurrency=2))
 
 
 def test_cleanup_failure_retains_capacity(store, monkeypatch):
@@ -249,8 +269,7 @@ def test_old_queue_migration_preserves_rows(tmp_path):
     assert Store(root).runs() == migrated.runs()
 
 
-def test_service_audit_failure_releases_slot_and_does_not_use_home_auth(store, monkeypatch):
-    write_json(store.root / "service.json", {})
+def test_audit_failure_releases_slot(store, monkeypatch):
     first, _ = add_run(store, "first", "running")
     add_run(store, "next")
     available = False
@@ -266,9 +285,6 @@ def test_service_audit_failure_releases_slot_and_does_not_use_home_auth(store, m
 
     monkeypatch.setitem(
         sys.modules, "harbor_helper.service.data", SimpleNamespace(ServiceData=Credentials)
-    )
-    monkeypatch.setattr(
-        "harbor_helper.security.local_auth.Auth", lambda *_: pytest.fail("HOME Auth in service")
     )
     launched = []
     monkeypatch.setattr(
@@ -318,9 +334,6 @@ def test_service_submit_publication_lock_cancel_and_frozen_rerun(store, monkeypa
     monkeypatch.setitem(
         sys.modules, "harbor_helper.service.data", SimpleNamespace(ServiceData=Publication)
     )
-    monkeypatch.setattr(
-        "harbor_helper.security.local_auth.Auth", lambda *_: pytest.fail("HOME Auth in service")
-    )
 
     def image(reference):
         assert not locked(), "Preparation must not reserve the queue control lock"
@@ -363,11 +376,7 @@ def test_service_preparation_does_not_pause_supervision(store, monkeypatch):
     from harbor_helper.execution.worker import supervise
     from harbor_helper.security import credentials
 
-    write_json(store.root / "service.json", {})
-    monkeypatch.setattr(credentials, "AUDIT_SECRETS", [])
-    monkeypatch.setattr(credentials, "LEGACY_SECRETS", None)
     monkeypatch.delenv(credentials.KEY_ENV, raising=False)
-    monkeypatch.delenv(credentials.LEGACY_KEY_ENV, raising=False)
     entered, release = threading.Event(), threading.Event()
 
     def prepare(_):

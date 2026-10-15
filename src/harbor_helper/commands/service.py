@@ -1,32 +1,21 @@
-"""Local service maintenance and remote member login entry points."""
+"""Service process and remote member login entry points."""
 
 import os
 from pathlib import Path
 
 from harbor_helper.commands.remote import (
     RemoteError,
-    hidden_input,
     login,
     selected_profile,
 )
 from harbor_helper.commands.remote import (
     dispatch as remote_dispatch,
 )
-from harbor_helper.persistence.files import read_json
 
 
 def add_parsers(sub):
     service = sub.add_parser("service", help="Shared HTTP service / remote member login")
     operations = service.add_subparsers(dest="service_command", required=True)
-    initialize = operations.add_parser("init", help="Initialize a NEW dedicated service state")
-    initialize.add_argument(
-        "--root",
-        type=Path,
-        help="Service state (default .state/service; never selected local team)",
-    )
-    initialize.add_argument("--master-key-file", type=Path, required=True)
-    initialize.add_argument("--admin", default="admin", help="First invited administrator username")
-    initialize.add_argument("--config", type=Path, help="Non-secret team configuration")
     serve = operations.add_parser("serve", help="Serve API and packaged static UI over HTTP")
     serve.add_argument("--root", type=Path)
     serve.add_argument(
@@ -81,36 +70,11 @@ def add_parsers(sub):
 
 
 def service_root(args):
-    explicit = args.state
-    root = getattr(args, "root", None)
-    if explicit and root and Path(explicit).expanduser().resolve() != root.expanduser().resolve():
-        raise RemoteError("Choose one service state via --state or --root")
-    return Path(root or explicit or ".state/service").expanduser().resolve()
+    return Path(args.root or ".state/service").expanduser().resolve()
 
 
 def dispatch(args):
     cmd = args.service_command
-    if cmd == "init":
-        from harbor_helper.service.data import ServiceData
-
-        password = hidden_input("Initial admin password (hidden): ")
-        confirmation = hidden_input("Confirm admin password (hidden): ")
-        if password != confirmation:
-            raise RemoteError("Passwords differ; service not initialized")
-        root = service_root(args)
-        data = ServiceData.initialize(
-            root,
-            args.master_key_file,
-            args.admin,
-            password,
-            read_json(args.config) if args.config else None,
-        )
-        return {
-            "state": str(data.root),
-            "admin": args.admin,
-            "initialized": True,
-            "next_command": f"harbor-helper service serve --root {data.root}",
-        }
     if cmd == "serve":
         import uvicorn
 
@@ -120,9 +84,9 @@ def dispatch(args):
             raise RemoteError("Port must be between 1 and 65535")
         root = service_root(args)
         # The API lifespan starts/reconciles the single existing supervisor.
-        from harbor_helper.security.credentials import KEY_ENV, LEGACY_KEY_ENV
+        from harbor_helper.security.credentials import KEY_ENV
 
-        inherited = {name: os.environ.pop(name, None) for name in (KEY_ENV, LEGACY_KEY_ENV)}
+        inherited = {KEY_ENV: os.environ.pop(KEY_ENV, None)}
         try:
             app = create_app(
                 root, setup_token_file=args.setup_token_file, master_key_file=args.master_key_file

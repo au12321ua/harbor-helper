@@ -108,7 +108,6 @@ def preparation(monkeypatch):
             ],
         }
 
-    monkeypatch.setattr("harbor_helper.execution.runs.resolve_dataset", source)
     monkeypatch.setattr(
         "harbor_helper.service.sources.source_call",
         lambda reference, *, key=None, target=None, task=None: __import__("asyncio").run(

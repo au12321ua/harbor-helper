@@ -61,9 +61,9 @@ uv run harbor-helper service serve \
 
 成员仅用浏览器登录，选择已验证数据集和任务、模型方案与实验名称；尝试次数、并发、时长在高级参数。共享观察、取消自己的任务、比较、重跑和下载均在网页完成。准备失败页显示安全分类和修复责任，允许修改原输入后新提交，保留失败历史。评分报告下载与日志/产物一样遵循审计限制；没有导出产物的数据集仍可下载安全评分报告。
 
-已有自动化部署可继续使用 `service init --root … --master-key-file … --admin …`（隐藏输入管理员密码，至少12位）；`--config` 兼容旧非秘密配置。已有本地或服务 state 不可再次初始化。
+已有服务 state 不可再次初始化。
 
-默认监听 127.0.0.1:8000；需要团队网络访问时显式选择可达的 `--host` 和 `--port`。服务本身提供 HTTP，传输保护由部署环境处理。服务进程不加载旧本地模型登录或继承的模型 key。
+默认监听 127.0.0.1:8000；需要团队网络访问时显式选择可达的 `--host` 和 `--port`。服务本身提供 HTTP，传输保护由部署环境处理。服务进程不继承环境中的模型 key。
 
 ## 成员远程 CLI
 
@@ -89,7 +89,7 @@ harbor-helper service retry
 harbor-helper list --json
 ```
 
-bundle 可以是合规目录或 ZIP，上传后由服务冻结。模型方案使用团队凭据；远程 `--model` 和个人 `auth login` 不是团队模型入口。验证 oracle 必须显式选择，不能因模型错误自动退回 oracle：
+bundle 可以是合规目录或 ZIP，上传后由服务冻结。模型方案使用团队凭据，CLI没有个人模型key入口。验证 oracle 必须显式选择，不能因模型错误自动退回 oracle：
 
 ```bash
 harbor-helper submit --agent oracle --idempotency-key oracle-001
@@ -114,16 +114,15 @@ harbor-helper usage
 
 全体成员查看同一批受理、run 和安全结果。普通成员只能取消自己提交的任务，管理员能取消任何成员任务；读取权限不赋予取消别人任务的权限。CLI 和 Web 共享 Job/Trial/队列容量。
 
-## 重试、退出与兼容
+## 重试与退出
 
 一次提交或重跑复用同一个幂等键和相同内容。客户端在请求前把最近一次操作保存为私有 receipt，`service retry` 重发同一路径、内容及键；发生超时先重试该操作，不换新键。主动新实验或 rerun 使用新键。同键不同内容会冲突。每个 profile 只保留最近一次 receipt；再次登录或退出会清除 receipt，需继续重试的操作应自行保留原参数和幂等键。
 
 ```bash
 harbor-helper service logout
-harbor-helper --local --state /path/to/old-local-team status hh-OLD
 ```
 
-logout 撤销成员会话并删除本机 token，已受理任务继续。远程选择标记保留，下一次普通命令会要求重新登录；访问旧本地团队必须显式 `--local` 并选择独立的旧 state。含 `service.json` 的目录拒绝本地命令，不能绕过服务身份提交未绑定任务。
+logout 撤销成员会话并删除本机 token，已受理任务继续。远程选择标记保留，下一次普通命令会要求重新登录。CLI只访问团队服务，没有直接读写state的本地模式。
 
 ## 队列、备份与审计
 

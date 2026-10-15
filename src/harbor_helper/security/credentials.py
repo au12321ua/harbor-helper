@@ -15,22 +15,10 @@ from urllib.parse import quote
 from harbor_helper.security.access_tokens import ACCESS_TOKEN, ACCESS_TOKEN_TEXT
 
 KEY_ENV = "VLLM_API_KEY"
-AUDIT_SECRETS = []
-LEGACY_SECRETS = None
-LEGACY_KEY_ENV = "HARBOR_HELPER_LEGACY_AUDIT_KEY"
-
-
-def legacy_secrets():
-    if LEGACY_SECRETS is None:
-        value = os.environ.get(LEGACY_KEY_ENV) or os.environ.get(KEY_ENV)
-        return [value] if value else []
-    return list(LEGACY_SECRETS)
 
 
 def runtime_secrets():
-    return list(
-        dict.fromkeys([*AUDIT_SECRETS, *([os.environ[KEY_ENV]] if os.environ.get(KEY_ENV) else [])])
-    )
+    return [os.environ[KEY_ENV]] if os.environ.get(KEY_ENV) else []
 
 
 def redact_value(value, secrets):
@@ -286,7 +274,6 @@ def install_docker_credential_forwarding():
         if not compose_exec.get():
             for name in (
                 KEY_ENV,
-                LEGACY_KEY_ENV,
                 "HF_TOKEN",
                 "HUGGING_FACE_HUB_TOKEN",
                 "HARBOR_API_KEY",

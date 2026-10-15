@@ -2,8 +2,6 @@
 
 import json
 import os
-import pty
-import select
 import socket
 import subprocess
 import sys
@@ -259,21 +257,12 @@ def test_invalid_url(url):
         service_url(url)
 
 
-def test_profile_permission_and_local_state_guard(api, home, monkeypatch, tmp_path):
+def test_profile_permission_and_missing_profile_guard(api, home, monkeypatch):
+    assert "service login" in call(home, "list", code=1).stderr
     monkeypatch.setattr("harbor_helper.commands.remote.hidden_input", lambda _: PASSWORD)
     login(api[0], "alice")
     (remote_root() / "profiles/default.json").chmod(0o644)
     call(home, "list", code=1)
-    state = tmp_path / "service-state"
-    state.mkdir()
-    (state / "service.json").write_text("{}")
-    for command in ("init", "auth", "submit"):
-        args = (command, "status") if command == "auth" else (command,)
-        assert (
-            "authenticated API"
-            in call(home, "--local", "--state", str(state), *args, code=1).stderr
-        )
-    assert not (state / "queue.sqlite").exists()
 
 
 def test_invalid_member_token_never_saved(home, monkeypatch):
@@ -286,18 +275,6 @@ def test_invalid_member_token_never_saved(home, monkeypatch):
         login("http://127.0.0.1:8000", "alice")
     assert not (remote_root() / "profiles/default.json").exists()
     assert not (remote_root() / "selected.json").exists()
-
-
-def test_service_init_requires_confirmation_without_state(home, monkeypatch, tmp_path):
-    values = iter([PASSWORD, "different"])
-    monkeypatch.setattr("harbor_helper.commands.service.hidden_input", lambda _: next(values))
-    root = tmp_path / "state"
-    args = parser().parse_args(
-        ["service", "init", "--root", str(root), "--master-key-file", str(tmp_path / "master")]
-    )
-    with pytest.raises(RemoteError, match="Passwords differ"):
-        service_dispatch(args)
-    assert not root.exists()
 
 
 def test_service_serve_factory_host_port_no_native_auth(home, monkeypatch, tmp_path):
@@ -325,61 +302,6 @@ def test_service_serve_factory_host_port_no_native_auth(home, monkeypatch, tmp_p
     service_dispatch(args)
     assert calls[0] == (tmp_path / "service", {"setup_token_file": None, "master_key_file": None})
     assert calls[1] == (app, {"host": "0.0.0.0", "port": 8123, "access_log": False})
-
-
-def test_service_init_real_tty_hidden_and_external_master(home, tmp_path):
-    root, master_key = tmp_path / "service", tmp_path / "private/master"
-    master, slave = pty.openpty()
-    env = {**os.environ, "HOME": str(home)}
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "harbor_helper.commands.main",
-            "service",
-            "init",
-            "--root",
-            str(root),
-            "--master-key-file",
-            str(master_key),
-            "--json",
-        ],
-        env=env,
-        stdin=slave,
-        stdout=slave,
-        stderr=slave,
-        start_new_session=True,
-    )
-    os.close(slave)
-    output = b""
-    sent = 0
-    deadline = time.monotonic() + 15
-    try:
-        while process.poll() is None:
-            assert time.monotonic() < deadline
-            if select.select([master], [], [], 0.1)[0]:
-                try:
-                    output += os.read(master, 65536)
-                except OSError:
-                    break
-            if sent == 0 and b"Initial admin password" in output:
-                os.write(master, (PASSWORD + "\n").encode())
-                sent += 1
-            if sent == 1 and b"Confirm admin password" in output:
-                os.write(master, (PASSWORD + "\n").encode())
-                sent += 1
-        process.wait(timeout=10)
-        assert process.returncode == 0, output.decode()
-        assert PASSWORD.encode() not in output
-        assert master_key.stat().st_size == 32
-        assert master_key.stat().st_mode & 0o777 == 0o600
-        assert json.loads((root / "service.json").read_text())["master_file"] == str(master_key)
-        assert not (root / "scheduler.json").exists()
-    finally:
-        os.close(master)
-        if process.poll() is None:
-            process.kill()
-            process.wait()
 
 
 def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_path, monkeypatch):
@@ -422,7 +344,9 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
             ).stdout
         )
         assert accepted["status"] == "preparing" and accepted["run_id"] is None
-        (root / "scheduler.json").unlink()  # Remove synthetic activity; old-key/read/cancel remain available.
+        (
+            root / "scheduler.json"
+        ).unlink()  # Remove synthetic activity; old-key/read/cancel remain available.
         assert json.loads(call(home, "service", "retry", "--json").stdout)["id"] == accepted["id"]
         listing = json.loads(call(home, "list", "--json").stdout)
         assert len(listing["submissions"]) == 1
@@ -454,10 +378,13 @@ def test_remote_nonobject_error_is_safe_remote_error(monkeypatch, body):
     assert TOKEN not in str(exc.value)
 
 
-@pytest.mark.parametrize("action", [None, [], {}, 42, True, "retry_same_request", TOKEN + "x" * 200])
+@pytest.mark.parametrize(
+    "action", [None, [], {}, 42, True, "retry_same_request", TOKEN + "x" * 200]
+)
 def test_remote_error_action_type_length_and_redaction(monkeypatch, action):
     monkeypatch.setattr(
-        httpx.Client, "request",
+        httpx.Client,
+        "request",
         lambda *args, **kwargs: httpx.Response(403, json={"action": action}),
     )
     with pytest.raises(RemoteError) as exc:

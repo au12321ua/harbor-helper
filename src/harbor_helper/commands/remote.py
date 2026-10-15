@@ -418,18 +418,12 @@ def dispatch(args, name):
             "GET", {"catalog": "/catalog", "usage": "/usage", "list": "/runs"}[cmd]
         )
     if cmd == "submit":
-        if args.model or args.preset not in {None, "model", "oracle"}:
-            raise RemoteError(
-                "Remote submit selects --model-profile, not personal --model/local presets"
-            )
         body = {
             k: getattr(args, k)
             for k in ("dataset", "agent", "attempts", "concurrency", "wall_seconds", "task")
             if getattr(args, k, None) is not None
         }
-        if args.agent == "oracle" or args.preset == "oracle":
-            body["agent"] = "oracle"
-        elif not args.model_profile:
+        if args.agent != "oracle" and not args.model_profile:
             raise RemoteError("Choose --model-profile from catalog (or explicitly --agent oracle)")
         if args.model_profile:
             body["model_profile"] = args.model_profile
@@ -487,9 +481,7 @@ def dispatch(args, name):
                 "bytes": len(content),
             }
         return client.request("GET", path + "/report")
-    raise RemoteError(
-        "This command is local-only; use --local explicitly, or service login for remote member access"
-    )
+    raise RemoteError("Unsupported command")
 
 
 def render(command, value, json_output=False):
