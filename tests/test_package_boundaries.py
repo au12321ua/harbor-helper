@@ -16,31 +16,23 @@ from harbor_helper.execution import agent_tools
 from harbor_helper.persistence.files import read_json, write_json
 
 
-def test_legacy_cli_and_harbor_paths_in_fresh_process(tmp_path):
+def test_cli_and_harbor_paths_in_fresh_process(tmp_path):
     env = {"PATH": os.defpath, "HOME": str(tmp_path / "home"), "LANG": "C.UTF-8"}
     code = """
 import asyncio
-import importlib
 import sys
 from harbor.job import Job
 from harbor.models.job.config import JobConfig
 from harbor_helper.execution.agents import HelperOpenCode, BundledOpenCode
 from harbor_helper.execution.environments import NativeDockerEnvironment
-for old, new in [("agents", "execution.agents"), ("environments", "execution.environments"),
-                 ("cli", "commands.main"), ("worker", "execution.worker"),
-                 ("service_sources", "service.sources")]:
-    assert importlib.import_module("harbor_helper." + old) is importlib.import_module("harbor_helper." + new)
-assert importlib.import_module("harbor_helper.agents").HelperOpenCode is HelperOpenCode
-assert importlib.import_module("harbor_helper.agents").BundledOpenCode is BundledOpenCode
-assert importlib.import_module("harbor_helper.environments").NativeDockerEnvironment is NativeDockerEnvironment
 for agent in ("HelperOpenCode", "BundledOpenCode"):
     kwargs = {"helper_tool_cache": "cache", "version": "1.18.35"}
     if agent == "BundledOpenCode": kwargs["helper_bundle"] = "bundle"
     config = JobConfig.model_validate({"job_name": "compat", "jobs_dir": "jobs",
-        "tasks": [{"path": sys.argv[1]}], "agents": [{"import_path": "harbor_helper.agents:" + agent,
+        "tasks": [{"path": sys.argv[1]}], "agents": [{"import_path": "harbor_helper.execution.agents:" + agent,
         "model_name": "vllm/fixture", "kwargs": kwargs}]})
     asyncio.run(Job.create(config))
-print("legacy module identity and native Job options validated")
+print("native Job options validated")
 """
     result = subprocess.run(
         [
@@ -61,7 +53,7 @@ print("legacy module identity and native Job options validated")
     )
     assert result.returncode == 0, result.stderr
     assert "native Job options validated" in result.stdout
-    for entry in ("harbor_helper.cli", "harbor_helper.commands.main"):
+    for entry in ("harbor_helper.commands.main",):
         result = subprocess.run(
             [sys.executable, "-B", "-m", entry, "service", "serve", "--help"],
             cwd=tmp_path,

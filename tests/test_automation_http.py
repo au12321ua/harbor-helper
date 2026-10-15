@@ -68,7 +68,7 @@ def http_service(tmp_path):
 
 def cli(p, *argv, stdin=None):
     result = subprocess.run(
-        [sys.executable, "-m", "harbor_helper.cli", *argv, "--json"],
+        [sys.executable, "-m", "harbor_helper.commands.main", *argv, "--json"],
         cwd=p.cwd,
         env=p.env,
         input=stdin,

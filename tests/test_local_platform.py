@@ -25,7 +25,9 @@ def local_instance(tmp_path, monkeypatch):
     package = code / "harbor_helper"
     package.mkdir()
     (package / "__init__.py").write_text("")
-    (package / "cli.py").write_text(
+    (package / "commands").mkdir()
+    (package / "commands" / "__init__.py").write_text("")
+    (package / "commands" / "main.py").write_text(
         "import sys\n"
         "from http.server import HTTPServer, BaseHTTPRequestHandler\n"
         "class Handler(BaseHTTPRequestHandler):\n"

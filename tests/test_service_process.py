@@ -143,7 +143,7 @@ async def execute(store,run_id):
 
     def start(self):
         self.child = subprocess.Popen(
-            [sys.executable, "-m", "harbor_helper.worker", "supervise", str(self.data.root)],
+            [sys.executable, "-m", "harbor_helper.execution.worker", "supervise", str(self.data.root)],
             cwd=self.cwd,
             env=self.env,
             stdout=self.log,

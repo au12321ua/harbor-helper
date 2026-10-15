@@ -135,7 +135,7 @@ def job_config(run_dir, manifest):
     agent = {"name": cfg["agent"], "kwargs": {}, "skills": []}
     if manifest["bundle_digest"]:
         agent.pop("name")
-        agent["import_path"] = "harbor_helper.agents:" + (
+        agent["import_path"] = "harbor_helper.execution.agents:" + (
             "BundledOracle" if cfg["agent"] == "oracle" else "BundledOpenCode"
         )
         agent["kwargs"]["helper_bundle"] = str(run_dir / "bundle")
@@ -150,7 +150,7 @@ def job_config(run_dir, manifest):
     if cfg["agent"] == "opencode":
         if "name" in agent:
             agent.pop("name")
-            agent["import_path"] = "harbor_helper.agents:HelperOpenCode"
+            agent["import_path"] = "harbor_helper.execution.agents:HelperOpenCode"
         model = cfg["model"]
         agent["model_name"] = "vllm/" + model["name"]
         agent["kwargs"]["version"] = model["opencode_version"]
@@ -212,7 +212,7 @@ def job_config(run_dir, manifest):
             "environment": {
                 "type": "docker",
                 **(
-                    {"import_path": "harbor_helper.environments:NativeDockerEnvironment"}
+                    {"import_path": "harbor_helper.execution.environments:NativeDockerEnvironment"}
                     if manifest.get("execution_mode") == "harbor-native"
                     else {}
                 ),

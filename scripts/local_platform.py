@@ -311,7 +311,7 @@ def start(base, record, env, port):
     argv = [
         str(code / ".venv/bin/python"),
         "-m",
-        "harbor_helper.cli",
+        "harbor_helper.commands.main",
         "service",
         "serve",
         "--root",

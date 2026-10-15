@@ -457,7 +457,7 @@ def test_actual_remote_cli_uses_http_version_operations_and_selection(data, tmp_
                 [
                     sys.executable,
                     "-m",
-                    "harbor_helper.cli",
+                    "harbor_helper.commands.main",
                     "--remote-profile",
                     "test",
                     "--json",
