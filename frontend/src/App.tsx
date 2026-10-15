@@ -314,13 +314,11 @@ function NewExperiment() {
   const [dataset, setDataset] = useState(restored.dataset_id || ""),
     [agent, setAgent] = useState(restored.agent || "opencode"),
     [profile, setProfile] = useState(restored.model_profile || ""),
-    [bundle, setBundle] = useState(restored.bundle_id || ""),
     [version, setVersion] = useState(restored.attachment_version_id || ""),
     [taskName, setTaskName] = useState(restored.task || ""),
     [wall, setWall] = useState<number | undefined>(restored.wall_seconds),
     [busy, setBusy] = useState(false),
-    [failure, setFailure] = useState<unknown>(),
-    [uploadBusy, setUploadBusy] = useState(false);
+    [failure, setFailure] = useState<unknown>();
   const datasets: Item[] = (data?.datasets || []).filter((d: Item) => d.ready);
   const selectedDataset =
     dataset || data?.settings?.default_dataset_id || datasets[0]?.id || "";
@@ -388,9 +386,7 @@ function NewExperiment() {
                 name: f.get("experiment_name") || "",
                 agent,
                 model_profile: agent === "oracle" ? null : selectedProfile,
-                ...(version
-                  ? { attachment_version_id: version }
-                  : { bundle_id: bundle || null }),
+                attachment_version_id: version || null,
                 task: f.get("task") || null,
                 attempts: Number(f.get("attempts")),
                 concurrency: Number(f.get("concurrency")),
@@ -514,10 +510,7 @@ function NewExperiment() {
                   required={false}
                   name="attachment_version"
                   value={version}
-                  onChange={(v) => {
-                    setVersion(v);
-                    setBundle("");
-                  }}
+                  onChange={setVersion}
                 >
                   <option value="">无附件</option>
                   {(data?.attachments || []).flatMap((a: Item) =>
@@ -541,55 +534,14 @@ function NewExperiment() {
                   variant="outline"
                   onClick={() => {
                     setVersion("");
-                    setBundle("");
                     submitKey.current = newIdempotencyKey();
                   }}
                 >
                   清除附件，使用无附件基线
                 </Button>
                 <p>
-                  {version
-                    ? `当前附件版本：${version}`
-                    : bundle
-                      ? `当前历史附件：${bundle}`
-                      : "当前选择：无附件"}
+                  {version ? `当前附件版本：${version}` : "当前选择：无附件"}
                 </p>
-                <Field>
-                  <FieldLabel htmlFor="bundle">实验包（可选 ZIP）</FieldLabel>
-                  <Input
-                    id="bundle"
-                    type="file"
-                    accept=".zip,application/zip"
-                    disabled={uploadBusy}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      setUploadBusy(true);
-                      setBundle("");
-                      setVersion("");
-                      setFailure(undefined);
-                      try {
-                        const body = new FormData();
-                        body.set("file", file);
-                        const value = await api("/bundles", {
-                          method: "POST",
-                          body,
-                        });
-                        setBundle(value.bundle_id || value.id);
-                        toast.success("实验包已上传");
-                      } catch (err) {
-                        setFailure(err);
-                      } finally {
-                        setUploadBusy(false);
-                      }
-                    }}
-                  />
-                  <FieldDescription>
-                    {bundle
-                      ? `已绑定实验包：${bundle}`
-                      : "服务校验包大小、路径和文件安全，不接受密钥文件。"}
-                  </FieldDescription>
-                </Field>
               </FieldGroup>
             </CardContent>
           </Card>
@@ -709,7 +661,6 @@ function NewExperiment() {
             type="submit"
             disabled={
               busy ||
-              uploadBusy ||
               !selected ||
               (agent === "opencode" &&
                 !profiles.some((p) => p.id === selectedProfile))
@@ -1220,19 +1171,8 @@ function RunDetailContent({ user }: { user: Item }) {
           <CardDescription>本实验的固定输入谱系</CardDescription>
         </CardHeader>
         <CardContent>
-          <p>
-            {data?.manifest?.service?.attachment_version_id ||
-              (data?.manifest?.bundle_digest ||
-              data?.manifest?.service?.bundle_id
-                ? "legacy/unknown"
-                : "无附件")}
-          </p>
-          <p>
-            {data?.manifest?.service?.bundle_id ||
-              (data?.manifest?.bundle_digest
-                ? "旧实验未记录 bundle ID"
-                : "未绑定底层 bundle ID")}
-          </p>
+          <p>{data?.manifest?.service?.attachment_version_id || "无附件"}</p>
+          <p>{data?.manifest?.service?.bundle_id || "未绑定底层 bundle ID"}</p>
           <p className="break-all">
             {data?.manifest?.bundle_digest || "无附件摘要"}
           </p>
@@ -1453,8 +1393,8 @@ function ComparisonResult({ value }: { value: Item }) {
           return (
             <p key={side} className="break-all">
               实验 {side === "left" ? "A" : "B"} 附件：
-              {input?.attachment_version_id || input?.bundle_id || digest
-                ? `${input?.attachment_version_id || "legacy/unknown"} · ${digest || "摘要未知"}`
+              {input?.attachment_version_id
+                ? `${input.attachment_version_id} · ${digest || "摘要未知"}`
                 : "无附件"}
             </p>
           );

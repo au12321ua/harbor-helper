@@ -338,11 +338,7 @@ def compare(store, left, right, published_reports=None):
             side: {
                 "kind": "versioned"
                 if m.get("service", {}).get("attachment_version_id")
-                else (
-                    "legacy/unknown"
-                    if m.get("bundle_digest") or m.get("service", {}).get("bundle_id")
-                    else "none"
-                ),
+                else "none",
                 "attachment_version_id": m.get("service", {}).get("attachment_version_id"),
                 "bundle_id": m.get("service", {}).get("bundle_id"),
                 "digest": m.get("bundle_digest"),

@@ -18,10 +18,6 @@ class AttachmentPublish(AttachmentInput):
     notes: str = Field(default="", max_length=4096)
 
 
-class AttachmentRegister(AttachmentCreate):
-    bundle_id: str
-
-
 class AttachmentUpdate(AttachmentInput):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=4096)
@@ -53,8 +49,6 @@ class AttachmentVersion(BaseModel):
     created: float
     notes: str
     source_version_id: str | None
-    legacy: bool
-    original_creator: str
     enabled: bool
     availability: Literal["available", "unavailable"]
 

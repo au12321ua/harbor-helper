@@ -21,7 +21,6 @@ from harbor_helper.service.application import Application, admin, public_submiss
 from harbor_helper.service.attachment_contracts import (
     AttachmentCreate,
     AttachmentPublish,
-    AttachmentRegister,
     AttachmentResult,
     AttachmentUpdate,
     AttachmentVersionUpdate,
@@ -172,8 +171,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         }:
             maximum = (
                 (data.limits() if data else LIMITS)["max_upload_bytes"] + 65536
-                if request.url.path == "/api/v1/bundles"
-                or request.headers.get("content-type", "").startswith("multipart/form-data")
+                if request.headers.get("content-type", "").startswith("multipart/form-data")
                 else 65536
             )
             received, parts = 0, []
@@ -369,7 +367,6 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         for model in (
             AttachmentCreate,
             AttachmentPublish,
-            AttachmentRegister,
             machine.ErrorResponse,
         ):
             typed = model.model_json_schema(ref_template="#/components/schemas/{model}")
@@ -652,12 +649,6 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         value["config_changes"] = {k: {"changed": True} for k in value["config_changes"]}
         return value
 
-    @app.post("/api/v1/bundles", status_code=201, response_model=machine.BundleResult)
-    def upload(
-        request: Request, file: Annotated[UploadFile, File()], user: Annotated[dict, Depends(actor)]
-    ):
-        return application.upload_bundle(file.file, access_value=token(request))
-
     @app.get("/api/v1/attachments", response_model=machine.AttachmentCatalog)
     def attachments(user: Annotated[dict, Depends(actor)]):
         return application.attachments.catalog()
@@ -743,21 +734,6 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
             idempotency_key,
             {**body, "source_version_id": version_id},
             file.file,
-            access_value=token(request),
-        )
-
-    @app.post("/api/v1/attachments/register", status_code=201, response_model=AttachmentResult)
-    def register_attachment(
-        request: Request,
-        body: AttachmentRegister,
-        user: Annotated[dict, Depends(actor)],
-        idempotency_key: str | None = Header(default=None),
-    ):
-        return application.attachments.write(
-            user,
-            "attachment_register",
-            idempotency_key,
-            body.model_dump(),
             access_value=token(request),
         )
 

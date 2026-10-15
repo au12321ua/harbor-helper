@@ -14,9 +14,7 @@ def parser():
     submit_p.add_argument("--model-profile", help="Team model profile ID from catalog")
     submit_p.add_argument("--idempotency-key", help="Retry key for the same submission")
     submit_p.add_argument("--agent", choices=["oracle", "opencode"])
-    bundle_choice = submit_p.add_mutually_exclusive_group()
-    bundle_choice.add_argument("--bundle", type=Path)
-    bundle_choice.add_argument("--attachment-version-id", help="Immutable attachment version")
+    submit_p.add_argument("--attachment-version-id", help="Immutable attachment version")
     submit_p.add_argument("--task", help="Optional glob matching dataset task name")
     for k in ("attempts", "concurrency", "wall-seconds"):
         submit_p.add_argument("--" + k, type=int)
@@ -43,15 +41,13 @@ def parser():
             "attachment_create",
             "attachment_publish",
             "attachment_derive",
-            "attachment_register",
         ],
     )
     lookup.add_argument("key")
-    for action in ("create", "publish", "derive", "register"):
+    for action in ("create", "publish", "derive"):
         ap = attachment_ops.add_parser(action)
         ap.add_argument("--idempotency-key", required=True)
-        if action != "register":
-            ap.add_argument("--file", required=True, type=Path, help="ZIP or bundle directory")
+        ap.add_argument("--file", required=True, type=Path, help="ZIP or bundle directory")
         if action != "publish":
             ap.add_argument("--name", required=True)
             ap.add_argument("--description", default="")
@@ -60,8 +56,6 @@ def parser():
             ap.add_argument("--notes", default="")
         if action == "derive":
             ap.add_argument("source_version_id")
-        if action == "register":
-            ap.add_argument("bundle_id")
     update = attachment_ops.add_parser("update")
     update.add_argument("attachment_id")
     update.add_argument("--version-id")

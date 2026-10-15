@@ -17,7 +17,7 @@ from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.results.reports import report
 from harbor_helper.service import access, machine
 from harbor_helper.service.api import create_app
-from harbor_helper.service.application import Application, digest
+from harbor_helper.service.application import Application
 from harbor_helper.service.data import ServiceError
 from harbor_helper.service.lifecycle import prepare_one
 
@@ -132,7 +132,12 @@ def test_scope_matrix_and_admin_never_automation(data, username):
     )
     assert upload.status_code == 201, upload.text
     assert (
-        readonly.post("/api/v1/bundles", files={"file": ("bundle.zip", archive())}).status_code
+        readonly.post(
+            "/api/v1/attachments",
+            files={"file": ("bundle.zip", archive())},
+            data={"metadata": json.dumps({"name": "input"})},
+            headers={"Idempotency-Key": "readonly-upload"},
+        ).status_code
         == 403
     )
     assert uploader.post("/api/v1/submissions", json=body).status_code == 403
@@ -217,7 +222,7 @@ def test_cross_credential_browser_idempotency_and_current_identity(data, prepara
     assert events and events[0]["access_credential_id"] == two["credential"]["id"]
 
 
-def test_fixed_operation_target_conflict_and_legacy_lookup(data, preparation):
+def test_fixed_operation_target_conflict_and_lookup(data, preparation):
     app = Application(data.root)
     actor = data.users()[0]
     runs = []
@@ -229,11 +234,6 @@ def test_fixed_operation_target_conflict_and_legacy_lookup(data, preparation):
     with pytest.raises(ServiceError) as error:
         app.accept(actor, {}, "rerun", parent=runs[1])
     assert error.value.code == "idempotency_conflict"
-    with data.store.connect() as db:
-        db.execute(
-            "UPDATE submissions SET operation=?,request_hash=? WHERE id=?",
-            ("rerun:" + runs[0], digest({}), first["id"]),
-        )
     assert app.accept(actor, {}, "rerun", parent=runs[0])["id"] == first["id"]
     assert machine.lookup(app, actor, "rerun", "rerun")["id"] == first["id"]
 

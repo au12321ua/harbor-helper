@@ -289,7 +289,7 @@ def write_request(name, profile, client, path, body, idem=None):
     return client.request("POST", path, body=body, idem=idem)
 
 
-def upload_bundle(client, bundle, *, path_url="/bundles", metadata=None, idem=None):
+def upload_bundle(client, bundle, *, path_url, metadata, idem):
     path = Path(bundle).expanduser()
     if path.is_dir():
         from harbor_helper.execution.runs import check_bundle
@@ -305,7 +305,7 @@ def upload_bundle(client, bundle, *, path_url="/bundles", metadata=None, idem=No
                 "POST",
                 path_url,
                 files={"file": ("bundle.zip", stream, "application/zip")},
-                form={"metadata": json.dumps(metadata)} if metadata is not None else None,
+                form={"metadata": json.dumps(metadata)},
                 idem=idem,
             )
     with path.open("rb") as stream:
@@ -313,7 +313,7 @@ def upload_bundle(client, bundle, *, path_url="/bundles", metadata=None, idem=No
             "POST",
             path_url,
             files={"file": ("bundle.zip", stream, "application/zip")},
-            form={"metadata": json.dumps(metadata)} if metadata is not None else None,
+            form={"metadata": json.dumps(metadata)},
             idem=idem,
         )
 
@@ -389,17 +389,6 @@ def dispatch(args, name):
             if args.version_id:
                 path += "/versions/" + identifier(args.version_id)
             return client.request("PATCH", path, body=body)
-        if action == "register":
-            return client.request(
-                "POST",
-                "/attachments/register",
-                idem=args.idempotency_key,
-                body={
-                    "bundle_id": args.bundle_id,
-                    "name": args.name,
-                    "description": args.description,
-                },
-            )
         path = "/attachments"
         body = (
             {"name": args.name, "description": args.description}
@@ -429,8 +418,6 @@ def dispatch(args, name):
             body["model_profile"] = args.model_profile
         if args.attachment_version_id:
             body["attachment_version_id"] = args.attachment_version_id
-        if args.bundle:
-            body["bundle_id"] = upload_bundle(client, args.bundle)["id"]
         return write_request(name, profile, client, "/submissions", body, args.idempotency_key)
     if cmd == "compare":
         value = client.request("POST", "/compare", body={"left": args.left, "right": args.right})

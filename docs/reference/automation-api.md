@@ -39,19 +39,17 @@
 | `lookup_submission` | GET `/submission-operations/{operation}/{key}` | execute | `Accepted`；operation 固定 submit/rerun/retry/recover，按原成员+类别+键查找 |
 | `cancel` | POST `/runs/{id}/cancel` | cancel_own | `CancelResult`，只取消自己实验；取消请求不保证已完成清理 |
 | `cancel_submission` | POST `/submissions/{id}/cancel` | cancel_own | `Accepted`，只取消自己受理 |
-| `attachments` | GET `/attachments` | read | `AttachmentCatalog`，共享身份/版本与 legacy bundle 元信息 |
-| `upload` | POST `/bundles`，multipart file | attachments | 201 `BundleResult {id,digest}`，旧上传兼容 |
+| `attachments` | GET `/attachments` | read | `AttachmentCatalog`，共享身份/版本 |
 | `create_attachment` | POST `/attachments`，multipart file+metadata | attachments | `AttachmentCreate {name,description?}` → 201 `AttachmentResult` |
 | `publish_attachment` | POST `/attachments/{id}/versions`，multipart file+metadata | attachments | `AttachmentPublish {notes?}` → 201 `AttachmentResult`；仅自己有权维护的附件 |
 | `derive_attachment` | POST `/attachment-versions/{id}/derive`，multipart file+metadata | attachments | `AttachmentCreate` → 201 `AttachmentResult`，上传自己的内容派生 |
-| `register_attachment` | POST `/attachments/register` | attachments | `AttachmentRegister {name,description?,bundle_id}` → 201 `AttachmentResult`，登记 legacy 输入 |
-| `attachment_lookup` | GET `/attachment-operations/{operation}/{key}` | attachments | `AttachmentResult`；固定 attachment_create/publish/derive/register |
+| `attachment_lookup` | GET `/attachment-operations/{operation}/{key}` | attachments | `AttachmentResult`；固定 attachment_create/publish/derive |
 | `update_attachment` | PATCH `/attachments/{id}` | attachments | `AttachmentUpdate {name?,description?,enabled?}` → `{updated:true}`；创建者权限 |
 | `update_attachment_version` | PATCH `/attachments/{id}/versions/{version_id}` | attachments | `AttachmentVersionUpdate {enabled}` → `{updated:true}`；创建者权限 |
 
 `Discovery.allowed_operations` 使用上述操作标识，另包括有明确能力的旧兼容操作：me/catalog/usage/runs/submission/run/report/download_report/compare。这些别名保留 HTTP 兼容，但自动化 catalog/run/list/report 会采用安全投影；原始 logs/artifacts/download 只向浏览器会话开放。机器契约优先使用 `/machine/...`。旧会话远程 profile 保留原角色及旧响应。
 
-`SubmissionInput` 严格拒绝未知字段和错误类型，身份不由客户端提交。可用字段：`dataset_id`（网页配置的数据集，优先）、`dataset`（旧显式引用）、`model_profile`、`agent`（oracle/opencode）、`bundle_id` 或 `attachment_version_id`（互斥）、`attempts`、`concurrency`、`wall_seconds`、`environment_build_timeout_multiplier`、`task`、`name`。数值为正整数且继续受现有团队限额校验；name≤128 字符。选择 task 使用任务名 glob；省略 task 选择整个数据集。模型实验选择方案，Oracle 显式选择 agent。省略两个附件字段是无附件基线；版本必须明确，不接受 latest，不自动沿用。dataset 验证/ready 仅表示当前配置的来源检查，不证明作者输入、Docker、Hub 或模型下一次一定可执行。
+`SubmissionInput` 严格拒绝未知字段和错误类型，身份不由客户端提交。可用字段：`dataset_id`（网页配置的数据集，优先）、`dataset`（旧显式引用）、`model_profile`、`agent`（oracle/opencode）、`attachment_version_id`、`attempts`、`concurrency`、`wall_seconds`、`environment_build_timeout_multiplier`、`task`、`name`。数值为正整数且继续受现有团队限额校验；name≤128 字符。选择 task 使用任务名 glob；省略 task 选择整个数据集。模型实验选择方案，Oracle 显式选择 agent。省略附件字段是无附件基线；版本必须明确，不接受 latest，不自动沿用。dataset 验证/ready 仅表示当前配置的来源检查，不证明作者输入、Docker、Hub 或模型下一次一定可执行。
 
 `Accepted` 保留旧 id/status/request/run_id/parent/submitter/created/error 及附件字段，新增 user_id/access_credential_id。token 调用不输出原始作者诊断或配置变更值。输入和输出的详细字段、null/可选规则以运行时 schema 为准；机器报告只给各任务的有效性、聚合评分、尝试奖励和安全失败类别。有效 0.0 是合法评分；缺评分为 missing_score；执行异常为 execution_failure，证据不足为 unknown，不凭 run status 推断评分。
 
@@ -61,7 +59,7 @@
 
 身份及 scope 在最前。已经匹配的受理先于当前容量等新受理检查返回；不会再次占用队列。跨同成员 token 或网页登录可查询原键；跨成员返回 404，不返回别人正文。未知键 404 只说明暂未观察到提交，下一步保持原键重发，不能以此自动换键。到期/撤销的凭证必须重新授权；键本身不随凭证或证据到期而删除。
 
-旧记录不改写：submit 沿用旧摘要；旧 `rerun:<target>` 等可按原目标原键通信重试，固定类别查询也匹配旧前缀。历史同类别同键对应多个目标时返回 `legacy_key_ambiguous`，用原记录 ID 查询并人工确认，不能任选一条。新写也不能拿已占用的旧键换目标。
+查询只匹配固定操作类别，不识别早期把目标编入类别的 `rerun:<target>` 等旧键格式。
 
 ## 三轴状态与下一动作
 

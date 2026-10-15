@@ -1293,7 +1293,7 @@ test("shared attachment versions, maintenance, explicit selection and write reco
       json:
         route.request().method() === "POST"
           ? result
-          : { attachments, legacy_bundles: [] },
+          : { attachments },
     });
   });
   await page.route("**/api/v1/catalog", (route) =>
@@ -1376,7 +1376,6 @@ test("attachment creator can disable and restore a version", async ({
             ],
           },
         ],
-        legacy_bundles: [],
       },
     }),
   );

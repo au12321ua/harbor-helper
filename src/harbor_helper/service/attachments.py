@@ -1,4 +1,4 @@
-"""Team-shared immutable input versions over the compatible bundle store.
+"""Team-shared immutable input versions over the bundle store.
 
 Files are validated before the control section. A single SQLite transaction makes
 bundle, identity, version and operation visible together. A killed publisher can
@@ -14,7 +14,7 @@ from harbor_helper.execution.runs import check_bundle
 from harbor_helper.persistence.files import tree_digest
 from harbor_helper.service.data import ServiceError
 
-OPERATIONS = {"attachment_create", "attachment_publish", "attachment_derive", "attachment_register"}
+OPERATIONS = {"attachment_create", "attachment_publish", "attachment_derive"}
 
 
 class Attachments:
@@ -48,8 +48,7 @@ class Attachments:
             user = db.execute("SELECT username FROM users WHERE id=?", (item[field],)).fetchone()
             item[field.replace("_id", "")] = user[0] if user else "unknown"
             item["enabled"] = bool(item["enabled"])
-        version["legacy"] = bool(version["legacy"])
-        version["original_creator"] = "unknown" if version["legacy"] else attachment["creator"]
+        version.pop("legacy", None)
         version["availability"] = "available"
         try:
             self.validate_bundle(db, version["bundle_id"])
@@ -73,17 +72,7 @@ class Attachments:
                 ]
                 first = self.public(db, versions[0]["id"])["attachment"]
                 result.append({**first, "versions": versions})
-            legacy = [
-                dict(r)
-                for r in db.execute(
-                    "SELECT b.* FROM bundles b LEFT JOIN attachment_versions v ON b.id=v.bundle_id "
-                    "WHERE v.id IS NULL ORDER BY b.created DESC"
-                )
-            ]
-        return {
-            "attachments": result,
-            "legacy_bundles": [{**b, "creator": "unknown", "legacy": True} for b in legacy],
-        }
+        return {"attachments": result}
 
     def validate_bundle(self, db, bundle_id, access_value=None):
         row = db.execute("SELECT digest FROM bundles WHERE id=?", (bundle_id,)).fetchone()
@@ -100,28 +89,26 @@ class Attachments:
             ) from None
         return row["digest"]
 
-    def binding(self, bundle_id=None, version_id=None, *, access_value=None):
-        with self.store.connect() as db:
-            version = self.version(db, version_id) if version_id else None
-            if not version and bundle_id:
-                row = db.execute(
-                    "SELECT id FROM attachment_versions WHERE bundle_id=?", (bundle_id,)
-                ).fetchone()
-                version = self.version(db, row[0]) if row else None
-            if version:
-                attachment = self.identity(db, version["attachment_id"])
-                if not attachment["enabled"] or not version["enabled"]:
-                    raise ServiceError("attachment_disabled", "Attachment or version disabled", 409)
-                bundle_id = version["bundle_id"]
-            sha = self.validate_bundle(db, bundle_id, access_value) if bundle_id else None
+    def binding(self, version_id=None, *, access_value=None):
+        if not version_id:
             return {
-                "bundle_id": bundle_id,
-                "bundle_digest": sha,
-                "attachment_version_id": version["id"] if version else None,
-                "attachment_id": version["attachment_id"] if version else None,
-                "attachment_lineage": "versioned"
-                if version
-                else ("legacy" if bundle_id else "none"),
+                "bundle_id": None,
+                "bundle_digest": None,
+                "attachment_version_id": None,
+                "attachment_id": None,
+                "attachment_lineage": "none",
+            }
+        with self.store.connect() as db:
+            version = self.version(db, version_id)
+            attachment = self.identity(db, version["attachment_id"])
+            if not attachment["enabled"] or not version["enabled"]:
+                raise ServiceError("attachment_disabled", "Attachment or version disabled", 409)
+            return {
+                "bundle_id": version["bundle_id"],
+                "bundle_digest": self.validate_bundle(db, version["bundle_id"], access_value),
+                "attachment_version_id": version["id"],
+                "attachment_id": version["attachment_id"],
+                "attachment_lineage": "versioned",
             }
 
     def lookup(self, actor, operation, idem):
@@ -162,7 +149,6 @@ class Attachments:
             "attachment_create": {"name", "description"},
             "attachment_publish": {"attachment_id", "notes"},
             "attachment_derive": {"source_version_id", "name", "description"},
-            "attachment_register": {"bundle_id", "name", "description"},
         }[operation]
         if not isinstance(body, dict) or set(body) - fields:
             raise ServiceError("attachment_fields", "Unknown attachment fields")
@@ -187,19 +173,13 @@ class Attachments:
         staged = None
         committed = False
         try:
-            if operation != "attachment_register":
-                if archive is None:
-                    raise ServiceError("attachment_file", "ZIP input required")
-                staged = self.app.upload_bundle(archive, access_value=access_value, persist=False)
+            if archive is None:
+                raise ServiceError("attachment_file", "ZIP input required")
+            staged = self.app.upload_bundle(archive, access_value=access_value)
             with self.store.control(), self.store.connect() as db:
                 if not self.data.user(actor["id"])["enabled"]:
                     raise ServiceError("member_disabled", "Account disabled", 403)
-                bundle_id = staged["id"] if staged else normalized["bundle_id"]
-                sha = (
-                    staged["digest"]
-                    if staged
-                    else self.validate_bundle(db, bundle_id, access_value)
-                )
+                bundle_id, sha = staged["id"], staged["digest"]
                 request_hash = digest({**normalized, "digest": sha})
                 old = db.execute(
                     "SELECT * FROM attachment_operations WHERE user_id=? AND operation=? AND idem=?",
@@ -229,16 +209,7 @@ class Attachments:
                 else:
                     if operation == "attachment_derive":
                         source = self.version(db, normalized["source_version_id"])
-                        self.binding(version_id=source["id"], access_value=access_value)
-                    if (
-                        operation == "attachment_register"
-                        and db.execute(
-                            "SELECT 1 FROM attachment_versions WHERE bundle_id=?", (bundle_id,)
-                        ).fetchone()
-                    ):
-                        raise ServiceError(
-                            "bundle_registered", "Legacy bundle already registered", 409
-                        )
+                        self.binding(source["id"], access_value=access_value)
                     attachment_id, number = "att-" + uuid.uuid4().hex, 1
                     db.execute(
                         "INSERT INTO attachments VALUES(?,?,?,?,?,1)",
@@ -250,8 +221,7 @@ class Attachments:
                             time.time(),
                         ),
                     )
-                if staged:
-                    db.execute("INSERT INTO bundles VALUES(?,?,?)", (bundle_id, sha, time.time()))
+                db.execute("INSERT INTO bundles VALUES(?,?,?)", (bundle_id, sha, time.time()))
                 version_id = "av-" + uuid.uuid4().hex
                 db.execute(
                     "INSERT INTO attachment_versions VALUES(?,?,?,?,?,?,?,?,?,?,1)",
@@ -265,7 +235,7 @@ class Attachments:
                         time.time(),
                         normalized.get("notes", ""),
                         source["id"] if source else None,
-                        int(operation == "attachment_register"),
+                        0,  # Retired legacy-registration flag; column kept for existing states.
                     ),
                 )
                 db.execute(

@@ -135,40 +135,6 @@ def test_semantic_idempotency_concurrency_and_target_conflict(data):
     assert replay["version"]["number"] in (2, 3, 4, 5)
 
 
-def test_legacy_registration_unique_and_disabling(data):
-    app, user = Application(data.root), actor(data)
-    legacy = app.upload_bundle(archive())
-    assert app.attachments.catalog()["legacy_bundles"][0]["creator"] == "unknown"
-    record = app.attachments.write(
-        user, "attachment_register", "register", {"bundle_id": legacy["id"], "name": "Imported"}
-    )
-    assert record["version"]["legacy"] and record["version"]["original_creator"] == "unknown"
-    assert record["version"]["publisher_id"] == user["id"]
-    assert (
-        app.attachments.write(
-            user, "attachment_register", "register", {"name": "Imported", "bundle_id": legacy["id"]}
-        )
-        == record
-    )
-    with pytest.raises(ServiceError) as error:
-        app.attachments.write(
-            actor(data, "bob"),
-            "attachment_register",
-            "different",
-            {"bundle_id": legacy["id"], "name": "Other"},
-        )
-    assert error.value.code == "bundle_registered"
-    app.attachments.update(user, record["attachment"]["id"], {"enabled": False})
-    with pytest.raises(ServiceError) as error:
-        app.accept(user, {"agent": "oracle", "bundle_id": legacy["id"]}, "legacy-disabled")
-    assert error.value.code == "attachment_disabled"
-    app.attachments.update(user, record["attachment"]["id"], {"enabled": True})
-    accepted = app.accept(
-        actor(data, "bob"), {"agent": "oracle", "bundle_id": legacy["id"]}, "legacy-enabled"
-    )
-    assert accepted["attachment"]["attachment_version_id"] == record["version"]["id"]
-
-
 def test_frozen_lineage_rerun_retry_recover_current_identity(data, preparation):
     app, alice, bob = Application(data.root), actor(data), actor(data, "bob")
     first = create(app, alice)
@@ -203,37 +169,6 @@ def test_frozen_lineage_rerun_retry_recover_current_identity(data, preparation):
         app.recover_submission(bob, child["id"], "disabled-recovery")
 
 
-def test_history_without_lineage_keeps_unknown_and_snapshot(data, preparation):
-    app, user = Application(data.root), actor(data)
-    bundle = app.upload_bundle(archive())
-    accepted = app.accept(user, {"agent": "oracle", "bundle_id": bundle["id"]}, "old")
-    prepare_one(data.store)
-    rid = data.submission(accepted["id"])["run_id"]
-    path = data.store.path(rid)
-    manifest = read_json(path / "manifest.json")
-    for field in (
-        "bundle_id",
-        "attachment_id",
-        "attachment_version_id",
-        "bundle_digest",
-        "attachment_lineage",
-    ):
-        manifest["service"].pop(field, None)
-    write_json(path / "manifest.json", manifest)
-    before = (path / "manifest.json").read_bytes()
-    child = app.accept(user, {}, "old-rerun", parent=rid)
-    assert child["attachment"]["attachment_lineage"] == "legacy/unknown"
-    assert child["attachment"]["bundle_id"] is None
-    with data.store.connect() as db:
-        db.execute("UPDATE submissions SET status='failed' WHERE id=?", (child["id"],))
-    recovered = app.recover_submission(actor(data, "bob"), child["id"], "recover-unknown")
-    assert recovered["parent"] == rid
-    prepare_one(data.store)
-    child_id = data.submission(recovered["id"])["run_id"]
-    assert (data.store.path(child_id) / "bundle/sdk/readme").read_bytes() == b"v1"
-    assert (path / "manifest.json").read_bytes() == before
-
-
 @pytest.mark.parametrize(
     "filename,value",
     [
@@ -259,34 +194,28 @@ def test_request_value_and_historical_leak_paths(data, preparation):
     actual = "fake-current-session-value"
     with pytest.raises(ValueError):
         app.upload_bundle(archive(actual.encode()), access_value=actual)
-    legacy = app.upload_bundle(archive(actual.encode()))
+    stored = create(app, user, "stored", actual.encode())
+    vid = stored["version"]["id"]
     with pytest.raises(ServiceError):
         app.accept(
             user,
-            {"agent": "oracle", "bundle_id": legacy["id"]},
+            {"agent": "oracle", "attachment_version_id": vid},
             "request-check",
             access_value=actual,
         )
-    with pytest.raises(ServiceError):
-        app.attachments.write(
-            user,
-            "attachment_register",
-            "register-check",
-            {"name": "Legacy", "bundle_id": legacy["id"]},
-            access_value=actual,
-        )
-    accepted = app.accept(user, {"agent": "oracle", "bundle_id": legacy["id"]}, "legacy")
+    accepted = app.accept(user, {"agent": "oracle", "attachment_version_id": vid}, "stored-run")
     prepare_one(data.store)
     rid = data.submission(accepted["id"])["run_id"]
     with pytest.raises(ServiceError):
         app.accept(user, {}, "rerun-check", parent=rid, access_value=actual)
-    (data.root / "bundles" / legacy["id"] / "sdk/readme").write_text(PAT)
+    (data.root / "bundles" / stored["version"]["bundle_id"] / "sdk/readme").write_text(PAT)
     with pytest.raises(ServiceError):
         app.attachments.write(
             user,
-            "attachment_register",
-            "register-format",
-            {"name": "Legacy", "bundle_id": legacy["id"]},
+            "attachment_derive",
+            "derive-format",
+            {"source_version_id": vid, "name": "Derived"},
+            archive(),
         )
 
 
@@ -342,19 +271,18 @@ def test_http_member_shared_versions_lookup_and_exclusive_reference(data):
         files={"file": ("bundle.zip", archive())},
     )
     assert denied.status_code == 403
-    both = bob.post(
+    unversioned = bob.post(
         "/api/v1/submissions",
         headers=headers,
-        json={
-            "agent": "oracle",
-            "bundle_id": first["version"]["bundle_id"],
-            "attachment_version_id": first["version"]["id"],
-        },
+        json={"agent": "oracle", "bundle_id": first["version"]["bundle_id"]},
     )
-    assert both.status_code == 422 and both.json()["code"] == "attachment_reference"
+    assert unversioned.status_code == 422
     token = alice.cookies.get("hh_session")
     leak = alice.post(
-        "/api/v1/bundles", headers=headers, files={"file": ("bundle.zip", archive(token.encode()))}
+        "/api/v1/attachments",
+        headers={**headers, "Idempotency-Key": "http-leak"},
+        data={"metadata": json.dumps({"name": "Leak"})},
+        files={"file": ("bundle.zip", archive(token.encode()))},
     )
     assert leak.status_code == 422 and token not in leak.text
 
@@ -629,37 +557,3 @@ def test_http_types_and_key_with_slash_roundtrip(data):
         ).status_code
         == 422
     )
-
-
-def test_later_registration_does_not_retroactively_label_comparison(data, preparation):
-    from harbor_helper.results.reports import compare
-
-    app, user = Application(data.root), actor(data)
-    bundle = app.upload_bundle(archive())
-    ids = []
-    for i, request in enumerate(
-        ({"agent": "oracle"}, {"agent": "oracle", "bundle_id": bundle["id"]})
-    ):
-        accepted = app.accept(user, request, f"legacy-compare-{i}")
-        prepare_one(data.store)
-        rid = data.submission(accepted["id"])["run_id"]
-        data.store.update(rid, status="succeeded", audit_status="clean")
-        ids.append(rid)
-    path = data.store.path(ids[1]) / "manifest.json"
-    before = path.read_bytes()
-    reports = ({"complete": True, "tasks": [{"task": "box", "mean_rewards": {"reward": 0}}]},) * 2
-    app.attachments.write(
-        user,
-        "attachment_register",
-        "later",
-        {"name": "Registered later", "bundle_id": bundle["id"]},
-    )
-    result = compare(data.store, *ids, published_reports=reports)
-    assert result["comparable"]
-    assert result["attachment_inputs"]["right"] == {
-        "kind": "legacy/unknown",
-        "attachment_version_id": None,
-        "bundle_id": bundle["id"],
-        "digest": bundle["digest"],
-    }
-    assert path.read_bytes() == before

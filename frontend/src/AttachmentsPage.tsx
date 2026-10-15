@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, post, date, newIdempotencyKey, type Item } from "./api";
+import { api, date, newIdempotencyKey, type Item } from "./api";
 import { useLoad } from "./useLoad";
 import { Title, ErrorNotice, Loading, SelectField } from "./shared";
 import { Button } from "@/components/ui/button";
@@ -100,37 +100,28 @@ export function AttachmentsPage({ user }: { user: Item }) {
                 JSON.stringify(nextReceipt),
               );
               try {
-                let value: Item;
-                if (action === "register") {
-                  value = await post(
-                    "/attachments/register",
-                    { bundle_id: target, name, description },
-                    key,
-                  );
-                } else {
-                  const body = new FormData();
-                  if (!file) throw new Error("请选择 ZIP 文件");
-                  body.set("file", file);
-                  body.set(
-                    "metadata",
-                    JSON.stringify(
-                      action === "publish"
-                        ? { notes: description }
-                        : { name, description },
-                    ),
-                  );
-                  const path =
+                const body = new FormData();
+                if (!file) throw new Error("请选择 ZIP 文件");
+                body.set("file", file);
+                body.set(
+                  "metadata",
+                  JSON.stringify(
                     action === "publish"
-                      ? `/attachments/${target}/versions`
-                      : action === "derive"
-                        ? `/attachment-versions/${target}/derive`
-                        : "/attachments";
-                  value = await api(path, {
-                    method: "POST",
-                    body,
-                    headers: { "Idempotency-Key": key },
-                  });
-                }
+                      ? { notes: description }
+                      : { name, description },
+                  ),
+                );
+                const path =
+                  action === "publish"
+                    ? `/attachments/${target}/versions`
+                    : action === "derive"
+                      ? `/attachment-versions/${target}/derive`
+                      : "/attachments";
+                const value: Item = await api(path, {
+                  method: "POST",
+                  body,
+                  headers: { "Idempotency-Key": key },
+                });
                 setResult(value);
                 reload();
               } catch (err) {
@@ -155,17 +146,10 @@ export function AttachmentsPage({ user }: { user: Item }) {
                 <option value="create">新建附件与 v1</option>
                 <option value="publish">发布后续版本</option>
                 <option value="derive">从团队版本派生</option>
-                <option value="register">登记旧 bundle ID</option>
               </SelectField>
               {action !== "create" ? (
                 <SelectField
-                  label={
-                    action === "derive"
-                      ? "来源版本"
-                      : action === "register"
-                        ? "历史上传"
-                        : "维护附件"
-                  }
+                  label={action === "derive" ? "来源版本" : "维护附件"}
                   name="attachment_target"
                   value={target}
                   onChange={setTarget}
@@ -177,27 +161,21 @@ export function AttachmentsPage({ user }: { user: Item }) {
                           {a.name} · {a.id}
                         </option>
                       ))
-                    : action === "derive"
-                      ? attachments.flatMap((a) =>
-                          a.versions.map((v: Item) => (
-                            <option
-                              key={v.id}
-                              value={v.id}
-                              disabled={
-                                !a.enabled ||
-                                !v.enabled ||
-                                v.availability !== "available"
-                              }
-                            >
-                              {a.name} · v{v.number} · {v.id}
-                            </option>
-                          )),
-                        )
-                      : (data?.legacy_bundles || []).map((b: Item) => (
-                          <option key={b.id} value={b.id}>
-                            {b.id} · 历史上传，创建者未知
+                    : attachments.flatMap((a) =>
+                        a.versions.map((v: Item) => (
+                          <option
+                            key={v.id}
+                            value={v.id}
+                            disabled={
+                              !a.enabled ||
+                              !v.enabled ||
+                              v.availability !== "available"
+                            }
+                          >
+                            {a.name} · v{v.number} · {v.id}
                           </option>
-                        ))}
+                        )),
+                      )}
                 </SelectField>
               ) : null}
               {action !== "publish" ? (
@@ -223,18 +201,16 @@ export function AttachmentsPage({ user }: { user: Item }) {
                   maxLength={4096}
                 />
               </Field>
-              {action !== "register" ? (
-                <Field>
-                  <FieldLabel htmlFor="attachment-file">附件 ZIP</FieldLabel>
-                  <Input
-                    id="attachment-file"
-                    type="file"
-                    accept=".zip,application/zip"
-                    required
-                    onChange={(e) => setFile(e.target.files?.[0])}
-                  />
-                </Field>
-              ) : null}
+              <Field>
+                <FieldLabel htmlFor="attachment-file">附件 ZIP</FieldLabel>
+                <Input
+                  id="attachment-file"
+                  type="file"
+                  accept=".zip,application/zip"
+                  required
+                  onChange={(e) => setFile(e.target.files?.[0])}
+                />
+              </Field>
               <p className="text-muted-foreground break-all">
                 幂等键：{key}。通信失败保留原输入与原键重试，或查回。
               </p>
@@ -349,7 +325,6 @@ export function AttachmentsPage({ user }: { user: Item }) {
                       <strong>v{v.number}</strong> ·{" "}
                       {v.enabled ? "启用" : "停用"} · 发布者 {v.publisher} ·{" "}
                       {date(v.created)}
-                      {v.legacy ? " · 历史上传，原创建者未知" : ""}
                     </p>
                     <p>
                       {v.notes}{" "}

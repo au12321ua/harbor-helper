@@ -126,7 +126,6 @@ class Application:
             "dataset",
             "model_profile",
             "agent",
-            "bundle_id",
             "attachment_version_id",
             "attempts",
             "concurrency",
@@ -139,8 +138,6 @@ class Application:
             raise ServiceError(
                 "invalid_submission", "Unknown submission fields; identity is supplied by server"
             )
-        if "bundle_id" in request and "attachment_version_id" in request:
-            raise ServiceError("attachment_reference", "Choose bundle_id OR attachment_version_id")
         if parent and not retry and request:
             raise ServiceError("rerun_options", "Rerun inherits fixed inputs")
         if request.get("name") is not None and (
@@ -163,27 +160,8 @@ class Application:
                     "SELECT id,request_hash FROM submissions WHERE user_id=? AND operation=? AND idem=?",
                     (actor["id"], operation, idem),
                 ).fetchone()
-            legacy = False
-            if not old and (parent or recovery):
-                legacy_operation = operation + ":" + (parent or recovery)
-                with self.store.connect() as db:
-                    old = db.execute(
-                        "SELECT id,request_hash FROM submissions WHERE user_id=? AND operation=? AND idem=?",
-                        (actor["id"], legacy_operation, idem),
-                    ).fetchone()
-                    other_legacy = db.execute(
-                        "SELECT 1 FROM submissions WHERE user_id=? AND idem=? AND operation LIKE ? AND operation<>?",
-                        (actor["id"], idem, operation + ":%", legacy_operation),
-                    ).fetchone()
-                if other_legacy:
-                    raise ServiceError(
-                        "idempotency_conflict",
-                        "Legacy key already used for another target; retain original key and target",
-                        409,
-                    )
-                legacy = old is not None
             if old:
-                if old["request_hash"] != (digest(request) if legacy else request_hash):
+                if old["request_hash"] != request_hash:
                     raise ServiceError(
                         "idempotency_conflict", "Idempotency key reused with different input", 409
                     )
@@ -417,11 +395,9 @@ class Application:
             # Ordinary rerun keeps its frozen author input and does not fill old defaults.
             validate_effective(team, cfg)
             if parent or recovery_row:
-                bundle = old_binding.get("bundle_id")
-                version_id = old_binding.get("attachment_version_id")
-                if recovery_row:
-                    bundle = bundle or old.get("bundle_id")
-                binding = self.attachments.binding(bundle, version_id, access_value=access_value)
+                binding = self.attachments.binding(
+                    old_binding.get("attachment_version_id"), access_value=access_value
+                )
                 if copy_parent:
                     parent_manifest = read_json(self.store.path(copy_parent) / "manifest.json")
                     snapshot = self.store.path(copy_parent) / "bundle"
@@ -438,18 +414,9 @@ class Application:
                                 "Parent attachment snapshot unsafe or changed",
                                 409,
                             ) from None
-                if not bundle and not version_id:
-                    binding["attachment_lineage"] = "legacy/unknown"
-                    binding["bundle_digest"] = (
-                        parent_manifest.get("bundle_digest")
-                        if copy_parent
-                        else old_binding.get("bundle_digest")
-                    )
             else:
                 binding = self.attachments.binding(
-                    request.get("bundle_id"),
-                    request.get("attachment_version_id"),
-                    access_value=access_value,
+                    request.get("attachment_version_id"), access_value=access_value
                 )
             service.update(binding)
             bundle = binding["bundle_id"]
@@ -763,7 +730,8 @@ class Application:
                 )
         return {"id": file_id, "deleted": True}
 
-    def upload_bundle(self, archive, *, access_value=None, persist=True):
+    def upload_bundle(self, archive, *, access_value=None):
+        """Stage validated bundle bytes; the caller commits the bundles row."""
         limits = self.data.limits()
         archive.seek(0, 2)
         if archive.tell() > limits["max_upload_bytes"]:
@@ -819,9 +787,6 @@ class Application:
                     os.fsync(fd)
                 finally:
                     os.close(fd)
-            if persist:
-                with self.store.connect() as db:
-                    db.execute("INSERT INTO bundles VALUES(?,?,?)", (bundle_id, sha, time.time()))
         except BaseException:
             shutil.rmtree(path, ignore_errors=True)
             raise

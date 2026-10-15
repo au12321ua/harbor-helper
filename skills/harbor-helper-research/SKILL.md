@@ -20,7 +20,7 @@ description: Operate a Harbor Helper team service as an authorized research clie
 
 保存一个研究计划：数据集固定引用/已配置 ID 与版本、任务选择及评分来源、agent/模型方案、作者参数、attempts/concurrency/wall_seconds、环境构建倍率、明确附件身份/摘要、授权与预算范围。省略参数的服务默认也可能变动：核发现/schema，并在受理后检查冻结输入/比较条件；需要 CLI 未暴露字段时用 HTTP，不臆造 CLI flags。
 
-无附件、v1、v2 都用**新 submit**，分别明确新键；仅附件版本为计划中的变量。无附件省略 `bundle_id` 与 `attachment_version_id`；候选只指定明确 `attachment_version_id`，不用 latest、不自动沿用。普通 rerun/retry/recover 继承附件，不用于换版本。已有附件可直接选择；上传/发布只在用户授权且有 attachments 能力时做。
+无附件、v1、v2 都用**新 submit**，分别明确新键；仅附件版本为计划中的变量。无附件省略 `attachment_version_id`；候选只指定明确 `attachment_version_id`，不用 latest、不自动沿用。普通 rerun/retry/recover 继承附件，不用于换版本。已有附件可直接选择；上传/发布只在用户授权且有 attachments 能力时做。
 
 **发写请求前**持久保存服务 URL、成员 ID、固定操作类别、目标路径、原键和完整原正文（或附件内容摘要及发布元信息）。不含 PAT。每个操作单独保全，不让后一个请求覆盖前一个记录。CLI 自动 receipt 在发请求前保存 path/body/user_id/key，但一个 profile 只保留最后一次；参考文件说明如何在下一次写前保全它。不要无键依赖 CLI 自动生成随机键。
 
@@ -28,7 +28,7 @@ description: Operate a Harbor Helper team service as an authorized research clie
 
 - 超时或响应丢失：先以原成员+操作+键 lookup，或原路径/正文/键重发。查不到不等于未受理，保持原键，不造新键；尚未解决的写操作先恢复，再开始下一次写。
 - CLI `service retry` 是**最近 receipt 的通信重发**；普通 `retry RUN` 是新研究尝试，两者不可混用。凭证更换仍须同一成员、同一服务，原记录/键不因撤销而消失。
-- 409 幂等冲突/action=fix_input：保留原记录，核正文/目标差异并修正误输后找回原操作；不通过换键继续制造任务。确实要改变实验是另一个需授权的新操作。legacy_key_ambiguous 用已保存记录 ID 查询并人工确认，不任选结果。
+- 409 幂等冲突/action=fix_input：保留原记录，核正文/目标差异并修正误输后找回原操作；不通过换键继续制造任务。确实要改变实验是另一个需授权的新操作。
 - 新受理前读取 discovery.readiness（或授权 GET /readiness）：区分 initialized、accepting、scheduler 活动和观察时间、maintenance 原因及可选建议重试时间、pending 身份额度。旧服务缺字段时以实时 schema 为准；额度共用成员的全部凭证，不切换身份绕过。维护暂停/活动未知时只推进读、取消或原键找回；建议重试时间不触发自动恢复，就绪不保证执行成功。
 - 429/503 或 retry_same_request：在本轮约定等待期限/最大请求次数内有限退避，继续用原键；wait_known=false 不承诺多久可用。到期限返回记录、已知状态和下一步，不自动提交补偿任务。
 

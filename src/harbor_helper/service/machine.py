@@ -29,7 +29,6 @@ class SubmissionInput(Input):
     dataset_id: str | None = None
     model_profile: str | None = None
     agent: Literal["oracle", "opencode"] | None = None
-    bundle_id: str | None = None
     attachment_version_id: str | None = None
     attempts: int | None = Field(default=None, ge=1)
     concurrency: int | None = Field(default=None, ge=1)
@@ -112,12 +111,10 @@ READ = {
     "machine_report",
 }
 ATTACHMENTS = {
-    "upload",
     "attachment_lookup",
     "create_attachment",
     "publish_attachment",
     "derive_attachment",
-    "register_attachment",
     "update_attachment",
     "update_attachment_version",
 }
@@ -291,22 +288,17 @@ def lookup(app, user, operation, key):
     if user.get("access_credential_id") and "execute" not in user["scopes"]:
         raise ServiceError("scope_required", "Automation capability required: execute", 403)
     with app.store.connect() as db:
-        rows = db.execute(
-            "SELECT id FROM submissions WHERE user_id=? AND idem=? AND "
-            "(operation=? OR operation LIKE ?)",
-            (user["id"], key, operation, operation + ":%"),
-        ).fetchall()
-    if not rows:
+        row = db.execute(
+            "SELECT id FROM submissions WHERE user_id=? AND idem=? AND operation=?",
+            (user["id"], key, operation),
+        ).fetchone()
+    if not row:
         raise ServiceError(
             "idempotency_missing", "Key not observed; resend original body with original key", 404
         )
-    if len(rows) != 1:
-        raise ServiceError(
-            "legacy_key_ambiguous", "Legacy key has multiple targets; query original record ID", 409
-        )
     from harbor_helper.service.application import public_submission
 
-    return public_submission(app.data.submission(rows[0][0]))
+    return public_submission(app.data.submission(row[0]))
 
 
 def discovery(app, user):
@@ -354,7 +346,7 @@ def discovery(app, user):
 def error_action(code, status):
     if code == "idempotency_missing":
         return "retry_same_request"
-    if code in {"report_blocked", "audit_incomplete", "legacy_key_ambiguous"}:
+    if code in {"report_blocked", "audit_incomplete"}:
         return "contact_admin"
     if code == "report_unavailable":
         return "explicit_new_attempt"
@@ -436,20 +428,11 @@ class AttachmentEntry(AttachmentIdentity):
     versions: list[AttachmentVersion]
 
 
-class LegacyBundle(BaseModel):
-    id: str
-    digest: str
-    created: float
-    creator: Literal["unknown"]
-    legacy: Literal[True]
-
-
 class Discovery(BaseModel):
     contract_version: Literal["1.0"]
     datasets: list[DatasetInfo]
     model_profiles: list[ModelInfo]
     attachments: list[AttachmentEntry]
-    legacy_bundles: list[LegacyBundle]
     limits: dict[str, int]
     scheduler: SchedulerInfo
     readiness: Readiness
@@ -578,7 +561,6 @@ SCHEMA_OPERATIONS = {
     "create_attachment",
     "publish_attachment",
     "derive_attachment",
-    "register_attachment",
     "update_attachment",
     "update_attachment_version",
     "compare",
@@ -630,7 +612,6 @@ class ErrorResponse(BaseModel):
 
 class AttachmentCatalog(BaseModel):
     attachments: list[AttachmentEntry]
-    legacy_bundles: list[LegacyBundle]
 
 
 class Updated(BaseModel):
@@ -645,7 +626,7 @@ class MetricDelta(BaseModel):
 
 
 class CompareAttachment(BaseModel):
-    kind: Literal["versioned", "legacy/unknown", "none"]
+    kind: Literal["versioned", "none"]
     attachment_version_id: str | None
     bundle_id: str | None
     digest: str | None
@@ -670,11 +651,3 @@ class Comparison(BaseModel):
 CAPABILITIES["machine_compare"] = "read"
 SCHEMA_OPERATIONS.discard("compare")
 SCHEMA_OPERATIONS.add("machine_compare")
-
-
-class BundleResult(BaseModel):
-    id: str
-    digest: str
-
-
-SCHEMA_OPERATIONS.add("upload")

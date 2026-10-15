@@ -84,12 +84,12 @@ harbor-helper list
 ```bash
 harbor-helper submit --model-profile PROFILE_ID \
   --dataset DATASET_NAME@VERSION \
-  --bundle /path/to/bundle --idempotency-key experiment-001
+  --attachment-version-id av-EXAMPLE --idempotency-key experiment-001
 harbor-helper service retry
 harbor-helper list --json
 ```
 
-bundle 可以是合规目录或 ZIP，上传后由服务冻结。模型方案使用团队凭据，CLI没有个人模型key入口。验证 oracle 必须显式选择，不能因模型错误自动退回 oracle：
+附件先在“团队附件”或 `attachments create` 发布为版本，提交时引用版本 ID。模型方案使用团队凭据，CLI没有个人模型key入口。验证 oracle 必须显式选择，不能因模型错误自动退回 oracle：
 
 ```bash
 harbor-helper submit --agent oracle --idempotency-key oracle-001
