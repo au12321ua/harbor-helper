@@ -7,6 +7,7 @@ import {
   upload,
   type User,
   type AttachmentResult,
+  type ValidPath,
   type PATCH,
   type PATCHPath,
 } from "./api";
@@ -52,7 +53,7 @@ export function AttachmentsPage({ user }: { user: User }) {
     (a) => user.role === "admin" || a.creator_id === user.id,
   );
   async function mutate<P extends PATCHPath>(
-    path: P,
+    path: ValidPath<P, PATCH<P>>,
     body: PATCH<P>["request"],
   ) {
     setBusy(true);

@@ -1547,3 +1547,74 @@ test("管理员网页调整身份额度与维护暂停恢复", async ({ page }) 
   await page.getByRole("button", { name: "恢复新受理", exact: true }).click();
   await expect(page.getByText("允许新受理", { exact: true })).toBeVisible();
 });
+
+test("真实调用封装绑定 PATCH 方法、动态后缀和跨段幂等查询", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto("/admin");
+  await expect(page.getByRole("tab", { name: "容量与保留" })).toBeVisible();
+  const calls: {
+    path: string;
+    method: string;
+    body: unknown;
+    requestedWith?: string;
+  }[] = [];
+  const responses: Record<string, unknown> = {
+    "/admin/settings": { team_name: "transport-probe" },
+    "/runs/dynamic-id": { row: { id: "dynamic-id" } },
+    "/runs/dynamic-id/logs": { text: "transport-log" },
+    "/runs/dynamic-id/report": null,
+    "/attachment-operations/create/namespace/key": {
+      attachment: { id: "attachment-probe" },
+    },
+    "/submission-operations/submit/namespace/key": { id: "submission-probe" },
+  };
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1", "");
+    if (!(path in responses)) return route.fallback();
+    calls.push({
+      path,
+      method: request.method(),
+      body: request.postData() ? request.postDataJSON() : null,
+      requestedWith: request.headers()["x-requested-with"],
+    });
+    await route.fulfill({ json: responses[path] });
+  });
+  const result = await page.evaluate(async () => {
+    const { api, mutation } = await import("/src/api.ts");
+    const id = "dynamic-id";
+    const key = "namespace/key";
+    return {
+      saved: await mutation(
+        "/admin/settings",
+        { team_name: "transport-probe" },
+        "PATCH",
+      ),
+      detail: await api(`/runs/${id}`),
+      logs: await api(`/runs/${id}/logs`),
+      report: await api(`/runs/${id}/report`),
+      attachment: await api(`/attachment-operations/create/${key}`),
+      submission: await api(`/submission-operations/submit/${key}`),
+    };
+  });
+  expect(result).toEqual({
+    saved: responses["/admin/settings"],
+    detail: responses["/runs/dynamic-id"],
+    logs: responses["/runs/dynamic-id/logs"],
+    report: null,
+    attachment: responses["/attachment-operations/create/namespace/key"],
+    submission: responses["/submission-operations/submit/namespace/key"],
+  });
+  expect(calls).toHaveLength(6);
+  expect(calls[0]).toEqual({
+    path: "/admin/settings",
+    method: "PATCH",
+    body: { team_name: "transport-probe" },
+    requestedWith: "harbor-helper",
+  });
+  expect(
+    calls.slice(1).every((call) => call.method === "GET" && call.body === null),
+  ).toBe(true);
+});

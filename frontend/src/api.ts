@@ -24,6 +24,9 @@ export class ApiError extends Error {
     this.requestId = body.request_id;
   }
 }
+// A broad template path union is only a coarse constraint: generated resolution
+// also checks segment count, so an ID cannot swallow a misspelled suffix.
+export type ValidPath<P, Spec> = [Spec] extends [never] ? never : P;
 // Transport trust boundary: callers cannot choose a response type. Each
 // method/path is generated from a server route and raw outputs are server checked.
 async function request(
@@ -51,11 +54,9 @@ async function request(
           ? undefined
           : JSON.stringify(body),
   });
-  const value = (await response
-    .json()
-    .catch(() => ({
-      message: `请求失败 (${response.status})`,
-    }))) as Partial<ApiFailure>;
+  const value = (await response.json().catch(() => ({
+    message: `请求失败 (${response.status})`,
+  }))) as Partial<ApiFailure>;
   if (!response.ok) {
     if (response.status === 401 && value.code !== "invalid_login")
       window.dispatchEvent(new Event("session-expired"));
@@ -63,17 +64,19 @@ async function request(
   }
   return value;
 }
-export function api<P extends GETPath>(path: P): Promise<GET<P>["response"]>;
+export function api<P extends GETPath>(
+  path: ValidPath<P, GET<P>>,
+): Promise<GET<P>["response"]>;
 export function api<P extends PATCHPath>(
-  path: P,
+  path: ValidPath<P, PATCH<P>>,
   options: { method: "PATCH"; body: PATCH<P>["request"] },
 ): Promise<PATCH<P>["response"]>;
 export function api<P extends PUTPath>(
-  path: P,
+  path: ValidPath<P, PUT<P>>,
   options: { method: "PUT"; body: PUT<P>["request"] },
 ): Promise<PUT<P>["response"]>;
 export function api<P extends DELETEPath>(
-  path: P,
+  path: ValidPath<P, DELETE<P>>,
   options: { method: "DELETE" },
 ): Promise<DELETE<P>["response"]>;
 export function api(
@@ -83,7 +86,7 @@ export function api(
   return request(path, options?.method || "GET", options?.body);
 }
 export function post<P extends JsonPostPath>(
-  path: P,
+  path: ValidPath<P, POST<P>>,
   ...args: {} extends POST<P>["request"]
     ? [body?: POST<P>["request"], idempotent?: boolean | string]
     : [body: POST<P>["request"], idempotent?: boolean | string]
@@ -93,7 +96,7 @@ export function post<P extends JsonPostPath>(
   >;
 }
 export function upload<P extends UploadPath>(
-  path: P,
+  path: ValidPath<P, POST<P>>,
   metadata: POST<P>["request"],
   file: File | Blob,
   key: string,
@@ -160,11 +163,11 @@ export function mutation<
   M extends WriteMethod = "POST",
   P extends WritePath<M> = WritePath<M>,
 >(
-  path: P,
+  path: ValidPath<P, WriteSpec<M, P>>,
   body: WriteSpec<M, P>["request"],
-  method?: M,
+  ...method: [M] extends ["POST"] ? [method?: M] : [method: M]
 ): Promise<WriteSpec<M, P>["response"]> {
-  return request(path, method || "POST", body) as Promise<
+  return request(path, method[0] || "POST", body) as Promise<
     WriteSpec<M, P>["response"]
   >;
 }

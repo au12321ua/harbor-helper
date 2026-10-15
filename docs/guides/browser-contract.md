@@ -23,7 +23,7 @@ npm run lint
 
 九类历史 dict 管理写入使用独立 schema 描述，实际接受集合、空/null/缺省处理和业务错误仍由原 handler 与业务验证器决定。配置中原本允许的任意 JSON 标签、参数和 falsy 默认引用继续保留，前端先收窄或转为显示文本；不以响应模型变相收紧写入。
 
-页面使用 `api`、`post`、`mutation`、`upload`。泛型只能由生成的方法/路径推导，调用方不能指定任意响应 DTO。动态路径优先匹配较具体路由，避免 `/runs/{id}` 吞掉 logs/report 类型。JSON 请求体直接传对象；附件 `upload` 将生成的 metadata DTO 编码为 multipart JSON 字符串、接收 File/Blob，要求稳定幂等键，页面保留失败后的重试键。同源 cookie、请求头和 session-expired 行为保留。
+页面使用 `api`、`post`、`mutation`、`upload`。泛型只能由生成的方法/路径推导，调用方不能指定任意响应 DTO。动态路径按后端路由逐段匹配，再优先选择较具体路由；普通参数仅消费一段，拼错的 `/runs/id/logz` 不会被详情 ID 吞掉，`{key:path}` 则保留跨段查询。动态字符串 ID 的实际内容仍须符合服务器参数规则，编译器不证明运行时字符串值。`mutation` 只有 POST 可省略方法，PATCH/PUT 必须传入相符的运行时方法；页面转发封装沿用同一约束。JSON 请求体直接传对象；附件 `upload` 将生成的 metadata DTO 编码为 multipart JSON 字符串、接收 File/Blob，要求稳定幂等键，页面保留失败后的重试键。同源 cookie、请求头和 session-expired 行为保留。
 
 `frontend/type-tests/contracts.ts` 使用实际调用层验证字段、方法、body、HTTP 路径、状态、nullable、附件 metadata/文件/幂等键和穷尽标签表的负例，不进入生产 bundle。新增状态会使标签表缺项报错，运行时未知标签仍回显原值。
 

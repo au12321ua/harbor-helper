@@ -1,14 +1,71 @@
 // This file is typechecked, never bundled or executed. Each expected error must
 // remain an error in the actual transport used by pages.
 import { api, post, upload, mutation } from "../src/api";
-import type { Accepted, RunSummary } from "../src/api";
+import type {
+  Accepted,
+  RunSummary,
+  Logs,
+  Report,
+  RunDetail,
+  AttachmentResult,
+} from "../src/api";
 
 declare const labelsWithoutStarting: Omit<
   Record<RunSummary["status"] | Accepted["status"], string>,
   "starting"
 >;
 
+declare const dynamicId: string;
+declare const operationKey: string;
+
 async function checks() {
+  // Dynamic single-segment IDs and greedy backend :path keys stay usable.
+  const dynamicDetail: RunDetail = await api(`/runs/${dynamicId}`);
+  const dynamicLogs: Logs = await api(`/runs/${dynamicId}/logs`);
+  const dynamicReport: Report | null = await api(`/runs/${dynamicId}/report`);
+  const literalReport: Report | null = await api("/runs/id/report");
+  const attachment: AttachmentResult = await api(
+    `/attachment-operations/create/${operationKey}`,
+  );
+  const greedyAttachment: AttachmentResult = await api(
+    "/attachment-operations/create/namespace/key/with/slashes",
+  );
+  const accepted: Accepted = await api(
+    `/submission-operations/submit/${operationKey}`,
+  );
+  const greedyAccepted: Accepted = await api(
+    "/submission-operations/submit/namespace/key/with/slashes",
+  );
+  void [
+    dynamicDetail,
+    dynamicLogs,
+    dynamicReport,
+    literalReport,
+    attachment,
+    greedyAttachment,
+    accepted,
+    greedyAccepted,
+  ];
+  await mutation("/admin/settings", { team_name: "probe" }, "PATCH");
+  // @ts-expect-error non-existent nested suffix must not be consumed by the ID
+  await api("/runs/id/logz");
+  // @ts-expect-error dynamic ID does not make a misspelled suffix valid
+  await api(`/runs/${dynamicId}/logz`);
+  // @ts-expect-error normal path parameters cannot consume extra segments
+  await api("/runs/id/logs/extra");
+  // @ts-expect-error write paths also require the exact route shape
+  await post("/runs/id/extra/cancel", {});
+  // @ts-expect-error empty IDs are not valid path segments
+  await api("/runs//logs");
+  // @ts-expect-error selecting PATCH requires the runtime PATCH argument
+  await mutation<"PATCH">("/admin/settings", { team_name: "probe" });
+  // @ts-expect-error a PATCH-only endpoint cannot default to POST
+  await mutation("/admin/settings", { team_name: "probe" });
+  // @ts-expect-error explicit method must agree with the selected method type
+  await mutation<"PATCH">("/admin/settings", { team_name: "probe" }, "POST");
+  // @ts-expect-error even a union method type cannot omit the runtime method
+  await mutation<"POST" | "PATCH">("/admin/settings", { team_name: "probe" });
+
   const runs = await api("/runs");
   // @ts-expect-error unknown server field
   void runs.rnus;
