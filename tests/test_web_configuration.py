@@ -310,7 +310,10 @@ def test_docker_discovery_admin_only(web, monkeypatch):
     calls = []
     monkeypatch.setattr(
         "harbor_helper.service.docker.discover_docker",
-        lambda: calls.append(True) or {"state": "ready", "images": []},
+        lambda: calls.append(True) or {
+            "state": "ready", "images": [], "checked_at": 1.0,
+            "truncated": False, "message": "Synthetic Docker discovery",
+        },
     )
     assert client.get("/api/v1/admin/docker").json()["state"] == "ready"
     assert calls == [True]

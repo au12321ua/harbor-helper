@@ -102,6 +102,9 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         redoc_url=None,
         openapi_url=None,
     )
+    from harbor_helper.service.contract_boundary import ContractRoute
+
+    app.router.route_class = ContractRoute
     app.state.application = application
 
     def failure(request, code, message, status):

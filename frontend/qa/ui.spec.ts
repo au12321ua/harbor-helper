@@ -48,6 +48,12 @@ const catalog = {
       ready: true,
       version: 2,
       tasks: [{ name: "answer" }],
+      author_parameters: {
+        id: "dataset1",
+        version: 0,
+        values: {},
+        status: "unchecked",
+      },
     },
   ],
   settings: { default_dataset_id: "dataset1" },
@@ -85,7 +91,7 @@ async function fixture(page: Page, role = "admin", logged = true) {
     let status = 200;
     if (path === "/setup") value = { initialized: true };
     else if (path === "/me") {
-      value = { user: { ...user, role } };
+      value = { ...user, role };
       if (!authenticated) {
         status = 401;
         value = { code: "unauthorized", message: "请登录" };
@@ -197,7 +203,7 @@ async function fixture(page: Page, role = "admin", logged = true) {
         text: '[bold]literal markup[/bold]\n<script>window.bad=1</script>\n"quoted"',
       };
     else if (path === "/submissions") {
-      value = { submission_id: "submission-test", status: "preparing" };
+      value = { id: "submission-test", status: "preparing" };
     } else if (path === "/submissions/submission-test")
       value = {
         id: "submission-test",
@@ -206,11 +212,9 @@ async function fixture(page: Page, role = "admin", logged = true) {
       };
     else if (path === "/compare")
       value = { comparable: false, reasons: ["来源数据集不同"] };
-    else if (path === "/admin/users")
-      value = { users: [{ ...user, enabled: true }] };
+    else if (path === "/admin/users") value = [{ ...user, enabled: true }];
     else if (path.startsWith("/admin/")) value = { ok: true };
-    else if (path.endsWith("/rerun"))
-      value = { submission_id: "submission-test" };
+    else if (path.endsWith("/rerun")) value = { id: "submission-test" };
     await route.fulfill({
       status,
       contentType: "application/json",
@@ -554,12 +558,13 @@ for (const kind of ["provider", "dataset"] as const) {
     await page.route(`**/api/v1${spec.path}`, async (route) => {
       const v = route.request().postDataJSON();
       saves.push(v);
-      current[spec.list][0] = {
+      const saved = {
         ...v,
         version: saves.length + 1,
         status: "unverified",
       };
-      await route.fulfill({ json: current[spec.list][0] });
+      current[spec.list][0] = { ...current[spec.list][0], ...saved };
+      await route.fulfill({ json: saved });
     });
     await page.goto("/admin");
     await page.getByRole("tab", { name: spec.tab, exact: true }).click();
@@ -1290,10 +1295,7 @@ test("shared attachment versions, maintenance, explicit selection and write reco
   };
   await page.route("**/api/v1/attachments", async (route) => {
     await route.fulfill({
-      json:
-        route.request().method() === "POST"
-          ? result
-          : { attachments },
+      json: route.request().method() === "POST" ? result : { attachments },
     });
   });
   await page.route("**/api/v1/catalog", (route) =>

@@ -42,7 +42,9 @@ import {
   date,
   labels,
   terminal,
-  type Item,
+  type User,
+  type Report,
+  type Comparison,
   ApiError,
   newIdempotencyKey,
 } from "./api";
@@ -76,7 +78,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast, Toaster } from "sonner";
 import "./App.css";
 
-function Login({ onLogin }: { onLogin: (user: Item) => void }) {
+function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false);
   return (
@@ -101,10 +103,10 @@ function Login({ onLogin }: { onLogin: (user: Item) => void }) {
               const f = new FormData(e.currentTarget);
               try {
                 const value = await post("/auth/login", {
-                  username: f.get("username"),
-                  password: f.get("password"),
+                  username: String(f.get("username") || ""),
+                  password: String(f.get("password") || ""),
                 });
-                onLogin(value.user || value);
+                onLogin(value.user);
               } catch (err) {
                 setError(err);
               } finally {
@@ -159,9 +161,10 @@ function ExperimentList() {
   );
   const [filter, setFilter] = useState("");
   if (loading) return <Loading />;
-  const runs: Item[] = data?.[0].runs || [],
-    submissions: Item[] = data?.[0].submissions || [],
-    usage = data?.[1] || {};
+  const runs = data?.[0].runs || [],
+    submissions = data?.[0].submissions || [],
+    usage = data?.[1];
+  if (!usage) return <ErrorNotice error={error} />;
   const shown = runs.filter((r) =>
     JSON.stringify([r.id, r.name, r.submitter, r.dataset, r.status])
       .toLowerCase()
@@ -245,9 +248,7 @@ function ExperimentList() {
                     {r.name || r.id}
                   </Link>
                   <div className="cell-secondary">
-                    {typeof r.dataset === "string"
-                      ? r.dataset
-                      : r.dataset?.ref || r.dataset?.name || "—"}
+                    {typeof r.dataset === "string" ? r.dataset : "—"}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -319,15 +320,15 @@ function NewExperiment() {
     [wall, setWall] = useState<number | undefined>(restored.wall_seconds),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>();
-  const datasets: Item[] = (data?.datasets || []).filter((d: Item) => d.ready);
+  const datasets = (data?.datasets || []).filter((d) => d.ready);
   const selectedDataset =
     dataset || data?.settings?.default_dataset_id || datasets[0]?.id || "";
-  const selected = datasets.find((d: Item) => d.id === selectedDataset);
+  const selected = datasets.find((d) => d.id === selectedDataset);
   const selectedTasks = (selected?.tasks || []).filter(
-    (task: Item) => !taskName || task.name === taskName,
+    (task) => !taskName || task.name === taskName,
   );
   const parameters = selected?.author_parameters;
-  const checkedBudgets = selectedTasks.flatMap((task: Item) => {
+  const checkedBudgets = selectedTasks.flatMap((task) => {
     if (
       !selected?.resolved ||
       !task.ref ||
@@ -335,31 +336,32 @@ function NewExperiment() {
     )
       return [];
     const record = parameters?.checked_tasks?.find(
-      (record: Item) => record.name === task.name && record.ref === task.ref,
+      (record) => record.name === task.name && record.ref === task.ref,
     );
     return record?.discovery?.budgets || [];
   });
   const unknownBudgets =
     selectedTasks.length -
     checkedBudgets.filter(
-      (budget: Item) =>
+      (budget) =>
+        typeof budget.agent_seconds === "number" &&
         Number.isFinite(budget.agent_seconds) &&
         Number.isFinite(budget.verifier_seconds),
     ).length;
   const selectedProfile =
-    profile || data?.settings?.default_model_profile || "";
+    profile || String(data?.settings?.default_model_profile || "");
   if (loading) return <Loading />;
-  const profiles: Item[] = (data?.model_profiles || []).filter(
-    (p: Item) =>
+  const profiles = (data?.model_profiles || []).filter(
+    (p) =>
       p.enabled !== false &&
       (data?.providers || []).some(
-        (v: Item) => v.id === p.provider_id && v.enabled,
+        (v) => v.id === p.provider_id && v.enabled,
       ) &&
       (data?.credentials || []).some(
-        (v: Item) => v.id === p.credential_id && v.enabled,
+        (v) => v.id === p.credential_id && v.enabled,
       ),
   );
-  const limits = data?.limits || {};
+  const limits = data?.limits;
   return (
     <>
       <Title
@@ -383,11 +385,11 @@ function NewExperiment() {
               "/submissions",
               {
                 dataset_id: selectedDataset,
-                name: f.get("experiment_name") || "",
+                name: String(f.get("experiment_name") || ""),
                 agent,
                 model_profile: agent === "oracle" ? null : selectedProfile,
                 attachment_version_id: version || null,
-                task: f.get("task") || null,
+                task: String(f.get("task") || "") || null,
                 attempts: Number(f.get("attempts")),
                 concurrency: Number(f.get("concurrency")),
                 wall_seconds: Number(f.get("wall_seconds")),
@@ -397,7 +399,7 @@ function NewExperiment() {
               },
               submitKey.current,
             );
-            navigate(`/submissions/${s.submission_id || s.id}`);
+            navigate(`/submissions/${s.id}`);
           } catch (err) {
             setFailure(err);
           } finally {
@@ -466,7 +468,7 @@ function NewExperiment() {
                     onChange={(e) => setTaskName(e.target.value)}
                   >
                     <option value="">全部任务</option>
-                    {(selected?.tasks || []).map((t: Item) => (
+                    {(selected?.tasks || []).map((t) => (
                       <option key={t.name} value={t.name}>
                         {t.name}
                       </option>
@@ -493,7 +495,7 @@ function NewExperiment() {
                     <option value="">选择模型方案</option>
                     {profiles.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} · {p.model}
+                        {String(p.name || p.id)} · {p.model}
                       </option>
                     ))}
                   </SelectField>
@@ -513,8 +515,8 @@ function NewExperiment() {
                   onChange={setVersion}
                 >
                   <option value="">无附件</option>
-                  {(data?.attachments || []).flatMap((a: Item) =>
-                    a.versions.map((v: Item) => (
+                  {(data?.attachments || []).flatMap((a) =>
+                    a.versions.map((v) => (
                       <option
                         key={v.id}
                         value={v.id}
@@ -584,7 +586,7 @@ function NewExperiment() {
                       name="attempts"
                       type="number"
                       min="1"
-                      max={limits.max_attempts || 3}
+                      max={limits?.max_attempts || 3}
                       defaultValue={restored.attempts || 1}
                       required
                     />
@@ -596,7 +598,7 @@ function NewExperiment() {
                       name="concurrency"
                       type="number"
                       min="1"
-                      max={limits.max_trials || 2}
+                      max={limits?.max_trials || 2}
                       defaultValue={restored.concurrency || 1}
                       required
                     />
@@ -610,9 +612,9 @@ function NewExperiment() {
                       name="wall_seconds"
                       type="number"
                       min="1"
-                      max={limits.max_wall_seconds || 1800}
+                      max={limits?.max_wall_seconds || 1800}
                       value={
-                        wall ?? Math.min(1800, limits.max_wall_seconds || 1800)
+                        wall ?? Math.min(1800, limits?.max_wall_seconds || 1800)
                       }
                       onChange={(e) => setWall(Number(e.target.value))}
                       required
@@ -632,14 +634,16 @@ function NewExperiment() {
           <Separator />
           <p>提交者记为当前账户。重跑时创建新的实验记录，不覆盖历史结果。</p>
           <p>提供商、模型与参数在提交后固定；执行前会再次检查凭据是否可用。</p>
-          {checkedBudgets.map((budget: Item) => (
+          {checkedBudgets.map((budget) => (
             <p key={budget.task}>
               作者预算 {budget.task}：agent {budget.agent_seconds ?? "未知"}秒 +
               verifier {budget.verifier_seconds ?? "未知"}秒。
-              {Number.isFinite(budget.agent_seconds) &&
+              {typeof budget.agent_seconds === "number" &&
+              Number.isFinite(budget.agent_seconds) &&
+              typeof budget.verifier_seconds === "number" &&
               Number.isFinite(budget.verifier_seconds) &&
-              (wall ?? Math.min(1800, limits.max_wall_seconds || 1800)) <=
-                budget.agent_seconds + budget.verifier_seconds
+              (wall ?? Math.min(1800, limits?.max_wall_seconds || 1800)) <=
+                (budget.agent_seconds ?? 0) + (budget.verifier_seconds ?? 0)
                 ? "警告：整体上限不足以覆盖作者预算及准备；建议显式增加总时长。"
                 : "整体时长还需覆盖构建与工具准备。"}
             </p>
@@ -678,7 +682,7 @@ function NewExperiment() {
     </>
   );
 }
-function Submission({ user }: { user: Item }) {
+function Submission({ user }: { user: User }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const recoveryKey = useRef(newIdempotencyKey());
@@ -709,7 +713,7 @@ function Submission({ user }: { user: Item }) {
       <Card>
         <CardHeader>
           <CardTitle>
-            <Status value={data?.status} />
+            <Status value={data?.status || ""} />
           </CardTitle>
           <CardDescription>
             {data?.status === "failed"
@@ -769,9 +773,10 @@ function Submission({ user }: { user: Item }) {
               >
                 按当前配置再次提交（保留原来源）
               </Button>
-              {data.diagnosis?.map((issue: Item, index: number) => (
+              {data.diagnosis?.map((issue, index: number) => (
                 <p key={index}>
-                  {issue.task}：{issue.variables.join("、")} · {issue.reason}
+                  {issue.task}：{(issue.variables || []).join("、")} ·{" "}
+                  {issue.reason}
                 </p>
               ))}
               <Button variant="outline" asChild>
@@ -796,11 +801,11 @@ function Submission({ user }: { user: Item }) {
     </>
   );
 }
-function RunDetail({ user }: { user: Item }) {
+function RunDetail({ user }: { user: User }) {
   const { id } = useParams();
   return <RunDetailContent key={id} user={user} />;
 }
-function Rewards({ report }: { report: Item }) {
+function Rewards({ report }: { report: Report }) {
   return (
     <>
       <div className="report-summary">
@@ -828,7 +833,7 @@ function Rewards({ report }: { report: Item }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {(report.tasks || []).map((t: Item, i: number) => (
+          {(report.tasks || []).map((t, i: number) => (
             <TableRow key={t.task || i}>
               <TableCell>{t.task}</TableCell>
               <TableCell>
@@ -857,7 +862,7 @@ function Rewards({ report }: { report: Item }) {
     </>
   );
 }
-function RunDetailContent({ user }: { user: Item }) {
+function RunDetailContent({ user }: { user: User }) {
   const rerunKey = useRef(newIdempotencyKey());
   const retryKey = useRef(newIdempotencyKey());
   const [retryWall, setRetryWall] = useState<number | undefined>();
@@ -891,8 +896,9 @@ function RunDetailContent({ user }: { user: Item }) {
     }
   }, [tab, id, data?.row?.status]);
   if (loading) return <Loading />;
-  const row = data?.row || {},
-    manifest = data?.manifest || {};
+  if (!data) return <ErrorNotice error={error} />;
+  const row = data.row,
+    manifest = data.manifest;
   const retryBudgets =
     manifest.service?.author_input_diagnostics?.budgets ||
     manifest.startup_policy?.tasks ||
@@ -945,7 +951,7 @@ function RunDetailContent({ user }: { user: Item }) {
                     {},
                     rerunKey.current,
                   );
-                  navigate(`/submissions/${s.submission_id || s.id}`);
+                  navigate(`/submissions/${s.id}`);
                 } catch (e) {
                   toast.error((e as Error).message);
                 } finally {
@@ -992,7 +998,7 @@ function RunDetailContent({ user }: { user: Item }) {
                 []
               )
                 .map(
-                  (budget: Item) =>
+                  (budget) =>
                     `${budget.task}：agent ${budget.agent_seconds ?? "未知"} + verifier ${budget.verifier_seconds ?? "未知"}秒`,
                 )
                 .join("；")}
@@ -1003,11 +1009,13 @@ function RunDetailContent({ user }: { user: Item }) {
               manifest.startup_policy?.tasks ||
               []
             ).some(
-              (budget: Item) =>
+              (budget) =>
+                typeof budget.agent_seconds === "number" &&
                 Number.isFinite(budget.agent_seconds) &&
+                typeof budget.verifier_seconds === "number" &&
                 Number.isFinite(budget.verifier_seconds) &&
                 (retryWall ?? manifest.effective?.wall_seconds ?? 600) <=
-                  budget.agent_seconds + budget.verifier_seconds,
+                  (budget.agent_seconds ?? 0) + (budget.verifier_seconds ?? 0),
             ) ? (
               <Alert>
                 <AlertDescription>
@@ -1017,7 +1025,7 @@ function RunDetailContent({ user }: { user: Item }) {
             ) : null}
             {!retryBudgets.length ||
             retryBudgets.some(
-              (budget: Item) =>
+              (budget) =>
                 !Number.isFinite(budget.agent_seconds) ||
                 !Number.isFinite(budget.verifier_seconds),
             ) ? (
@@ -1079,9 +1087,15 @@ function RunDetailContent({ user }: { user: Item }) {
         </Alert>
       ) : null}
       {data?.report?.tasks
-        ?.flatMap((task: Item) => task.attempts || [])
-        .filter((attempt: Item) => attempt.diagnosis)
-        .map((attempt: Item) => (
+        ?.flatMap((task) => task.attempts || [])
+        .filter(
+          (
+            attempt,
+          ): attempt is typeof attempt & {
+            diagnosis: NonNullable<typeof attempt.diagnosis>;
+          } => !!attempt.diagnosis,
+        )
+        .map((attempt) => (
           <Card key={attempt.trial || attempt.task}>
             <CardHeader>
               <CardTitle>
@@ -1109,7 +1123,7 @@ function RunDetailContent({ user }: { user: Item }) {
               <p>
                 {attempt.diagnosis.phases
                   .map(
-                    (phase: Item) =>
+                    (phase) =>
                       `${({ environment_setup: "环境启动", agent_setup: "代理准备", agent_execution: "执行", verifier: "评分" } as Record<string, string>)[phase.phase]}：${phase.reached ? (phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒`) : "未到达"}`,
                   )
                   .join("；")}
@@ -1156,7 +1170,7 @@ function RunDetailContent({ user }: { user: Item }) {
                 {Array.isArray(attempt.diagnosis.compose)
                   ? attempt.diagnosis.compose
                       .map(
-                        (phase: Item) =>
+                        (phase) =>
                           `${phase.phase} ${phase.status} ${phase.seconds == null ? "耗时未知" : `${phase.seconds.toFixed(3)}秒`}`,
                       )
                       .join("；")
@@ -1198,7 +1212,7 @@ function RunDetailContent({ user }: { user: Item }) {
                 {Object.entries({
                   数据集:
                     row.dataset || manifest.source?.dataset || manifest.source,
-                  模型方案: row.model_profile || manifest.model_profile,
+                  模型方案: row.model_profile,
                   开始时间: date(row.started),
                   完成时间: date(row.finished),
                   执行并发: row.concurrency,
@@ -1206,14 +1220,14 @@ function RunDetailContent({ user }: { user: Item }) {
                   作者预构建镜像缓存观察:
                     manifest.service?.author_input_diagnostics?.images
                       ?.map(
-                        (image: Item) =>
+                        (image) =>
                           `${image.role} ${image.reference}：${image.cached === true ? "已缓存，不证明兼容" : image.cached === false ? "未缓存；Harbor需向registry获取；up未完成请检查registry与阶段记录，不能直接断言网络根因" : "未知"}`,
                       )
                       .join("；") || "无声明或尚未观察",
                   作者启动时限与有效等待:
                     manifest.startup_policy?.tasks
                       ?.map(
-                        (task: Item) =>
+                        (task) =>
                           `${task.task}：作者 ${task.author_build_timeout_sec} 秒 × ${manifest.startup_policy.multiplier} = 准备等待 ${task.start_wait_timeout_sec} 秒；作者网络 ${task.author_network_mode}`,
                       )
                       .join("；") || "未知",
@@ -1313,7 +1327,7 @@ function RunDetailContent({ user }: { user: Item }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(data?.artifacts || []).map((a: Item) => (
+                {(data?.artifacts || []).map((a) => (
                   <TableRow key={a.id}>
                     <TableCell>
                       {a.name}
@@ -1383,7 +1397,7 @@ function RunDetailContent({ user }: { user: Item }) {
     </>
   );
 }
-function ComparisonResult({ value }: { value: Item }) {
+function ComparisonResult({ value }: { value: Comparison }) {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
@@ -1437,7 +1451,7 @@ function ComparisonResult({ value }: { value: Item }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {value.tasks.flatMap((task: Item) =>
+            {value.tasks.flatMap((task) =>
               Object.keys(task.delta || {}).map((metric) => (
                 <TableRow key={task.task + metric}>
                   <TableCell>{task.task}</TableCell>
@@ -1462,7 +1476,7 @@ function Compare() {
   const { data, error, loading } = useLoad(() => api("/runs"));
   const [left, setLeft] = useState(""),
     [right, setRight] = useState(""),
-    [result, setResult] = useState<Item>(),
+    [result, setResult] = useState<Comparison>(),
     [failure, setFailure] = useState<unknown>(),
     [busy, setBusy] = useState(false);
   if (loading) return <Loading />;
@@ -1504,7 +1518,7 @@ function Compare() {
                 onChange={setLeft}
               >
                 <option value="">选择实验</option>
-                {(data?.runs || []).map((r: Item) => (
+                {(data?.runs || []).map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name || r.id} · {r.dataset_name || r.dataset} ·{" "}
                     {r.submitter} · {labels[r.status] || r.status}
@@ -1518,7 +1532,7 @@ function Compare() {
                 onChange={setRight}
               >
                 <option value="">选择实验</option>
-                {(data?.runs || []).map((r: Item) => (
+                {(data?.runs || []).map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name || r.id} · {r.dataset_name || r.dataset} ·{" "}
                     {r.submitter} · {labels[r.status] || r.status}
@@ -1552,7 +1566,7 @@ function Compare() {
     </>
   );
 }
-function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
+function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
   const { data: catalog } = useLoad(() => api("/catalog"));
   return (
     <div className="app-shell">
@@ -1681,7 +1695,7 @@ function Shell({ user, onLogout }: { user: Item; onLogout: () => void }) {
   );
 }
 function App() {
-  const [user, setUser] = useState<Item | null>(null),
+  const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true),
     [setup, setSetup] = useState(false),
     [failure, setFailure] = useState<unknown>();
@@ -1695,7 +1709,7 @@ function App() {
         return api("/me");
       })
       .then((value) => {
-        if (value) setUser(value.user || value);
+        if (value) setUser(value);
       })
       .catch((e) => {
         if (!(

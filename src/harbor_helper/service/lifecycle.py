@@ -4,6 +4,7 @@ import shutil
 import time
 
 from harbor_helper.execution.config import load_team
+from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import write_json
 from harbor_helper.persistence.store import TERMINAL
 from harbor_helper.service.application import Application
@@ -31,7 +32,7 @@ def prepare_one(store):
     if any(r["id"] == run_id for r in store.runs()):
         with store.control(), store.connect() as db:
             db.execute(
-                "UPDATE submissions SET status='ready',run_id=? WHERE id=?", (run_id, row["id"])
+                f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?", (run_id, row["id"])
             )
             if row["cancel"]:
                 store.update(run_id, cancel=1)
@@ -58,7 +59,7 @@ def prepare_one(store):
             if current["cancel"]:
                 store.update(run_id, cancel=1)
             db.execute(
-                "UPDATE submissions SET status='ready',run_id=? WHERE id=?", (run_id, row["id"])
+                f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?", (run_id, row["id"])
             )
     except Exception as error:  # noqa: BLE001 - third-party source errors may carry credentials
         from harbor_helper.execution.author_inputs import AuthorInputError
@@ -86,7 +87,7 @@ def prepare_one(store):
                     (__import__("json").dumps(latest), row["id"]),
                 )
             db.execute(
-                "UPDATE submissions SET status=CASE WHEN cancel=1 THEN 'cancelled' ELSE 'failed' END,error=? WHERE id=?",
+                f"UPDATE submissions SET status=CASE WHEN cancel=1 THEN {lifecycle_status.CANCELLED!r} ELSE {lifecycle_status.FAILED!r} END,error=? WHERE id=?",
                 (
                     message,
                     row["id"],
@@ -101,7 +102,7 @@ def maintenance(store):
     for row in store.runs():
         if (
             row["status"] not in TERMINAL
-            or row.get("audit_status") != "clean"
+            or row.get("audit_status") != lifecycle_status.CLEAN
             or not row["finished"]
         ):
             continue

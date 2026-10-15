@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from harbor_helper.persistence.files import read_json
+from harbor_helper.persistence.statuses import AuditStatus, ReportStatus
 from harbor_helper.persistence.store import TERMINAL
 from harbor_helper.service.attachment_contracts import AttachmentIdentity, AttachmentVersion
 from harbor_helper.service.data import ServiceError
@@ -56,11 +57,11 @@ class ResourceAxis(Axis):
 
 
 class AuditAxis(Axis):
-    state: Literal["pending", "clean", "incomplete"]
+    state: AuditStatus
 
 
 class ReportAxis(Axis):
-    state: Literal["pending", "available", "blocked", "unavailable"]
+    state: ReportStatus
 
 
 class AttachmentBinding(BaseModel):

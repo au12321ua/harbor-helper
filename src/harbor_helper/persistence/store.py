@@ -3,8 +3,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-TERMINAL = {"succeeded", "failed", "cancelled"}
-ACTIVE = {"starting", "running", "cancelling", "cleanup_blocked"}
+from harbor_helper.persistence import statuses as lifecycle_status
+from harbor_helper.persistence.statuses import ACTIVE, TERMINAL  # noqa: F401
 
 
 class Store:
@@ -23,7 +23,7 @@ class Store:
             # independent facts. An audit failure must not reserve execution slots.
             columns = {row[1] for row in db.execute("PRAGMA table_info(runs)")}
             for name, definition in (
-                ("audit_status", "TEXT NOT NULL DEFAULT 'pending'"),
+                ("audit_status", f"TEXT NOT NULL DEFAULT {lifecycle_status.PENDING!r}"),
                 ("audit_reason", "TEXT"),
             ):
                 if name not in columns:

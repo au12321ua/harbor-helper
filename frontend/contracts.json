@@ -1,0 +1,5647 @@
+{
+  "definitions": {
+    "Accepted": {
+      "additionalProperties": false,
+      "properties": {
+        "access_credential_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Access Credential Id"
+        },
+        "attachment": {
+          "$ref": "#/definitions/AttachmentBinding"
+        },
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "diagnosis": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/definitions/Issue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Diagnosis"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "submit",
+            "rerun",
+            "retry",
+            "recover"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent"
+        },
+        "request": {
+          "$ref": "#/definitions/SubmissionInput"
+        },
+        "retry_changes": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "$ref": "#/definitions/JsonValue"
+            },
+            "type": "object"
+          },
+          "title": "Retry Changes",
+          "type": "object"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Run Id"
+        },
+        "status": {
+          "enum": [
+            "preparing",
+            "ready",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "submitter": {
+          "title": "Submitter",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "access_credential_id",
+        "submitter",
+        "operation",
+        "request",
+        "run_id",
+        "status",
+        "created",
+        "error",
+        "parent",
+        "attachment",
+        "diagnosis",
+        "retry_changes"
+      ],
+      "title": "Accepted",
+      "type": "object"
+    },
+    "AccessCredential": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "expires": {
+          "title": "Expires",
+          "type": "number"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "last_used": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Used"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "revoked": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revoked"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "name",
+        "scopes",
+        "created",
+        "expires",
+        "revoked",
+        "last_used"
+      ],
+      "title": "AccessCredential",
+      "type": "object"
+    },
+    "AccessIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "current_password": {
+          "format": "password",
+          "title": "Current Password",
+          "type": "string",
+          "writeOnly": true
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "scopes": {
+          "default": [
+            "read"
+          ],
+          "items": {
+            "enum": [
+              "read",
+              "attachments",
+              "execute",
+              "cancel_own"
+            ],
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "current_password"
+      ],
+      "title": "AccessIssue",
+      "type": "object"
+    },
+    "AccessResult": {
+      "additionalProperties": false,
+      "properties": {
+        "credential": {
+          "$ref": "#/definitions/AccessCredential"
+        },
+        "token": {
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "credential",
+        "token"
+      ],
+      "title": "AccessResult",
+      "type": "object"
+    },
+    "Account": {
+      "additionalProperties": false,
+      "properties": {
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true
+        },
+        "role": {
+          "default": "member",
+          "title": "Role",
+          "type": "string"
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ],
+      "title": "Account",
+      "type": "object"
+    },
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "title": "Deleted",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "deleted",
+        "name"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "AttachmentBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachment Id"
+        },
+        "attachment_lineage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachment Lineage"
+        },
+        "attachment_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachment Version Id"
+        },
+        "bundle_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bundle Digest"
+        },
+        "bundle_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bundle Id"
+        }
+      },
+      "title": "AttachmentBinding",
+      "type": "object"
+    },
+    "AttachmentCatalog": {
+      "additionalProperties": false,
+      "properties": {
+        "attachments": {
+          "items": {
+            "$ref": "#/definitions/AttachmentEntry"
+          },
+          "title": "Attachments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "attachments"
+      ],
+      "title": "AttachmentCatalog",
+      "type": "object"
+    },
+    "AttachmentCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "maxLength": 4096,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AttachmentCreate",
+      "type": "object"
+    },
+    "AttachmentEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "creator": {
+          "title": "Creator",
+          "type": "string"
+        },
+        "creator_id": {
+          "title": "Creator Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/definitions/AttachmentVersion"
+          },
+          "title": "Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "creator_id",
+        "creator",
+        "created",
+        "enabled",
+        "versions"
+      ],
+      "title": "AttachmentEntry",
+      "type": "object"
+    },
+    "AttachmentIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "creator": {
+          "title": "Creator",
+          "type": "string"
+        },
+        "creator_id": {
+          "title": "Creator Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "creator_id",
+        "creator",
+        "created",
+        "enabled"
+      ],
+      "title": "AttachmentIdentity",
+      "type": "object"
+    },
+    "AttachmentPublish": {
+      "additionalProperties": false,
+      "properties": {
+        "notes": {
+          "default": "",
+          "maxLength": 4096,
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "title": "AttachmentPublish",
+      "type": "object"
+    },
+    "AttachmentResult": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment": {
+          "$ref": "#/definitions/AttachmentIdentity"
+        },
+        "version": {
+          "$ref": "#/definitions/AttachmentVersion"
+        }
+      },
+      "required": [
+        "attachment",
+        "version"
+      ],
+      "title": "AttachmentResult",
+      "type": "object"
+    },
+    "AttachmentUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "title": "AttachmentUpdate",
+      "type": "object"
+    },
+    "AttachmentVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_id": {
+          "title": "Attachment Id",
+          "type": "string"
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "bundle_id": {
+          "title": "Bundle Id",
+          "type": "string"
+        },
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "notes": {
+          "title": "Notes",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "publisher": {
+          "title": "Publisher",
+          "type": "string"
+        },
+        "publisher_id": {
+          "title": "Publisher Id",
+          "type": "string"
+        },
+        "source_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Version Id"
+        }
+      },
+      "required": [
+        "id",
+        "attachment_id",
+        "number",
+        "bundle_id",
+        "digest",
+        "publisher_id",
+        "publisher",
+        "created",
+        "notes",
+        "source_version_id",
+        "enabled",
+        "availability"
+      ],
+      "title": "AttachmentVersion",
+      "type": "object"
+    },
+    "AttachmentVersionUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "AttachmentVersionUpdate",
+      "type": "object"
+    },
+    "Attempt": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_exit_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Exit Code"
+        },
+        "agent_info": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Info"
+        },
+        "diagnosis": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Diagnosis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "exception": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exception"
+        },
+        "framework_exception": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Framework Exception"
+        },
+        "observed_rewards": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Rewards"
+        },
+        "phase_timings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "default": {},
+          "title": "Phase Timings",
+          "type": "object"
+        },
+        "rewards": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rewards"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "trial": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trial"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "task",
+        "valid",
+        "rewards"
+      ],
+      "title": "Attempt",
+      "type": "object"
+    },
+    "AuthorCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "task_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Names"
+        }
+      },
+      "title": "AuthorCheck",
+      "type": "object"
+    },
+    "AuthorParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "checked": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked"
+        },
+        "checked_tasks": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/CheckedTask"
+          },
+          "title": "Checked Tasks",
+          "type": "array"
+        },
+        "discovery": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Discovery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "issues": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Issue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "last_check_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Scope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "requested_task_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Task Names"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Scope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Values",
+          "type": "object"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "values",
+        "status"
+      ],
+      "title": "AuthorParameters",
+      "type": "object"
+    },
+    "AuthorSave": {
+      "additionalProperties": false,
+      "properties": {
+        "values": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "AuthorSave",
+      "type": "object"
+    },
+    "Binding": {
+      "additionalProperties": false,
+      "properties": {
+        "access_credential_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Access Credential Id"
+        },
+        "attachment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachment Id"
+        },
+        "attachment_lineage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachment Lineage"
+        },
+        "attachment_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachment Version Id"
+        },
+        "author_input_check": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author Input Check"
+        },
+        "author_input_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Discovery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "author_input_issues": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/definitions/Issue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author Input Issues"
+        },
+        "author_parameters_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author Parameters Source"
+        },
+        "author_parameters_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author Parameters Version"
+        },
+        "bundle_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bundle Digest"
+        },
+        "bundle_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bundle Id"
+        },
+        "credential_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Id"
+        },
+        "credential_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Version"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Id"
+        },
+        "dataset_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Name"
+        },
+        "dataset_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Version"
+        },
+        "model_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Profile"
+        },
+        "model_profile_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Profile Version"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Id"
+        },
+        "provider_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Version"
+        },
+        "recovered_submission": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recovered Submission"
+        },
+        "retry_changes": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "$ref": "#/definitions/JsonValue"
+            },
+            "type": "object"
+          },
+          "default": {},
+          "title": "Retry Changes",
+          "type": "object"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Version"
+        },
+        "submission_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submission Id"
+        },
+        "submitter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submitter"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
+        }
+      },
+      "title": "Binding",
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Agent Seconds"
+        },
+        "agent_timeout_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Timeout Sec"
+        },
+        "environment_build_timeout_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment Build Timeout Sec"
+        },
+        "environment_start_timeout_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment Start Timeout Sec"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "verifier_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Verifier Seconds"
+        },
+        "verifier_timeout_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verifier Timeout Sec"
+        }
+      },
+      "required": [
+        "task",
+        "agent_seconds",
+        "verifier_seconds"
+      ],
+      "title": "Budget",
+      "type": "object"
+    },
+    "CancelResult": {
+      "additionalProperties": false,
+      "properties": {
+        "cancel_requested": {
+          "title": "Cancel Requested",
+          "type": "boolean"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "starting",
+            "running",
+            "cancelling",
+            "cleanup_blocked",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "cancel_requested",
+        "status"
+      ],
+      "title": "CancelResult",
+      "type": "object"
+    },
+    "Catalog": {
+      "additionalProperties": false,
+      "properties": {
+        "attachments": {
+          "items": {
+            "$ref": "#/definitions/AttachmentEntry"
+          },
+          "title": "Attachments",
+          "type": "array"
+        },
+        "credentials": {
+          "items": {
+            "$ref": "#/definitions/CredentialInfo"
+          },
+          "title": "Credentials",
+          "type": "array"
+        },
+        "datasets": {
+          "items": {
+            "$ref": "#/definitions/CatalogDataset"
+          },
+          "title": "Datasets",
+          "type": "array"
+        },
+        "default_dataset": {
+          "title": "Default Dataset",
+          "type": "string"
+        },
+        "hub": {
+          "$ref": "#/definitions/Hub"
+        },
+        "limits": {
+          "$ref": "#/definitions/Limits"
+        },
+        "model_profiles": {
+          "items": {
+            "$ref": "#/definitions/Profile"
+          },
+          "title": "Model Profiles",
+          "type": "array"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/definitions/Provider"
+          },
+          "title": "Providers",
+          "type": "array"
+        },
+        "readiness": {
+          "$ref": "#/definitions/Readiness"
+        },
+        "settings": {
+          "$ref": "#/definitions/Settings"
+        }
+      },
+      "required": [
+        "datasets",
+        "settings",
+        "hub",
+        "attachments",
+        "providers",
+        "credentials",
+        "model_profiles",
+        "limits",
+        "default_dataset",
+        "readiness"
+      ],
+      "title": "Catalog",
+      "type": "object"
+    },
+    "CatalogDataset": {
+      "additionalProperties": false,
+      "properties": {
+        "author_parameters": {
+          "$ref": "#/definitions/AuthorParameters"
+        },
+        "checked": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked"
+        },
+        "digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digest"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "readiness_error": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Readiness Error"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "reference": {
+          "title": "Reference",
+          "type": "string"
+        },
+        "resolved": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Version"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "tasks": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Task"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "name",
+        "enabled",
+        "reference",
+        "status",
+        "ready",
+        "author_parameters",
+        "readiness_error"
+      ],
+      "title": "CatalogDataset",
+      "type": "object"
+    },
+    "CheckedTask": {
+      "additionalProperties": false,
+      "properties": {
+        "discovery": {
+          "$ref": "#/definitions/Discovery"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "package": {
+          "title": "Package",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Digest"
+        }
+      },
+      "required": [
+        "name",
+        "package",
+        "ref",
+        "discovery"
+      ],
+      "title": "CheckedTask",
+      "type": "object"
+    },
+    "CompareAttachment": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Attachment Version Id"
+        },
+        "bundle_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bundle Id"
+        },
+        "digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Digest"
+        },
+        "kind": {
+          "enum": [
+            "versioned",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "attachment_version_id",
+        "bundle_id",
+        "digest"
+      ],
+      "title": "CompareAttachment",
+      "type": "object"
+    },
+    "CompareInput": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {
+          "title": "Left",
+          "type": "string"
+        },
+        "right": {
+          "title": "Right",
+          "type": "string"
+        }
+      },
+      "required": [
+        "left",
+        "right"
+      ],
+      "title": "CompareInput",
+      "type": "object"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_inputs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/CompareAttachment"
+          },
+          "title": "Attachment Inputs",
+          "type": "object"
+        },
+        "bundle_change": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Bundle Change",
+          "type": "object"
+        },
+        "comparable": {
+          "title": "Comparable",
+          "type": "boolean"
+        },
+        "config_changes": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "$ref": "#/definitions/JsonValue"
+            },
+            "type": "object"
+          },
+          "title": "Config Changes",
+          "type": "object"
+        },
+        "environment_observations": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "title": "Environment Observations",
+          "type": "object"
+        },
+        "left": {
+          "title": "Left",
+          "type": "string"
+        },
+        "mean_task_delta": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mean Task Delta"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "right": {
+          "title": "Right",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/MetricDelta"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "comparable",
+        "reasons",
+        "config_changes",
+        "environment_observations",
+        "bundle_change",
+        "attachment_inputs",
+        "tasks",
+        "mean_task_delta"
+      ],
+      "title": "Comparison",
+      "type": "object"
+    },
+    "Credential": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": "",
+          "title": "Id",
+          "type": "string"
+        },
+        "key": {
+          "format": "password",
+          "title": "Key",
+          "type": "string",
+          "writeOnly": true
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "label",
+        "key"
+      ],
+      "title": "Credential",
+      "type": "object"
+    },
+    "CredentialInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "provider_id",
+        "label",
+        "enabled",
+        "created"
+      ],
+      "title": "CredentialInfo",
+      "type": "object"
+    },
+    "Dataset": {
+      "additionalProperties": false,
+      "properties": {
+        "author_parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AuthorParameters"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "checked": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked"
+        },
+        "digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digest"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "readiness_error": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Readiness Error"
+        },
+        "ready": {
+          "default": false,
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "reference": {
+          "title": "Reference",
+          "type": "string"
+        },
+        "resolved": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Version"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "tasks": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Task"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "name",
+        "enabled",
+        "reference",
+        "status"
+      ],
+      "title": "Dataset",
+      "type": "object"
+    },
+    "DatasetInput": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "reference": {
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "reference"
+      ],
+      "title": "DatasetInput",
+      "type": "object"
+    },
+    "Deleted": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "title": "Deleted",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "deleted"
+      ],
+      "title": "Deleted",
+      "type": "object"
+    },
+    "Diagnosis": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_installation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Installation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "compose": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/definitions/Phase"
+              },
+              "type": "array"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            }
+          ],
+          "title": "Compose"
+        },
+        "hint": {
+          "title": "Hint",
+          "type": "string"
+        },
+        "model_status": {
+          "title": "Model Status",
+          "type": "string"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/definitions/Phase"
+          },
+          "title": "Phases",
+          "type": "array"
+        },
+        "startup_multiplier": {
+          "title": "Startup Multiplier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "model_status",
+        "hint",
+        "phases",
+        "compose",
+        "startup_multiplier",
+        "agent_installation"
+      ],
+      "title": "Diagnosis",
+      "type": "object"
+    },
+    "Discovery": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked": {
+          "items": {
+            "$ref": "#/definitions/Issue"
+          },
+          "title": "Blocked",
+          "type": "array"
+        },
+        "budgets": {
+          "items": {
+            "$ref": "#/definitions/Budget"
+          },
+          "title": "Budgets",
+          "type": "array"
+        },
+        "fixed_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fixed Names",
+          "type": "array"
+        },
+        "images": {
+          "items": {
+            "$ref": "#/definitions/Image"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/definitions/VariableUse"
+            },
+            "type": "array"
+          },
+          "title": "Variables",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source",
+        "variables",
+        "fixed_names",
+        "blocked",
+        "budgets",
+        "images"
+      ],
+      "title": "Discovery",
+      "type": "object"
+    },
+    "Docker": {
+      "additionalProperties": false,
+      "properties": {
+        "checked_at": {
+          "title": "Checked At",
+          "type": "number"
+        },
+        "images": {
+          "items": {
+            "$ref": "#/definitions/DockerImage"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "checked_at",
+        "images",
+        "truncated",
+        "state",
+        "message"
+      ],
+      "title": "Docker",
+      "type": "object"
+    },
+    "DockerImage": {
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "title": "DockerImage",
+      "type": "object"
+    },
+    "Effective": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "agent_tool_preparation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Tool Preparation"
+        },
+        "attempts": {
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "author_env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "title": "Author Env",
+          "type": "object"
+        },
+        "concurrency": {
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "dataset": {
+          "title": "Dataset",
+          "type": "string"
+        },
+        "environment_build_timeout_multiplier": {
+          "default": 1,
+          "title": "Environment Build Timeout Multiplier",
+          "type": "integer"
+        },
+        "max_cpus_per_trial": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Max Cpus Per Trial"
+        },
+        "max_memory_mb_per_trial": {
+          "title": "Max Memory Mb Per Trial",
+          "type": "integer"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model"
+        },
+        "task_filter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Filter"
+        },
+        "wall_seconds": {
+          "title": "Wall Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agent",
+        "dataset",
+        "attempts",
+        "concurrency",
+        "wall_seconds",
+        "task_filter",
+        "model",
+        "max_cpus_per_trial",
+        "max_memory_mb_per_trial"
+      ],
+      "title": "Effective",
+      "type": "object"
+    },
+    "EmptyInput": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "EmptyInput",
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "properties": {
+        "action": {
+          "enum": [
+            "retry_same_request",
+            "poll_existing",
+            "fix_input",
+            "reauthorize",
+            "contact_admin",
+            "explicit_new_attempt"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "poll_after_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Poll After Seconds"
+        },
+        "related_ids": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Related Ids",
+          "type": "object"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "wait_known": {
+          "title": "Wait Known",
+          "type": "boolean"
+        },
+        "wait_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wait Seconds"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "request_id",
+        "retryable",
+        "action",
+        "wait_seconds",
+        "wait_known",
+        "poll_after_seconds",
+        "related_ids"
+      ],
+      "title": "ErrorResponse",
+      "type": "object"
+    },
+    "FailureDiagnosis": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "phase",
+        "message"
+      ],
+      "title": "FailureDiagnosis",
+      "type": "object"
+    },
+    "Hub": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "team",
+            "anonymous"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "disabled",
+            "unset"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Version"
+        }
+      },
+      "required": [
+        "mode",
+        "version",
+        "state",
+        "updated_at"
+      ],
+      "title": "Hub",
+      "type": "object"
+    },
+    "Image": {
+      "additionalProperties": false,
+      "properties": {
+        "cached": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cached"
+        },
+        "image_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Image Id"
+        },
+        "reference": {
+          "title": "Reference",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task",
+        "role",
+        "reference",
+        "cached",
+        "image_id"
+      ],
+      "title": "Image",
+      "type": "object"
+    },
+    "Initialized": {
+      "additionalProperties": false,
+      "properties": {
+        "initialized": {
+          "title": "Initialized",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "initialized"
+      ],
+      "title": "Initialized",
+      "type": "object"
+    },
+    "Installation": {
+      "additionalProperties": false,
+      "properties": {
+        "binary_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Binary Sha256"
+        },
+        "cache_hit": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Hit"
+        },
+        "missing_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Dependencies",
+          "type": "array"
+        },
+        "preparation_error_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preparation Error Type"
+        },
+        "preparation_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preparation Seconds"
+        },
+        "reused": {
+          "title": "Reused",
+          "type": "boolean"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strategy"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "missing_dependencies",
+        "reused"
+      ],
+      "title": "Installation",
+      "type": "object"
+    },
+    "Issue": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task"
+        },
+        "variable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variable"
+        },
+        "variables": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Variables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_retention_days": {
+          "title": "Artifact Retention Days",
+          "type": "integer"
+        },
+        "log_retention_days": {
+          "title": "Log Retention Days",
+          "type": "integer"
+        },
+        "max_attempts": {
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "max_cpus_per_trial": {
+          "title": "Max Cpus Per Trial",
+          "type": "integer"
+        },
+        "max_jobs": {
+          "title": "Max Jobs",
+          "type": "integer"
+        },
+        "max_memory_mb_per_trial": {
+          "title": "Max Memory Mb Per Trial",
+          "type": "integer"
+        },
+        "max_pending_per_member": {
+          "title": "Max Pending Per Member",
+          "type": "integer"
+        },
+        "max_queue": {
+          "title": "Max Queue",
+          "type": "integer"
+        },
+        "max_trials": {
+          "title": "Max Trials",
+          "type": "integer"
+        },
+        "max_upload_bytes": {
+          "title": "Max Upload Bytes",
+          "type": "integer"
+        },
+        "max_wall_seconds": {
+          "title": "Max Wall Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_jobs",
+        "max_trials",
+        "max_queue",
+        "max_pending_per_member",
+        "max_attempts",
+        "max_wall_seconds",
+        "max_cpus_per_trial",
+        "max_memory_mb_per_trial",
+        "max_upload_bytes",
+        "log_retention_days",
+        "artifact_retention_days"
+      ],
+      "title": "Limits",
+      "type": "object"
+    },
+    "LimitsInput": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_retention_days": {
+          "title": "Artifact Retention Days",
+          "type": "integer"
+        },
+        "log_retention_days": {
+          "title": "Log Retention Days",
+          "type": "integer"
+        },
+        "max_attempts": {
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "max_cpus_per_trial": {
+          "title": "Max Cpus Per Trial",
+          "type": "integer"
+        },
+        "max_jobs": {
+          "title": "Max Jobs",
+          "type": "integer"
+        },
+        "max_memory_mb_per_trial": {
+          "title": "Max Memory Mb Per Trial",
+          "type": "integer"
+        },
+        "max_pending_per_member": {
+          "title": "Max Pending Per Member",
+          "type": "integer"
+        },
+        "max_queue": {
+          "title": "Max Queue",
+          "type": "integer"
+        },
+        "max_trials": {
+          "title": "Max Trials",
+          "type": "integer"
+        },
+        "max_upload_bytes": {
+          "title": "Max Upload Bytes",
+          "type": "integer"
+        },
+        "max_wall_seconds": {
+          "title": "Max Wall Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "LimitsInput",
+      "type": "object"
+    },
+    "LoggedOut": {
+      "additionalProperties": false,
+      "properties": {
+        "logged_out": {
+          "title": "Logged Out",
+          "type": "boolean"
+        },
+        "tasks_continue": {
+          "title": "Tasks Continue",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "logged_out",
+        "tasks_continue"
+      ],
+      "title": "LoggedOut",
+      "type": "object"
+    },
+    "Login": {
+      "additionalProperties": false,
+      "properties": {
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ],
+      "title": "Login",
+      "type": "object"
+    },
+    "LoginResult": {
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "title": "Token",
+          "type": "string"
+        },
+        "user": {
+          "$ref": "#/definitions/User"
+        }
+      },
+      "required": [
+        "token",
+        "user"
+      ],
+      "title": "LoginResult",
+      "type": "object"
+    },
+    "Logs": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Logs",
+      "type": "object"
+    },
+    "MaintenanceInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "paused": {
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "retry_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retry At"
+        },
+        "updated": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated"
+        }
+      },
+      "required": [
+        "paused",
+        "reason",
+        "retry_at",
+        "updated"
+      ],
+      "title": "MaintenanceInfo",
+      "type": "object"
+    },
+    "MaintenanceInput": {
+      "additionalProperties": false,
+      "properties": {
+        "paused": {
+          "default": false,
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "retry_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry At"
+        }
+      },
+      "title": "MaintenanceInput",
+      "type": "object"
+    },
+    "Manifest": {
+      "additionalProperties": false,
+      "properties": {
+        "bundle_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bundle Digest"
+        },
+        "effective": {
+          "$ref": "#/definitions/Effective"
+        },
+        "hard_budgets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Hard Budgets"
+        },
+        "model_checkpoint_actual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Checkpoint Actual"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Binding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "title": "Source",
+          "type": "object"
+        },
+        "startup_policy": {
+          "$ref": "#/definitions/StartupPolicy"
+        }
+      },
+      "required": [
+        "startup_policy",
+        "effective",
+        "source",
+        "parent",
+        "service",
+        "bundle_digest",
+        "model_checkpoint_actual",
+        "hard_budgets"
+      ],
+      "title": "Manifest",
+      "type": "object"
+    },
+    "MetricDelta": {
+      "additionalProperties": false,
+      "properties": {
+        "delta": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Delta",
+          "type": "object"
+        },
+        "left": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Left",
+          "type": "object"
+        },
+        "right": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Right",
+          "type": "object"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task",
+        "left",
+        "right",
+        "delta"
+      ],
+      "title": "MetricDelta",
+      "type": "object"
+    },
+    "PasswordChange": {
+      "additionalProperties": false,
+      "properties": {
+        "current_password": {
+          "format": "password",
+          "title": "Current Password",
+          "type": "string",
+          "writeOnly": true
+        },
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "current_password",
+        "password"
+      ],
+      "title": "PasswordChange",
+      "type": "object"
+    },
+    "PasswordResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "login_required": {
+          "title": "Login Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "changed",
+        "login_required"
+      ],
+      "title": "PasswordResult",
+      "type": "object"
+    },
+    "Phase": {
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "reached": {
+          "default": false,
+          "title": "Reached",
+          "type": "boolean"
+        },
+        "seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seconds"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "phase",
+        "seconds"
+      ],
+      "title": "Phase",
+      "type": "object"
+    },
+    "Profile": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Credential Id"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/definitions/JsonValue",
+          "default": null
+        },
+        "opencode_version": {
+          "title": "Opencode Version",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Provider Id"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "provider_id",
+        "credential_id",
+        "model",
+        "params",
+        "opencode_version",
+        "enabled"
+      ],
+      "title": "Profile",
+      "type": "object"
+    },
+    "ProfileInput": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Credential Id"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/definitions/JsonValue",
+          "default": null
+        },
+        "opencode_version": {
+          "default": "1.18.35",
+          "title": "Opencode Version",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "default": {},
+          "title": "Params",
+          "type": "object"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Provider Id"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "provider_id",
+        "credential_id",
+        "model"
+      ],
+      "title": "ProfileInput",
+      "type": "object"
+    },
+    "Provider": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "endpoint": {
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/definitions/JsonValue",
+          "default": null
+        },
+        "protocol": {
+          "title": "Protocol",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "protocol",
+        "endpoint",
+        "enabled"
+      ],
+      "title": "Provider",
+      "type": "object"
+    },
+    "ProviderInput": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "endpoint": {
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "name": {
+          "$ref": "#/definitions/JsonValue",
+          "default": null
+        },
+        "protocol": {
+          "title": "Protocol",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "protocol",
+        "endpoint"
+      ],
+      "title": "ProviderInput",
+      "type": "object"
+    },
+    "Readiness": {
+      "additionalProperties": false,
+      "properties": {
+        "accepting": {
+          "title": "Accepting",
+          "type": "boolean"
+        },
+        "initialized": {
+          "title": "Initialized",
+          "type": "boolean"
+        },
+        "maintenance": {
+          "$ref": "#/definitions/MaintenanceInfo"
+        },
+        "observed": {
+          "title": "Observed",
+          "type": "number"
+        },
+        "pending": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Pending",
+          "type": "object"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "scheduler": {
+          "$ref": "#/definitions/SchedulerInfo"
+        }
+      },
+      "required": [
+        "initialized",
+        "accepting",
+        "reason",
+        "observed",
+        "scheduler",
+        "maintenance",
+        "pending"
+      ],
+      "title": "Readiness",
+      "type": "object"
+    },
+    "Report": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "environment_observations": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "$ref": "#/definitions/JsonValue"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            }
+          ],
+          "title": "Environment Observations"
+        },
+        "expected_attempts": {
+          "title": "Expected Attempts",
+          "type": "integer"
+        },
+        "harbor_version": {
+          "title": "Harbor Version",
+          "type": "string"
+        },
+        "invalid_attempts": {
+          "title": "Invalid Attempts",
+          "type": "integer"
+        },
+        "missing_attempts": {
+          "title": "Missing Attempts",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "source": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "title": "Source",
+          "type": "object"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "starting",
+            "running",
+            "cancelling",
+            "cleanup_blocked",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/TaskReport"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "unexpected_trials": {
+          "items": {
+            "$ref": "#/definitions/Attempt"
+          },
+          "title": "Unexpected Trials",
+          "type": "array"
+        },
+        "valid_attempts": {
+          "title": "Valid Attempts",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "reason",
+        "complete",
+        "expected_attempts",
+        "valid_attempts",
+        "invalid_attempts",
+        "missing_attempts",
+        "source",
+        "harbor_version",
+        "environment_observations",
+        "tasks",
+        "unexpected_trials"
+      ],
+      "title": "Report",
+      "type": "object"
+    },
+    "RetryInput": {
+      "additionalProperties": false,
+      "properties": {
+        "wall_seconds": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Seconds"
+        }
+      },
+      "title": "RetryInput",
+      "type": "object"
+    },
+    "Revoked": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "revoked": {
+          "title": "Revoked",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "revoked"
+      ],
+      "title": "Revoked",
+      "type": "object"
+    },
+    "Rotation": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "format": "password",
+          "title": "Key",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "Rotation",
+      "type": "object"
+    },
+    "RunDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/definitions/Artifact"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "failure_diagnosis": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FailureDiagnosis"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "manifest": {
+          "$ref": "#/definitions/Manifest"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Report"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "row": {
+          "$ref": "#/definitions/RunSummary"
+        }
+      },
+      "required": [
+        "failure_diagnosis",
+        "row",
+        "manifest",
+        "artifacts",
+        "report"
+      ],
+      "title": "RunDetail",
+      "type": "object"
+    },
+    "RunSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "attachment": {
+          "$ref": "#/definitions/AttachmentBinding"
+        },
+        "audit_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Audit Reason"
+        },
+        "audit_status": {
+          "enum": [
+            "pending",
+            "clean",
+            "incomplete"
+          ],
+          "title": "Audit Status",
+          "type": "string"
+        },
+        "cancel": {
+          "title": "Cancel",
+          "type": "boolean"
+        },
+        "concurrency": {
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "dataset": {
+          "title": "Dataset",
+          "type": "string"
+        },
+        "dataset_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Name"
+        },
+        "finished": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Finished"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "model_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Profile"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "started": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "starting",
+            "running",
+            "cancelling",
+            "cleanup_blocked",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "submitter": {
+          "title": "Submitter",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "dataset_name",
+        "status",
+        "created",
+        "started",
+        "finished",
+        "parent",
+        "submitter",
+        "user_id",
+        "concurrency",
+        "cancel",
+        "audit_status",
+        "audit_reason",
+        "reason",
+        "dataset",
+        "agent",
+        "model_profile",
+        "attachment"
+      ],
+      "title": "RunSummary",
+      "type": "object"
+    },
+    "Runs": {
+      "additionalProperties": false,
+      "properties": {
+        "runs": {
+          "items": {
+            "$ref": "#/definitions/RunSummary"
+          },
+          "title": "Runs",
+          "type": "array"
+        },
+        "submissions": {
+          "items": {
+            "$ref": "#/definitions/Accepted"
+          },
+          "title": "Submissions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs",
+        "submissions"
+      ],
+      "title": "Runs",
+      "type": "object"
+    },
+    "SchedulerInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_observed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activity Observed"
+        },
+        "observed": {
+          "title": "Observed",
+          "type": "number"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "unavailable",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "observed"
+      ],
+      "title": "SchedulerInfo",
+      "type": "object"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/Task"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "total": {
+          "default": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "unknown": {
+          "default": 0,
+          "title": "Unknown",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mode",
+        "tasks"
+      ],
+      "title": "Scope",
+      "type": "object"
+    },
+    "Settings": {
+      "additionalProperties": false,
+      "properties": {
+        "default_dataset_id": {
+          "$ref": "#/definitions/JsonValue",
+          "default": null
+        },
+        "default_model_profile": {
+          "$ref": "#/definitions/JsonValue",
+          "default": null
+        },
+        "team_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Team Name"
+        }
+      },
+      "title": "Settings",
+      "type": "object"
+    },
+    "Setup": {
+      "additionalProperties": false,
+      "properties": {
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true
+        },
+        "setup_token": {
+          "format": "password",
+          "title": "Setup Token",
+          "type": "string",
+          "writeOnly": true
+        },
+        "team_name": {
+          "default": "团队实验室",
+          "title": "Team Name",
+          "type": "string"
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "password",
+        "setup_token"
+      ],
+      "title": "Setup",
+      "type": "object"
+    },
+    "StartupPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "multiplier": {
+          "title": "Multiplier",
+          "type": "integer"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/StartupTask"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "wall_seconds": {
+          "title": "Wall Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "multiplier",
+        "wall_seconds",
+        "scope",
+        "tasks"
+      ],
+      "title": "StartupPolicy",
+      "type": "object"
+    },
+    "StartupTask": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Seconds"
+        },
+        "author_build_timeout_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            }
+          ],
+          "title": "Author Build Timeout Sec"
+        },
+        "author_network_mode": {
+          "title": "Author Network Mode",
+          "type": "string"
+        },
+        "start_wait_timeout_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            }
+          ],
+          "title": "Start Wait Timeout Sec"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "verifier_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verifier Seconds"
+        }
+      },
+      "required": [
+        "task",
+        "author_build_timeout_sec",
+        "start_wait_timeout_sec",
+        "author_network_mode"
+      ],
+      "title": "StartupTask",
+      "type": "object"
+    },
+    "SubmissionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "enum": [
+                "oracle",
+                "opencode"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent"
+        },
+        "attachment_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachment Version Id"
+        },
+        "attempts": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attempts"
+        },
+        "concurrency": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Concurrency"
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Id"
+        },
+        "environment_build_timeout_multiplier": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment Build Timeout Multiplier"
+        },
+        "model_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Profile"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task"
+        },
+        "wall_seconds": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Seconds"
+        }
+      },
+      "title": "SubmissionInput",
+      "type": "object"
+    },
+    "Task": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "package": {
+          "title": "Package",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Digest"
+        }
+      },
+      "required": [
+        "name",
+        "package",
+        "ref"
+      ],
+      "title": "Task",
+      "type": "object"
+    },
+    "TaskReport": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "items": {
+            "$ref": "#/definitions/Attempt"
+          },
+          "title": "Attempts",
+          "type": "array"
+        },
+        "expected_attempts": {
+          "title": "Expected Attempts",
+          "type": "integer"
+        },
+        "mean_rewards": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mean Rewards"
+        },
+        "observed_attempts": {
+          "title": "Observed Attempts",
+          "type": "integer"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "valid_attempts": {
+          "title": "Valid Attempts",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task",
+        "expected_attempts",
+        "valid_attempts",
+        "observed_attempts",
+        "mean_rewards",
+        "attempts"
+      ],
+      "title": "TaskReport",
+      "type": "object"
+    },
+    "Updated": {
+      "additionalProperties": false,
+      "properties": {
+        "updated": {
+          "title": "Updated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "updated"
+      ],
+      "title": "Updated",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "properties": {
+        "active_jobs": {
+          "title": "Active Jobs",
+          "type": "integer"
+        },
+        "active_trials": {
+          "title": "Active Trials",
+          "type": "integer"
+        },
+        "by_submitter": {
+          "items": {
+            "$ref": "#/definitions/UsageRow"
+          },
+          "title": "By Submitter",
+          "type": "array"
+        },
+        "cost": {
+          "const": "unknown",
+          "title": "Cost",
+          "type": "string"
+        },
+        "queued_jobs": {
+          "title": "Queued Jobs",
+          "type": "integer"
+        },
+        "total_runs": {
+          "title": "Total Runs",
+          "type": "integer"
+        },
+        "total_submissions": {
+          "title": "Total Submissions",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_submissions",
+        "total_runs",
+        "active_jobs",
+        "active_trials",
+        "queued_jobs",
+        "by_submitter",
+        "cost"
+      ],
+      "title": "Usage",
+      "type": "object"
+    },
+    "UsageRow": {
+      "additionalProperties": false,
+      "properties": {
+        "runs": {
+          "title": "Runs",
+          "type": "integer"
+        },
+        "submissions": {
+          "title": "Submissions",
+          "type": "integer"
+        },
+        "submitter": {
+          "title": "Submitter",
+          "type": "string"
+        },
+        "wall_seconds": {
+          "title": "Wall Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "submitter",
+        "submissions",
+        "runs",
+        "wall_seconds"
+      ],
+      "title": "UsageRow",
+      "type": "object"
+    },
+    "User": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "admin",
+            "member"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "role",
+        "enabled"
+      ],
+      "title": "User",
+      "type": "object"
+    },
+    "UserUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password"
+        }
+      },
+      "title": "UserUpdate",
+      "type": "object"
+    },
+    "VariableUse": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task",
+        "file",
+        "required"
+      ],
+      "title": "VariableUse",
+      "type": "object"
+    }
+  },
+  "error": {
+    "$ref": "#/definitions/ErrorResponse"
+  },
+  "routes": [
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "list_access",
+      "path": "/access-credentials",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "items": {
+          "$ref": "#/definitions/AccessCredential"
+        },
+        "type": "array"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "issue_access",
+      "path": "/access-credentials",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/AccessIssue"
+      },
+      "response": {
+        "$ref": "#/definitions/AccessResult"
+      },
+      "status": 201
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "revoke_access",
+      "path": "/access-credentials/{credential_id}/revoke",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Revoked"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "list_all_access",
+      "path": "/admin/access-credentials",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "items": {
+          "$ref": "#/definitions/AccessCredential"
+        },
+        "type": "array"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "save_catalog",
+      "path": "/admin/catalog/{kind}",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/DatasetInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Dataset"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "verify_catalog",
+      "path": "/admin/catalog/{kind}/{object_id}/verify",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Dataset"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "credentials",
+      "path": "/admin/credentials",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "items": {
+          "$ref": "#/definitions/CredentialInfo"
+        },
+        "type": "array"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "credential",
+      "path": "/admin/credentials",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Credential"
+      },
+      "response": {
+        "$ref": "#/definitions/CredentialInfo"
+      },
+      "status": 201
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "disable",
+      "path": "/admin/credentials/{credential_id}/disable",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/CredentialInfo"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "rotate",
+      "path": "/admin/credentials/{credential_id}/rotate",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Rotation"
+      },
+      "response": {
+        "$ref": "#/definitions/CredentialInfo"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PUT",
+      "navigation": false,
+      "operation": "save_author_inputs",
+      "path": "/admin/datasets/{object_id}/author-inputs",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/AuthorSave"
+      },
+      "response": {
+        "$ref": "#/definitions/AuthorParameters"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "inspect_author_inputs",
+      "path": "/admin/datasets/{object_id}/author-inputs/check",
+      "projection": "shared/session",
+      "request": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/AuthorCheck"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "response": {
+        "$ref": "#/definitions/AuthorParameters"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "docker_discovery",
+      "path": "/admin/docker",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Docker"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "hub",
+      "path": "/admin/hub",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Rotation"
+      },
+      "response": {
+        "$ref": "#/definitions/Hub"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "hub_disable",
+      "path": "/admin/hub/disable",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Hub"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "limits",
+      "path": "/admin/limits",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Limits"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PATCH",
+      "navigation": false,
+      "operation": "set_limits",
+      "path": "/admin/limits",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/LimitsInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Limits"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PATCH",
+      "navigation": false,
+      "operation": "set_maintenance",
+      "path": "/admin/maintenance",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/MaintenanceInput"
+      },
+      "response": {
+        "$ref": "#/definitions/MaintenanceInfo"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "profiles",
+      "path": "/admin/model-profiles",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "items": {
+          "$ref": "#/definitions/Profile"
+        },
+        "type": "array"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "profile",
+      "path": "/admin/model-profiles",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/ProfileInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Profile"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "providers",
+      "path": "/admin/providers",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "items": {
+          "$ref": "#/definitions/Provider"
+        },
+        "type": "array"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "provider",
+      "path": "/admin/providers",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/ProviderInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Provider"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PATCH",
+      "navigation": false,
+      "operation": "settings",
+      "path": "/admin/settings",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Settings"
+      },
+      "response": {
+        "$ref": "#/definitions/Settings"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "users",
+      "path": "/admin/users",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "items": {
+          "$ref": "#/definitions/User"
+        },
+        "type": "array"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "add_user",
+      "path": "/admin/users",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Account"
+      },
+      "response": {
+        "$ref": "#/definitions/User"
+      },
+      "status": 201
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PATCH",
+      "navigation": false,
+      "operation": "update_user",
+      "path": "/admin/users/{user_id}",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/UserUpdate"
+      },
+      "response": {
+        "$ref": "#/definitions/User"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "attachment_lookup",
+      "path": "/attachment-operations/{operation}/{key:path}",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/AttachmentResult"
+      },
+      "status": 200
+    },
+    {
+      "media": "multipart/form-data",
+      "metadata": {
+        "$ref": "#/definitions/AttachmentCreate"
+      },
+      "method": "POST",
+      "navigation": false,
+      "operation": "derive_attachment",
+      "path": "/attachment-versions/{version_id}/derive",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/AttachmentResult"
+      },
+      "status": 201
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "attachments",
+      "path": "/attachments",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/AttachmentCatalog"
+      },
+      "status": 200
+    },
+    {
+      "media": "multipart/form-data",
+      "metadata": {
+        "$ref": "#/definitions/AttachmentCreate"
+      },
+      "method": "POST",
+      "navigation": false,
+      "operation": "create_attachment",
+      "path": "/attachments",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/AttachmentResult"
+      },
+      "status": 201
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PATCH",
+      "navigation": false,
+      "operation": "update_attachment",
+      "path": "/attachments/{attachment_id}",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/AttachmentUpdate"
+      },
+      "response": {
+        "$ref": "#/definitions/Updated"
+      },
+      "status": 200
+    },
+    {
+      "media": "multipart/form-data",
+      "metadata": {
+        "$ref": "#/definitions/AttachmentPublish"
+      },
+      "method": "POST",
+      "navigation": false,
+      "operation": "publish_attachment",
+      "path": "/attachments/{attachment_id}/versions",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/AttachmentResult"
+      },
+      "status": 201
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PATCH",
+      "navigation": false,
+      "operation": "update_attachment_version",
+      "path": "/attachments/{attachment_id}/versions/{version_id}",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/AttachmentVersionUpdate"
+      },
+      "response": {
+        "$ref": "#/definitions/Updated"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "login",
+      "path": "/auth/login",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Login"
+      },
+      "response": {
+        "$ref": "#/definitions/LoginResult"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "logout",
+      "path": "/auth/logout",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/LoggedOut"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "password_change",
+      "path": "/auth/password",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/PasswordChange"
+      },
+      "response": {
+        "$ref": "#/definitions/PasswordResult"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "catalog",
+      "path": "/catalog",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Catalog"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "compare",
+      "path": "/compare",
+      "projection": "browser/PAT",
+      "request": {
+        "$ref": "#/definitions/CompareInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Comparison"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "me",
+      "path": "/me",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/User"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "readiness",
+      "path": "/readiness",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Readiness"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "runs",
+      "path": "/runs",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Runs"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "run",
+      "path": "/runs/{run_id}",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/RunDetail"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "DELETE",
+      "navigation": false,
+      "operation": "delete_artifact",
+      "path": "/runs/{run_id}/artifacts/{file_id}",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Deleted"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "cancel",
+      "path": "/runs/{run_id}/cancel",
+      "projection": "shared/session",
+      "request": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/EmptyInput"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "response": {
+        "$ref": "#/definitions/CancelResult"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "logs",
+      "path": "/runs/{run_id}/logs",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Logs"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "report",
+      "path": "/runs/{run_id}/report",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Report"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": true,
+      "operation": "download_report",
+      "path": "/runs/{run_id}/report/download",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Report"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "rerun",
+      "path": "/runs/{run_id}/rerun",
+      "projection": "browser/PAT",
+      "request": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/EmptyInput"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "response": {
+        "$ref": "#/definitions/Accepted"
+      },
+      "status": 202
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "retry_run",
+      "path": "/runs/{run_id}/retry",
+      "projection": "browser/PAT",
+      "request": {
+        "$ref": "#/definitions/RetryInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Accepted"
+      },
+      "status": 202
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "setup_status",
+      "path": "/setup",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Initialized"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "setup",
+      "path": "/setup",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Setup"
+      },
+      "response": {
+        "$ref": "#/definitions/Initialized"
+      },
+      "status": 201
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "lookup_submission",
+      "path": "/submission-operations/{operation}/{key:path}",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Accepted"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "submit",
+      "path": "/submissions",
+      "projection": "browser/PAT",
+      "request": {
+        "$ref": "#/definitions/SubmissionInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Accepted"
+      },
+      "status": 202
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "submission",
+      "path": "/submissions/{submission_id}",
+      "projection": "browser/PAT",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Accepted"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "cancel_submission",
+      "path": "/submissions/{submission_id}/cancel",
+      "projection": "browser/PAT",
+      "request": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/EmptyInput"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "response": {
+        "$ref": "#/definitions/Accepted"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "recover_submission",
+      "path": "/submissions/{submission_id}/retry",
+      "projection": "browser/PAT",
+      "request": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/EmptyInput"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "response": {
+        "$ref": "#/definitions/Accepted"
+      },
+      "status": 202
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "usage",
+      "path": "/usage",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Usage"
+      },
+      "status": 200
+    }
+  ]
+}

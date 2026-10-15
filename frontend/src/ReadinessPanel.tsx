@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, date, type Item } from "./api";
+import { api, date, type Readiness } from "./api";
 import { useLoad } from "./useLoad";
 import { ErrorNotice } from "./shared";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 
-function Status({ value }: { value: Item }) {
+function Status({ value }: { value: Readiness }) {
   const activity = value.scheduler;
   return (
     <Alert>
@@ -74,7 +74,7 @@ export function MaintenancePanel({
   readiness,
   saved,
 }: {
-  readiness?: Item;
+  readiness?: Readiness;
   saved: () => void;
 }) {
   const {
@@ -93,11 +93,11 @@ export function MaintenancePanel({
     try {
       await api("/admin/maintenance", {
         method: "PATCH",
-        body: JSON.stringify({
+        body: {
           paused,
           reason: paused ? reason : "",
           retry_at: paused && retry ? new Date(retry).getTime() / 1000 : null,
-        }),
+        },
       });
       reload();
       saved();

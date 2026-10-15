@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, date, newIdempotencyKey, type Item } from "./api";
+import {
+  api,
+  date,
+  newIdempotencyKey,
+  upload,
+  type User,
+  type AttachmentResult,
+  type PATCH,
+  type PATCHPath,
+} from "./api";
 import { useLoad } from "./useLoad";
 import { Title, ErrorNotice, Loading, SelectField } from "./shared";
 import { Button } from "@/components/ui/button";
@@ -15,7 +24,7 @@ import {
 } from "@/components/ui/card";
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 
-export function AttachmentsPage({ user }: { user: Item }) {
+export function AttachmentsPage({ user }: { user: User }) {
   const { data, error, loading, reload } = useLoad(() => api("/attachments"));
   const [action, setAction] = useState("create");
   const [target, setTarget] = useState("");
@@ -24,7 +33,7 @@ export function AttachmentsPage({ user }: { user: Item }) {
   const [file, setFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>();
-  const [result, setResult] = useState<Item>();
+  const [result, setResult] = useState<AttachmentResult>();
   const [receipt, setReceipt] = useState<{
     operation: string;
     key: string;
@@ -38,15 +47,18 @@ export function AttachmentsPage({ user }: { user: Item }) {
     }
   });
   const [key, setKey] = useState(() => receipt?.key || newIdempotencyKey());
-  const attachments: Item[] = data?.attachments || [];
+  const attachments = data?.attachments || [];
   const maintainable = attachments.filter(
     (a) => user.role === "admin" || a.creator_id === user.id,
   );
-  async function mutate(path: string, body: Item) {
+  async function mutate<P extends PATCHPath>(
+    path: P,
+    body: PATCH<P>["request"],
+  ) {
     setBusy(true);
     setFailure(undefined);
     try {
-      await api(path, { method: "PATCH", body: JSON.stringify(body) });
+      await api(path, { method: "PATCH", body });
       reload();
     } catch (e) {
       setFailure(e);
@@ -100,28 +112,28 @@ export function AttachmentsPage({ user }: { user: Item }) {
                 JSON.stringify(nextReceipt),
               );
               try {
-                const body = new FormData();
                 if (!file) throw new Error("请选择 ZIP 文件");
-                body.set("file", file);
-                body.set(
-                  "metadata",
-                  JSON.stringify(
-                    action === "publish"
-                      ? { notes: description }
-                      : { name, description },
-                  ),
-                );
-                const path =
+                const value =
                   action === "publish"
-                    ? `/attachments/${target}/versions`
+                    ? await upload(
+                        `/attachments/${target}/versions`,
+                        { notes: description },
+                        file,
+                        key,
+                      )
                     : action === "derive"
-                      ? `/attachment-versions/${target}/derive`
-                      : "/attachments";
-                const value: Item = await api(path, {
-                  method: "POST",
-                  body,
-                  headers: { "Idempotency-Key": key },
-                });
+                      ? await upload(
+                          `/attachment-versions/${target}/derive`,
+                          { name, description },
+                          file,
+                          key,
+                        )
+                      : await upload(
+                          "/attachments",
+                          { name, description },
+                          file,
+                          key,
+                        );
                 setResult(value);
                 reload();
               } catch (err) {
@@ -162,7 +174,7 @@ export function AttachmentsPage({ user }: { user: Item }) {
                         </option>
                       ))
                     : attachments.flatMap((a) =>
-                        a.versions.map((v: Item) => (
+                        a.versions.map((v) => (
                           <option
                             key={v.id}
                             value={v.id}
@@ -273,8 +285,8 @@ export function AttachmentsPage({ user }: { user: Item }) {
                     e.preventDefault();
                     const body = new FormData(e.currentTarget);
                     await mutate(`/attachments/${a.id}`, {
-                      name: body.get("name"),
-                      description: body.get("description"),
+                      name: String(body.get("name") || ""),
+                      description: String(body.get("description") || ""),
                     });
                   }}
                 >
@@ -319,7 +331,7 @@ export function AttachmentsPage({ user }: { user: Item }) {
                 </form>
               ) : null}
               <ul className="flex flex-col gap-4">
-                {a.versions.map((v: Item) => (
+                {a.versions.map((v) => (
                   <li key={v.id}>
                     <p>
                       <strong>v{v.number}</strong> ·{" "}

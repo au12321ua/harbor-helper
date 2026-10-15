@@ -20,6 +20,7 @@ from harbor_helper.execution.config import (
 )
 from harbor_helper.execution.processes import safe_environment
 from harbor_helper.execution.sources import verify_inputs
+from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import read_json, tree_digest, write_json
 
 
@@ -384,7 +385,7 @@ def submit(
             with store.connect() as db:
                 db.execute(
                     "INSERT INTO runs(id,status,created,concurrency,parent) VALUES(?,?,?,?,?)",
-                    (run_id, "queued", time.time(), cfg["concurrency"], parent),
+                    (run_id, lifecycle_status.QUEUED, time.time(), cfg["concurrency"], parent),
                 )
     except BaseException:
         shutil.rmtree(path)

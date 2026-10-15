@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { api, post, date, type Item } from "./api";
+import {
+  api,
+  post,
+  date,
+  type User,
+  type AccessCredential,
+  type AccessIssue,
+} from "./api";
 import { useLoad } from "./useLoad";
 import { Title, ErrorNotice, Loading } from "./shared";
 import {
@@ -26,10 +33,10 @@ const scopes = [
   ["execute", "提交、重跑、修复与恢复实验"],
   ["cancel_own", "取消自己的任务"],
 ];
-export function AccessCredentialsPage({ user }: { user: Item }) {
+export function AccessCredentialsPage({ user }: { user: User }) {
   const [all, setAll] = useState(false);
   const [observedAt] = useState(() => Date.now());
-  const { data, error, loading, reload } = useLoad<Item[]>(
+  const { data, error, loading, reload } = useLoad<AccessCredential[]>(
     () => api(all ? "/admin/access-credentials" : "/access-credentials"),
     String(all),
   );
@@ -77,11 +84,26 @@ export function AccessCredentialsPage({ user }: { user: Item }) {
               setIssued(undefined);
               try {
                 const value = await post("/access-credentials", {
-                  name: values.get("name"),
-                  current_password: values.get("current_password"),
+                  name: String(values.get("name") || ""),
+                  current_password: String(
+                    values.get("current_password") || "",
+                  ),
                   expires:
                     Date.now() / 1000 + Number(values.get("days")) * 86400,
-                  scopes: values.getAll("scopes"),
+                  scopes: values
+                    .getAll("scopes")
+                    .filter(
+                      (
+                        scope,
+                      ): scope is NonNullable<AccessIssue["scopes"]>[number] =>
+                        typeof scope === "string" &&
+                        [
+                          "read",
+                          "attachments",
+                          "execute",
+                          "cancel_own",
+                        ].includes(scope),
+                    ),
                 });
                 setIssued(value.token);
                 form.reset();

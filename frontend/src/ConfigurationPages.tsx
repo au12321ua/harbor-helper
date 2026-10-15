@@ -1,7 +1,22 @@
 import { useLoad } from "./useLoad";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
-import { api, post, date, type Item } from "./api";
+import {
+  api,
+  post,
+  date,
+  mutation,
+  type WriteMethod,
+  type WritePath,
+  type WriteSpec,
+  type Catalog,
+  type Provider,
+  type Profile,
+  type Dataset,
+  type CatalogDataset,
+  type Docker,
+  type User,
+} from "./api";
 import { ErrorNotice, Title, SelectField, Loading, EmptyState } from "./shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +38,9 @@ import {
 } from "@/components/ui/field";
 import { toast } from "sonner";
 import { MaintenancePanel } from "./ReadinessPanel";
+function isJsonMapping(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 const limitLabels: Record<string, string> = {
   max_jobs: "全局任务并发",
   max_trials: "全局 Trial 并发",
@@ -36,10 +54,17 @@ const limitLabels: Record<string, string> = {
   log_retention_days: "日志保留天数",
   artifact_retention_days: "产物保留天数",
 };
-function rowsOf(value: Item | Item[] | undefined, key: string): Item[] {
-  return Array.isArray(value) ? value : value?.[key] || [];
-}
-function AdminForm({
+type FormField = {
+  name: string;
+  label: string;
+  type?: string;
+  options?: { value: string; label: string }[];
+  defaultValue?: string;
+  required?: boolean;
+  copyTo?: string;
+  description?: string;
+};
+function AdminForm<const F extends readonly FormField[]>({
   title,
   description,
   fields,
@@ -48,17 +73,8 @@ function AdminForm({
 }: {
   title: string;
   description: string;
-  fields: {
-    name: string;
-    label: string;
-    type?: string;
-    options?: { value: string; label: string }[];
-    defaultValue?: string;
-    required?: boolean;
-    copyTo?: string;
-    description?: string;
-  }[];
-  onSave: (value: Item) => Promise<unknown>;
+  fields: F;
+  onSave: (value: Record<F[number]["name"], string>) => Promise<unknown>;
   resetOnSave?: boolean;
 }) {
   const [error, setError] = useState<unknown>(),
@@ -78,7 +94,12 @@ function AdminForm({
             setBusy(true);
             setError(undefined);
             setSaved(false);
-            const value = Object.fromEntries(new FormData(form));
+            const value = Object.fromEntries(
+              fields.map(({ name }) => [
+                name,
+                String(new FormData(form).get(name) || ""),
+              ]),
+            ) as Record<F[number]["name"], string>;
             try {
               await onSave(value);
               if (resetOnSave) form.reset();
@@ -188,14 +209,14 @@ function ModelForm({
   save,
   onSaved,
 }: {
-  catalog: Item;
-  selected?: Item;
-  save: (path: string, value: Item) => Promise<Item>;
-  onSaved: (value: Item) => void;
+  catalog: Catalog;
+  selected?: Profile;
+  save: typeof mutation;
+  onSaved: (value: Profile) => void;
 }) {
-  const [provider, setProvider] = useState(selected?.provider_id || "");
+  const [provider, setProvider] = useState(String(selected?.provider_id || ""));
   const credentials = (catalog.credentials || []).filter(
-    (c: Item) => c.provider_id === provider && c.enabled,
+    (c) => c.provider_id === provider && c.enabled,
   );
   return (
     <Card>
@@ -214,9 +235,9 @@ function ModelForm({
           onChange={setProvider}
         >
           <option value="">选择提供商</option>
-          {(catalog.providers || []).map((p: Item) => (
+          {(catalog.providers || []).map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name}
+              {String(p.name || p.id)}
             </option>
           ))}
         </SelectField>
@@ -233,17 +254,21 @@ function ModelForm({
           title="模型配置"
           description="常用参数可留空；JSON 高级参数与常用参数合并。已有实验保留旧版本。"
           fields={[
-            { name: "name", label: "方案名称", defaultValue: selected?.name },
+            {
+              name: "name",
+              label: "方案名称",
+              defaultValue: String(selected?.name || ""),
+            },
             {
               name: "credential_id",
               label: "团队 key",
               defaultValue:
                 selected?.provider_id === provider
-                  ? selected?.credential_id
+                  ? String(selected?.credential_id || "")
                   : undefined,
-              options: credentials.map((c: Item) => ({
+              options: credentials.map((c) => ({
                 value: c.id,
-                label: `${(catalog.providers || []).find((p: Item) => p.id === c.provider_id)?.name || c.provider_id} → ${c.label}`,
+                label: `${(catalog.providers || []).find((p) => p.id === c.provider_id)?.name || c.provider_id} → ${c.label}`,
               })),
             },
             {
@@ -278,9 +303,8 @@ function ModelForm({
             },
           ]}
           onSave={async (v) => {
-            const params = JSON.parse(v.params);
-            if (!params || Array.isArray(params) || typeof params !== "object")
-              throw new Error("参数须为 JSON 对象");
+            const params: unknown = JSON.parse(v.params);
+            if (!isJsonMapping(params)) throw new Error("参数须为 JSON 对象");
             if (v.temperature !== "")
               params.temperature = Number(v.temperature);
             if (v.max_tokens !== "") params.max_tokens = Number(v.max_tokens);
@@ -307,13 +331,16 @@ function AuthorInputs({
   check,
   docker,
 }: {
-  dataset: Item;
-  save: (path: string, value: Item, method?: string) => Promise<Item>;
-  check: (path: string, value?: Item) => void;
-  docker?: Item;
+  dataset: CatalogDataset;
+  save: typeof mutation;
+  check: (
+    path: `/admin/datasets/${string}/author-inputs/check`,
+    value?: { task_names: string[] },
+  ) => void;
+  docker?: Docker;
 }) {
   const [taskNames, setTaskNames] = useState<string[]>([]);
-  const parameters = dataset.author_parameters || {};
+  const parameters = dataset.author_parameters;
   const variables = parameters.discovery?.variables || {};
   return (
     <div className="flex flex-col gap-3">
@@ -359,7 +386,7 @@ function AuthorInputs({
             )
           }
         >
-          {(dataset.tasks || []).map((task: Item) => (
+          {(dataset.tasks || []).map((task) => (
             <option key={task.name} value={task.name}>
               {task.name}
             </option>
@@ -387,17 +414,17 @@ function AuthorInputs({
           {parameters.scope.unknown} 个任务未扫描
         </p>
       ) : null}
-      {parameters.issues?.map((issue: Item, index: number) => (
+      {parameters.issues?.map((issue, index: number) => (
         <Alert key={index} variant="destructive">
           <AlertDescription>
-            {issue.task}：{issue.variables.join("、")} ·{" "}
+            {issue.task}：{(issue.variables || []).join("、")} ·{" "}
             {issue.reason === "host_template_unsupported"
               ? "宿主模板暂不支持网页赋值"
               : issue.reason}
           </AlertDescription>
         </Alert>
       ))}
-      {parameters.discovery?.images?.map((image: Item, index: number) => (
+      {parameters.discovery?.images?.map((image, index: number) => (
         <p key={index}>
           {image.task} / {image.role}：作者预构建镜像 {image.reference} ·{" "}
           {image.cached === true
@@ -417,15 +444,11 @@ function AuthorInputs({
               description="字段来自已校验作者Compose。留空沿作者默认，必需项留空将阻止受理准备。两侧镜像分别消费各自字段；Oracle可检查作者环境与评分。"
               resetOnSave={false}
               fields={Object.entries(variables).flatMap(([name, raw]) => {
-                const uses = raw as Item[];
-                const imageOptions = (docker?.images || []).flatMap(
-                  (image: Item) =>
-                    (image.reference
-                      ? [image.reference]
-                      : image.tags || image.repo_tags || []
-                    )
-                      .filter((tag: string) => tag !== "<none>:<none>")
-                      .map((tag: string) => ({ value: tag, label: tag })),
+                const uses = raw;
+                const imageOptions = (docker?.images || []).flatMap((image) =>
+                  (image.reference ? [image.reference] : [])
+                    .filter((tag: string) => tag !== "<none>:<none>")
+                    .map((tag: string) => ({ value: tag, label: tag })),
                 );
                 return [
                   ...(name.includes("IMAGE") && imageOptions.length
@@ -475,7 +498,7 @@ function AuthorInputs({
             作者预算：
             {parameters.discovery.budgets
               ?.map(
-                (budget: Item) =>
+                (budget) =>
                   `${budget.task}：agent ${budget.agent_seconds}秒 + verifier ${budget.verifier_seconds}秒`,
               )
               .join("；")}
@@ -492,43 +515,51 @@ export function Admin() {
     Promise.all([api("/admin/users"), api("/catalog")]),
   );
   const [tab, setTab] = useState("readiness"),
-    [edit, setEdit] = useState<Item>({}),
+    [edit, setEdit] = useState<{
+      dataset?: Dataset;
+      provider?: Provider;
+      profile?: string;
+    }>({}),
     [rotation, setRotation] = useState(""),
-    [reset, setReset] = useState<Item>(),
+    [reset, setReset] = useState<User>(),
     [saving, setSaving] = useState(false),
     [hubNotice, setHubNotice] = useState(""),
     [hubError, setHubError] = useState<unknown>(),
-    [docker, setDocker] = useState<Item>(),
+    [docker, setDocker] = useState<Docker>(),
     [dockerBusy, setDockerBusy] = useState(false),
     [dockerError, setDockerError] = useState<unknown>(),
     [providerFilter, setProviderFilter] = useState(""),
     [keyFilter, setKeyFilter] = useState("");
   if (loading) return <Loading />;
-  const users = rowsOf(data?.[0], "users"),
-    c = data?.[1] || {};
+  if (!data) return <ErrorNotice error={error} />;
+  const users = data[0],
+    c = data[1];
   const visibleProviders = (c.providers || []).filter(
-    (p: Item) => !providerFilter || p.id === providerFilter,
+    (p) => !providerFilter || p.id === providerFilter,
   );
   const visibleKeys = (c.credentials || []).filter(
-    (k: Item) =>
+    (k) =>
       (!providerFilter || k.provider_id === providerFilter) &&
       (!keyFilter || k.id === keyFilter),
   );
   const visibleProfiles = (c.model_profiles || []).filter(
-    (p: Item) =>
+    (p) =>
       (!providerFilter || p.provider_id === providerFilter) &&
       (!keyFilter || p.credential_id === keyFilter),
   );
   // Keep only the selection ID; refreshed catalog versions supply edit defaults.
   const selectedProfile = (c.model_profiles || []).find(
-    (p: Item) => p.id === edit.profile,
+    (p) => p.id === edit.profile,
   );
-  async function save(path: string, value: Item, method = "POST") {
+  async function save<
+    M extends WriteMethod = "POST",
+    P extends WritePath<M> = WritePath<M>,
+  >(path: P, value: WriteSpec<M, P>["request"], method?: M) {
     // Catalog refresh can remount editors. Keep every editor and its selectors
     // unavailable until both the mutation and refresh finish.
     setSaving(true);
     try {
-      const result = await api(path, { method, body: JSON.stringify(value) });
+      const result = await mutation(path, value, method);
       await reload();
       return result;
     } finally {
@@ -546,7 +577,10 @@ export function Admin() {
       setDockerBusy(false);
     }
   }
-  async function action(path: string, value: Item = {}, method = "POST") {
+  async function action<
+    M extends WriteMethod = "POST",
+    P extends WritePath<M> = WritePath<M>,
+  >(path: P, value: WriteSpec<M, P>["request"], method?: M) {
     try {
       await save(path, value, method);
       toast.success("已更新");
@@ -554,7 +588,7 @@ export function Admin() {
       toast.error((e as Error).message);
     }
   }
-  function catalogList(kind: string, values: Item[]) {
+  function catalogList(kind: "dataset", values: CatalogDataset[]) {
     return (
       <div className="flex flex-col gap-4">
         {values.map((v) => (
@@ -564,7 +598,7 @@ export function Admin() {
                 {v.name} · v{v.version}
               </CardTitle>
               <CardDescription>
-                {kind === "dataset" ? v.reference : v.image}
+                {kind === "dataset" ? v.reference : ""}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -576,7 +610,7 @@ export function Admin() {
                   <AuthorInputs
                     dataset={v}
                     save={save}
-                    check={(path, value) => void action(path, value)}
+                    check={(path, value) => void action(path, value ?? {})}
                     docker={docker}
                   />
                 </>
@@ -593,12 +627,12 @@ export function Admin() {
               {v.error || v.readiness_error ? (
                 <Alert variant="destructive">
                   <AlertDescription>
-                    {(v.error || v.readiness_error).message}
+                    {(v.error || v.readiness_error)?.message}
                   </AlertDescription>
                 </Alert>
               ) : null}
               {v.tasks ? (
-                <p>任务：{v.tasks.map((t: Item) => t.name).join("、")}</p>
+                <p>任务：{v.tasks.map((t) => t.name).join("、")}</p>
               ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -609,7 +643,7 @@ export function Admin() {
                 </Button>
                 <Button
                   onClick={() =>
-                    void action(`/admin/catalog/${kind}/${v.id}/verify`)
+                    void action(`/admin/catalog/${kind}/${v.id}/verify`, {})
                   }
                 >
                   验证
@@ -669,12 +703,12 @@ export function Admin() {
                 <CardContent className="flex flex-col gap-4">
                   <p>
                     已验证可选数据集：
-                    {(c.datasets || []).filter((v: Item) => v.ready).length}
+                    {(c.datasets || []).filter((v) => v.ready).length}
                   </p>
                   <p>
                     默认数据集：
                     {(c.datasets || []).find(
-                      (v: Item) => v.id === c.settings?.default_dataset_id,
+                      (v) => v.id === c.settings?.default_dataset_id,
                     )?.name || "尚未选择"}
                   </p>
                   <p>
@@ -789,7 +823,7 @@ export function Admin() {
                   <>
                     <p role="status">{docker.message}</p>
                     <p>发现时间：{date(docker.checked_at)}</p>
-                    {(docker.images || []).map((image: Item) => (
+                    {(docker.images || []).map((image) => (
                       <p key={image.reference}>{image.reference}</p>
                     ))}
                   </>
@@ -882,9 +916,9 @@ export function Admin() {
                       }}
                     >
                       <option value="">全部提供商</option>
-                      {(c.providers || []).map((p: Item) => (
+                      {(c.providers || []).map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.name}
+                          {String(p.name || p.id)}
                         </option>
                       ))}
                     </SelectField>
@@ -897,16 +931,16 @@ export function Admin() {
                       <option value="">全部key</option>
                       {(c.credentials || [])
                         .filter(
-                          (k: Item) =>
+                          (k) =>
                             !providerFilter || k.provider_id === providerFilter,
                         )
-                        .map((k: Item) => (
+                        .map((k) => (
                           <option key={k.id} value={k.id}>
-                            {
+                            {String(
                               (c.providers || []).find(
-                                (p: Item) => p.id === k.provider_id,
-                              )?.name
-                            }{" "}
+                                (p) => p.id === k.provider_id,
+                              )?.name || "",
+                            )}{" "}
                             → {k.label}
                           </option>
                         ))}
@@ -938,21 +972,21 @@ export function Admin() {
                       description="显示全部配置或在右侧新建提供商。"
                     />
                   ) : null}
-                  {visibleProviders.map((p: Item) => (
+                  {visibleProviders.map((p) => (
                     <Card key={p.id}>
                       <CardHeader>
-                        <CardTitle>{p.name}</CardTitle>
+                        <CardTitle>{String(p.name || p.id)}</CardTitle>
                         <CardDescription>
                           {p.endpoint} · {p.enabled ? "启用" : "停用"} ·{" "}
                           {
                             (c.credentials || []).filter(
-                              (k: Item) => k.provider_id === p.id,
+                              (k) => k.provider_id === p.id,
                             ).length
                           }
                           个key ·{" "}
                           {
                             (c.model_profiles || []).filter(
-                              (m: Item) => m.provider_id === p.id,
+                              (m) => m.provider_id === p.id,
                             ).length
                           }
                           个方案
@@ -1006,7 +1040,7 @@ export function Admin() {
                       {
                         name: "name",
                         label: "提供商名称",
-                        defaultValue: edit.provider?.name,
+                        defaultValue: String(edit.provider?.name || ""),
                       },
                       {
                         name: "endpoint",
@@ -1036,22 +1070,22 @@ export function Admin() {
                       description="调整列表范围；添加时在右侧明确选择所属提供商。"
                     />
                   ) : null}
-                  {visibleKeys.map((key: Item) => (
+                  {visibleKeys.map((key) => (
                     <Card key={key.id}>
                       <CardHeader>
                         <CardTitle>
                           {key.label} · v{key.version}
                         </CardTitle>
                         <CardDescription>
-                          {
+                          {String(
                             (c.providers || []).find(
-                              (p: Item) => p.id === key.provider_id,
-                            )?.name
-                          }{" "}
+                              (p) => p.id === key.provider_id,
+                            )?.name || "",
+                          )}{" "}
                           · {key.enabled ? "启用" : "停用"} ·{" "}
                           {
                             (c.model_profiles || []).filter(
-                              (m: Item) => m.credential_id === key.id,
+                              (m) => m.credential_id === key.id,
                             ).length
                           }
                           个方案
@@ -1068,7 +1102,10 @@ export function Admin() {
                           variant="outline"
                           disabled={!key.enabled}
                           onClick={() =>
-                            void action(`/admin/credentials/${key.id}/disable`)
+                            void action(
+                              `/admin/credentials/${key.id}/disable`,
+                              {},
+                            )
                           }
                         >
                           停用
@@ -1080,7 +1117,7 @@ export function Admin() {
                     <AdminForm
                       key={rotation}
                       title="轮换团队 key"
-                      description={`正在轮换：${(c.credentials || []).find((k: Item) => k.id === rotation)?.label || rotation}。旧版本继续供已绑定运行与审计使用。`}
+                      description={`正在轮换：${(c.credentials || []).find((k) => k.id === rotation)?.label || rotation}。旧版本继续供已绑定运行与审计使用。`}
                       fields={[
                         { name: "key", label: "新密钥", type: "password" },
                       ]}
@@ -1099,9 +1136,9 @@ export function Admin() {
                     {
                       name: "provider_id",
                       label: "提供商",
-                      options: (c.providers || []).map((p: Item) => ({
+                      options: (c.providers || []).map((p) => ({
                         value: p.id,
-                        label: p.name,
+                        label: String(p.name || p.id),
                       })),
                     },
                     { name: "key", label: "密钥", type: "password" },
@@ -1118,22 +1155,22 @@ export function Admin() {
                       description="调整列表范围或新建模型方案；保存绑定在右侧编辑。"
                     />
                   ) : null}
-                  {visibleProfiles.map((p: Item) => (
+                  {visibleProfiles.map((p) => (
                     <Card key={p.id}>
                       <CardHeader>
                         <CardTitle>
-                          {p.name} · {p.model}
+                          {String(p.name || p.id)} · {p.model}
                         </CardTitle>
                         <CardDescription>
-                          {
+                          {String(
                             (c.providers || []).find(
-                              (provider: Item) => provider.id === p.provider_id,
-                            )?.name
-                          }{" "}
+                              (provider) => provider.id === p.provider_id,
+                            )?.name || "",
+                          )}{" "}
                           →{" "}
                           {
                             (c.credentials || []).find(
-                              (k: Item) => k.id === p.credential_id,
+                              (k) => k.id === p.credential_id,
                             )?.label
                           }{" "}
                           · v{p.version} · {p.enabled ? "启用" : "停用"}

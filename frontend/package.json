@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "test:types": "tsc -p tsconfig.contracts.json",
+    "contract:generate": "cd .. && uv run python tools/browser_contract.py",
+    "contract:check": "cd .. && uv run python tools/browser_contract.py --check"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.16",

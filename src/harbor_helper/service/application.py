@@ -10,6 +10,7 @@ import zipfile
 from pathlib import PurePosixPath
 
 from harbor_helper.execution.config import load_team, validate_effective
+from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import read_json, tree_digest
 from harbor_helper.persistence.store import ACTIVE, TERMINAL
 from harbor_helper.security.credentials import redact_value
@@ -279,7 +280,7 @@ class Application:
                 (
                     d["id"]
                     for d in self.configuration.catalog()["datasets"]
-                    if d["ready"] and request["dataset"] in {d["reference"], d.get("resolved")}
+                    if d[lifecycle_status.READY] and request["dataset"] in {d["reference"], d.get("resolved")}
                 ),
                 None,
             )
@@ -311,7 +312,7 @@ class Application:
         if parent:
             return read_json(self.store.path(parent) / "manifest.json"), parent
         row = self.data.submission(recovery)
-        if row["status"] != "failed" or row["run_id"]:
+        if row["status"] != lifecycle_status.FAILED or row["run_id"]:
             raise ServiceError("recovery_state", "只能恢复尚未产生实验的失败提交", 409)
         return row["frozen"], row.get("parent")
 
@@ -392,8 +393,8 @@ class Application:
         frozen = {"effective": cfg, "service": service, "bundle_id": service["bundle_id"]}
         with self.store.connect() as db:
             db.execute(
-                """INSERT INTO submissions(id,user_id,submitter,operation,idem,request_hash,
-                request,frozen,target_id,status,created,parent) VALUES(?,?,?,?,?,?,?,?,?,'preparing',?,?)""",
+                f"""INSERT INTO submissions(id,user_id,submitter,operation,idem,request_hash,
+                request,frozen,target_id,status,created,parent) VALUES(?,?,?,?,?,?,?,?,?,{lifecycle_status.PREPARING!r},?,?)""",
                 (
                     submission_id,
                     actor["id"],
@@ -432,7 +433,7 @@ class Application:
             cancel_allowed(actor, row["user_id"])
             with self.store.connect() as db:
                 db.execute(
-                    "UPDATE submissions SET cancel=1,status=CASE WHEN status='preparing' THEN 'cancelled' ELSE status END WHERE id=?",
+                    f"UPDATE submissions SET cancel=1,status=CASE WHEN status={lifecycle_status.PREPARING!r} THEN {lifecycle_status.CANCELLED!r} ELSE status END WHERE id=?",
                     (submission_id,),
                 )
             if row["run_id"]:
@@ -454,7 +455,7 @@ class Application:
     def summary(self, row):
         manifest = read_json(self.store.path(row["id"]) / "manifest.json")
         binding = manifest.get("service") or {}
-        audit_status = row.get("audit_status", "pending")
+        audit_status = row.get("audit_status", lifecycle_status.PENDING)
         if (
             manifest["effective"]["agent"] == "opencode"
             and not (self.store.path(row["id"]) / "archived.json").exists()
@@ -462,7 +463,7 @@ class Application:
             try:
                 self.data.run_key(row["id"], False)
             except (ValueError, OSError):
-                audit_status = "incomplete"
+                audit_status = lifecycle_status.INCOMPLETE
         return {
             "id": row["id"],
             "name": binding.get("name") or row["id"],
@@ -478,9 +479,9 @@ class Application:
             "cancel": bool(row["cancel"]),
             "audit_status": audit_status,
             "audit_reason": "Audit source unavailable or evidence not safe"
-            if audit_status == "incomplete"
+            if audit_status == lifecycle_status.INCOMPLETE
             else None,
-            "reason": None if audit_status == "incomplete" else row["reason"],
+            "reason": None if audit_status == lifecycle_status.INCOMPLETE else row["reason"],
             "dataset": manifest["effective"]["dataset"],
             "agent": manifest["effective"]["agent"],
             "model_profile": binding.get("model_profile"),
@@ -517,7 +518,7 @@ class Application:
             raise ServiceError(
                 "audit_incomplete", "Bound audit source unavailable; raw evidence withheld", 409
             ) from None
-        if row.get("audit_status") == "incomplete":
+        if row.get("audit_status") == lifecycle_status.INCOMPLETE:
             raise ServiceError(
                 "audit_incomplete", "Evidence audit incomplete; raw evidence withheld", 409
             )
@@ -534,7 +535,7 @@ class Application:
         self.safe_key(run_id)
         if (
             self.store.get(run_id)["status"] not in TERMINAL
-            or self.store.get(run_id).get("audit_status") != "clean"
+            or self.store.get(run_id).get("audit_status") != lifecycle_status.CLEAN
         ):
             raise ServiceError(
                 "report_pending", "Report awaits terminal resource and credential audit", 409
@@ -623,7 +624,7 @@ class Application:
         try:
             self.safe_key(run_id)
             row = self.store.get(run_id)
-            if row["status"] not in TERMINAL or row.get("audit_status") != "clean":
+            if row["status"] not in TERMINAL or row.get("audit_status") != lifecycle_status.CLEAN:
                 raise ServiceError("audit_pending", "Artifacts await terminal safety audit", 409)
         except ServiceError:
             if allow_blocked:
@@ -787,7 +788,7 @@ class Application:
             "total_runs": len(rows),
             "active_jobs": sum(r["status"] in ACTIVE for r in rows),
             "active_trials": sum(r["concurrency"] for r in rows if r["status"] in ACTIVE),
-            "queued_jobs": sum(r["status"] == "queued" for r in rows),
+            "queued_jobs": sum(r["status"] == lifecycle_status.QUEUED for r in rows),
             "by_submitter": list(by.values()),
             "cost": "unknown",
         }

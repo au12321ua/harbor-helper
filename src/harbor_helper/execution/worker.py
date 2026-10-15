@@ -13,6 +13,7 @@ from pathlib import Path
 from harbor_helper.execution.config import HARBOR_VERSION, load_team
 from harbor_helper.execution.processes import alive, process_birth, run_command, safe_environment
 from harbor_helper.execution.sources import verify_inputs
+from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.persistence.store import ACTIVE, TERMINAL, Store
 from harbor_helper.results.reports import report
@@ -151,7 +152,7 @@ def audit_finished(store, row):
         # actionable message rather than potentially unsafe original exception text.
         store.update(
             row["id"],
-            audit_status="incomplete",
+            audit_status=lifecycle_status.INCOMPLETE,
             audit_reason="Evidence audit incomplete; affected logs and artifacts withheld",
         )
         path = store.path(row["id"])
@@ -165,7 +166,7 @@ def audit_finished(store, row):
         except OSError:
             pass  # Database audit_status still withholds evidence; queue keeps advancing.
         return False
-    store.update(row["id"], audit_status="clean", audit_reason=None)
+    store.update(row["id"], audit_status=lifecycle_status.CLEAN, audit_reason=None)
     report(store, row["id"])
     return True
 
@@ -177,7 +178,7 @@ def finish(store, row, status, reason):
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
         store.update(
             row["id"],
-            status="cleanup_blocked",
+            status=lifecycle_status.CLEANUP_BLOCKED,
             reason="Execution resource cleanup unconfirmed; capacity retained",
         )
         return
@@ -200,7 +201,7 @@ def tick(store, children):
 def _tick(store, children):
     team = load_team(store)
     for row in store.runs():
-        if row["status"] in TERMINAL and row["audit_status"] in {"pending", "incomplete"}:
+        if row["status"] in TERMINAL and row["audit_status"] in {lifecycle_status.PENDING, lifecycle_status.INCOMPLETE}:
             path = store.path(row["id"])
             stamp = path / "credential-audit.json"
             if not (path / "archived.json").exists() and (
@@ -213,25 +214,25 @@ def _tick(store, children):
         outcome = path / "outcome.json"
         cfg = read_json(path / "manifest.json")["effective"]
         if row["cancel"]:
-            finish(store, row, "cancelled", "Cancelled by member")
+            finish(store, row, lifecycle_status.CANCELLED, "Cancelled by member")
         elif row["started"] and time.time() - row["started"] >= cfg["wall_seconds"]:
-            finish(store, row, "failed", "Wall-clock budget exceeded")
+            finish(store, row, lifecycle_status.FAILED, "Wall-clock budget exceeded")
         elif outcome.exists():
             value = read_json(outcome)
             finish(store, row, value["status"], value["reason"])
-        elif row["status"] == "cleanup_blocked" or not alive(row):
-            finish(store, row, "failed", "Worker interrupted; use rerun (not resume)")
+        elif row["status"] == lifecycle_status.CLEANUP_BLOCKED or not alive(row):
+            finish(store, row, lifecycle_status.FAILED, "Worker interrupted; use rerun (not resume)")
     for pid, child in list(children.items()):
         if child.poll() is not None:
             children.pop(pid)
     active = [r for r in store.runs() if r["status"] in ACTIVE]
     slots = sum(r["concurrency"] for r in active)
     for row in store.runs():
-        if row["status"] != "queued":
+        if row["status"] != lifecycle_status.QUEUED:
             continue
         if row["cancel"]:
             store.update(
-                row["id"], status="cancelled", finished=time.time(), reason="Cancelled while queued"
+                row["id"], status=lifecycle_status.CANCELLED, finished=time.time(), reason="Cancelled while queued"
             )
             audit_finished(store, store.get(row["id"]))
             continue
@@ -246,7 +247,7 @@ def _tick(store, children):
         except ValueError:
             store.update(
                 row["id"],
-                status="failed",
+                status=lifecycle_status.FAILED,
                 finished=time.time(),
                 reason="Execution authorization unavailable; worker not started",
             )
@@ -255,7 +256,7 @@ def _tick(store, children):
         if len(active) >= team["max_jobs"] or slots + row["concurrency"] > team["max_trials"]:
             continue
         path = store.path(row["id"])
-        store.update(row["id"], status="starting", started=time.time())
+        store.update(row["id"], status=lifecycle_status.STARTING, started=time.time())
         with (path / "worker.log").open("a") as log:
             child = subprocess.Popen(
                 [
@@ -274,7 +275,7 @@ def _tick(store, children):
                 start_new_session=True,
             )
         children[child.pid] = child
-        store.update(row["id"], status="running", pid=child.pid, birth=process_birth(child.pid))
+        store.update(row["id"], status=lifecycle_status.RUNNING, pid=child.pid, birth=process_birth(child.pid))
         active.append(row)
         slots += row["concurrency"]
 
@@ -378,7 +379,7 @@ async def execute(store, run_id):
     redact_files(path, runtime_secrets())
     value = report(store, run_id)
     return {
-        "status": "succeeded" if value["complete"] else "failed",
+        "status": lifecycle_status.SUCCEEDED if value["complete"] else lifecycle_status.FAILED,
         "reason": None if value["complete"] else "Missing/exceptional Trial reward; see report",
     }
 
@@ -394,7 +395,7 @@ def run(root, run_id):
         # No environment work before the scheduler has persisted PID ownership.
         for _ in range(100):
             row = store.get(run_id)
-            if row["pid"] == os.getpid() and row["status"] == "running":
+            if row["pid"] == os.getpid() and row["status"] == lifecycle_status.RUNNING:
                 break
             time.sleep(0.1)
         else:
@@ -408,7 +409,7 @@ def run(root, run_id):
             # Do not persist provider payloads from exception strings. Complete
             # details remain available only in separately audited task evidence.
             print(f"Harbor startup/execution failed: {type(e).__name__}", flush=True)
-            outcome = {"status": "failed", "reason": "Worker execution failed"}
+            outcome = {"status": lifecycle_status.FAILED, "reason": "Worker execution failed"}
         sys.stdout.finish()
         sys.stderr.finish()
         redact_files(path, secrets)
