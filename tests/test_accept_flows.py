@@ -139,6 +139,6 @@ def test_recover_reuses_failed_plan_with_current_author_inputs(flows):
     assert cfg["author_env"] == CHANGED
     assert cfg["wall_seconds"] == failed["frozen"]["effective"]["wall_seconds"]
     assert service["recovered_submission"] == child["id"]
-    assert service["name"] == "Baseline · 重跑 · 重跑"
+    assert service["name"] == failed["frozen"]["service"]["name"] == "Baseline · 重跑"
     assert "author_input_issues" not in service
     assert data.submission(recovered["id"])["parent"] == parent

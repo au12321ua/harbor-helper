@@ -182,6 +182,8 @@ class Application:
                 cfg = self._inherit_plan(origin, service, parent or recovery)
                 version_id = (origin.get("service") or {}).get("attachment_version_id")
                 if recovery:
+                    # Recovery repeats the failed attempt itself, so it keeps that name.
+                    service["name"] = (origin.get("service") or {}).get("name", "")
                     service["recovered_submission"] = recovery
             service.pop("retry_changes", None)
             service.pop("author_input_issues", None)
