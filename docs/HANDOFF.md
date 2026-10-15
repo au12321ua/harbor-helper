@@ -12,13 +12,15 @@ CLI/Web共用持久队列、记录和容量，保留幂等、取消与恢复。�
 
 有效零分、缺评分与执行失败分别展示；只有执行资源未确认释放才占用清理阻塞容量，单独审计异常限制相关证据展示。时长、并发和token观测不保证金额预算，未知费用保持unknown。
 
-Harbor按作者Dockerfile、Compose、镜像及网络定义执行；helper管理来源、调度、固定输入和结果。数据集作者参数独立版本化，提交冻结原生Job环境；修复后重试新建实验并保留父历史。新工具策略与等待倍率在受理时冻结，旧缺字段受理沿原契约解释。镜像/构建缓存日常清理须先核配置、冻结输入、活动任务与资源归属。
+Harbor按作者Dockerfile、Compose、镜像及网络定义执行；helper管理来源、调度、固定输入和结果。数据集作者参数独立版本化，提交冻结原生Job环境；修复后重试新建实验并保留父历史。新工具策略与等待倍率在受理时冻结。镜像/构建缓存日常清理须先核配置、冻结输入、活动任务与资源归属。
 
-## 源码与兼容
+## 源码与兼容策略
 
 职责和canonical路径见[源码结构](architecture/source-layout.md)。CLI位于`src/harbor_helper/commands/`，团队应用/API/数据位于`service/`，执行调度位于`execution/`，持久、安全、报告分别位于`persistence/`、`security/`、`results/`。
 
-前端使用Vite、React、shadcn/ui、Tailwind，构建到`src/harbor_helper/static/`，由同一可配置HTTP服务提供页面与相对API。HTTPS、代理、证书和域名由部署环境处理。旧本地CLI及持久Job类路径保持兼容，不能用本地模型登录注入团队凭据。
+前端使用Vite、React、shadcn/ui、Tailwind，构建到`src/harbor_helper/static/`，由同一可配置HTTP服务提供页面与相对API。HTTPS、代理、证书和域名由部署环境处理。
+
+项目尚无外部用户，不承诺向后兼容，只维护当前主干线：浏览器团队服务与基于机器API的远程CLI。旧本地CLI、旧持久Job类路径、旧镜像覆盖执行模式、旧附件上传与旧幂等键格式已放弃；旧state记录可以删除，不为其保留迁移、显示或回读分支。对外HTTP/CLI契约（含机器API v1）随主干线修改，不为旧客户端保留别名；机器API本身是远程CLI与后续MCP的基础，保留。
 
 ## 验证入口
 

@@ -18,14 +18,14 @@
 - CLI/Web 共用队列、记录和容量；保留幂等、持久排队、取消/恢复及资源限制，区分有效零分、缺评分和执行失败。
 - 资源释放与证据审计分开：只有执行资源未确认释放才占用清理阻塞容量；审计异常限制相关证据展示。
 - 前端为 Vite + React + shadcn/ui + Tailwind；同一可配置 HTTP 服务提供构建页面与相对 API；HTTPS/代理/证书/域名由部署环境处理。
-- 首版没有个人模型 key 模式、private 实验或复杂权限体系；运行时长/并发不是金额预算保证。上述边界适用于团队服务，旧本地 CLI 的兼容行为另见交接。
+- 首版没有个人模型 key 模式、private 实验或复杂权限体系；运行时长/并发不是金额预算保证。不承诺向后兼容，只维护当前主干线；旧记录可删，策略见交接。
 
 ## 按任务查阅
 
 - 维护入口与验证边界：[开发交接](docs/HANDOFF.md)。部署现场以存在时的 `.local/LOCAL_ENVIRONMENT.md` 为准；操作前实时核对身份与引用。
 - 服务设计/验收/运行：[service-design](docs/archive/team-service/service-design.md)、[service-acceptance](docs/reference/service-acceptance.md)、[service-operations](docs/guides/web-service.md)。技术细节的来源分类以交接为准。
 - 本地 CLI：[README](README.md)、[configuration](docs/guides/local-configuration.md)、[operations](docs/guides/local-operations.md)；历史验收：[acceptance](docs/archive/local-cli/acceptance.md)。
-- 职责与兼容：[源码结构](docs/architecture/source-layout.md)。应用/API/数据：`src/harbor_helper/service/{application,api,data}.py`；CLI：`commands/{main,service,remote}.py`。
+- 职责：[源码结构](docs/architecture/source-layout.md)。应用/API/数据：`src/harbor_helper/service/{application,api,data}.py`；CLI：`commands/{main,service,remote}.py`。
 - 执行/调度：`execution/{runs,worker,processes,agents,environments,agent_tools}.py`；持久层：`persistence/`；安全：`security/`；报告：`results/`。这些短路径均相对`src/harbor_helper/`。Web：`frontend/src/App.tsx`、`frontend/src/api.ts`。
 - 当前使用和历史设计从[文档导航](docs/README.md)进入；旧设计与报告不成为新增约束。
 
@@ -35,7 +35,7 @@
 
 - Python：`uv sync --locked --group dev`；`uv run pytest -q`；`uv run ruff check src tests`。测试隔离前提与覆盖边界见交接，不能默认这些命令无副作用。
 - Web：在 `frontend/` 运行 `npm ci`、`npm run build`、`npm run lint`；构建会写入 `src/harbor_helper/static/`。`npm run test:ui` 另需 Playwright Chromium，使用拦截 API 的 UI fixture。
-- 服务：按操作说明用全新独立 state 执行 `service serve --root … --setup-token-file … --master-key-file … --host … --port …`，引导凭证和主密钥在 state 外；首管理员及业务设置在网页完成。`service init` 保留兼容。成员用浏览器，远程 CLI 用 `service login`，不使用本地 `auth login` 注入团队模型凭据。
+- 服务：按操作说明用全新独立 state 执行 `service serve --root … --setup-token-file … --master-key-file … --host … --port …`，引导凭证和主密钥在 state 外；首管理员及业务设置在网页完成。成员用浏览器，远程 CLI 用 `service login`。
 
 ## 工作原则
 
