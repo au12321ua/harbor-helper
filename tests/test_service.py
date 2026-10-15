@@ -114,7 +114,6 @@ def preparation(monkeypatch):
             source(reference, target, task)
         ),
     )
-    monkeypatch.setattr("harbor_helper.execution.runs.image_identity", lambda ref: "sha256:fixed")
     monkeypatch.setattr("harbor_helper.execution.runs.subprocess.run", lambda *a, **k: None)
 
 

@@ -1,5 +1,4 @@
 import asyncio
-from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -83,7 +82,7 @@ def test_policy_frozen_and_legacy_rerun_preserved(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("value", [True, 0, -1, float("nan"), float("inf"), "10"])
 def test_invalid_multiplier(value):
-    cfg = deepcopy(DEFAULT["presets"]["default"])
+    cfg = {"agent": "oracle", "attempts": 1, "concurrency": 1, "wall_seconds": 1800}
     cfg.update(
         dataset=DEFAULT["dataset"],
         model=None,

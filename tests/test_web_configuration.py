@@ -15,7 +15,6 @@ from harbor_helper.service.data import ServiceData, ServiceError
 
 WRITE = {"X-Requested-With": "harbor-helper"}
 PASSWORD = "web-fixture-password-2026"
-IMAGE = "sha256:" + "a" * 64
 SOURCE = "team/data@sha256:" + "b" * 64
 
 
@@ -65,7 +64,6 @@ def web(tmp_path, monkeypatch):
     client.post(
         "/api/v1/auth/login", headers=WRITE, json={"username": "admin", "password": PASSWORD}
     )
-    monkeypatch.setattr("harbor_helper.execution.runs.image_identity", lambda _: IMAGE)
     monkeypatch.setattr(
         "harbor_helper.service.configuration.source_call",
         lambda *a, **kw: {
@@ -78,18 +76,6 @@ def web(tmp_path, monkeypatch):
 
 def create_catalog(web):
     _data, _app, client = web
-    # Historical object survives without participating in new source readiness.
-    runtime = _app.configuration.persist(
-        "runtime",
-        {
-            "name": "Legacy Python",
-            "image": "python:fixture",
-            "enabled": True,
-            "status": "verified",
-            "image_id": IMAGE,
-            "image_env": [],
-        },
-    )
     dataset = client.post(
         "/api/v1/admin/catalog/dataset",
         headers=WRITE,
@@ -99,12 +85,12 @@ def create_catalog(web):
         f"/api/v1/admin/catalog/dataset/{dataset['id']}/verify", headers=WRITE
     ).json()
     assert dataset["status"] == "verified"
-    return runtime, dataset
+    return dataset
 
 
 def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
     data, app, client = web
-    runtime, dataset = create_catalog(web)
+    dataset = create_catalog(web)
     assert (
         client.patch(
             "/api/v1/admin/settings", headers=WRITE, json={"default_dataset_id": dataset["id"]}
@@ -117,8 +103,6 @@ def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
     assert app.accept(actor, request, "stable-key")["id"] == submission["id"]
     frozen = data.submission(submission["id"])["frozen"]
     assert frozen["effective"]["dataset"] == SOURCE
-    assert "runtime_image" not in frozen["effective"]
-    assert frozen["service"]["execution_mode"] == "harbor-native"
     assert frozen["service"]["dataset_version"] == dataset["version"]
     with pytest.raises(ServiceError, match="Select a verified"):
         app.accept(actor, {**request, "task": "wrong"}, "wrong-task")
@@ -126,7 +110,6 @@ def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
         actor, {"dataset": "team/data@1", "task": "a*", "agent": "oracle"}, "cli-pattern"
     )
     assert data.submission(cli_submission["id"])["frozen"]["effective"]["task_filter"] == "a*"
-    assert "runtime_image" not in data.submission(cli_submission["id"])["frozen"]["effective"]
     edited = client.post(
         "/api/v1/admin/catalog/dataset",
         headers=WRITE,
@@ -139,9 +122,8 @@ def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
             headers=WRITE,
             json={"name": "Retired", "image": "python:new"},
         ).status_code
-        == 409
+        == 404
     )
-    assert app.configuration.catalog()["runtimes"][0]["id"] == runtime["id"]
     assert not app.catalog()["datasets"][0]["ready"]
     with pytest.raises(ServiceError):
         app.accept(actor, request, "new-key")
@@ -152,7 +134,9 @@ def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
     assert client.get("/api/v1/catalog").status_code == 200
     assert (
         client.post(
-            "/api/v1/admin/catalog/runtime", headers=WRITE, json={"name": "evil", "image": "python"}
+            "/api/v1/admin/catalog/dataset",
+            headers=WRITE,
+            json={"name": "evil", "reference": "team/data@1"},
         ).status_code
         == 403
     )
@@ -180,7 +164,7 @@ def test_hub_secret_encryption_rotation_disable_and_safe_errors(web, monkeypatch
     with pytest.raises(ServiceError):
         app.configuration.hub_key(1)
     assert app.configuration.hub_key() is None
-    _runtime, dataset = create_catalog(web)
+    dataset = create_catalog(web)
 
     def denied(*a, **kw):
         raise ServiceError("source_access", "检查团队 Hub 权限", 409)
@@ -209,7 +193,7 @@ def test_password_change_revokes_all_sessions(web):
 
 def test_verification_does_not_overwrite_concurrent_edits(web, monkeypatch):
     data, app, _client = web
-    runtime, dataset = create_catalog(web)
+    dataset = create_catalog(web)
 
     def concurrent(*a, **kw):
         with data.store.control():
@@ -219,7 +203,6 @@ def test_verification_does_not_overwrite_concurrent_edits(web, monkeypatch):
                     "id": dataset["id"],
                     "name": "Changed",
                     "reference": "team/data@2",
-                    "runtime_id": runtime["id"],
                 },
             )
         return {"resolved": SOURCE, "tasks": []}

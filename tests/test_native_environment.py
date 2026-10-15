@@ -23,7 +23,7 @@ from harbor_helper.service.data import ServiceData
 from harbor_helper.service.lifecycle import prepare_one
 
 
-def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypatch):
+def test_native_submit_and_rerun_keep_parent_snapshot(tmp_path, monkeypatch):
     data = ServiceData.initialize(
         tmp_path / "state", tmp_path / "private/master", "admin", "fake-native-password-2026"
     )
@@ -49,9 +49,6 @@ def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypat
         }
 
     monkeypatch.setattr("harbor_helper.service.sources.source_call", source)
-    monkeypatch.setattr(
-        "harbor_helper.execution.runs.image_identity", lambda _: pytest.fail("No image gate")
-    )
     monkeypatch.setattr("harbor_helper.execution.runs.ensure_supervisor", lambda _: None)
     accepted = app.accept(actor, {"agent": "oracle", "dataset": "test/data@1"}, "first")
     prepare_one(data.store)
@@ -63,25 +60,16 @@ def test_native_submit_and_legacy_rerun_keep_parent_snapshot(tmp_path, monkeypat
     assert read_json(folder / "job.json")["environment"]["import_path"].endswith(
         ":NativeDockerEnvironment"
     )
-    # Historical accepted input remains unchanged while a new rerun removes the override.
-    manifest.pop("execution_mode")
-    manifest["image_id"] = "sha256:missing"
-    manifest["effective"]["runtime_image"] = "missing:legacy"
-    manifest["effective"]["runtime_image_env"] = ["CAD_BENCH_AGENT_IMAGE"]
-    write_json(folder / "manifest.json", manifest)
     before = (folder / "manifest.json").read_bytes()
     accepted = app.accept(actor, {}, "rerun", parent)
-    assert accepted["legacy_override_removed"]
     prepare_one(data.store)
     child = data.submission(accepted["id"])["run_id"]
     child_manifest = read_json(data.store.path(child) / "manifest.json")
-    assert child_manifest["legacy_override_removed"]
     assert child_manifest["source"] == manifest["source"]
     assert (folder / "manifest.json").read_bytes() == before
     assert (
         data.store.path(child) / "tasks/task/task.toml"
     ).read_bytes() == b'version = "1.0"\n# author original input'
-    assert "runtime_image" not in child_manifest["effective"]
     assert job_config(data.store.path(child), child_manifest)["environment"].get("env", {}) == {}
 
 
@@ -174,59 +162,6 @@ for command in [['build'],['up','--wait'],['exec','-e','VLLM_API_KEY=fake-build-
         [sys.executable, str(probe)], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
-
-
-def test_already_accepted_legacy_preparation_retains_image_contract(tmp_path, monkeypatch):
-    data = ServiceData.initialize(
-        tmp_path / "state", tmp_path / "private/master", "admin", "fake-native-password-2026"
-    )
-    synthetic_activity(data)
-    app = Application(data.root)
-    accepted = app.accept(data.users()[0], {"agent": "oracle", "dataset": "test/data@1"}, "old")
-    original = data.submission(accepted["id"])["frozen"]
-    original["service"].pop("execution_mode")
-    original["effective"].update(
-        runtime_image="legacy:fixed", runtime_image_env=["CAD_BENCH_AGENT_IMAGE"]
-    )
-    with data.store.connect() as db:
-        db.execute(
-            "UPDATE submissions SET frozen=? WHERE id=?", (json.dumps(original), accepted["id"])
-        )
-
-    def source(reference, *, target=None, **kwargs):
-        directory = target / "task"
-        directory.mkdir(parents=True)
-        (directory / "task.toml").write_text('version = "1.0"\n# author input')
-        return {
-            "resolved": reference,
-            "tasks": [
-                {
-                    "package": "test/task",
-                    "directory": "task",
-                    "ref": "fixed",
-                    "snapshot_digest": tree_digest(directory),
-                }
-            ],
-        }
-
-    calls = []
-    monkeypatch.setattr("harbor_helper.service.sources.source_call", source)
-    monkeypatch.setattr(
-        "harbor_helper.execution.runs.image_identity",
-        lambda image: calls.append(image) or "sha256:old",
-    )
-    monkeypatch.setattr("harbor_helper.execution.runs.subprocess.run", lambda *a, **kw: None)
-    monkeypatch.setattr("harbor_helper.execution.runs.ensure_supervisor", lambda _: None)
-    prepare_one(data.store)
-    assert calls == ["legacy:fixed"]
-    folder = data.store.path(data.submission(accepted["id"])["run_id"])
-    manifest = read_json(folder / "manifest.json")
-    assert "execution_mode" not in manifest
-    assert manifest["image_id"] == "sha256:old"
-    assert read_json(folder / "job.json")["environment"]["env"] == {
-        "CAD_BENCH_AGENT_IMAGE": "harbor-helper/runtime:old"
-    }
-    assert data.submission(accepted["id"])["frozen"] == original
 
 
 def test_shared_volumes_from_are_not_owned():

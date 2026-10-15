@@ -850,7 +850,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.post("/api/v1/admin/catalog/{kind}")
     def save_catalog(kind: str, body: dict, user: Annotated[dict, Depends(administrator)]):
-        if kind not in {"dataset", "runtime"}:
+        if kind != "dataset":
             raise ServiceError("catalog_kind", "Unknown catalog kind", 404)
         with store.control():
             result = application.configuration.save(kind, body)
@@ -859,7 +859,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
 
     @app.post("/api/v1/admin/catalog/{kind}/{object_id}/verify")
     def verify_catalog(kind: str, object_id: str, user: Annotated[dict, Depends(administrator)]):
-        if kind not in {"dataset", "runtime"}:
+        if kind != "dataset":
             raise ServiceError("catalog_kind", "Unknown catalog kind", 404)
         result = application.configuration.verify(kind, object_id)
         data.event(user, "verify_" + kind, object_id)

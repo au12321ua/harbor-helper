@@ -794,12 +794,6 @@ export function Admin() {
                     ))}
                   </>
                 ) : null}
-                <p>旧运行环境配置保留为历史记录，新实验不使用其镜像覆盖。</p>
-                {(c.runtimes || []).map((runtime: Item) => (
-                  <p key={runtime.id}>
-                    {runtime.name} · v{runtime.version} · {runtime.image}
-                  </p>
-                ))}
               </CardContent>
             </Card>
           </TabsContent>

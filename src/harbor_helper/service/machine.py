@@ -388,8 +388,6 @@ class Accepted(BaseModel):
     attachment: AttachmentBinding
     diagnosis: dict | None = None
     retry_changes: dict = {}
-    execution_mode: str
-    legacy_override_removed: bool
 
 
 class DatasetInfo(BaseModel):

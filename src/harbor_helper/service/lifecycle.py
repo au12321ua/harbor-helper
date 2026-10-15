@@ -67,13 +67,6 @@ def prepare_one(store):
             message = f"{error.code}: {error}"
             if isinstance(error, AuthorInputError) and row["operation"].split(":", 1)[0] == "rerun":
                 message += "；原条件重跑保留冻结参数，请在父实验选择修复后重试，或恢复本次失败提交"
-        elif (
-            isinstance(error, ValueError)
-            and "fixed runtime image unavailable" in str(error).lower()
-        ):
-            message = (
-                "runtime_missing: 固定运行镜像不可用；管理员检查环境并重新验证，成员修改后新提交"
-            )
         elif isinstance(error, ValueError) and (
             "bundle" in str(error).lower() or "snapshot" in str(error).lower()
         ):

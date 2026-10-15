@@ -252,7 +252,6 @@ def report(store, run_id):
         ),
         "source": manifest["source"],
         "harbor_version": manifest.get("harbor_version", "unknown"),
-        "execution_mode": manifest.get("execution_mode", "legacy-image-override"),
         "environment_observations": environment_observations(path),
         "tasks": tasks,
         "unexpected_trials": [r for r in rows if r["task"] not in expected],
@@ -278,8 +277,6 @@ def compare(store, left, right, published_reports=None):
         "environment_build_timeout_multiplier",
         "agent_tool_preparation",
         "author_env",
-        "runtime_image",
-        "runtime_image_env",
         "max_cpus_per_trial",
         "max_memory_mb_per_trial",
     )
@@ -302,22 +299,8 @@ def compare(store, left, right, published_reports=None):
         if conditions[0].get(k) != conditions[1].get(k)
     }
     reasons.extend(f"Experiment condition differs: {k}" for k in changes)
-    native = any(m.get("execution_mode") == "harbor-native" for m in (a, b))
-    if native:
-        for k in ("runtime_image", "runtime_image_env"):
-            changes.pop(k, None)
-        reasons = [
-            r
-            for r in reasons
-            if r
-            not in {
-                "Experiment condition differs: runtime_image",
-                "Experiment condition differs: runtime_image_env",
-            }
-        ]
-    for k in ("harbor_version",) if native else ("harbor_version", "image_id"):
-        if a.get(k) != b.get(k):
-            reasons.append(f"Actual runtime version differs: {k}")
+    if a.get("harbor_version") != b.get("harbor_version"):
+        reasons.append("Actual runtime version differs: harbor_version")
     ra, rb = (
         published_reports
         if published_reports is not None
@@ -347,8 +330,6 @@ def compare(store, left, right, published_reports=None):
         "reasons": reasons,
         "config_changes": changes,
         "environment_observations": {
-            "left_mode": a.get("execution_mode", "legacy-image-override"),
-            "right_mode": b.get("execution_mode", "legacy-image-override"),
             "left": ra.get("environment_observations", "unknown"),
             "right": rb.get("environment_observations", "unknown"),
         },

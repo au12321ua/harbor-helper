@@ -14,7 +14,6 @@ from pathlib import Path
 from harbor.models.job.config import JobConfig
 
 from harbor_helper.execution.config import (
-    DEFAULT,
     HARBOR_VERSION,
     reject_secrets,
     validate_effective,
@@ -22,19 +21,6 @@ from harbor_helper.execution.config import (
 from harbor_helper.execution.processes import safe_environment
 from harbor_helper.execution.sources import verify_inputs
 from harbor_helper.persistence.files import read_json, tree_digest, write_json
-
-
-def image_identity(reference):
-    r = subprocess.run(
-        ["docker", "image", "inspect", reference, "--format", "{{.Id}}"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if r.returncode:
-        raise ValueError("Runtime image unavailable: load/build the configured image first")
-    return r.stdout.strip()
 
 
 def check_bundle(path, access_value=None):
@@ -211,25 +197,11 @@ def job_config(run_dir, manifest):
             "retry": {"max_retries": 0},
             "environment": {
                 "type": "docker",
-                **(
-                    {"import_path": "harbor_helper.execution.environments:NativeDockerEnvironment"}
-                    if manifest.get("execution_mode") == "harbor-native"
-                    else {}
-                ),
+                "import_path": "harbor_helper.execution.environments:NativeDockerEnvironment",
                 "delete": True,
                 "override_cpus": cfg["max_cpus_per_trial"],
                 "override_memory_mb": cfg["max_memory_mb_per_trial"],
-                "env": {
-                    **cfg.get("author_env", {}),
-                    **{
-                        k: manifest["image_alias"]
-                        for k in (
-                            cfg.get("runtime_image_env", DEFAULT["runtime_image_env"])
-                            if manifest.get("execution_mode") != "harbor-native"
-                            else []
-                        )
-                    },
-                },
+                "env": dict(cfg.get("author_env", {})),
             },
             "agents": [agent],
             "tasks": [
@@ -257,7 +229,6 @@ def submit(
     if parent and cfg is None:
         cfg = read_json(store.path(parent) / "manifest.json")["effective"]
     validate_effective(team, cfg)
-    native = service.get("execution_mode") == "harbor-native"
 
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise ValueError("Wrong Harbor version; install with uv sync --locked")
@@ -278,9 +249,6 @@ def submit(
             if (path / "bundle").exists():
                 check_bundle(path / "bundle")
             source, digest = old["source"], old["bundle_digest"]
-            image = old.get("image_id")
-            if not native and image_identity(image) != image:
-                raise ValueError("Fixed runtime image unavailable")
         else:
             validate_effective(team, cfg)
             from harbor_helper.service.configuration import TeamConfiguration
@@ -303,8 +271,7 @@ def submit(
                 digest = tree_digest(path / "bundle")
                 if service.get("bundle_digest") and service["bundle_digest"] != digest:
                     raise ValueError("Fixed bundle snapshot unavailable or changed")
-            image = None if native else image_identity(cfg["runtime_image"])
-        if native and service.get("author_input_check"):
+        if service.get("author_input_check"):
             from harbor_helper.execution.author_inputs import (
                 AuthorInputError,
                 check_inputs,
@@ -384,10 +351,6 @@ def submit(
                     "UPDATE submissions SET frozen=? WHERE id=?",
                     (__import__("json").dumps(frozen), service["submission_id"]),
                 )
-        alias = None
-        if not native:
-            alias = "harbor-helper/runtime:" + image.removeprefix("sha256:")
-            subprocess.run(["docker", "tag", image, alias], check=True, timeout=30)
         manifest = {
             "run_id": run_id,
             "parent": parent,
@@ -395,8 +358,6 @@ def submit(
             "effective": cfg,
             "source": source,
             "bundle_digest": digest,
-            "image_id": image,
-            "image_alias": alias,
             "harbor_version": HARBOR_VERSION,
             "helper_version": importlib.metadata.version("harbor-helper"),
             "python": sys.executable,
@@ -408,15 +369,8 @@ def submit(
                 "cost": "unsupported",
             },
         }
-        if native:
-            manifest["execution_mode"] = "harbor-native"
-            manifest["legacy_override_removed"] = bool(
-                parent and old.get("execution_mode") != "harbor-native"
-            )
-            manifest.pop("image_id")
-            manifest.pop("image_alias")
         manifest["service"] = service
-        if native and "environment_build_timeout_multiplier" in cfg:
+        if "environment_build_timeout_multiplier" in cfg:
             manifest["startup_policy"] = startup_policy(path, manifest)
         verify_inputs(path, manifest)
         write_json(path / "manifest.json", manifest)

@@ -344,13 +344,6 @@ async def execute(store, run_id):
     install_docker_credential_forwarding()
     manifest = read_json(path / "manifest.json")
     verify_inputs(path, manifest)
-    from harbor_helper.execution.runs import image_identity
-
-    if (
-        manifest.get("execution_mode") != "harbor-native"
-        and image_identity(manifest["image_alias"]) != manifest["image_id"]
-    ):
-        raise RuntimeError("Fixed image alias changed; submit/rerun to restore it")
     if importlib.metadata.version("harbor") != HARBOR_VERSION:
         raise RuntimeError("Worker loaded the wrong Harbor version")
     model = manifest["effective"]["model"]

@@ -11,7 +11,7 @@ import uuid
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from harbor_helper.execution.config import DEFAULT, reject_secrets
+from harbor_helper.execution.config import reject_secrets
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.service.data import ServiceError, identifier, secret_value
 from harbor_helper.service.sources import source_call
@@ -127,13 +127,7 @@ class TeamConfiguration:
         return {**value, "id": object_id, "version": version}
 
     def save(self, kind, value):
-        if kind == "runtime":
-            raise ServiceError("runtime_retired", "旧运行环境只读；新实验按作者定义执行", 409)
-        allowed = (
-            {"id", "name", "enabled", "reference", "runtime_id"}
-            if kind == "dataset"
-            else {"id", "name", "enabled", "image", "image_env"}
-        )
+        allowed = {"id", "name", "enabled", "reference"}
         if (
             set(value) - allowed
             or not isinstance(value.get("name"), str)
@@ -143,50 +137,21 @@ class TeamConfiguration:
         value = {**value, "enabled": value.get("enabled", True), "status": "unverified"}
         if type(value["enabled"]) is not bool:
             raise ServiceError("catalog_options", "Enabled must be boolean")
-        if kind == "dataset":
-            if not isinstance(value.get("reference"), str) or not re.fullmatch(
-                r"[\w.-]+/[\w.-]+@(?:[1-9][0-9]*|sha256:[0-9a-f]{64})", value["reference"]
-            ):
-                raise ServiceError("dataset_reference", "数据集须指定 owner/name@版本")
-            value.pop("runtime_id", None)  # Historical bindings remain readable, never used anew.
-        else:
-            if not isinstance(value.get("image"), str) or not re.fullmatch(
-                r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,255}", value["image"]
-            ):
-                raise ServiceError("runtime_image", "Use a Docker image reference")
-            value.setdefault("image_env", DEFAULT["runtime_image_env"])
-            if not isinstance(value["image_env"], list) or not all(
-                isinstance(x, str) and re.fullmatch(r"[A-Z_][A-Z0-9_]*", x)
-                for x in value["image_env"]
-            ):
-                raise ServiceError(
-                    "runtime_environment", "Image environment names must be uppercase names"
-                )
+        if not isinstance(value.get("reference"), str) or not re.fullmatch(
+            r"[\w.-]+/[\w.-]+@(?:[1-9][0-9]*|sha256:[0-9a-f]{64})", value["reference"]
+        ):
+            raise ServiceError("dataset_reference", "数据集须指定 owner/name@版本")
         return self.persist(kind, value)
 
     def verify(self, kind, object_id):
-        if kind == "runtime":
-            raise ServiceError("runtime_retired", "Docker 库存仅用于诊断", 409)
         with self.data.store.control():
             value = self.data.object(kind, object_id)
             initial_version = value["version"]
             hub = self.hub_status()
-            source_key = self.hub_key() if kind == "dataset" else None
+            source_key = self.hub_key()
         try:
-            if kind == "runtime":
-                from harbor_helper.execution.runs import image_identity
-
-                try:
-                    value["image_id"] = image_identity(value["image"])
-                except (ValueError, OSError):
-                    raise ServiceError(
-                        "runtime_missing",
-                        "镜像不可用；部署负责人加载/拉取该镜像并检查 Docker 权限，再点击验证",
-                        409,
-                    ) from None
-            else:
-                value.update(source_call(value["reference"], key=source_key))
-                value["source_version"] = hub["version"] if hub["mode"] == "team" else None
+            value.update(source_call(value["reference"], key=source_key))
+            value["source_version"] = hub["version"] if hub["mode"] == "team" else None
             value.update(status="verified", checked=time.time(), error=None)
         except ServiceError as error:
             value.update(
@@ -201,12 +166,6 @@ class TeamConfiguration:
             ):
                 raise ServiceError("configuration_changed", "配置已修改；请重新验证", 409)
             return self.persist(kind, value)
-
-    def ready_runtime(self, object_id):
-        value = self.data.object("runtime", object_id)
-        if not value["enabled"] or value["status"] != "verified":
-            raise ServiceError("runtime_unverified", "管理员须启用并验证运行环境", 409)
-        return value
 
     def ready_dataset(self, object_id):
         value = self.data.object("dataset", object_id)
@@ -473,7 +432,6 @@ class TeamConfiguration:
             )
         return {
             "datasets": datasets,
-            "runtimes": self.data.objects("runtime"),
             "settings": self.settings(),
             "hub": self.hub_status(),
         }

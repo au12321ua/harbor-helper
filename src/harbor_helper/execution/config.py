@@ -7,18 +7,12 @@ from harbor_helper.persistence.files import read_json
 HARBOR_VERSION = "0.23.0"
 DEFAULT = {
     "dataset": "au12321ua/cad-bench@2",
-    "runtime_image": "harbor-helper/cad-runtime:aa0d35429b998a7109e7",
-    "runtime_image_env": ["CAD_BENCH_AGENT_IMAGE", "CAD_BENCH_VERIFIER_IMAGE"],
     "max_jobs": 1,
     "max_trials": 1,
     "max_attempts": 3,
     "max_wall_seconds": 3600,
     "max_cpus_per_trial": 2,
     "max_memory_mb_per_trial": 4096,
-    "presets": {
-        "default": {"agent": "oracle", "attempts": 1, "concurrency": 1, "wall_seconds": 1800},
-        "model": {"agent": "opencode", "attempts": 1, "concurrency": 1, "wall_seconds": 1800},
-    },
     "model": None,
 }
 
@@ -71,12 +65,6 @@ def load_team(store):
     ):
         if type(team.get(key)) is not int or team[key] < 1:
             raise ValueError(f"{key} must be a positive integer")
-    team.setdefault("runtime_image_env", DEFAULT["runtime_image_env"])
-    names = team["runtime_image_env"]
-    if not isinstance(names, list) or not all(
-        isinstance(k, str) and re.fullmatch(r"[A-Z_][A-Z0-9_]*", k) for k in names
-    ):
-        raise ValueError("runtime_image_env must list non-secret image environment variable names")
     return team
 
 

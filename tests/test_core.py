@@ -35,11 +35,12 @@ def store(tmp_path, monkeypatch):
 
 def default_cfg(**changes):
     cfg = {
-        **DEFAULT["presets"]["default"],
+        "agent": "oracle",
+        "attempts": 1,
+        "concurrency": 1,
+        "wall_seconds": 1800,
         "dataset": DEFAULT["dataset"],
         "model": DEFAULT["model"],
-        "runtime_image": DEFAULT["runtime_image"],
-        "runtime_image_env": DEFAULT["runtime_image_env"],
         "max_cpus_per_trial": DEFAULT["max_cpus_per_trial"],
         "max_memory_mb_per_trial": DEFAULT["max_memory_mb_per_trial"],
         "task_filter": None,
@@ -58,8 +59,6 @@ def add_run(store, name="hh-test", status="queued", concurrency=1):
         "run_id": name,
         "effective": cfg,
         "harbor_version": "0.23.0",
-        "image_id": "sha256:fixed",
-        "image_alias": "harbor-helper/runtime:fixed",
         "bundle_digest": None,
         "source": {
             "requested": "org/data@2",
@@ -335,12 +334,11 @@ def test_service_submit_publication_lock_cancel_and_frozen_rerun(store, monkeypa
         sys.modules, "harbor_helper.service.data", SimpleNamespace(ServiceData=Publication)
     )
 
-    def image(reference):
+    def unlocked_verify(*args):
         assert not locked(), "Preparation must not reserve the queue control lock"
-        return old["image_id"]
+        return verify_inputs(*args)
 
-    monkeypatch.setattr("harbor_helper.execution.runs.image_identity", image)
-    monkeypatch.setattr("harbor_helper.execution.runs.subprocess.run", lambda *_, **__: None)
+    monkeypatch.setattr("harbor_helper.execution.runs.verify_inputs", unlocked_verify)
     monkeypatch.setattr(
         "harbor_helper.execution.runs.ensure_supervisor",
         lambda *_: pytest.fail("Supervisor disabled"),
@@ -486,16 +484,9 @@ def test_malformed_trial_diagnostic_corrects_success_without_changing_evidence(s
     assert (native / "result.json").read_bytes() == before
 
 
-def test_native_compare_image_difference_or_unknown_is_observation(store):
-    a, ma = add_run(store, "native-a", status="succeeded")
-    b, mb = add_run(store, "native-b", status="succeeded")
-    for path, manifest in ((a, ma), (b, mb)):
-        manifest["execution_mode"] = "harbor-native"
-        manifest.pop("image_id")
-        manifest.pop("image_alias")
-        manifest["effective"].pop("runtime_image")
-        manifest["effective"].pop("runtime_image_env")
-        write_json(path / "manifest.json", manifest)
+def test_compare_image_difference_or_unknown_is_observation(store):
+    a, _ = add_run(store, "native-a", status="succeeded")
+    b, _ = add_run(store, "native-b", status="succeeded")
     trial(a, reward=0)
     trial(b, reward=1)
     observation = b / "harbor" / b.name / "box__attempt" / "helper-environment-observed.json"

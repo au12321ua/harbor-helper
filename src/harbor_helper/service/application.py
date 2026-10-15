@@ -41,12 +41,6 @@ def public_submission(value):
         .get("access_credential_id"),
         "diagnosis": value.get("frozen", {}).get("service", {}).get("author_input_issues"),
         "retry_changes": value.get("frozen", {}).get("service", {}).get("retry_changes", {}),
-        "execution_mode": value.get("frozen", {})
-        .get("service", {})
-        .get("execution_mode", "legacy-image-override"),
-        "legacy_override_removed": value.get("frozen", {})
-        .get("service", {})
-        .get("legacy_override_removed", False),
         **{
             k: value[k]
             for k in (
@@ -421,13 +415,6 @@ class Application:
                     }
             service["author_input_check"] = True
             # Ordinary rerun keeps its frozen author input and does not fill old defaults.
-            cfg.pop("runtime_image", None)
-            cfg.pop("runtime_image_env", None)
-            service["execution_mode"] = "harbor-native"
-            if parent and old.get("execution_mode") != "harbor-native":
-                service["legacy_override_removed"] = True
-            service.pop("runtime_id", None)
-            service.pop("runtime_version", None)
             validate_effective(team, cfg)
             if parent or recovery_row:
                 bundle = old_binding.get("bundle_id")
@@ -668,9 +655,6 @@ class Application:
                         "parent",
                         "service",
                         "bundle_digest",
-                        "image_id",
-                        "execution_mode",
-                        "legacy_override_removed",
                         "model_checkpoint_actual",
                         "hard_budgets",
                     )

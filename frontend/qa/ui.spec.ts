@@ -521,21 +521,9 @@ for (const kind of ["provider", "dataset"] as const) {
   }) => {
     await fixture(page);
     const current: any = structuredClone(catalog);
-    current.runtimes = [
-      {
-        id: "runtime1",
-        name: "环境旧名",
-        image: "python:old",
-        image_env: [],
-        enabled: true,
-        status: "unverified",
-        version: 1,
-      },
-    ];
     current.datasets[0] = {
       ...current.datasets[0],
       name: "数据集旧名",
-      runtime_id: "runtime1",
       enabled: true,
       status: "unverified",
     };
