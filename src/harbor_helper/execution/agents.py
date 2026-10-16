@@ -185,8 +185,9 @@ class HelperOpenCode(OpenCode):
 
 
 class BundleMixin:
-    logs_dir: Path
     """Keep task execution in Harbor; install the frozen experiment payload."""
+
+    logs_dir: Path
 
     def __init__(self, *args, helper_bundle=None, **kwargs):
         self.helper_bundle = Path(helper_bundle) if helper_bundle else None
