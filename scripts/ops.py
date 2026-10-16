@@ -146,6 +146,19 @@ def validate_db(state, master):
                 r["user_id"] in users and (not r["run_id"] or r["run_id"] in ids),
                 "submission ownership missing",
             )
+        for row in submissions:
+            frozen = json.loads(row["frozen"])["service"]
+            require(
+                all(
+                    frozen.get(k) == row[column]
+                    for k, column in (
+                        ("user_id", "user_id"),
+                        ("submitter", "submitter"),
+                        ("submission_id", "id"),
+                    )
+                ),
+                "submission frozen ownership mismatch",
+            )
         encrypted = rows(db, "credential_versions")
         for r in encrypted:
             AESGCM(master).decrypt(
@@ -479,6 +492,7 @@ def backup(args):
                 manifest["included_runs"] = [r["id"] for r in frozen["runs"]]
                 require(not manifest["missing"], "offline evidence missing")
                 manifest["full_state"] = True
+            validate_evidence(snapshot, frozen, manifest["included_runs"])
             with master_target.open("xb") as file:
                 file.write(master)
             master_target.chmod(0o600)
@@ -512,6 +526,20 @@ def backup(args):
         raise
 
 
+def validate_evidence(state, data, included):
+    submissions = {r["id"]: r for r in data["submissions"]}
+    for run_id in included:
+        binding = read_json(state / "runs" / safe_id(run_id) / "manifest.json").get("service", {})
+        row = submissions.get(binding.get("submission_id"))
+        require(
+            row is not None
+            and run_id in (row["run_id"], row["target_id"])
+            and binding.get("user_id") == row["user_id"]
+            and binding.get("submitter") == row["submitter"],
+            "run evidence ownership mismatch",
+        )
+
+
 def restore(args):
     source = plain(args.snapshot)
     manifest = read_json(source / "manifest.json")
@@ -528,6 +556,7 @@ def restore(args):
     )
     validated = validate_db(source / "state", master)
     require(validated["schema"] == manifest["schema"], "schema mismatch")
+    validate_evidence(source / "state", validated, manifest["included_runs"])
     target = plain(args.target)
     require(not target.exists(), "target already exists")
     # Stage next to the new target; failures never leave a seemingly valid target.

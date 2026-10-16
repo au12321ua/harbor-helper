@@ -186,6 +186,10 @@ def test_offline_full_nonempty_and_rejection_paths(tmp_path):
         (source / "state/team.json").symlink_to(base / "state/team.json")
         with pytest.raises(ValueError, match="symlink"):
             ops.restore(args)
+        with p.data.store.connect() as db:
+            db.execute("UPDATE submissions SET submitter='another-person'")
+        with pytest.raises(ValueError, match="frozen ownership"):
+            ops.backup(backup_args(base, tmp_path / "wrong-owner"))
     finally:
         p.close()
 
