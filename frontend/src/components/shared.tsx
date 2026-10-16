@@ -9,6 +9,15 @@ import {
 } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Check,
+  CircleDashed,
+  CircleX,
+  Ban,
+  LoaderCircle,
+  TriangleAlert,
+  Clock3,
+} from "lucide-react";
 import { labels } from "@/presentation";
 export function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;
@@ -24,21 +33,35 @@ export function ErrorNotice({ error }: { error: unknown }) {
     </Alert>
   );
 }
-export function Status({ value }: { value: string }) {
+export function Status({
+  value,
+  preparation = false,
+}: {
+  value: string;
+  preparation?: boolean;
+}) {
+  const Icon =
+    value === "clean" || value === "succeeded"
+      ? Check
+      : value === "failed"
+        ? CircleX
+        : value === "incomplete" || value === "cleanup_blocked"
+          ? TriangleAlert
+          : value === "cancelled"
+            ? Ban
+            : value === "running" ||
+                value === "starting" ||
+                value === "cancelling"
+              ? LoaderCircle
+              : value === "queued" || value === "preparing"
+                ? Clock3
+                : CircleDashed;
   return (
-    <Badge
-      className="whitespace-nowrap"
-      variant={
-        value === "failed" ||
-        value === "cleanup_blocked" ||
-        value === "incomplete"
-          ? "destructive"
-          : value === "succeeded" || value === "clean"
-            ? "default"
-            : "secondary"
-      }
-    >
-      {labels[value] || value || "—"}
+    <Badge className={`status status-${value}`} variant="secondary">
+      <Icon aria-hidden="true" />
+      {preparation && value === "failed"
+        ? "准备失败"
+        : labels[value] || value || "—"}
     </Badge>
   );
 }

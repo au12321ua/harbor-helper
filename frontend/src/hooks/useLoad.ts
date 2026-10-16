@@ -7,6 +7,7 @@ export function useLoad<T>(
   const loaderRef = useRef(loader);
   const [data, setData] = useState<T>();
   const [error, setError] = useState<unknown>();
+  const [updatedAt, setUpdatedAt] = useState<number>();
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     loaderRef.current = loader;
@@ -15,6 +16,7 @@ export function useLoad<T>(
     try {
       setData(await loaderRef.current());
       setError(undefined);
+      setUpdatedAt(Date.now());
     } catch (e) {
       setError(e);
     } finally {
@@ -30,5 +32,5 @@ export function useLoad<T>(
       return () => clearInterval(id);
     }
   }, [reload, dependency, poll]);
-  return { data, error, loading, reload };
+  return { data, error, loading, reload, updatedAt };
 }

@@ -29,7 +29,7 @@ export function ModelForm({
     (c) => c.provider_id === provider && c.enabled,
   );
   return (
-    <Card>
+    <Card className="model-editor">
       <CardHeader>
         <CardTitle>{selected ? "编辑模型方案" : "添加模型方案"}</CardTitle>
         <CardDescription>

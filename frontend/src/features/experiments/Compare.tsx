@@ -1,14 +1,7 @@
-import { api, post, type Comparison } from "@/api";
+import { api, ApiError, post, type Comparison } from "@/api";
 import { ErrorNotice, Loading, SelectField, Title } from "@/components/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { FieldGroup } from "@/components/ui/field";
 import {
   Table,
@@ -19,175 +12,283 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLoad } from "@/hooks/useLoad";
-import { labels } from "@/presentation";
-import { useState } from "react";
-export function ComparisonResult({ value }: { value: Comparison }) {
+import { canCompare, labels, metricNumber } from "@/presentation";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+function NumberCell({ value }: { value: number | null | undefined }) {
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-2">
-        {(["left", "right"] as const).map((side) => {
-          const input = value.attachment_inputs?.[side];
-          const digest = input?.digest || value.bundle_change?.[side];
-          return (
-            <p key={side} className="break-all">
-              实验 {side === "left" ? "A" : "B"} 附件：
-              {input?.attachment_version_id
-                ? `${input.attachment_version_id} · ${digest || "摘要未知"}`
-                : "无附件"}
-            </p>
-          );
-        })}
-        <p className="text-muted-foreground">
-          附件差异是本次实验因素；可比性仍检查任务、评分、基础agent/模型及其他固定条件。
-        </p>
-      </div>
-      {value.reasons?.length ? (
-        <Alert>
-          <AlertTitle>可比性检查</AlertTitle>
-          <AlertDescription>
+    <TableCell className="num" title={value == null ? "缺失" : String(value)}>
+      {metricNumber(value)}
+    </TableCell>
+  );
+}
+export function ComparisonResult({ value }: { value: Comparison }) {
+  const a = value.attachment_inputs?.left,
+    b = value.attachment_inputs?.right;
+  const attachmentChanged =
+    (a?.attachment_version_id || "") !== (b?.attachment_version_id || "") ||
+    (a?.digest || value.bundle_change?.left || "") !==
+      (b?.digest || value.bundle_change?.right || "");
+  return (
+    <div className="flex flex-col gap-4">
+      <Alert>
+        <AlertTitle>{value.comparable ? "实验可比" : "实验不可比"}</AlertTitle>
+        <AlertDescription>
+          {value.comparable
+            ? "结果遵循服务端评分与可比性判断。"
+            : "未生成聚合评分或逐任务变化；请检查差异原因。"}
+          {!!value.reasons?.length && (
             <ul className="list-disc pl-4">
-              {value.reasons.map((reason: string) => (
+              {value.reasons.map((reason) => (
                 <li key={reason}>{reason}</li>
               ))}
             </ul>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {value.comparable && value.mean_task_delta != null ? (
+          )}
+        </AlertDescription>
+      </Alert>
+      {value.comparable && value.mean_task_delta != null && (
         <div className="report-summary">
           {Object.entries(value.mean_task_delta).map(([metric, delta]) => (
             <div key={metric}>
               <span>{metric} · 平均任务变化 (B − A)</span>
-              <strong>{String(delta)}</strong>
+              <strong title={String(delta)}>{metricNumber(delta)}</strong>
             </div>
           ))}
         </div>
-      ) : null}
-      {value.tasks?.length && value.comparable ? (
-        <Table>
+      )}
+      {value.comparable && !!value.tasks?.length && (
+        <>
+          <div className="section-bar">
+            <h2>逐任务结果</h2>
+            <span className="quiet-note">
+              变化表示数值差；不推断未知指标的优劣方向
+            </span>
+          </div>
+          <div className="table-shell compare-table">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>任务</TableHead>
+                  <TableHead className="metric-column">指标</TableHead>
+                  <TableHead className="num">A</TableHead>
+                  <TableHead className="num">B</TableHead>
+                  <TableHead className="num">Δ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {value.tasks.flatMap((task) =>
+                  Array.from(
+                    new Set([
+                      ...Object.keys(task.left || {}),
+                      ...Object.keys(task.right || {}),
+                      ...Object.keys(task.delta || {}),
+                    ]),
+                  ).map((metric) => (
+                    <TableRow key={`${task.task}:${metric}`}>
+                      <TableCell className="mono">
+                        {task.task}
+                        <small className="mobile-metric">{metric}</small>
+                      </TableCell>
+                      <TableCell className="metric-column mono">
+                        {metric}
+                      </TableCell>
+                      <NumberCell value={task.left?.[metric]} />
+                      <NumberCell value={task.right?.[metric]} />
+                      <NumberCell value={task.delta?.[metric]} />
+                    </TableRow>
+                  )),
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      )}
+      <div className="section-bar">
+        <h2>输入差异</h2>
+        <span className="quiet-note">配置与附件的可追溯证据</span>
+      </div>
+      <div className="table-shell">
+        <Table className="diff-table">
           <TableHeader>
             <TableRow>
-              <TableHead>任务</TableHead>
-              <TableHead>指标</TableHead>
+              <TableHead>因素</TableHead>
               <TableHead>实验 A</TableHead>
               <TableHead>实验 B</TableHead>
-              <TableHead>B − A</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {value.tasks.flatMap((task) =>
-              Object.keys(task.delta || {}).map((metric) => (
-                <TableRow key={task.task + metric}>
-                  <TableCell>{task.task}</TableCell>
-                  <TableCell>{metric}</TableCell>
-                  <TableCell>{String(task.left[metric])}</TableCell>
-                  <TableCell>{String(task.right[metric])}</TableCell>
-                  <TableCell>{String(task.delta[metric])}</TableCell>
+            <TableRow>
+              <TableCell>附件版本</TableCell>
+              <TableCell>{a?.attachment_version_id || "无附件"}</TableCell>
+              <TableCell>{b?.attachment_version_id || "无附件"}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>附件摘要</TableCell>
+              <TableCell>
+                {a?.digest || value.bundle_change?.left || "无附件摘要"}
+              </TableCell>
+              <TableCell>
+                {b?.digest || value.bundle_change?.right || "无附件摘要"}
+              </TableCell>
+            </TableRow>
+            {Object.entries(value.config_changes || {}).map(
+              ([factor, change]) => (
+                <TableRow key={factor}>
+                  <TableCell>{factor}</TableCell>
+                  <TableCell>{JSON.stringify(change.left ?? null)}</TableCell>
+                  <TableCell>{JSON.stringify(change.right ?? null)}</TableCell>
                 </TableRow>
-              )),
+              ),
             )}
           </TableBody>
         </Table>
-      ) : null}
+      </div>
+      <p className="quiet-note">
+        {attachmentChanged
+          ? "附件版本或摘要存在差异。"
+          : "附件相同或双方均无附件。"}
+        可比性仍检查任务、评分、基础 agent/模型及其他固定条件。
+      </p>
       <details className="raw-details">
-        <summary>完整对比记录</summary>
+        <summary>完整对比记录与环境观察</summary>
         <pre>{JSON.stringify(value, null, 2)}</pre>
       </details>
     </div>
   );
 }
-
 export function Compare() {
   const { data, error, loading } = useLoad(() => api("/runs"));
-  const [left, setLeft] = useState(""),
-    [right, setRight] = useState(""),
-    [result, setResult] = useState<Comparison>(),
-    [failure, setFailure] = useState<unknown>(),
-    [busy, setBusy] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const left = params.get("left") || "",
+    right = params.get("right") || "";
+  const key = JSON.stringify([left, right]);
+  const currentKey = useRef(key);
+  const requestId = useRef(0);
+  useEffect(() => {
+    currentKey.current = key;
+    requestId.current++;
+  }, [key]);
+  const [result, setResult] = useState<{ key: string; value: Comparison }>();
+  const [failure, setFailure] = useState<{ key: string; error: unknown }>();
+  const [busy, setBusy] = useState<string>();
+  useEffect(
+    () => () => {
+      requestId.current++;
+    },
+    [],
+  );
+  function choose(side: string, id: string) {
+    requestId.current++;
+    setBusy(undefined);
+    setResult(undefined);
+    setFailure(undefined);
+    const next = new URLSearchParams(params);
+    if (id) next.set(side, id);
+    else next.delete(side);
+    setParams(next, { replace: true });
+  }
   if (loading) return <Loading />;
+  const runs = data?.runs || [];
+  const eligible =
+    runs.some((r) => r.id === left && canCompare(r)) &&
+    runs.some((r) => r.id === right && canCompare(r));
+  const currentFailure = failure?.key === key ? failure.error : undefined;
+  const unavailable =
+    currentFailure instanceof ApiError &&
+    ["report_pending", "audit_incomplete", "evidence_expired"].includes(
+      currentFailure.code,
+    );
   return (
     <>
-      <Title
-        title="实验对比"
-        description="仅在数据源、评分与运行条件可比时展示聚合结果。"
-      />
-      <ErrorNotice error={error || failure} />
-      <Card>
-        <CardHeader>
-          <CardTitle>选择两次实验</CardTitle>
-          <CardDescription>
-            跨数据集或配置不一致会明确说明，避免误导性对比。
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setBusy(true);
-              setResult(undefined);
-              setFailure(undefined);
-              try {
-                setResult(await post("/compare", { left, right }));
-              } catch (err) {
-                setFailure(err);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <FieldGroup className="comparison-form">
-              <SelectField
-                label="实验 A"
-                name="left"
-                value={left}
-                onChange={setLeft}
-              >
-                <option value="">选择实验</option>
-                {(data?.runs || []).map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name || r.id} · {r.dataset_name || r.dataset} ·{" "}
-                    {r.submitter} · {labels[r.status] || r.status}
+      <Title title="实验对比" description="逐任务检查配置与评分差异。" />
+      <ErrorNotice error={error || (!unavailable && currentFailure)} />
+      <form
+        className="compare-selector"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const token = ++requestId.current;
+          const submittedKey = key;
+          setBusy(key);
+          setResult(undefined);
+          setFailure(undefined);
+          try {
+            const value = await post("/compare", { left, right });
+            if (
+              token === requestId.current &&
+              submittedKey === currentKey.current
+            )
+              setResult({ key: submittedKey, value });
+          } catch (error) {
+            if (
+              token === requestId.current &&
+              submittedKey === currentKey.current
+            )
+              setFailure({ key: submittedKey, error });
+          } finally {
+            if (token === requestId.current) setBusy(undefined);
+          }
+        }}
+      >
+        <FieldGroup className="comparison-form">
+          {(["left", "right"] as const).map((side) => (
+            <SelectField
+              key={side}
+              label={side === "left" ? "实验 A" : "实验 B"}
+              name={side}
+              value={side === "left" ? left : right}
+              onChange={(id) => choose(side, id)}
+              description={(() => {
+                const selected = runs.find(
+                  (r) => r.id === (side === "left" ? left : right),
+                );
+                return selected
+                  ? `${selected.dataset || "—"} · ${selected.model_profile || selected.agent || "—"}`
+                  : "仅终态且审计完成可选，报告仍可能尚未发布或已过期";
+              })()}
+            >
+              <option value="">选择实验</option>
+              {(side === "left" ? left : right) &&
+                !runs.some(
+                  (r) => r.id === (side === "left" ? left : right),
+                ) && (
+                  <option value={side === "left" ? left : right} disabled>
+                    实验不存在或不可访问
                   </option>
-                ))}
-              </SelectField>
-              <SelectField
-                label="实验 B"
-                name="right"
-                value={right}
-                onChange={setRight}
-              >
-                <option value="">选择实验</option>
-                {(data?.runs || []).map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name || r.id} · {r.dataset_name || r.dataset} ·{" "}
-                    {r.submitter} · {labels[r.status] || r.status}
-                  </option>
-                ))}
-              </SelectField>
-              <Button disabled={busy || !left || !right || left === right}>
-                开始对比
-              </Button>
-            </FieldGroup>
-          </form>
-        </CardContent>
-      </Card>
-      {result ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {result.comparable === false ? "实验不可比" : "对比结果"}
-            </CardTitle>
-            <CardDescription>
-              {result.comparable === false
-                ? "未生成聚合评分；请检查下面的差异原因。"
-                : "结果遵循服务端评分与可比性判断。"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ComparisonResult value={result} />
-          </CardContent>
-        </Card>
-      ) : null}
+                )}
+              {runs.map((r) => (
+                <option key={r.id} value={r.id} disabled={!canCompare(r)}>
+                  {r.name || r.id} · {r.dataset_name || r.dataset} ·{" "}
+                  {r.submitter} · {labels[r.status] || r.status}
+                  {!canCompare(r)
+                    ? " · 报告未发布：运行未结束或审计未完成"
+                    : ""}
+                </option>
+              ))}
+            </SelectField>
+          ))}
+          <Button disabled={busy === key || !eligible || left === right}>
+            {busy === key ? "正在对比…" : "开始对比"}
+          </Button>
+        </FieldGroup>
+      </form>
+      {unavailable && (
+        <Alert>
+          <AlertTitle>
+            {currentFailure.code === "evidence_expired"
+              ? "证据已过期"
+              : "报告尚未发布"}
+          </AlertTitle>
+          <AlertDescription>
+            {currentFailure.code === "evidence_expired"
+              ? "保留期结束，无法对比已过期的报告。"
+              : currentFailure.code === "audit_incomplete"
+                ? "审计未完成或异常，当前报告不可对比。"
+                : "运行结束且审计完成后才能获取报告；必要条件已满足时，报告仍可能等待发布，请稍后重试。"}
+            <p>{currentFailure.message}</p>
+          </AlertDescription>
+        </Alert>
+      )}
+      {result?.key === key && <ComparisonResult value={result.value} />}
     </>
   );
 }

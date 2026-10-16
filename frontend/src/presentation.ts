@@ -27,3 +27,11 @@ export const labels: Readonly<Record<string, string | undefined>> =
   statusLabels;
 export const terminal = (status: string) =>
   ["succeeded", "failed", "cancelled"].includes(status);
+export const canCompare = (run: Pick<RunSummary, "status" | "audit_status">) =>
+  terminal(run.status) && run.audit_status === "clean";
+export const metricNumber = (value: number | null | undefined) =>
+  value == null
+    ? "—"
+    : value === 0
+      ? "0"
+      : String(Number(value.toPrecision(6)));

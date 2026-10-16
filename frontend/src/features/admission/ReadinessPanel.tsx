@@ -1,4 +1,4 @@
-import { api, type Readiness } from "@/api";
+import { api, type Limits, type Usage, type Readiness } from "@/api";
 import { ErrorNotice } from "@/components/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useLoad } from "@/hooks/useLoad";
 import { date } from "@/presentation";
+import { CircleCheck, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 function Status({ value }: { value: Readiness }) {
@@ -52,21 +53,95 @@ function Status({ value }: { value: Readiness }) {
   );
 }
 
+export function ReadinessSummary({
+  value,
+  usage,
+  limits,
+  stale = false,
+}: {
+  value: Readiness;
+  usage?: Usage;
+  limits?: Limits;
+  stale?: boolean;
+}) {
+  const normal =
+    value.accepting &&
+    value.scheduler.state === "ready" &&
+    !value.maintenance.paused;
+  return (
+    <div
+      className={`capacity-strip ${stale ? "stale" : ""}`}
+      aria-label="受理与容量"
+    >
+      <span className={`admission-state ${normal ? "" : "warning"}`}>
+        {normal ? (
+          <CircleCheck aria-hidden="true" />
+        ) : (
+          <TriangleAlert aria-hidden="true" />
+        )}
+        {normal
+          ? "允许新受理 · 受理正常"
+          : value.maintenance.paused
+            ? "暂不接受新实验 · 维护暂停"
+            : value.scheduler.state === "unavailable"
+              ? "暂不接受新实验 · 调度器不可用"
+              : "暂不接受新实验 · 调度器活动未知"}
+      </span>
+      {usage && (
+        <>
+          <span title="包含启动、运行、取消中及资源清理阻塞的实验">
+            实验槽位
+            <b>
+              {usage.active_jobs} / {limits?.max_jobs ?? "—"}
+            </b>
+          </span>
+          <span title="活动实验预留的 concurrency 之和，不代表实时执行数">
+            trial 槽位
+            <b>
+              {usage.active_trials} / {limits?.max_trials ?? "—"}
+            </b>
+          </span>
+          <span>
+            排队<b>{usage.queued_jobs}</b>
+          </span>
+        </>
+      )}
+      <span>
+        全局待处理
+        <b>
+          {value.pending.global_pending} / {value.pending.global_limit}
+        </b>
+      </span>
+      <span>
+        本人待处理
+        <b>
+          {value.pending.member_pending} / {value.pending.member_limit}
+        </b>
+      </span>
+      {!normal && (
+        <span className="readiness-reason">
+          {value.maintenance.paused
+            ? `维护暂停：${value.maintenance.reason || "未填写原因"}。${value.maintenance.retry_at ? `建议重试时间 ${date(value.maintenance.retry_at)}。` : ""}不会自动恢复。`
+            : `调度器：${value.scheduler.state === "unavailable" ? "不可用" : "活动未知"} · ${value.scheduler.reason || value.reason || "等待活动确认"}`}{" "}
+          就绪不保证 Docker、Hub 或模型执行成功。
+        </span>
+      )}
+    </div>
+  );
+}
 export function ReadinessNotice() {
-  const { data, error } = useLoad(() => api("/readiness"), "", 4000);
+  const { data, error, updatedAt } = useLoad(() => api("/readiness"), "", 4000);
   return (
     <>
       <ErrorNotice error={error} />
-      {data ? (
-        <>
-          <Status value={data} />
-          <p className="muted">
-            本人待处理 {data.pending.member_pending} /{" "}
-            {data.pending.member_limit} · 全局待处理{" "}
-            {data.pending.global_pending} / {data.pending.global_limit}
-          </p>
-        </>
-      ) : null}
+      {data && <ReadinessSummary value={data} stale={!!error} />}
+      {error && (
+        <p className="freshness">
+          上次成功更新{" "}
+          {updatedAt ? new Date(updatedAt).toLocaleTimeString("zh-CN") : "未知"}{" "}
+          · 刷新失败
+        </p>
+      )}
     </>
   );
 }

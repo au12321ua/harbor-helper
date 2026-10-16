@@ -4,7 +4,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage();
   await page.goto(process.env.HH_BROWSER_URL);
-  await page.getByLabel("账户").fill("alice");
+  await page.getByLabel("账户", { exact: true }).fill("alice");
   await page
     .getByLabel("密码", { exact: true })
     .fill("Fake-process-password-2026");

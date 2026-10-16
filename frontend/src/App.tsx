@@ -41,7 +41,7 @@ export default function App() {
           ) : null}
         </>
       )}
-      <Toaster position="bottom-right" richColors />
+      <Toaster theme="dark" position="bottom-right" richColors />
     </BrowserRouter>
   );
 }

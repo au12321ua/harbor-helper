@@ -20,11 +20,18 @@ try {
   });
   await page.goto(process.env.HH_BROWSER_URL);
   assert.equal(await page.title(), "Harbor Helper · 团队实验室");
-  await page.getByLabel("账户").fill("admin");
+  await page.getByLabel("账户", { exact: true }).fill("admin");
   await page
     .getByLabel("密码", { exact: true })
     .fill("Fake-process-password-2026");
   await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.locator(".app-shell").waitFor();
+  if (
+    await page
+      .getByRole("button", { name: "打开导航", exact: true })
+      .isVisible()
+  )
+    await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await page.getByRole("link", { name: "团队管理" }).click();
   await page.getByRole("tab", { name: "容量与保留" }).click();
   await page.getByLabel("每成员待处理额度（有效值不超过全局上限）").fill("3");
@@ -63,12 +70,19 @@ try {
     path: process.env.HH_BROWSER_EVIDENCE + "/admission-admin.png",
     fullPage: true,
   });
+  if (
+    await page
+      .getByRole("button", { name: "打开导航", exact: true })
+      .isVisible()
+  )
+    await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await page.getByRole("button", { name: "退出登录" }).click();
-  await page.getByLabel("账户").fill("alice");
+  await page.getByLabel("账户", { exact: true }).fill("alice");
   await page
     .getByLabel("密码", { exact: true })
     .fill("Fake-process-password-2026");
   await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.locator(".app-shell").waitFor();
   await page.getByRole("link", { name: "共享实验", exact: true }).click();
   await page.getByText("维护暂停：browser maintenance").waitFor();
   assert.equal(
@@ -86,12 +100,25 @@ try {
     path: process.env.HH_BROWSER_EVIDENCE + "/admission-member-mobile.png",
     fullPage: true,
   });
+  if (
+    await page
+      .getByRole("button", { name: "打开导航", exact: true })
+      .isVisible()
+  )
+    await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await page.getByRole("button", { name: "退出登录" }).click();
-  await page.getByLabel("账户").fill("admin");
+  await page.getByLabel("账户", { exact: true }).fill("admin");
   await page
     .getByLabel("密码", { exact: true })
     .fill("Fake-process-password-2026");
   await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.locator(".app-shell").waitFor();
+  if (
+    await page
+      .getByRole("button", { name: "打开导航", exact: true })
+      .isVisible()
+  )
+    await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await page.getByRole("link", { name: "团队管理" }).click();
   await page.getByRole("tab", { name: "容量与保留" }).click();
   const resume = page.waitForResponse(

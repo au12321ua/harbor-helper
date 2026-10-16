@@ -18,6 +18,10 @@ export function Rewards({ report }: { report: Report }) {
           </strong>
         </div>
         <div>
+          <span>无效尝试</span>
+          <strong>{report.invalid_attempts ?? "—"}</strong>
+        </div>
+        <div>
           <span>缺失尝试</span>
           <strong>{report.missing_attempts ?? "—"}</strong>
         </div>
@@ -37,12 +41,22 @@ export function Rewards({ report }: { report: Report }) {
         <TableBody>
           {(report.tasks || []).map((t, i: number) => (
             <TableRow key={t.task || i}>
-              <TableCell>{t.task}</TableCell>
+              <TableCell className="mono">
+                {t.task}
+                {t.attempts?.some(
+                  (attempt) =>
+                    attempt.exception ||
+                    attempt.framework_exception ||
+                    (attempt.agent_exit_code != null &&
+                      attempt.agent_exit_code !== "0"),
+                ) && <small className="status-failed">执行失败</small>}
+              </TableCell>
               <TableCell>
                 {t.valid_attempts} / {t.expected_attempts}
               </TableCell>
               <TableCell>
-                {t.mean_rewards == null ? (
+                {t.mean_rewards == null ||
+                !Object.keys(t.mean_rewards).length ? (
                   <span className="text-muted-foreground">缺失评分</span>
                 ) : (
                   Object.entries(t.mean_rewards).map(([name, value]) => (

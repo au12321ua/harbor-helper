@@ -45,7 +45,7 @@ export function Submission({ user }: { user: User }) {
       <Card>
         <CardHeader>
           <CardTitle>
-            <Status value={data?.status || ""} />
+            <Status value={data?.status || ""} preparation />
           </CardTitle>
           <CardDescription>
             {data?.status === "failed"

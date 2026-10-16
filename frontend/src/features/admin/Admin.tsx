@@ -2,7 +2,7 @@ import { api } from "@/api";
 import { ErrorNotice, Loading, Title } from "@/components/shared";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLoad } from "@/hooks/useLoad";
-import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DatasetsPanel } from "./DatasetsPanel";
 import { LimitsPanel } from "./LimitsPanel";
 import { ModelsPanel } from "./ModelsPanel";
@@ -15,7 +15,20 @@ export function Admin() {
   const { data, error, loading, reload } = useLoad(() =>
     Promise.all([api("/admin/users"), api("/catalog")]),
   );
-  const [tab, setTab] = useState("readiness");
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("section") || "readiness";
+  const tab = [
+    "readiness",
+    "runtime",
+    "dataset",
+    "models",
+    "users",
+    "limits",
+  ].includes(requested)
+    ? requested
+    : "readiness";
+  const setTab = (value: string) =>
+    setParams({ section: value }, { replace: true });
   const { saving, save, action } = useAdminActions(reload);
   const diagnostics = useDockerDiagnostics();
   if (loading) return <Loading />;
@@ -32,7 +45,7 @@ export function Admin() {
         <p role="status">正在保存并刷新配置，完成后可继续编辑。</p>
       ) : null}
       <fieldset disabled={saving} aria-busy={saving} className="min-w-0">
-        <Tabs value={tab} onValueChange={setTab}>
+        <Tabs className="admin-workspace" value={tab} onValueChange={setTab}>
           <TabsList className="admin-tabs">
             <TabsTrigger value="readiness">就绪与来源</TabsTrigger>
             <TabsTrigger value="runtime">Docker 诊断</TabsTrigger>

@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { FlaskConical, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
+import { HarborMark } from "@/components/HarborMark";
 import { useState } from "react";
 export function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [error, setError] = useState<unknown>(),
@@ -18,7 +19,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
   return (
     <div className="login-page">
       <div className="login-brand">
-        <FlaskConical />
+        <HarborMark />
         <span>Harbor Helper</span>
       </div>
       <Card className="login-card">
