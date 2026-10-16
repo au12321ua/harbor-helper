@@ -51,7 +51,8 @@ def write_json(path, data):
 
 
 def digest(path):
-    with plain(path).open("rb") as file:
+    fd = os.open(plain(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as file:
         require(stat.S_ISREG(os.fstat(file.fileno()).st_mode), "nonregular file refused")
         return hashlib.file_digest(file, "sha256").hexdigest()
 
@@ -260,7 +261,7 @@ def inspect(base, backup_directory=None):
             result["runs"] = {
                 r[0]: r[1] for r in db.execute("SELECT status,count(*) FROM runs GROUP BY status")
             }
-    except sqlite3.Error:
+    except (sqlite3.Error, ValueError, OSError):
         result["database"] = "unknown/unsupported"
     completed = []
     if backup_directory and backup_directory.exists():
@@ -549,6 +550,9 @@ def validate_evidence(state, data, included):
 
 def restore(args):
     source = plain(args.snapshot)
+    require(
+        re.fullmatch("snapshot-[a-f0-9]{32}", source.name), "incomplete/unpublished snapshot path"
+    )
     manifest = read_json(source / "manifest.json")
     require(
         manifest.get("format") == FORMAT and manifest.get("completed") is True,
