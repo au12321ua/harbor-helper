@@ -13,6 +13,7 @@ from starlette.responses import Response
 from harbor_helper.service import dtos
 from harbor_helper.service.browser_contracts import BROWSER, MACHINE
 from harbor_helper.service.primitives import ServiceError
+from harbor_helper.service.route_contracts import classify_http
 
 
 @functools.cache
@@ -20,7 +21,7 @@ def closed(annotation):
     """Close named DTOs recursively; explicit dictionaries stay open maps."""
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         annotation.model_rebuild()
-        return create_model(
+        return create_model(  # ty: ignore[no-matching-overload]  # Recursive runtime Pydantic field definitions retain strict schema validation.
             annotation.__name__,
             __config__=ConfigDict(extra="forbid", strict=True),
             **{
@@ -48,7 +49,9 @@ def validate_output(name, value, user=None, *, passthrough=False, status_code=20
         name, BROWSER.get(name)
     )
     if model is None:
-        return value
+        raise ServiceError(
+            "service_unavailable", "Operation could not be completed safely", 503
+        )
     try:
         raw = json.loads(value.body) if isinstance(value, Response) else value
         adapter(model).validate_python(raw, strict=True)
@@ -67,15 +70,16 @@ def validate_output(name, value, user=None, *, passthrough=False, status_code=20
 class ContractRoute(APIRoute):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        call = self.dependant.call
-        if call.__name__ not in BROWSER:
+        call = self.endpoint
+        name = getattr(call, "__name__", "")
+        if classify_http(self) == "exempt":
             return
         if inspect.iscoroutinefunction(call):
 
             @functools.wraps(call)
             async def checked(**values):
                 return validate_output(
-                    call.__name__,
+                    name,
                     await call(**values),
                     values.get("user"),
                     passthrough=self.response_model is dtos.Accepted,
@@ -86,7 +90,7 @@ class ContractRoute(APIRoute):
             @functools.wraps(call)
             def checked(**values):
                 return validate_output(
-                    call.__name__,
+                    name,
                     call(**values),
                     values.get("user"),
                     passthrough=self.response_model is dtos.Accepted,

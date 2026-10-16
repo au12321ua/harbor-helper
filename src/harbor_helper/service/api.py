@@ -73,4 +73,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
     attachments.register(app, deps)
     configuration.register(app, deps)
     spa.register(app)
+    from harbor_helper.service.route_contracts import browser_routes
+
+    browser_routes(app.routes)
     return app

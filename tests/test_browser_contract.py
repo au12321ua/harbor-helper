@@ -12,6 +12,7 @@ from harbor_helper.service import browser_contracts as b
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
 from harbor_helper.service.contract_boundary import adapter
+from harbor_helper.service.route_contracts import browser_routes
 
 
 @pytest.mark.parametrize("defect", ["extra", "missing", "type", "state", "nested"])
@@ -80,6 +81,7 @@ def test_session_and_pat_projection_cannot_be_interchanged(data):  # noqa: F811
 def test_export_is_offline_deterministic_and_excludes_non_browser_routes(tmp_path, monkeypatch):
     path = Path(__file__).parents[1] / "tools/browser_contract.py"
     spec = importlib.util.spec_from_file_location("browser_contract_export", path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     protected = tmp_path / "protected"
@@ -104,7 +106,8 @@ def test_export_is_offline_deterministic_and_excludes_non_browser_routes(tmp_pat
     assert sorted(p.relative_to(protected) for p in protected.rglob("*")) == before
     assert all(not r["path"].startswith("/machine") for r in one["routes"])
     assert all(r["operation"] in b.BROWSER for r in one["routes"])
-    assert len(one["routes"]) == len(b.BROWSER)
+    classified = browser_routes(create_app(tmp_path / "classified", start_scheduler=False).routes)
+    assert {r["operation"] for r in one["routes"]} == {getattr(r.endpoint, "__name__", "") for r in classified}
     checked = json.loads((path.parents[1] / "frontend/contracts.json").read_text())
     assert one == checked
 
@@ -112,11 +115,10 @@ def test_export_is_offline_deterministic_and_excludes_non_browser_routes(tmp_pat
 def test_all_browser_routes_have_raw_boundary(tmp_path):
     app = create_app(tmp_path / "state", start_scheduler=False)
     names = set()
-    for route in app.routes:
-        name = getattr(getattr(route, "endpoint", None), "__name__", "")
-        if name in b.BROWSER:
-            assert hasattr(route.dependant.call, "__wrapped__"), name
-            names.add(name)
+    for route in browser_routes(app.routes):
+        name = getattr(route.endpoint, "__name__", "")
+        assert hasattr(route.dependant.call, "__wrapped__"), name
+        names.add(name)
     assert names == set(b.BROWSER)
 
 

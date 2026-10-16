@@ -16,6 +16,7 @@ from harbor_helper.service.api import create_app
 from harbor_helper.service.attachment_contracts import AttachmentCreate, AttachmentPublish
 from harbor_helper.service.contract_boundary import closed
 from harbor_helper.service.dtos import ErrorResponse
+from harbor_helper.service.route_contracts import browser_routes
 
 
 def schema():
@@ -35,10 +36,8 @@ def schema():
             return value
 
         routes = []
-        for route in app.routes:
-            name = getattr(getattr(route, "endpoint", None), "__name__", "")
-            if name not in b.BROWSER:
-                continue
+        for route in browser_routes(app.routes):
+            name = getattr(route.endpoint, "__name__", "")
             body = b.REQUESTS.get(name)
             if body is None:
                 fields = [f for f in route.dependant.body_params if f.name == "body"]
@@ -54,7 +53,7 @@ def schema():
                 {
                     "operation": name,
                     "path": route.path.removeprefix("/api/v1"),
-                    "method": next(iter(route.methods)),
+                    "method": next(iter(route.methods or ())),
                     "response": describe(b.BROWSER[name], response=True),
                     "request": describe(body) if body is not None else None,
                     "metadata": describe(metadata) if metadata else None,
