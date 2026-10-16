@@ -10,18 +10,18 @@ import shutil
 import time
 import uuid
 
-from harbor_helper.execution.runs import check_bundle
-from harbor_helper.persistence.files import tree_digest
-from harbor_helper.service.data import ServiceError
+from harbor_helper.execution.bundles import check_bundle
+from harbor_helper.persistence.files import digest, tree_digest
+from harbor_helper.service.primitives import ServiceError
 
 OPERATIONS = {"attachment_create", "attachment_publish", "attachment_derive"}
 
 
 class Attachments:
-    def __init__(self, application):
-        self.app = application
-        self.store = application.store
-        self.data = application.data
+    def __init__(self, data, bundles):
+        self.bundles = bundles
+        self.store = data.store
+        self.data = data
 
     def identity(self, db, attachment_id):
         row = db.execute("SELECT * FROM attachments WHERE id=?", (attachment_id,)).fetchone()
@@ -139,7 +139,6 @@ class Attachments:
             ACCESS_TOKEN_TEXT.search(idem) or (access_value and access_value in idem)
         ):
             raise ServiceError("access_plaintext", "Access credential plaintext forbidden in key")
-        from harbor_helper.service.application import digest
 
         if operation not in OPERATIONS:
             raise ServiceError("attachment_operation", "Unknown attachment operation")
@@ -175,7 +174,7 @@ class Attachments:
         try:
             if archive is None:
                 raise ServiceError("attachment_file", "ZIP input required")
-            staged = self.app.upload_bundle(archive, access_value=access_value)
+            staged = self.bundles.upload_bundle(archive, access_value=access_value)
             with self.store.control(), self.store.connect() as db:
                 if not self.data.user(actor["id"])["enabled"]:
                     raise ServiceError("member_disabled", "Account disabled", 403)

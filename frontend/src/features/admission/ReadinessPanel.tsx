@@ -1,19 +1,20 @@
-import { useState } from "react";
-import { api, date, type Readiness } from "./api";
-import { useLoad } from "./useLoad";
-import { ErrorNotice } from "./shared";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { api, type Readiness } from "@/api";
+import { ErrorNotice } from "@/components/shared";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
-  CardContent,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
+import { useLoad } from "@/hooks/useLoad";
+import { date } from "@/presentation";
+import { useState } from "react";
 
 function Status({ value }: { value: Readiness }) {
   const activity = value.scheduler;

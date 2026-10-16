@@ -13,8 +13,9 @@ from harbor_helper.persistence.files import read_json, tree_digest, write_json
 from harbor_helper.results.reports import compare
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceData, ServiceError
+from harbor_helper.service.data import ServiceData
 from harbor_helper.service.lifecycle import prepare_one
+from harbor_helper.service.primitives import ServiceError
 
 SOURCE = "test/benchmark@sha256:" + "b" * 64
 WRITE = {"X-Requested-With": "harbor-helper"}

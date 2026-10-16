@@ -1,14 +1,15 @@
-import { ApiError, labels } from "./api";
+import { ApiError } from "@/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 import {
   Empty,
+  EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-  EmptyDescription,
 } from "@/components/ui/empty";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
+import { labels } from "@/presentation";
 export function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;
   return (

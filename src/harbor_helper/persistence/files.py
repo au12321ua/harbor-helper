@@ -34,3 +34,9 @@ def tree_digest(root):
             h.update(p.read_bytes())
         h.update(b"\0")
     return "sha256:" + h.hexdigest()
+
+
+def digest(value):
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()

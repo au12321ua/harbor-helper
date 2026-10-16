@@ -6,8 +6,8 @@ import pytest
 from test_execution_recovery import configured, recovery  # noqa: F401 - shared fixture
 
 from harbor_helper.persistence.files import read_json
-from harbor_helper.service.data import ServiceError
 from harbor_helper.service.lifecycle import prepare_one
+from harbor_helper.service.primitives import ServiceError
 
 ORIGINAL = {
     "BUILD_AGENT_IMAGE": "author/agent:original",

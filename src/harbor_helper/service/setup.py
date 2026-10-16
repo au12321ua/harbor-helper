@@ -5,7 +5,7 @@ import secrets
 import stat
 from pathlib import Path
 
-from harbor_helper.service.data import ServiceError
+from harbor_helper.service.primitives import ServiceError
 
 
 def protected_file(path, *, create=False):

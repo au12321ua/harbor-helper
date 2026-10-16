@@ -18,8 +18,8 @@ from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.service import admission, machine
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceError
 from harbor_helper.service.lifecycle import prepare_one
+from harbor_helper.service.primitives import ServiceError
 
 
 @pytest.fixture
@@ -283,7 +283,7 @@ def test_actual_preparation_failure_and_queue_cancel_release(data, preparation, 
     Application(data.root).cancel_run(actor(data), rid)
     # Cancellation request alone does not manufacture a terminal run state.
     assert admission.pending(data, actor(data)["id"])["member_pending"] == 1
-    from harbor_helper.execution.worker import tick
+    from harbor_helper.execution.scheduler import tick
 
     tick(data.store, {})
     assert data.store.get(rid)["status"] == "cancelled"

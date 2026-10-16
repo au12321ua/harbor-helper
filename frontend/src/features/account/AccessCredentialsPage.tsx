@@ -1,31 +1,31 @@
-import { useState } from "react";
 import {
   api,
   post,
-  date,
-  type User,
   type AccessCredential,
   type AccessIssue,
-} from "./api";
-import { useLoad } from "./useLoad";
-import { Title, ErrorNotice, Loading } from "./shared";
+  type User,
+} from "@/api";
+import { ErrorNotice, Loading, Title } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
   CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   Field,
-  FieldLabel,
   FieldGroup,
-  FieldSet,
+  FieldLabel,
   FieldLegend,
+  FieldSet,
 } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { useLoad } from "@/hooks/useLoad";
+import { date } from "@/presentation";
+import { useState } from "react";
 
 const scopes = [
   ["read", "发现与读取共享实验"],

@@ -16,7 +16,7 @@ Harbor按作者Dockerfile、Compose、镜像及网络定义执行；helper管理
 
 ## 源码与兼容策略
 
-职责和canonical路径见[源码结构](architecture/source-layout.md)。CLI位于`src/harbor_helper/commands/`，团队应用/API/数据位于`service/`，执行调度位于`execution/`，持久、安全、报告分别位于`persistence/`、`security/`、`results/`。
+职责和canonical路径见[源码结构](architecture/source-layout.md)。CLI位于`src/harbor_helper/commands/`，团队应用装配、领域能力、HTTP与数据位于`service/`，执行调度与资源/审计机制位于`execution/`，持久、安全、报告分别位于`persistence/`、`security/`、`results/`。
 
 前端使用Vite、React、shadcn/ui、Tailwind，构建到`src/harbor_helper/static/`，由同一可配置HTTP服务提供页面与相对API。HTTPS、代理、证书和域名由部署环境处理。
 

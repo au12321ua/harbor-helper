@@ -25,8 +25,8 @@
 - 维护入口与验证边界：[开发交接](docs/HANDOFF.md)。部署现场以存在时的 `.local/LOCAL_ENVIRONMENT.md` 为准；操作前实时核对身份与引用。
 - 服务设计/验收/运行：[service-design](docs/archive/team-service/service-design.md)、[service-acceptance](docs/reference/service-acceptance.md)、[service-operations](docs/guides/web-service.md)。技术细节的来源分类以交接为准。
 - 远程 CLI：[Web服务指南](docs/guides/web-service.md)；已移除的旧本地 CLI 历史验收：[acceptance](docs/archive/local-cli/acceptance.md)。
-- 职责：[源码结构](docs/architecture/source-layout.md)。应用/API/数据：`src/harbor_helper/service/{application,api,data}.py`；CLI：`commands/{main,service,remote}.py`。
-- 执行/调度：`execution/{runs,worker,processes,agents,environments,agent_tools}.py`；持久层：`persistence/`；安全：`security/`；报告：`results/`。这些短路径均相对`src/harbor_helper/`。Web：`frontend/src/App.tsx`、`frontend/src/api.ts`。
+- 职责：[源码结构](docs/architecture/source-layout.md)。应用/HTTP装配/初始化：`src/harbor_helper/service/{application,api,data}.py`，领域职责入口见源码结构；CLI：`commands/{main,service,remote}.py`。
+- 执行/调度：`execution/{runs,worker,scheduler,runner,resources,audit,processes,agents,environments,agent_tools}.py`；持久层：`persistence/`；安全：`security/`；报告：`results/`。这些短路径均相对`src/harbor_helper/`。Web：`frontend/src/App.tsx`、`frontend/src/app/`、`frontend/src/features/`、`frontend/src/api.ts`。
 - 当前使用和历史设计从[文档导航](docs/README.md)进入；旧设计与报告不成为新增约束。
 
 ## 运行与验证入口

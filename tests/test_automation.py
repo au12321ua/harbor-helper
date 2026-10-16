@@ -15,11 +15,11 @@ from test_service import preparation as fake_preparation
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.results.reports import report
-from harbor_helper.service import access, machine
+from harbor_helper.service import access, machine, observation, policy
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceError
 from harbor_helper.service.lifecycle import prepare_one
+from harbor_helper.service.primitives import ServiceError
 
 
 @pytest.fixture
@@ -366,14 +366,14 @@ def test_machine_unknown_no_extra_capacity_and_scheduler_observation(data, prepa
             "observed": time.time() - 50,
         },
     )
-    assert machine.scheduler(app)["state"] == "unknown"
+    assert observation.scheduler(app)["state"] == "unknown"
     row = read_json(data.root / "scheduler.json")
     row["observed"] = time.time()
     write_json(data.root / "scheduler.json", row)
-    assert machine.scheduler(app)["state"] == "ready"
+    assert observation.scheduler(app)["state"] == "ready"
     row["birth"] = 0
     write_json(data.root / "scheduler.json", row)
-    assert machine.scheduler(app)["state"] == "unavailable"
+    assert observation.scheduler(app)["state"] == "unavailable"
 
 
 def test_access_plaintext_rejected_upload_and_parent_snapshot(data, preparation):
@@ -581,7 +581,7 @@ def test_all_machine_schema_operations_have_types_permissions_and_safe_errors(da
             # Schema endpoint returns OpenAPI itself; every business output is typed.
             if operation["x-operation"] != "machine_schema":
                 assert success["content"]["application/json"]["schema"]
-    assert set(operations) == machine.SCHEMA_OPERATIONS
+    assert set(operations) == policy.SCHEMA_OPERATIONS
     attachment = schema["paths"]["/api/v1/attachments"]["post"]
     assert attachment["x-metadata-schema"]["$ref"].endswith("AttachmentCreate")
     assert schema["components"]["schemas"]["ResourceAxis"]["properties"]["state"]["enum"] == [

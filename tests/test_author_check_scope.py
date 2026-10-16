@@ -10,8 +10,9 @@ from fastapi.testclient import TestClient
 from harbor_helper.persistence.files import tree_digest
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceData, ServiceError
+from harbor_helper.service.data import ServiceData
 from harbor_helper.service.lifecycle import prepare_one
+from harbor_helper.service.primitives import ServiceError
 
 SOURCE = "test/scoped@sha256:" + "a" * 64
 PASSWORD = "scope-fixture-password"

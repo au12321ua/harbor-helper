@@ -382,12 +382,12 @@ test("shared list, actual zero report, literal safe logs and screenshot", async 
   expect(await page.evaluate(() => "bad" in window)).toBe(false);
   await page.goto("/");
   await page.screenshot({
-    path: "/tmp/harbor-helper-web-desktop.png",
+    path: test.info().outputPath("harbor-helper-web-desktop.png"),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: "/tmp/harbor-helper-web-mobile.png",
+    path: test.info().outputPath("harbor-helper-web-mobile.png"),
     fullPage: true,
   });
   expect(
@@ -924,12 +924,12 @@ test("repair retry shows parent 600 and explicitly submits 1800", async ({
   );
   await expect(page.getByText(/警告：总时长不足/)).toBeVisible();
   await page.screenshot({
-    path: "/tmp/harbor-helper-web-retry-desktop.png",
+    path: test.info().outputPath("harbor-helper-web-retry-desktop.png"),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: "/tmp/harbor-helper-web-retry-mobile.png",
+    path: test.info().outputPath("harbor-helper-web-retry-mobile.png"),
     fullPage: true,
   });
   await page.getByLabel("总时长（秒；默认保留父值）").fill("1800");
@@ -1309,7 +1309,7 @@ test("shared attachment versions, maintenance, explicit selection and write reco
   await expect(page.getByRole("button", { name: "停用附件" })).toHaveCount(0);
   await expect(page.getByText("sha256:v1", { exact: false })).toBeVisible();
   await page.screenshot({
-    path: "/tmp/hh-attachment-validation/attachments-desktop.png",
+    path: test.info().outputPath("attachments-desktop.png"),
     fullPage: true,
   });
   await page.getByRole("link", { name: "使用 v1 新建实验" }).click();
@@ -1340,7 +1340,7 @@ test("shared attachment versions, maintenance, explicit selection and write reco
   await expect(page.getByRole("status")).toContainText("av-v1");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: "/tmp/hh-attachment-validation/attachments-mobile.png",
+    path: test.info().outputPath("attachments-mobile.png"),
     fullPage: true,
   });
   expect(

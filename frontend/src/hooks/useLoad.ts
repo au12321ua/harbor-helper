@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 export function useLoad<T>(
   loader: () => Promise<T>,
   dependency = "",

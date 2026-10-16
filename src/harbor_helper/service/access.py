@@ -9,7 +9,8 @@ import uuid
 
 from argon2.exceptions import Argon2Error
 
-from harbor_helper.service.data import PASSWORDS, ServiceError
+from harbor_helper.security.passwords import PASSWORDS
+from harbor_helper.service.primitives import ServiceError
 
 SCOPES = {"read", "attachments", "execute", "cancel_own"}
 PUBLIC = "id,user_id,name,scopes,created,expires,revoked,last_used"

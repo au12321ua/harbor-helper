@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from harbor_helper.execution.config import reject_secrets
 from harbor_helper.persistence.files import read_json, write_json
-from harbor_helper.service.data import ServiceError, identifier, secret_value
+from harbor_helper.service.primitives import ServiceError, identifier, secret_value
 from harbor_helper.service.sources import source_call
 
 

@@ -8,7 +8,7 @@ from test_admission import data as data_fixture
 from test_service import WRITE, client
 
 from harbor_helper.persistence.files import read_json, write_json
-from harbor_helper.service import admission, machine
+from harbor_helper.service import admission, observation
 from harbor_helper.service.application import Application
 
 
@@ -58,7 +58,7 @@ def test_invalid_scheduler_timestamp_is_unknown_and_blocks_admission(data, value
     old = accept(data, "old")
     state = read_json(data.root / "scheduler.json")
     write_json(data.root / "scheduler.json", {**state, "observed": value})
-    activity = machine.scheduler(Application(data.root))
+    activity = observation.scheduler(Application(data.root))
     assert activity["state"] == "unknown"
     assert activity.get("activity_observed") is None
     web = client(data)
@@ -79,6 +79,6 @@ def test_large_representable_numbers_have_no_arbitrary_ceiling(data):
     assert admission.maintenance(data)["retry_at"] == value
     state = read_json(data.root / "scheduler.json")
     write_json(data.root / "scheduler.json", {**state, "observed": value})
-    activity = machine.scheduler(Application(data.root))
+    activity = observation.scheduler(Application(data.root))
     assert activity["state"] == "unknown"
     assert activity["activity_observed"] == value

@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceData, ServiceError
+from harbor_helper.service.data import ServiceData
+from harbor_helper.service.primitives import ServiceError
 
 WRITE = {"X-Requested-With": "harbor-helper"}
 PASSWORD = "web-fixture-password-2026"

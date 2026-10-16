@@ -16,11 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from harbor_helper.execution.worker import process_birth
+from harbor_helper.execution.processes import process_birth
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceData, ServiceError
-from harbor_helper.service.machine import scheduler
+from harbor_helper.service.data import ServiceData
+from harbor_helper.service.observation import scheduler
+from harbor_helper.service.primitives import ServiceError
 
 
 def wait(predicate, timeout=20):
@@ -71,7 +72,6 @@ def _fixture_run(argv,*args,**kwargs):
     return _original_run(argv,*args,**kwargs)
 subprocess.run=_fixture_run
 """)
-        worker = (package / "execution/worker.py").read_text()
         fixture = """
 _original_cleanup=cleanup
 def cleanup(path):
@@ -93,9 +93,11 @@ async def execute(store,run_id):
     return {"status":"succeeded","reason":None}
 
 """
-        (package / "execution/worker.py").write_text(
-            worker.replace('if __name__ == "__main__":', fixture + 'if __name__ == "__main__":')
-        )
+        cleanup_fixture, execute_fixture = fixture.split("async def execute", 1)
+        with (package / "execution/audit.py").open("a") as f:
+            f.write(cleanup_fixture)
+        with (package / "execution/runner.py").open("a") as f:
+            f.write("async def execute" + execute_fixture)
         self.home = base / "home"
         self.home.mkdir()
         self.env = {**os.environ, "HOME": str(self.home)}

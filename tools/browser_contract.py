@@ -15,7 +15,7 @@ from harbor_helper.service import browser_contracts as b
 from harbor_helper.service.api import create_app
 from harbor_helper.service.attachment_contracts import AttachmentCreate, AttachmentPublish
 from harbor_helper.service.contract_boundary import closed
-from harbor_helper.service.machine import ErrorResponse
+from harbor_helper.service.dtos import ErrorResponse
 
 
 def schema():

@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from harbor.environments.docker.docker import DockerEnvironment
 from harbor.job import Job
 from harbor.models.job.config import JobConfig
 from harbor.trial.trial import Trial
@@ -36,6 +37,12 @@ def config(tmp_path, bundled=False, **kwargs):
 @pytest.mark.parametrize("cache", [False, True])
 def test_real_job_preflight_and_trial_receive_options(tmp_path, monkeypatch, bundled, cache):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # Harbor probes the engine kernel using `docker container run` during Trial
+    # construction. This test checks agent option propagation, so substitute
+    # that external capability observation before constructing the real Trial.
+    monkeypatch.setattr(
+        DockerEnvironment, "_egress_control_kernel_support", classmethod(lambda cls: True)
+    )
     kwargs = {"variant": "minimal", "opencode_config": {"enabled_providers": ["vllm"]}}
     if cache:
         kwargs["helper_tool_cache"] = str(tmp_path / "agent-tools")

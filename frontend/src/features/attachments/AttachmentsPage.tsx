@@ -1,29 +1,29 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
 import {
   api,
-  date,
   newIdempotencyKey,
   upload,
-  type User,
   type AttachmentResult,
-  type ValidPath,
   type PATCH,
   type PATCHPath,
-} from "./api";
-import { useLoad } from "./useLoad";
-import { Title, ErrorNotice, Loading, SelectField } from "./shared";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+  type User,
+  type ValidPath,
+} from "@/api";
+import { ErrorNotice, Loading, SelectField, Title } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
-  CardContent,
 } from "@/components/ui/card";
-import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { useLoad } from "@/hooks/useLoad";
+import { date } from "@/presentation";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 
 export function AttachmentsPage({ user }: { user: User }) {
   const { data, error, loading, reload } = useLoad(() => api("/attachments"));

@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from harbor_helper.service.data import ServiceError
+from harbor_helper.service.primitives import ServiceError
 
 
 def source_call(reference, *, key=None, target=None, task=None, selected_tasks=None):

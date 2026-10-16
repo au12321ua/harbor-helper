@@ -13,7 +13,7 @@ from test_automation_http import PASSWORD, WRITE
 from test_automation_http import http_service as production_http_fixture
 from test_service_process import wait
 
-from harbor_helper.service.machine import scheduler
+from harbor_helper.service.observation import scheduler
 
 
 @pytest.fixture

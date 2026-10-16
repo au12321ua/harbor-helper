@@ -10,9 +10,9 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 from starlette.responses import Response
 
-from harbor_helper.service import machine
+from harbor_helper.service import dtos
 from harbor_helper.service.browser_contracts import BROWSER, MACHINE
-from harbor_helper.service.data import ServiceError
+from harbor_helper.service.primitives import ServiceError
 
 
 @functools.cache
@@ -78,7 +78,7 @@ class ContractRoute(APIRoute):
                     call.__name__,
                     await call(**values),
                     values.get("user"),
-                    passthrough=self.response_model is machine.Accepted,
+                    passthrough=self.response_model is dtos.Accepted,
                     status_code=self.status_code or 200,
                 )
         else:
@@ -89,7 +89,7 @@ class ContractRoute(APIRoute):
                     call.__name__,
                     call(**values),
                     values.get("user"),
-                    passthrough=self.response_model is machine.Accepted,
+                    passthrough=self.response_model is dtos.Accepted,
                     status_code=self.status_code or 200,
                 )
 

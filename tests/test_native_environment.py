@@ -15,8 +15,8 @@ from harbor_helper.execution.environments import (
     anonymous_volumes,
     owned_anonymous_volumes,
 )
+from harbor_helper.execution.resources import cleanup
 from harbor_helper.execution.runs import job_config
-from harbor_helper.execution.worker import cleanup
 from harbor_helper.persistence.files import read_json, tree_digest, write_json
 from harbor_helper.service.application import Application
 from harbor_helper.service.data import ServiceData
@@ -129,7 +129,7 @@ def test_hard_exit_cleanup_persists_anonymous_and_does_not_remove_external(tmp_p
             volumes.remove(argv[3])
         return ""
 
-    monkeypatch.setattr("harbor_helper.execution.worker.run_command", docker)
+    monkeypatch.setattr("harbor_helper.execution.resources.run_command", docker)
     cleanup(tmp_path)
     assert volumes == {external}
     assert read_json(tmp_path / "cleanup.json")["anonymous_volumes"] == [anonymous]

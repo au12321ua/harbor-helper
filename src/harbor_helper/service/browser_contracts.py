@@ -9,9 +9,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, create_model
 
 from harbor_helper.persistence.statuses import AuditStatus, RunStatus, SubmissionStatus
-from harbor_helper.service import machine as m
+from harbor_helper.service import dtos as m
 from harbor_helper.service.attachment_contracts import AttachmentResult
-from harbor_helper.service.data import LIMITS
+from harbor_helper.service.primitives import LIMITS
 
 
 class DTO(BaseModel):

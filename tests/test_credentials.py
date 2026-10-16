@@ -12,7 +12,8 @@ from types import SimpleNamespace
 import pytest
 from harbor.environments.docker.docker import DockerEnvironment
 
-from harbor_helper.execution.worker import process_birth, tick
+from harbor_helper.execution.processes import process_birth
+from harbor_helper.execution.scheduler import tick
 from harbor_helper.persistence.files import write_json
 from harbor_helper.persistence.store import Store
 from harbor_helper.security.credentials import (

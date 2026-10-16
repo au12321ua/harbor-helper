@@ -1,23 +1,15 @@
 """Persistent new-admission gate; callers serialize mutations with Store.control."""
 
-import math
 import re
 import time
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
 from harbor_helper.security.credentials import redact_value
-from harbor_helper.service.data import ServiceError
+from harbor_helper.service.observation import finite_number, scheduler
+from harbor_helper.service.primitives import ServiceError
 
 DEFAULT_MAINTENANCE = {"paused": False, "reason": "", "retry_at": None, "updated": None}
-
-
-def finite_number(value):
-    """Reject booleans and numbers that cannot be represented as finite floats."""
-    try:
-        return type(value) in {int, float} and math.isfinite(value)
-    except OverflowError:
-        return False
 
 
 def maintenance(data):
@@ -29,8 +21,7 @@ def maintenance(data):
         or not isinstance(value.get("reason"), str)
         or len(value["reason"]) > 500
         or any(
-            value.get(k) is not None
-            and not finite_number(value[k])
+            value.get(k) is not None and not finite_number(value[k])
             for k in ("retry_at", "updated")
         )
     ):
@@ -58,9 +49,7 @@ def set_maintenance(data, body):
             "maintenance_reason", "Use a short notice without secrets or internal paths"
         )
     retry = value["retry_at"]
-    if retry is not None and (
-        not finite_number(retry) or retry <= time.time()
-    ):
+    if retry is not None and (not finite_number(retry) or retry <= time.time()):
         raise ServiceError("maintenance_retry", "Retry time must be a finite future timestamp")
     value = {"paused": value["paused"], "reason": reason, "retry_at": retry, "updated": time.time()}
     write_json(data.root / "admission.json", value)
@@ -100,7 +89,6 @@ def pending(data, user_id):
 
 
 def readiness(app, user_id=None):
-    from harbor_helper.service.machine import scheduler
 
     activity = scheduler(app)
     state = maintenance(app.data)

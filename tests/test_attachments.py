@@ -18,8 +18,9 @@ from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.security.access_tokens import check_access_tree
 from harbor_helper.security.credentials import RedactedStream, redact_value, scan_tree
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceError
+from harbor_helper.service.bundles import Bundles
 from harbor_helper.service.lifecycle import prepare_one
+from harbor_helper.service.primitives import ServiceError
 
 
 @pytest.fixture
@@ -193,7 +194,7 @@ def test_request_value_and_historical_leak_paths(data, preparation):
     app, user = Application(data.root), actor(data)
     actual = "fake-current-session-value"
     with pytest.raises(ValueError):
-        app.upload_bundle(archive(actual.encode()), access_value=actual)
+        Bundles(app.data).upload_bundle(archive(actual.encode()), access_value=actual)
     stored = create(app, user, "stored", actual.encode())
     vid = stored["version"]["id"]
     with pytest.raises(ServiceError):

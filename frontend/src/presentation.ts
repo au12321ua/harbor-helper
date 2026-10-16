@@ -1,0 +1,29 @@
+import type { Accepted, RunSummary } from "./generated/contracts";
+export const date = (value: unknown) =>
+  value
+    ? new Date(
+        typeof value === "number" ? value * 1000 : String(value),
+      ).toLocaleString("zh-CN", { hour12: false })
+    : "—";
+const statusLabels = {
+  preparing: "准备中",
+  ready: "准备完成",
+  queued: "排队中",
+  starting: "启动中",
+  running: "运行中",
+  cancelling: "取消中",
+  cleanup_blocked: "资源清理阻塞",
+  succeeded: "成功",
+  failed: "执行失败",
+  cancelled: "已取消",
+  clean: "审计完成",
+  incomplete: "审计异常",
+  pending: "待审计",
+} satisfies Record<
+  RunSummary["status"] | Accepted["status"] | RunSummary["audit_status"],
+  string
+>;
+export const labels: Readonly<Record<string, string | undefined>> =
+  statusLabels;
+export const terminal = (status: string) =>
+  ["succeeded", "failed", "cancelled"].includes(status);

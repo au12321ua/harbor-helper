@@ -1,169 +1,13 @@
 """Versioned, allowlisted machine views; no internal admin OpenAPI is published."""
 
-import time
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
-
 from harbor_helper.persistence.files import read_json
-from harbor_helper.persistence.statuses import AuditStatus, ReportStatus
 from harbor_helper.persistence.store import TERMINAL
-from harbor_helper.service.attachment_contracts import AttachmentIdentity, AttachmentVersion
-from harbor_helper.service.data import ServiceError
-
-Operation = Literal["submit", "rerun", "retry", "recover"]
-
-
-class Input(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-
-class AccessIssue(Input):
-    name: str = Field(min_length=1, max_length=128)
-    current_password: SecretStr
-    scopes: list[Literal["read", "attachments", "execute", "cancel_own"]] = ["read"]
-    expires: float | None = None
-
-
-class SubmissionInput(Input):
-    dataset: str | None = None
-    dataset_id: str | None = None
-    model_profile: str | None = None
-    agent: Literal["oracle", "opencode"] | None = None
-    attachment_version_id: str | None = None
-    attempts: int | None = Field(default=None, ge=1)
-    concurrency: int | None = Field(default=None, ge=1)
-    wall_seconds: int | None = Field(default=None, ge=1)
-    environment_build_timeout_multiplier: int | None = Field(default=None, ge=1)
-    task: str | None = None
-    name: str | None = Field(default=None, max_length=128)
-
-
-class EmptyInput(Input):
-    pass
-
-
-class RetryInput(Input):
-    wall_seconds: int | None = Field(default=None, ge=1)
-
-
-class Axis(BaseModel):
-    state: str
-    reason: str
-
-
-class ResourceAxis(Axis):
-    state: Literal["active", "released", "cleanup_blocked", "unknown"]
-
-
-class AuditAxis(Axis):
-    state: AuditStatus
-
-
-class ReportAxis(Axis):
-    state: ReportStatus
-
-
-class AttachmentBinding(BaseModel):
-    attachment_id: str | None = None
-    attachment_version_id: str | None = None
-    bundle_id: str | None = None
-    bundle_digest: str | None = None
-    attachment_lineage: str | None = None
-
-
-class MachineState(BaseModel):
-    contract_version: Literal["1.0"] = "1.0"
-    kind: Literal["submission", "run"]
-    id: str
-    status: str
-    user_id: str | None = None
-    access_credential_id: str | None = None
-    run_id: str | None = None
-    parent: str | None = None
-    resource: ResourceAxis
-    audit: AuditAxis
-    report: ReportAxis
-    poll_after_seconds: int | None = None
-    report_url: str | None = None
-    attachment: AttachmentBinding
-
-
-# Every old route that an automation principal may call is listed explicitly.
-# Unknown/new routes default to session-only until their capability is reviewed.
-READ = {
-    "me",
-    "catalog",
-    "usage",
-    "runs",
-    "submission",
-    "run",
-    "download_report",
-    "report",
-    "compare",
-    "attachments",
-    "discovery",
-    "readiness",
-    "machine_schema",
-    "task_catalog",
-    "lookup_submission",
-    "machine_run",
-    "machine_submission",
-    "machine_report",
-}
-ATTACHMENTS = {
-    "attachment_lookup",
-    "create_attachment",
-    "publish_attachment",
-    "derive_attachment",
-    "update_attachment",
-    "update_attachment_version",
-}
-EXECUTE = {"submit", "recover_submission", "rerun", "retry_run"}
-CANCEL = {"cancel", "cancel_submission"}
-CAPABILITIES = {
-    **dict.fromkeys(READ, "read"),
-    **dict.fromkeys(ATTACHMENTS, "attachments"),
-    **dict.fromkeys(EXECUTE, "execute"),
-    **dict.fromkeys(CANCEL, "cancel_own"),
-}
-
-
-def authorize(user, operation):
-    if not user.get("access_credential_id"):
-        return
-    if operation == "me":
-        return  # Authentication identity only; no shared data or new authorization.
-    needed = CAPABILITIES.get(operation)
-    if needed is None:
-        raise ServiceError("session_required", "This operation requires a browser session", 403)
-    if needed not in user["scopes"]:
-        raise ServiceError("scope_required", f"Automation capability required: {needed}", 403)
-
-
-def scheduler(app):
-    from harbor_helper.execution.runs import scheduler_identity
-    from harbor_helper.service.admission import finite_number
-
-    try:
-        identity = scheduler_identity(app.store)
-        if not identity:
-            return {
-                "state": "unavailable",
-                "reason": "process_not_confirmed",
-                "observed": time.time(),
-            }
-        heartbeat = identity.get("observed")
-        valid = finite_number(heartbeat)
-        ready = valid and 0 <= time.time() - heartbeat <= 10
-        return {
-            "state": "ready" if ready else "unknown",
-            "reason": "recent_activity" if ready else "activity_unknown",
-            "observed": time.time(),
-            "activity_observed": heartbeat if valid else None,
-        }
-    except (ValueError, OSError, KeyError, TypeError):
-        return {"state": "unknown", "reason": "observation_unavailable", "observed": time.time()}
+from harbor_helper.service.admission import readiness
+from harbor_helper.service.dtos import AuditAxis, MachineState, ReportAxis, ResourceAxis, SafeReport
+from harbor_helper.service.observation import scheduler
+from harbor_helper.service.policy import CAPABILITIES
+from harbor_helper.service.primitives import ServiceError
+from harbor_helper.service.views import public_submission, safe_view
 
 
 def attachment(binding):
@@ -297,13 +141,11 @@ def lookup(app, user, operation, key):
         raise ServiceError(
             "idempotency_missing", "Key not observed; resend original body with original key", 404
         )
-    from harbor_helper.service.application import public_submission
 
     return public_submission(app.data.submission(row[0]))
 
 
 def discovery(app, user):
-    from harbor_helper.service.admission import readiness
 
     catalog = app.configuration.catalog()
     datasets = [
@@ -366,131 +208,6 @@ def error_action(code, status):
     return "fix_input"
 
 
-class Accepted(BaseModel):
-    id: str
-    user_id: str | None = None
-    access_credential_id: str | None = None
-    submitter: str
-    operation: str
-    request: SubmissionInput | RetryInput
-    run_id: str | None
-    status: str
-    created: float
-    error: str | None
-    parent: str | None
-    attachment: AttachmentBinding
-    diagnosis: dict | None = None
-    retry_changes: dict = {}
-
-
-class DatasetInfo(BaseModel):
-    id: str
-    name: str
-    version: int
-    enabled: bool
-    status: str
-    ready: bool
-    checked: float | None = None
-
-
-class ModelInfo(BaseModel):
-    id: str
-    version: int
-    name: str | None = None
-    model: str
-    enabled: bool
-
-
-class MaintenanceInfo(BaseModel):
-    paused: bool
-    reason: str
-    retry_at: float | None
-    updated: float | None
-
-
-class Readiness(BaseModel):
-    initialized: bool
-    accepting: bool
-    reason: str
-    observed: float
-    scheduler: "SchedulerInfo"
-    maintenance: MaintenanceInfo
-    pending: dict[str, int]
-
-
-class SchedulerInfo(BaseModel):
-    state: Literal["ready", "unavailable", "unknown"]
-    reason: str
-    observed: float
-    activity_observed: float | None = None
-
-
-class AttachmentEntry(AttachmentIdentity):
-    versions: list[AttachmentVersion]
-
-
-class Discovery(BaseModel):
-    contract_version: Literal["1.0"]
-    datasets: list[DatasetInfo]
-    model_profiles: list[ModelInfo]
-    attachments: list[AttachmentEntry]
-    limits: dict[str, int]
-    scheduler: SchedulerInfo
-    readiness: Readiness
-    allowed_operations: list[str]
-    scopes: list[str]
-    task_selection: dict
-    schema_url: str
-    cost: Literal["unknown"]
-    limitations: list[str]
-
-
-class TaskInfo(BaseModel):
-    name: str
-    package: str | None = None
-    ref: str | None = None
-
-
-class TaskCatalog(BaseModel):
-    dataset_id: str
-    version: int
-    status: str
-    offset: int
-    tasks: list[TaskInfo]
-    next_offset: int | None
-    total: int
-
-
-class AttemptReport(BaseModel):
-    task: str
-    trial: str | None = None
-    valid: bool
-    rewards: dict[str, float] | None = None
-    failure: Literal["missing_score", "execution_failure", "unknown"] | None = None
-
-
-class TaskReport(BaseModel):
-    task: str
-    expected_attempts: int
-    valid_attempts: int
-    observed_attempts: int
-    mean_rewards: dict[str, float] | None
-    attempts: list[AttemptReport]
-
-
-class SafeReport(BaseModel):
-    contract_version: Literal["1.0"] = "1.0"
-    run_id: str
-    status: str
-    complete: bool
-    expected_attempts: int
-    valid_attempts: int
-    invalid_attempts: int
-    missing_attempts: int
-    tasks: list[TaskReport]
-    unexpected_trials: list[AttemptReport] = []
-
-
 def report_view(value):
     def attempt(a):
         exception = a.get("exception")
@@ -542,33 +259,6 @@ def report_view(value):
     ).model_dump()
 
 
-SCHEMA_OPERATIONS = {
-    "discovery",
-    "readiness",
-    "machine_schema",
-    "task_catalog",
-    "lookup_submission",
-    "machine_run",
-    "machine_submission",
-    "machine_report",
-    "submit",
-    "rerun",
-    "retry_run",
-    "recover_submission",
-    "cancel",
-    "cancel_submission",
-    "attachments",
-    "attachment_lookup",
-    "create_attachment",
-    "publish_attachment",
-    "derive_attachment",
-    "update_attachment",
-    "update_attachment_version",
-    "compare",
-}
-CAPABILITIES["lookup_submission"] = "execute"
-
-
 def accepted_view(user, value):
     if user.get("access_credential_id"):
         value = {
@@ -576,79 +266,5 @@ def accepted_view(user, value):
             "diagnosis": None,
             "retry_changes": {k: {"changed": True} for k in value.get("retry_changes", {})},
         }
-    from harbor_helper.service.application import safe_view
 
     return safe_view(value)
-
-
-class CompareInput(Input):
-    left: str
-    right: str
-
-
-class CancelResult(BaseModel):
-    run_id: str
-    cancel_requested: bool
-    status: str
-
-
-class ErrorResponse(BaseModel):
-    code: str
-    message: str
-    request_id: str
-    retryable: bool
-    action: Literal[
-        "retry_same_request",
-        "poll_existing",
-        "fix_input",
-        "reauthorize",
-        "contact_admin",
-        "explicit_new_attempt",
-    ]
-    wait_seconds: int | None
-    wait_known: bool
-    poll_after_seconds: int | None
-    related_ids: dict[str, str]
-
-
-class AttachmentCatalog(BaseModel):
-    attachments: list[AttachmentEntry]
-
-
-class Updated(BaseModel):
-    updated: bool
-
-
-class MetricDelta(BaseModel):
-    task: str
-    left: dict[str, float]
-    right: dict[str, float]
-    delta: dict[str, float]
-
-
-class CompareAttachment(BaseModel):
-    kind: Literal["versioned", "none"]
-    attachment_version_id: str | None
-    bundle_id: str | None
-    digest: str | None
-
-
-class Changed(BaseModel):
-    changed: Literal[True] = True
-
-
-class Comparison(BaseModel):
-    left: str
-    right: str
-    comparable: bool
-    reasons: list[str]
-    config_changes: dict[str, Changed]
-    bundle_change: dict[str, str | None]
-    attachment_inputs: dict[str, CompareAttachment]
-    tasks: list[MetricDelta]
-    mean_task_delta: dict[str, float] | None
-
-
-CAPABILITIES["machine_compare"] = "read"
-SCHEMA_OPERATIONS.discard("compare")
-SCHEMA_OPERATIONS.add("machine_compare")

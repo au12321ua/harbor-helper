@@ -7,8 +7,9 @@ from harbor_helper.execution.config import load_team
 from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import write_json
 from harbor_helper.persistence.store import TERMINAL
-from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceError
+from harbor_helper.service.data import ServiceData
+from harbor_helper.service.evidence import Evidence
+from harbor_helper.service.primitives import ServiceError
 
 
 def prepare_one(store):
@@ -17,7 +18,7 @@ def prepare_one(store):
     target_id is persisted before IO; restart reconciles a committed run or safely
     repeats only input preparation. runs.submit atomically gates queue publication.
     """
-    app = Application(store)
+    data = ServiceData(store)
     with store.connect() as db:
         ids = [
             r[0]
@@ -27,12 +28,13 @@ def prepare_one(store):
         ]
     if not ids:
         return
-    row = app.data.submission(ids[0])
+    row = data.submission(ids[0])
     run_id = row["target_id"]
     if any(r["id"] == run_id for r in store.runs()):
         with store.control(), store.connect() as db:
             db.execute(
-                f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?", (run_id, row["id"])
+                f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?",
+                (run_id, row["id"]),
             )
             if row["cancel"]:
                 store.update(run_id, cancel=1)
@@ -55,11 +57,12 @@ def prepare_one(store):
             start_supervisor=False,
         )
         with store.control(), store.connect() as db:
-            current = app.data.submission(row["id"])
+            current = data.submission(row["id"])
             if current["cancel"]:
                 store.update(run_id, cancel=1)
             db.execute(
-                f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?", (run_id, row["id"])
+                f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?",
+                (run_id, row["id"]),
             )
     except Exception as error:  # noqa: BLE001 - third-party source errors may carry credentials
         from harbor_helper.execution.author_inputs import AuthorInputError
@@ -80,7 +83,7 @@ def prepare_one(store):
             if isinstance(error, AuthorInputError):
                 frozen["service"]["author_input_issues"] = error.issues
                 # Preserve the fixed source digest already recorded during download.
-                latest = app.data.submission(row["id"])["frozen"]
+                latest = data.submission(row["id"])["frozen"]
                 latest["service"]["author_input_issues"] = error.issues
                 db.execute(
                     "UPDATE submissions SET frozen=? WHERE id=?",
@@ -97,8 +100,8 @@ def prepare_one(store):
 
 def maintenance(store):
     """Expire retained evidence only after resources and audit are confirmed safe."""
-    app = Application(store)
-    limits = app.data.limits()
+    data = ServiceData(store)
+    limits = data.limits()
     for row in store.runs():
         if (
             row["status"] not in TERMINAL
@@ -113,7 +116,7 @@ def maintenance(store):
                 if folder.is_dir() and not folder.is_symlink():
                     shutil.rmtree(folder)
         if age > limits["log_retention_days"] * 86400 and not (path / "archived.json").exists():
-            report = app.safe_report(row["id"])
+            report = Evidence(data).safe_report(row["id"])
             if report:
                 write_json(path / "safe-report.json", report)
             shutil.rmtree(path / "harbor", ignore_errors=True)
@@ -122,4 +125,4 @@ def maintenance(store):
                 path / "archived.json",
                 {"time": time.time(), "reason": "Configured raw evidence retention"},
             )
-    app.data.prune_credentials()
+    data.prune_credentials()

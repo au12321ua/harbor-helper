@@ -292,7 +292,7 @@ def write_request(name, profile, client, path, body, idem=None):
 def upload_bundle(client, bundle, *, path_url, metadata, idem):
     path = Path(bundle).expanduser()
     if path.is_dir():
-        from harbor_helper.execution.runs import check_bundle
+        from harbor_helper.execution.bundles import check_bundle
 
         check_bundle(path, client.token)
         with tempfile.TemporaryFile() as stream:

@@ -9,12 +9,14 @@ import pytest
 from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
 
-from harbor_helper.execution.worker import finish
+from harbor_helper.execution.audit import finish
 from harbor_helper.persistence.files import read_json, tree_digest
 from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
-from harbor_helper.service.data import ServiceData, ServiceError
+from harbor_helper.service.bundles import Bundles
+from harbor_helper.service.data import ServiceData
 from harbor_helper.service.lifecycle import maintenance, prepare_one
+from harbor_helper.service.primitives import ServiceError
 
 WRITE = {"X-Requested-With": "harbor-helper"}
 PASSWORD = "Fake-test-password-2026"
@@ -273,8 +275,8 @@ def test_resource_cleanup_separate_audit_and_next_capacity(data, preparation, mo
     (path / "worker.log").write_text(KEYS[0])
     with data.store.connect() as db:
         db.execute("DELETE FROM credential_versions WHERE id='k1'")
-    monkeypatch.setattr("harbor_helper.execution.worker.stop_group", lambda row: None)
-    monkeypatch.setattr("harbor_helper.execution.worker.cleanup", lambda path: None)
+    monkeypatch.setattr("harbor_helper.execution.audit.stop_group", lambda row: None)
+    monkeypatch.setattr("harbor_helper.execution.audit.cleanup", lambda path: None)
     finish(data.store, data.store.get(run_id), "failed", "interrupted")
     row = data.store.get(run_id)
     assert row["status"] == "failed" and row["audit_status"] == "incomplete" and row["finished"]
@@ -288,7 +290,7 @@ def test_resource_cleanup_separate_audit_and_next_capacity(data, preparation, mo
     def blocked(path):
         raise RuntimeError("resources still present")
 
-    monkeypatch.setattr("harbor_helper.execution.worker.cleanup", blocked)
+    monkeypatch.setattr("harbor_helper.execution.audit.cleanup", blocked)
     finish(data.store, row, "failed", "interrupted")
     assert data.store.get(run_id)["status"] == "cleanup_blocked"
     assert Application(data.root).usage()["active_trials"] == 1
@@ -309,10 +311,10 @@ def test_bundle_bounds_paths_symlinks_and_secret_names(data):
 
     for name in ("../escape", "/absolute", "sdk\\escape", "sdk/credential.txt"):
         with pytest.raises(ValueError):
-            app.upload_bundle(archive(name))
+            Bundles(app.data).upload_bundle(archive(name))
     with pytest.raises(ValueError):
-        app.upload_bundle(archive("sdk/link", b"target", 0o120777))
-    assert app.upload_bundle(archive("sdk/tool.py"))["digest"].startswith("sha256:")
+        Bundles(app.data).upload_bundle(archive("sdk/link", b"target", 0o120777))
+    assert Bundles(app.data).upload_bundle(archive("sdk/tool.py"))["digest"].startswith("sha256:")
 
 
 def test_get_no_side_effect_security_headers_and_logout(data, preparation):
@@ -363,8 +365,8 @@ def test_credential_in_artifact_filename_withheld_without_holding_capacity(
     folder = data.store.path(run_id) / "harbor" / run_id / "box__attempt" / "artifacts"
     folder.mkdir(parents=True)
     (folder / KEYS[0]).write_text("otherwise safe artifact")
-    monkeypatch.setattr("harbor_helper.execution.worker.stop_group", lambda row: None)
-    monkeypatch.setattr("harbor_helper.execution.worker.cleanup", lambda path: None)
+    monkeypatch.setattr("harbor_helper.execution.audit.stop_group", lambda row: None)
+    monkeypatch.setattr("harbor_helper.execution.audit.cleanup", lambda path: None)
     finish(data.store, data.store.get(run_id), "failed", "fixture failure")
     row = data.store.get(run_id)
     assert row["status"] == "failed" and row["audit_status"] == "incomplete"

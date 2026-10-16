@@ -58,7 +58,7 @@ def test_raw_response_defects_are_safe_503(data, monkeypatch, defect):  # noqa: 
     assert "invalid-state" not in response.text
     assert set(value) == set(
         __import__(
-            "harbor_helper.service.machine", fromlist=["ErrorResponse"]
+            "harbor_helper.service.dtos", fromlist=["ErrorResponse"]
         ).ErrorResponse.model_fields
     )
 
