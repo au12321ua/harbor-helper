@@ -10,7 +10,7 @@ python3 scripts/verify.py --prepare \
 
 依赖按 `uv.lock` 和 `frontend/package-lock.json` 安装。`--prepare` 可以联网下载依赖/Chromium，不执行模型请求。依赖缓存可通过 `--dependency-cache` 指定，默认复用调用者 uv 缓存，运行缓存仍隔离。运行阶段使用环境白名单、独立 HOME/XDG/TMPDIR 和不含 Docker CLI 的工具 PATH，无可用 Docker socket；不会继承模型、Hub 或 CLI profile 凭据。`--browsers` 必须是绝对路径，不能位于测试临时 HOME。输出目录必须不存在；保留诊断时只选 `report.json`、`command-*.log`、`pytest.xml`，不得上传整个临时 HOME、state 或备份。
 
-默认 `full` 运行 Python lint、契约、前端类型/lint/build、全部 pytest 和独占 UI fixture，强制 `HH_TEST_BROWSER=1`，要求 pytest skip=0 且两条生产网页用例通过。构建后对 tracked/untracked static 和契约检查 Git 漂移；发布物落后源码会失败。`--mode backend --python 3.13` 显式排除两条浏览器用例和前端/UI 检查，用于 Python 3.13 兼容检查，不能代替 full。`frontend/qa/live-service.mjs` 和 `final-integration-production.mjs` 是未接入此入口的手工脚本，不计为自动覆盖。此入口不证明真实 Docker、Hub、模型或发布环境可用。
+默认 `full` 运行 Python lint、契约、前端类型/lint/build、全部 pytest 和独占 UI fixture，强制 `HH_TEST_BROWSER=1`，要求 pytest skip=0 且三条生产网页用例通过。构建后对 tracked/untracked static 和契约检查 Git 漂移；发布物落后源码会失败。`--mode backend --python 3.13` 显式排除三条浏览器用例和前端/UI 检查，用于 Python 3.13 兼容检查，不能代替 full。`frontend/qa/live-service.mjs` 和 `final-integration-production.mjs` 是未接入此入口的手工脚本，不计为自动覆盖。此入口不证明真实 Docker、Hub、模型或发布环境可用。
 
 UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏览器、命令失败、生成物漂移均返回非零。输出记录固定 Git SHA、脏树状态、命令/版本、pytest 用例/skip、退出状态、精确回收记录。每次运行的唯一环境标记传给子树，包括 setsid 子进程；结束和 INT/TERM 时扫描 `/proc` 标记，以 PID birth 和 pidfd 回收，不按进程名或公共端口杀进程。整个监督入口被 SIGKILL/宿主宕机时自身无法清理，须由 CI 作业容器或外部监督者兜底；不能把这类情况说成 trap 已执行。
 
@@ -18,7 +18,7 @@ UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏�
 
 `.gitea/workflows/verify.yml` 当前仅手动触发：远端 CI 未验证，用户决定后续手动验证。本轮 feature push 不主动运行远端任务。核验后可在 `on` 中加入 `push: {branches: ["**"]}` 与 `pull_request: {}`，使 feature 候选在集成前也能运行；不要只限制 dev/master。外来 fork PR 在 job 条件中拒绝，不使用 `pull_request_target`。普通 job 仅需仓库读权限，无生产凭据或自动部署步骤。`HH_RUNNER_LABEL` 仓库变量选择已核实可用的 label，未设置时使用 `ubuntu-latest`。上线 CI 前核 runner 在线/本仓可用范围、实际执行方式、宿主敏感挂载以及网络；label 名称本身不能证明容器隔离。
 
-工作流通过 setup-python/setup-node/锁定版本 uv 准备工具，并安装 Playwright 系统库。不能 apt-install 的 runner 应事先准备系统依赖并按实际镜像调整该准备步。不要在 host runner 上执行外来 PR。Action 源、PyPI/npm/Playwright CDN、artifact 服务都须可达；本配置选择 upload-artifact v3，未使用未经实测的并发语法或缓存服务。Gitea 实际支持情况须由用户后续在固定候选 SHA 上的远端 run 证明；YAML 存在或本地通过均不能充作远端验收。核验顺序：确认 Actions 已启用与 runner 本仓可用，配置 HH_RUNNER_LABEL 并确认执行方式/网络/系统库，选择候选提交手动运行（或在该 feature 上显式启用 push 触发），核对 report.sha、full、skip=0、两条 browser_passed、无生成物漂移、UI 命令成功和 cleanup.remaining=[]，再保存 run 链接与 artifact。
+工作流通过 setup-python/setup-node/锁定版本 uv 准备工具，并安装 Playwright 系统库。不能 apt-install 的 runner 应事先准备系统依赖并按实际镜像调整该准备步。不要在 host runner 上执行外来 PR。Action 源、PyPI/npm/Playwright CDN、artifact 服务都须可达；本配置选择 upload-artifact v3，未使用未经实测的并发语法或缓存服务。Gitea 实际支持情况须由用户后续在固定候选 SHA 上的远端 run 证明；YAML 存在或本地通过均不能充作远端验收。核验顺序：确认 Actions 已启用与 runner 本仓可用，配置 HH_RUNNER_LABEL 并确认执行方式/网络/系统库，选择候选提交手动运行（或在该 feature 上显式启用 push 触发），核对 report.sha、full、skip=0、三条 browser_passed、无生成物漂移、UI 命令成功和 cleanup.remaining=[]，再保存 run 链接与 artifact。
 
 ## 只读巡检
 

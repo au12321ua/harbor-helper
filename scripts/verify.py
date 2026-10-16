@@ -20,7 +20,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 GENERATED = ["src/harbor_helper/static", "frontend/contracts.json", "frontend/src/generated"]
-BROWSER = {"test_production_static_browser_credentials", "test_production_admission_browser"}
+BROWSER = {
+    "test_production_static_browser_credentials",
+    "test_production_admission_browser",
+    "test_production_browser_damaged_manifest_observation",
+}
 
 
 def birth(pid):
@@ -222,7 +226,7 @@ def main():
         if args.mode == "backend":
             cmd += [
                 "-k",
-                "not production_static_browser_credentials and not production_admission_browser",
+                " and ".join(f"not {name}" for name in sorted(BROWSER)),
             ]
         run(cmd)
         cases = ET.parse(junit).getroot().findall(".//testcase")

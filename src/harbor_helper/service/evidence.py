@@ -10,6 +10,7 @@ from harbor_helper.persistence.store import ACTIVE, TERMINAL
 from harbor_helper.security.credentials import redact_value
 from harbor_helper.service.permissions import admin
 from harbor_helper.service.primitives import ServiceError
+from harbor_helper.service.run_metadata import local_file_error, read_manifest, recovered_metadata
 from harbor_helper.service.views import public_submission, safe_view
 
 
@@ -28,16 +29,32 @@ class Evidence:
         self.store = data.store
 
     def summary(self, row):
-        manifest = read_json(self.store.path(row["id"]) / "manifest.json")
+        restricted = False
+        try:
+            manifest = read_manifest(self.store, row["id"])
+        except ServiceError as error:
+            if error.code != "run_metadata_unavailable":
+                raise
+            manifest = recovered_metadata(self.store, row["id"])
+            restricted = True
         binding = manifest.get("service") or {}
-        audit_status = row.get("audit_status", lifecycle_status.PENDING)
+        audit_status = (
+            lifecycle_status.INCOMPLETE
+            if restricted
+            else row.get("audit_status", lifecycle_status.PENDING)
+        )
         if (
-            manifest["effective"]["agent"] == "opencode"
+            not restricted
+            and manifest["effective"]["agent"] == "opencode"
             and not (self.store.path(row["id"]) / "archived.json").exists()
         ):
             try:
                 self.data.run_key(row["id"], False)
-            except (ValueError, OSError):
+            except (ValueError, KeyError, TypeError, AttributeError):
+                audit_status = lifecycle_status.INCOMPLETE
+            except OSError as error:
+                if not local_file_error(self.store.path(row["id"]), error):
+                    raise
                 audit_status = lifecycle_status.INCOMPLETE
         return {
             "id": row["id"],
@@ -48,14 +65,18 @@ class Evidence:
             "started": row["started"],
             "finished": row["finished"],
             "parent": row["parent"],
-            "submitter": binding.get("submitter", "unknown"),
+            "submitter": binding.get("submitter") or "unknown",
             "user_id": binding.get("user_id"),
             "concurrency": row["concurrency"],
             "cancel": bool(row["cancel"]),
             "audit_status": audit_status,
-            "audit_reason": "Audit source unavailable or evidence not safe"
-            if audit_status == lifecycle_status.INCOMPLETE
-            else None,
+            "audit_reason": "Run metadata unavailable; evidence withheld"
+            if restricted
+            else (
+                "Audit source unavailable or evidence not safe"
+                if audit_status == lifecycle_status.INCOMPLETE
+                else None
+            ),
             "reason": None if audit_status == lifecycle_status.INCOMPLETE else row["reason"],
             "dataset": manifest["effective"]["dataset"],
             "agent": manifest["effective"]["agent"],
@@ -82,6 +103,7 @@ class Evidence:
 
     def safe_key(self, run_id):
         path = self.store.path(run_id)
+        read_manifest(self.store, run_id)
         row = self.store.get(run_id)
         if (path / "archived.json").exists():
             raise ServiceError(
@@ -89,7 +111,13 @@ class Evidence:
             )
         try:
             key = self.data.run_key(run_id, False)
-        except (ValueError, OSError):
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ServiceError(
+                "audit_incomplete", "Bound audit source unavailable; raw evidence withheld", 409
+            ) from None
+        except OSError as error:
+            if not local_file_error(path, error):
+                raise
             raise ServiceError(
                 "audit_incomplete", "Bound audit source unavailable; raw evidence withheld", 409
             ) from None
@@ -102,6 +130,7 @@ class Evidence:
     @locked
     def safe_report(self, run_id):
         path = self.store.path(run_id)
+        read_manifest(self.store, run_id)
         if (path / "archived.json").exists():
             return (
                 read_json(path / "safe-report.json")
@@ -141,7 +170,7 @@ class Evidence:
         from harbor_helper.execution.runs import detail_startup_policy
 
         row = self.store.get(run_id)
-        manifest = read_json(self.store.path(run_id) / "manifest.json")
+        manifest = read_manifest(self.store, run_id)
         try:
             report = self.safe_report(run_id)
         except ServiceError:

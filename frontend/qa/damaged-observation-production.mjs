@@ -1,0 +1,57 @@
+import { chromium, expect } from "@playwright/test";
+import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
+const browser = await chromium.launch({ headless: true });
+const ids = JSON.parse(process.env.HH_BROWSER_RUNS);
+const forbidden = JSON.parse(process.env.HH_BROWSER_FORBIDDEN);
+const evidence = process.env.HH_BROWSER_EVIDENCE;
+const faults = [];
+const expectedErrors = [];
+let authenticated = false;
+try {
+  const page = await browser.newPage({ viewport: { width: 1360, height: 1000 } });
+  page.on("pageerror", (error) => faults.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const entry = { message: message.text(), url: message.location().url };
+    const path = new URL(entry.url || process.env.HH_BROWSER_URL).pathname;
+    if ((!authenticated && path === "/api/v1/me" && entry.message.includes("401")) ||
+        (path.endsWith(`/runs/${ids.broken}`) && entry.message.includes("409"))) expectedErrors.push(entry);
+    else faults.push(entry);
+  });
+  await page.goto(process.env.HH_BROWSER_URL);
+  await page.getByLabel("账户").fill("alice");
+  await page.getByLabel("密码", { exact: true }).fill("Fake-process-password-2026");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.getByRole("heading", { name: "共享实验", exact: true }).waitFor();
+  authenticated = true;
+  assert.equal(new URL(page.url()).pathname, "/");
+  assert((await page.title()).length > 0);
+  for (const id of Object.values(ids)) await page.getByRole("link", { name: `查看 ${id}`, exact: true }).waitFor();
+  const broken = page.locator("tr").filter({ has: page.getByRole("link", { name: `查看 ${ids.broken}`, exact: true }) });
+  await expect(broken).toContainText("bob");
+  await expect(broken).toContainText("审计异常");
+  const usage = page.locator(".usage-strip");
+  await expect(usage.locator("div").filter({ hasText: "累计实验" }).locator("strong")).toHaveText("3");
+  await expect(usage.locator("div").filter({ hasText: "运行中" }).locator("strong")).toContainText("1");
+  await expect(usage.locator("div").filter({ hasText: "排队中" }).locator("strong")).toHaveText("1");
+  for (const secret of forbidden) assert(!(await page.content()).includes(secret));
+  await page.screenshot({ path: evidence + "/damaged-list.png", fullPage: true });
+  await page.getByRole("link", { name: `查看 ${ids.broken}`, exact: true }).click();
+  await page.getByText("Run metadata unavailable; evidence withheld", { exact: false }).waitFor();
+  for (const secret of forbidden) assert(!(await page.content()).includes(secret));
+  await page.goto(process.env.HH_BROWSER_URL);
+  await page.getByRole("link", { name: `查看 ${ids.active}`, exact: true }).click();
+  await page.getByRole("button", { name: "取消实验", exact: true }).waitFor();
+  await page.screenshot({ path: evidence + "/healthy-detail.png", fullPage: true });
+  page.on("dialog", (dialog) => dialog.accept());
+  const cancelled = page.waitForResponse((r) => r.url().endsWith(`/runs/${ids.active}/cancel`) && r.request().method() === "POST");
+  await page.getByRole("button", { name: "取消实验", exact: true }).click();
+  assert.equal((await cancelled).status(), 200);
+  await expect(page.getByRole("button", { name: "取消实验", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: evidence + "/healthy-cancelled.png", fullPage: true });
+  for (const secret of forbidden) assert(!(await page.content()).includes(secret));
+  assert.deepEqual(faults, []);
+  await writeFile(evidence + "/damaged-browser.json", JSON.stringify({ page: page.url(), title: await page.title(), viewport: page.viewportSize(), consoleErrors: faults, expectedErrors, listAndUsage: true, controlledBadDetail: true, healthyDetailAndCancel: true, secretLeak: false }, null, 2));
+  console.log("production damaged observation UI passed");
+} finally { await browser.close(); }

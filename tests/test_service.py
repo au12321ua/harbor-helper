@@ -1,6 +1,7 @@
 """Service behavior with isolated accounts, encrypted fake keys and no model calls."""
 
 import io
+import json
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -520,3 +521,142 @@ def test_compare_json_rejects_run_paths_without_external_lock_writes(
     assert {p.name for p in locks.glob("*")} <= {valid + ".lock"}
     if field == "left":
         assert not locks.exists()  # Invalid first input has no lock-directory side effect.
+
+
+@pytest.mark.parametrize(
+    "damage", ["missing", "utf8", "json", "field", "type", "binding", "surrogate"]
+)
+def test_damaged_manifest_observation_is_local_and_preserves_contract(data, preparation, damage):
+
+    from harbor_helper.persistence.files import write_json
+    from harbor_helper.service import browser_contracts as dto
+    from harbor_helper.service import machine
+
+    app = Application(data.root)
+    alice = next(u for u in data.users() if u["username"] == "alice")
+    bob = next(u for u in data.users() if u["username"] == "bob")
+    ids = []
+    for index in range(3):
+        actor = bob if index == 0 else alice
+        submission = app.accept(actor, {"agent": "oracle", "dataset": "test/data@1"}, str(index))
+        prepare_one(data.store)
+        ids.append(data.submission(submission["id"])["run_id"])
+    broken, active, queued = ids
+    data.store.update(broken, status="failed", finished=101, audit_status="clean")
+    data.store.update(active, status="running", started=100, concurrency=2)
+    folder = data.store.path(broken)
+    manifest = folder / "manifest.json"
+    if damage == "missing":
+        manifest.unlink()
+    elif damage == "utf8":
+        manifest.write_bytes(b"\xfffixture-private-marker")
+    elif damage == "json":
+        manifest.write_text('{"fixture-private-marker":')
+    elif damage == "field":
+        write_json(manifest, {"effective": {}, "service": {"name": "fixture-private-marker"}})
+    elif damage == "type":
+        manifest.write_text("null")
+    else:
+        value = read_json(manifest)
+        if damage == "binding":
+            value["service"] = ["fixture-private-marker"]
+        else:
+            value["effective"]["dataset"] = "\ud800"
+        manifest.write_text(json.dumps(value, ensure_ascii=True))
+    (folder / "worker.log").write_text(KEYS[0] + " fixture-private-marker")
+    write_json(folder / "report.json", {"secret": KEYS[0]})
+    rows = app.runs()
+    dto.Runs.model_validate(rows)
+    bad = next(r for r in rows["runs"] if r["id"] == broken)
+    assert bad["status"] == "failed" and bad["finished"] == 101
+    assert bad["audit_status"] == "incomplete" and bad["reason"] is None
+    assert bad["user_id"] == bob["id"] and bad["submitter"] == "bob"
+    assert bad["dataset"] == "test/data@1" and bad["agent"] == "oracle"
+    assert data.store.get(broken)["audit_status"] == "clean"  # Observation does not mutate state.
+    usage = app.usage()
+    dto.Usage.model_validate(usage)
+    assert (
+        usage["total_runs"],
+        usage["active_jobs"],
+        usage["active_trials"],
+        usage["queued_jobs"],
+    ) == (3, 1, 2, 1)
+    assert next(r for r in usage["by_submitter"] if r["submitter"] == "bob")["runs"] == 1
+    assert machine.run_state(app, broken)["report"]["state"] == "blocked"
+    c = client(data)
+    for route, model in (("runs", dto.Runs), ("usage", dto.Usage)):
+        response = c.get("/api/v1/" + route)
+        assert response.status_code == 200
+        model.model_validate(response.json())
+        assert all(
+            secret not in response.text for secret in (*KEYS, str(folder), "fixture-private-marker")
+        )
+    assert c.get(f"/api/v1/runs/{active}").status_code == 200
+    for route in ("", "/logs", "/report", "/artifacts/fake"):
+        response = c.get(f"/api/v1/runs/{broken}" + route)
+        assert response.status_code == 409
+        assert response.json()["code"] == "run_metadata_unavailable"
+        assert all(
+            secret not in response.text for secret in (*KEYS, str(folder), "fixture-private-marker")
+        )
+    assert c.post(f"/api/v1/runs/{active}/cancel", headers=WRITE).status_code == 200
+    assert data.store.get(active)["cancel"] == 1
+    assert (
+        client(data, "bob").post(f"/api/v1/runs/{queued}/cancel", headers=WRITE).status_code == 403
+    )
+
+
+@pytest.mark.parametrize("state", ["queued", "running", "cleanup_blocked", "failed"])
+def test_missing_manifest_without_link_is_unknown_not_viewer_owned(data, preparation, state):
+    app = Application(data.root)
+    actor = data.users()[0]
+    submission = app.accept(actor, {"agent": "oracle", "dataset": "test/data@1"}, "unlinked")
+    prepare_one(data.store)
+    run = data.submission(submission["id"])["run_id"]
+    data.store.path(run).joinpath("manifest.json").unlink()
+    with data.store.connect() as db:
+        db.execute("DELETE FROM submissions WHERE id=?", (submission["id"],))
+    data.store.update(run, status=state, concurrency=3)
+    row = app.runs()["runs"][0]
+    assert row["id"] == run and row["status"] == state
+    assert row["user_id"] is None and row["submitter"] == "unknown"
+    assert row["dataset"] == "unknown" and row["agent"] == "unknown"
+    assert row["audit_status"] == "incomplete"
+    assert app.usage()["queued_jobs"] == int(state == "queued")
+    assert app.usage()["active_jobs"] == int(state in {"running", "cleanup_blocked"})
+    assert app.usage()["active_trials"] == (3 if state in {"running", "cleanup_blocked"} else 0)
+    assert app.usage()["by_submitter"][0]["submitter"] == "unknown"
+
+
+@pytest.mark.parametrize("failure", ["sqlite", "io", "fds"])
+def test_run_observation_does_not_mask_global_storage_failures(
+    data, preparation, monkeypatch, failure
+):
+    import errno
+    import sqlite3
+
+    app = Application(data.root)
+    submission = app.accept(
+        data.users()[0], {"agent": "oracle", "dataset": "test/data@1"}, "global"
+    )
+    prepare_one(data.store)
+    run = data.submission(submission["id"])["run_id"]
+    path = data.store.path(run) / "manifest.json"
+    error = (
+        sqlite3.OperationalError("private-marker")
+        if failure == "sqlite"
+        else OSError(errno.EIO if failure == "io" else errno.EMFILE, "private-marker", str(path))
+    )
+
+    def fail(*args):
+        raise error
+
+    monkeypatch.setattr("harbor_helper.service.run_metadata.read_json", fail)
+    for operation in (app.runs, app.usage):
+        with pytest.raises(type(error)):
+            operation()
+    c = client(data)
+    for route in ("runs", "usage"):
+        response = c.get("/api/v1/" + route)
+        assert response.status_code == 503
+        assert "private-marker" not in response.text and str(path) not in response.text

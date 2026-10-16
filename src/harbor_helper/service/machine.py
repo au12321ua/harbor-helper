@@ -1,12 +1,12 @@
 """Versioned, allowlisted machine views; no internal admin OpenAPI is published."""
 
-from harbor_helper.persistence.files import read_json
 from harbor_helper.persistence.store import TERMINAL
 from harbor_helper.service.admission import readiness
 from harbor_helper.service.dtos import AuditAxis, MachineState, ReportAxis, ResourceAxis, SafeReport
 from harbor_helper.service.observation import scheduler
 from harbor_helper.service.policy import CAPABILITIES
 from harbor_helper.service.primitives import ServiceError
+from harbor_helper.service.run_metadata import read_manifest
 from harbor_helper.service.views import public_submission, safe_view
 
 
@@ -25,8 +25,14 @@ def attachment(binding):
 
 def run_state(app, run_id):
     row = app.store.get(run_id)
-    manifest = read_json(app.store.path(run_id) / "manifest.json")
-    binding = manifest.get("service") or {}
+    summary = app.summary(row)
+    try:
+        binding = read_manifest(app.store, run_id).get("service") or {}
+    except ServiceError as error:
+        if error.code != "run_metadata_unavailable":
+            raise
+        binding = {}  # Observation only; never infer an access credential.
+
     status = row["status"]
     resource = (
         "active"
@@ -37,7 +43,7 @@ def run_state(app, run_id):
         if status in TERMINAL or status == "queued"
         else "unknown"
     )
-    audit = app.summary(row)["audit_status"]
+    audit = summary["audit_status"]
     audit = audit if audit in {"pending", "clean", "incomplete"} else "pending"
     report, reason = "blocked", "resource_unconfirmed"
     if audit == "incomplete":
@@ -70,7 +76,7 @@ def run_state(app, run_id):
         kind="run",
         id=run_id,
         status=status,
-        user_id=binding.get("user_id"),
+        user_id=summary["user_id"],
         access_credential_id=binding.get("access_credential_id"),
         run_id=run_id,
         parent=row.get("parent"),
