@@ -18,7 +18,6 @@ class Capacity:
     if TYPE_CHECKING:
         root: Path
 
-
     def limits(self):
         path = self.root / "limits.json"
         return {**LIMITS, **(read_json(path) if path.exists() else {})}

@@ -31,16 +31,50 @@ def exception(path: str, handler: str, reason: str, methods: str = "GET") -> Exe
 
 EXEMPTIONS = (
     exception("/api/v1/health", "status.register.<locals>.health", "Health probe"),
-    exception("/api/v1/machine/discovery", "machine.register.<locals>.discovery", "Machine discovery"),
-    exception("/api/v1/machine/datasets/{dataset_id}/tasks", "machine.register.<locals>.task_catalog", "Machine pagination"),
-    exception("/api/v1/machine/submissions/{submission_id}", "machine.register.<locals>.machine_submission", "Machine projection"),
-    exception("/api/v1/machine/runs/{run_id}", "machine.register.<locals>.machine_run", "Machine projection"),
-    exception("/api/v1/machine/runs/{run_id}/report", "machine.register.<locals>.machine_report", "Machine projection"),
-    exception("/api/v1/machine/schema", "machine.register.<locals>.machine_schema", "Machine schema"),
-    exception("/api/v1/machine/compare", "experiments.register.<locals>.machine_compare", "Machine projection", "POST"),
-    exception("/api/v1/runs/{run_id}/artifacts/{file_id}", "experiments.register.<locals>.artifact", "Binary navigation"),
+    exception(
+        "/api/v1/machine/discovery", "machine.register.<locals>.discovery", "Machine discovery"
+    ),
+    exception(
+        "/api/v1/machine/datasets/{dataset_id}/tasks",
+        "machine.register.<locals>.task_catalog",
+        "Machine pagination",
+    ),
+    exception(
+        "/api/v1/machine/submissions/{submission_id}",
+        "machine.register.<locals>.machine_submission",
+        "Machine projection",
+    ),
+    exception(
+        "/api/v1/machine/runs/{run_id}",
+        "machine.register.<locals>.machine_run",
+        "Machine projection",
+    ),
+    exception(
+        "/api/v1/machine/runs/{run_id}/report",
+        "machine.register.<locals>.machine_report",
+        "Machine projection",
+    ),
+    exception(
+        "/api/v1/machine/schema", "machine.register.<locals>.machine_schema", "Machine schema"
+    ),
+    exception(
+        "/api/v1/machine/compare",
+        "experiments.register.<locals>.machine_compare",
+        "Machine projection",
+        "POST",
+    ),
+    exception(
+        "/api/v1/runs/{run_id}/artifacts/{file_id}",
+        "experiments.register.<locals>.artifact",
+        "Binary navigation",
+    ),
     exception("/favicon.svg", "spa.register.<locals>.favicon", "Static file"),
-    exception("/api/{missing:path}", "spa.register.<locals>.missing_api", "API 404 fallback", "DELETE GET HEAD OPTIONS PATCH POST PUT"),
+    exception(
+        "/api/{missing:path}",
+        "spa.register.<locals>.missing_api",
+        "API 404 fallback",
+        "DELETE GET HEAD OPTIONS PATCH POST PUT",
+    ),
     exception("/{path:path}", "spa.register.<locals>.spa", "Page fallback"),
 )
 
@@ -53,7 +87,8 @@ def classify_http(route: APIRoute) -> str:
         raise ValueError("Missing HTTP handler name/methods")
     identity = endpoint.__module__ + "." + getattr(endpoint, "__qualname__", "")
     matches = [
-        item for item in EXEMPTIONS
+        item
+        for item in EXEMPTIONS
         if (route.path, frozenset(route.methods), identity)
         == (item.path, item.methods, item.handler)
     ]
@@ -95,12 +130,14 @@ def browser_routes(routes: list[BaseRoute]) -> list[APIRoute]:
         if type(route) is Mount:
             expected = Path(__file__).resolve().parents[1] / "static/assets"
             if (
-                route.path != "/assets" or route.name != "assets"
+                route.path != "/assets"
+                or route.name != "assets"
                 or type(route.app) is not StaticFiles
                 or route.app.directory is None
                 or Path(route.app.directory).resolve() != expected.resolve()
                 or route.app.all_directories != [route.app.directory]
-                or route.app.html or route.app.follow_symlink
+                or route.app.html
+                or route.app.follow_symlink
             ):
                 raise ValueError("Unregistered asset mount")
             assets += 1

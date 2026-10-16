@@ -439,7 +439,9 @@ def backup(args):
                 for row in data["runs"]:
                     if row["status"] in TERMINAL and row.get("audit_status") == "clean":
                         path = plain(folder / (safe_id(row["id"]) + ".lock"))
-                        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+                        fd = os.open(
+                            path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600
+                        )
                         file = evidence_locks.enter_context(os.fdopen(fd, "rb"))
                         require(stat.S_ISREG(os.fstat(fd).st_mode), "nonregular evidence lock")
                         try:
@@ -621,7 +623,13 @@ def restore(args):
         config["master_file"] = str(target / "private/master.key")
         write_json(staging / "state/service.json", config)
         # All original process records removed; this tool never starts anything.
-        for name in ("scheduler.json", "supervisor.lock", "control.lock", "scheduler.wake", "scheduler-stop.json"):
+        for name in (
+            "scheduler.json",
+            "supervisor.lock",
+            "control.lock",
+            "scheduler.wake",
+            "scheduler-stop.json",
+        ):
             (staging / "state" / name).unlink(missing_ok=True)
         result = {
             "format": FORMAT,

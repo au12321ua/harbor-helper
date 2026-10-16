@@ -34,7 +34,6 @@ class Credentials:
         object: Callable[..., dict]
         user: Callable[..., dict]
 
-
     def _master(self, path=None):
         path = Path(path or read_json(self.root / "service.json")["master_file"])
         if path.resolve().is_relative_to(self.root) or path.is_symlink():

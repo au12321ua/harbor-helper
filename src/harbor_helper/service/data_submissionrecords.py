@@ -18,7 +18,6 @@ class SubmissionRecords:
         store: Store
         user: Callable[..., dict]
 
-
     def submission(self, submission_id):
         with self.store.connect() as db:
             row = db.execute("SELECT * FROM submissions WHERE id=?", (submission_id,)).fetchone()

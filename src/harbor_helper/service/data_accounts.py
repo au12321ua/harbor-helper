@@ -29,7 +29,6 @@ class Accounts:
         store: Store
         root: Path
 
-
     @wake_after
     def create_user(self, username, password, role="member"):
         identifier(username)

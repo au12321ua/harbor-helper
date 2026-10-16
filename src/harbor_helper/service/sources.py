@@ -98,7 +98,10 @@ def main():
             raise UnsupportedDatasetError("Dataset-level custom metrics/files unsupported")
         if not cast(str, metadata.version).startswith("sha256:"):
             raise ValueError("Unsupported dataset")
-        tasks = [{"name": t.name, "package": t.get_name(), "ref": t.ref} for t in cast(list[PackageTaskId], metadata.task_ids)]
+        tasks = [
+            {"name": t.name, "package": t.get_name(), "ref": t.ref}
+            for t in cast(list[PackageTaskId], metadata.task_ids)
+        ]
         if not tasks or any(not cast(str, t["ref"]).startswith("sha256:") for t in tasks):
             raise ValueError("Unsupported tasks")
         return {"resolved": metadata.name + "@" + cast(str, metadata.version), "tasks": tasks}

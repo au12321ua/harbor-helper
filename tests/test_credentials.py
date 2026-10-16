@@ -269,7 +269,9 @@ def test_opencode_rejects_wrong_version_after_install(tmp_path):
         exec_as_agent=install,
     )
     with pytest.raises(RuntimeError, match="fixed version"):
-        asyncio.run(HelperOpenCode.install(cast(HelperOpenCode, agent), SimpleNamespace(exec=probe)))
+        asyncio.run(
+            HelperOpenCode.install(cast(HelperOpenCode, agent), SimpleNamespace(exec=probe))
+        )
     decision = json.loads((tmp_path / "install-decision.json").read_text())
     assert not decision["reused"]
     assert decision["actual_version"] == "1.18.34"

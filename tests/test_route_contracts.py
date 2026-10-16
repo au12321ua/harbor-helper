@@ -40,9 +40,25 @@ def test_constructor_rejects_undocumented_sync_and_async(handler):
         ContractRoute("/api/v1/new", handler, methods=["GET"])
 
 
-@pytest.mark.parametrize("defect", ["removed", "renamed", "multi", "prefix", "exempt-path", "exempt-method", "converter", "identity"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "removed",
+        "renamed",
+        "multi",
+        "prefix",
+        "exempt-path",
+        "exempt-method",
+        "converter",
+        "identity",
+    ],
+)
 def test_constructor_rejects_changed_contract(app, monkeypatch, defect):
-    route = next(r for r in registry.browser_routes(app.routes) if getattr(r.endpoint, "__name__", "") == "runs")
+    route = next(
+        r
+        for r in registry.browser_routes(app.routes)
+        if getattr(r.endpoint, "__name__", "") == "runs"
+    )
     handler, path, methods = route.endpoint, route.path, ["GET"]
     if defect == "removed":
         monkeypatch.delitem(BROWSER, "runs")
@@ -53,7 +69,11 @@ def test_constructor_rejects_changed_contract(app, monkeypatch, defect):
     elif defect == "prefix":
         path = "/other"
     else:
-        route = app.routes[-2] if defect == "converter" else next(r for r in app.routes if getattr(r, "path", "") == "/api/v1/health")
+        route = (
+            app.routes[-2]
+            if defect == "converter"
+            else next(r for r in app.routes if getattr(r, "path", "") == "/api/v1/health")
+        )
         handler, path = route.endpoint, route.path
         if defect == "exempt-path":
             path += "/renamed"
@@ -84,6 +104,7 @@ def test_assembly_rejects_every_unsupported_top_level_type(app, escape):
     elif escape == "api":
         app.routes.append(APIRoute("/api/v1/new", endpoint))
     else:
+
         class Unexpected(ContractRoute):
             pass
 
@@ -93,7 +114,19 @@ def test_assembly_rejects_every_unsupported_top_level_type(app, escape):
         registry.browser_routes(app.routes)
 
 
-@pytest.mark.parametrize("defect", ["name", "path", "multi", "unwrapped", "fallback", "missing-browser", "missing-exempt", "unknown"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "name",
+        "path",
+        "multi",
+        "unwrapped",
+        "fallback",
+        "missing-browser",
+        "missing-exempt",
+        "unknown",
+    ],
+)
 def test_assembly_rechecks_bypasses(app, monkeypatch, defect):
     route = registry.browser_routes(app.routes)[0]
     if defect == "name":
@@ -138,7 +171,9 @@ def test_normalization_preserves_converter(app):
     assert registry.browser_routes(app.routes)
 
 
-@pytest.mark.parametrize("defect", ["path", "name", "directory", "app", "duplicate", "html", "symlink"])
+@pytest.mark.parametrize(
+    "defect", ["path", "name", "directory", "app", "duplicate", "html", "symlink"]
+)
 def test_asset_mount_is_exact(app, tmp_path, defect):
     existing = next(r for r in app.routes if type(r) is Mount)
     app.routes.remove(existing)
@@ -187,7 +222,7 @@ def test_export_independently_rejects_bypassed_create_app(app, monkeypatch):
 
 
 def test_runtime_guard_survives_optimized_python(tmp_path):
-    code = '''
+    code = """
 from harbor_helper.service.contract_boundary import ContractRoute
 try:
     ContractRoute('/api/v1/escape', lambda: {'secret': 'never-return'})
@@ -207,8 +242,14 @@ except ValueError:
     pass
 else:
     raise RuntimeError('optimized Python bypassed assembly')
-'''
-    result = subprocess.run([sys.executable, "-O", "-c", code, str(tmp_path)], env=dict(os.environ), capture_output=True, text=True, check=False)
+"""
+    result = subprocess.run(
+        [sys.executable, "-O", "-c", code, str(tmp_path)],
+        env=dict(os.environ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode == 0, result.stderr
 
 

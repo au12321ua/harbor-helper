@@ -52,9 +52,13 @@ async def execute(store, run_id):
 
         trial = SimpleNamespace(config=cfg)
         task = Task(cast("Path", cfg.task.path))
-        sessions = [f"{cfg.trial_name}__env", Trial._separate_verifier_session_id(cast(Trial, trial), "trial")]
+        sessions = [
+            f"{cfg.trial_name}__env",
+            Trial._separate_verifier_session_id(cast(Trial, trial), "trial"),
+        ]
         sessions += [
-            Trial._separate_verifier_session_id(cast(Trial, trial), s.name) for s in task.config.steps or []
+            Trial._separate_verifier_session_id(cast(Trial, trial), s.name)
+            for s in task.config.steps or []
         ]
         projects.extend(_sanitize_docker_compose_project_name(s) for s in sessions)
         trials.append({"trial_name": cfg.trial_name, "task": task.name})

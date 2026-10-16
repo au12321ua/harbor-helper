@@ -199,7 +199,17 @@ def main():
             [".venv/bin/ty", "--version"],
             [".venv/bin/ruff", "check", "src", "tests", "scripts", "tools"],
             [".venv/bin/ruff", "format", "--check", "src", "tests", "scripts", "tools"],
-            [".venv/bin/ty", "check", "--python", ".venv", "--error-on-warning", "src", "tests", "scripts", "tools"],
+            [
+                ".venv/bin/ty",
+                "check",
+                "--python",
+                ".venv",
+                "--error-on-warning",
+                "src",
+                "tests",
+                "scripts",
+                "tools",
+            ],
         ):
             run(command)
         run([".venv/bin/python", "tools/browser_contract.py", "--check"])

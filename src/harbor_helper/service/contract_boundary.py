@@ -49,9 +49,7 @@ def validate_output(name, value, user=None, *, passthrough=False, status_code=20
         name, BROWSER.get(name)
     )
     if model is None:
-        raise ServiceError(
-            "service_unavailable", "Operation could not be completed safely", 503
-        )
+        raise ServiceError("service_unavailable", "Operation could not be completed safely", 503)
     try:
         raw = json.loads(value.body) if isinstance(value, Response) else value
         adapter(model).validate_python(raw, strict=True)

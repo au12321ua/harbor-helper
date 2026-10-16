@@ -17,7 +17,6 @@ class Objects:
     if TYPE_CHECKING:
         store: Store
 
-
     def objects(self, kind):
         with self.store.connect() as db:
             rows = db.execute(

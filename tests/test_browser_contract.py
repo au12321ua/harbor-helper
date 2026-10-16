@@ -107,7 +107,9 @@ def test_export_is_offline_deterministic_and_excludes_non_browser_routes(tmp_pat
     assert all(not r["path"].startswith("/machine") for r in one["routes"])
     assert all(r["operation"] in b.BROWSER for r in one["routes"])
     classified = browser_routes(create_app(tmp_path / "classified", start_scheduler=False).routes)
-    assert {r["operation"] for r in one["routes"]} == {getattr(r.endpoint, "__name__", "") for r in classified}
+    assert {r["operation"] for r in one["routes"]} == {
+        getattr(r.endpoint, "__name__", "") for r in classified
+    }
     checked = json.loads((path.parents[1] / "frontend/contracts.json").read_text())
     assert one == checked
 

@@ -75,7 +75,10 @@ def test_invalid_scheduler_timestamp_is_unknown_and_blocks_admission(data, value
 def test_large_representable_numbers_have_no_arbitrary_ceiling(data):
     value = 10**300
     with data.store.control():
-        assert admission.set_maintenance(data, {"paused": True, "retry_at": value})["retry_at"] == value
+        assert (
+            admission.set_maintenance(data, {"paused": True, "retry_at": value})["retry_at"]
+            == value
+        )
     assert admission.maintenance(data)["retry_at"] == value
     state = read_json(data.root / "scheduler.json")
     write_json(data.root / "scheduler.json", {**state, "observed": value})

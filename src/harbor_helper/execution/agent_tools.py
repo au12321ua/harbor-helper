@@ -91,7 +91,10 @@ def download(cache, version, platform, staging):
             member = tar.getmember("package/bin/opencode")
             if not member.isfile():
                 raise ValueError("Invalid agent executable")
-            with cast("IO[bytes]", tar.extractfile(member)) as src, (export / "opencode").open("wb") as out:
+            with (
+                cast("IO[bytes]", tar.extractfile(member)) as src,
+                (export / "opencode").open("wb") as out,
+            ):
                 shutil.copyfileobj(src, out)
         (export / "opencode").chmod(0o755)
         value = {
