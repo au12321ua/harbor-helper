@@ -66,7 +66,7 @@ try {
   for (const row of accepted) {
     const deadline = Date.now() + 60000;
     let state;
-    do {
+    for (;;) {
       const response = await page.request.get(
         inputs.url + `/api/v1/machine/submissions/${row.id}`,
       );
@@ -75,7 +75,7 @@ try {
       if (state.report.state === "available") break;
       assert(Date.now() < deadline, "bounded browser observation timed out");
       await page.waitForTimeout(100);
-    } while (true);
+    }
     runIds.push(state.run_id);
     await page.goto(inputs.url + `/runs/${state.run_id}`);
     await page.getByRole("tab", { name: "评分报告", exact: true }).click();
