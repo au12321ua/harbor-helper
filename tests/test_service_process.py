@@ -623,3 +623,60 @@ def test_slow_preparation_and_maintenance_leave_control_responsive(processes):
     maintenance.unlink()
     (p.data.root / "worker-hold").unlink()
     assert p.terminal(p.run_id(second))["status"] == "succeeded"
+
+
+@pytest.mark.parametrize("invalidation", ["credential", "member", "provider"])
+def test_full_capacity_rechecks_queued_authorization_on_production_wake(processes, invalidation):
+    p = processes
+    hold = p.data.root / "worker-hold"
+    hold.touch()
+    bob = p.data.create_user("bob", "Fake-process-password-2026")
+
+    def submit_bob(idem):
+        return p.app.accept(bob, {"dataset": "fixture/data@1", "model_profile": "m3"}, idem)
+
+    p.start()  # Fixture reconciliation is 3600s; production mutations must wake it.
+    first = p.run_id(submit_bob("active"))
+    wait(lambda: (p.data.store.path(first) / "boundary.json").exists())
+    original = p.data.store.get(first)
+    rejected = p.run_id(p.submit("m1", "will-lose-authorization"))
+    unaffected = p.run_id(submit_bob("unaffected"))
+    assert p.data.store.get(rejected)["status"] == "queued"
+    assert p.data.store.get(unaffected)["status"] == "queued"
+
+    provider = p.data.object("provider", "p1")
+    if invalidation == "credential":
+        p.data.disable_credential("k1")
+    elif invalidation == "member":
+        p.data.update_user(p.actor["id"], enabled=False)
+    else:
+        p.data.models.save_object("provider", {**provider, "enabled": False})
+    wait(lambda: p.data.store.get(rejected)["status"] == "failed", timeout=4)
+    row = p.data.store.get(rejected)
+    assert row["pid"] is None and row["started"] is None
+    assert row["reason"] == "Execution authorization unavailable; worker not started"
+    path = p.data.store.path(rejected)
+    assert not (path / "boundary.json").exists()
+    assert not (path / "worker.log").exists()
+    assert p.app.usage()["active_jobs"] == 1
+    assert p.data.store.get(first)["pid"] == original["pid"]
+    assert process_birth(original["pid"]) == original["birth"]
+    wait(lambda: p.data.store.get(rejected)["audit_status"] == "clean")
+    report = p.app.safe_report(rejected)
+    assert all(key not in str(report) for key in p.keys)
+
+    if invalidation == "credential":
+        p.data.add_credential("k1", "p1", "restored", p.keys[0], rotate=True)
+    elif invalidation == "member":
+        p.data.update_user(p.actor["id"], enabled=True)
+    else:
+        p.data.models.save_object("provider", {**provider, "enabled": True})
+    restored = p.run_id(p.submit("m1", "restored"))
+    assert p.data.store.get(restored)["status"] == "queued"
+    assert p.data.store.get(unaffected)["status"] == "queued"
+    assert p.data.store.get(rejected)["status"] == "failed"
+    assert p.app.usage()["active_jobs"] == 1
+    hold.unlink()
+    for run_id in (first, unaffected, restored):
+        assert p.terminal(run_id)["status"] == "succeeded"
+    assert p.data.store.get(rejected)["status"] == "failed"

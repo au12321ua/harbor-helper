@@ -599,3 +599,58 @@ def test_scheduler_keeps_capacity_bypass_in_creation_order(store, monkeypatch):
         assert launched == ["small"]
     finally:
         controller.close()
+
+
+def test_full_queue_checks_authorization_after_cancellation_before_capacity(store, monkeypatch):
+    from harbor_helper.execution.scheduler import Controller
+
+    add_run(store, "active", "running")
+    add_run(store, "cancelled")
+    store.update("cancelled", cancel=1)
+    add_run(store, "unauthorized")
+    add_run(store, "valid")
+    monkeypatch.setattr("harbor_helper.execution.scheduler.alive", lambda _: True)
+    checked = []
+
+    def run_key(self, key, execution=False):
+        assert execution
+        checked.append(key)
+        if key == "unauthorized":
+            raise ValueError("secret must not enter failure reason")
+
+    monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", run_key)
+    controller = Controller(store)
+    try:
+        controller.decide()
+        assert checked == ["unauthorized", "valid"]
+        assert store.get("cancelled")["status"] == "cancelled"
+        assert store.get("unauthorized")["status"] == "failed"
+        assert "secret" not in store.get("unauthorized")["reason"]
+        assert store.get("valid")["status"] == "queued"
+    finally:
+        controller.close()
+
+
+def test_launch_rechecks_authorization_after_queue_selection(store, monkeypatch):
+    from harbor_helper.execution.scheduler import Controller
+
+    add_run(store)
+    checked = []
+
+    def run_key(self, key, execution=False):
+        checked.append(key)
+        if len(checked) == 2:
+            raise ValueError("authorization changed before launch")
+        return "ephemeral-key"
+
+    monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", run_key)
+    controller = Controller(store)
+    try:
+        controller.decide()
+        assert checked == ["hh-test", "hh-test"]
+        row = store.get("hh-test")
+        assert row["status"] == "failed"
+        assert row["pid"] is None and row["started"] is None
+        assert not (store.path("hh-test") / "worker.log").exists()
+    finally:
+        controller.close()

@@ -166,6 +166,8 @@ class Controller:
                                 reason="Cancelled while queued",
                             )
                             notify(store.root)
+                        elif not self.authorized(row):
+                            continue
                         elif (
                             len(active) < team["max_jobs"]
                             and slots + row["concurrency"] <= team["max_trials"]
@@ -231,6 +233,27 @@ class Controller:
         elif self.available(self.cleaning, key):
             self.cleaning.submit(key, cleanup, path)
 
+    def fail_authorization(self, key):
+        self.store.update(
+            key,
+            status=status.FAILED,
+            finished=time.time(),
+            reason="Execution authorization unavailable; worker not started",
+        )
+        notify(self.store.root)
+
+    def authorized(self, row):
+        from harbor_helper.service.data import ServiceData
+
+        try:
+            # Check every queued candidate before capacity selection. Discard the
+            # key here; launch must obtain current authorization again.
+            ServiceData(self.store.root).run_key(row["id"], execution=True)
+        except ValueError:
+            self.fail_authorization(row["id"])
+            return False
+        return True
+
     def launch(self, row):
         from harbor_helper.security.credentials import KEY_ENV
         from harbor_helper.service.data import ServiceData
@@ -242,13 +265,7 @@ class Controller:
             if credential:
                 environment[KEY_ENV] = credential
         except ValueError:
-            store.update(
-                key,
-                status=status.FAILED,
-                finished=time.time(),
-                reason="Execution authorization unavailable; worker not started",
-            )
-            notify(store.root)
+            self.fail_authorization(key)
             return False
         store.update(key, status=status.STARTING, started=time.time())
         with (store.path(key) / "worker.log").open("a") as log:
