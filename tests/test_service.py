@@ -524,7 +524,7 @@ def test_compare_json_rejects_run_paths_without_external_lock_writes(
 
 
 @pytest.mark.parametrize(
-    "damage", ["missing", "utf8", "json", "field", "type", "binding", "surrogate"]
+    "damage", ["missing", "utf8", "json", "field", "dataset", "type", "binding", "surrogate"]
 )
 def test_damaged_manifest_observation_is_local_and_preserves_contract(data, preparation, damage):
 
@@ -554,6 +554,10 @@ def test_damaged_manifest_observation_is_local_and_preserves_contract(data, prep
         manifest.write_text('{"fixture-private-marker":')
     elif damage == "field":
         write_json(manifest, {"effective": {}, "service": {"name": "fixture-private-marker"}})
+    elif damage == "dataset":
+        value = read_json(manifest)
+        del value["effective"]["dataset"]
+        write_json(manifest, value)
     elif damage == "type":
         manifest.write_text("null")
     else:

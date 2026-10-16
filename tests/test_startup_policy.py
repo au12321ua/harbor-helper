@@ -173,7 +173,10 @@ def test_legacy_safe_report_enrichment_is_read_only(tmp_path):
     run = "hh-legacy"
     folder = data.root / "runs" / run
     folder.mkdir(parents=True)
-    write_json(folder / "manifest.json", {"effective": {"agent": "oracle", "wall_seconds": 600}})
+    write_json(
+        folder / "manifest.json",
+        {"effective": {"agent": "oracle", "dataset": "fixture/data@1", "wall_seconds": 600}},
+    )
     write_json(
         folder / "report.json",
         {
