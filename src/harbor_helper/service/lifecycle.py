@@ -30,7 +30,9 @@ def prepare_one(store):
         return
     row = data.submission(ids[0])
     run_id = row["target_id"]
-    if any(r["id"] == run_id for r in store.runs()):
+    with store.connect() as db:
+        published = db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone()
+    if published:
         with store.control(), store.connect() as db:
             db.execute(
                 f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?",

@@ -43,6 +43,7 @@ def test_endpoint_refuses_wrong_type_or_permissions(tmp_path, kind):
         path.symlink_to(tmp_path / "target")
     else:
         os.mkfifo(path, 0o644)
+        path.chmod(0o644)
     notify(tmp_path)
     with pytest.raises(ValueError, match="FIFO"):
         Mailbox(tmp_path)

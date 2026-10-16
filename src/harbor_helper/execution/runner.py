@@ -87,6 +87,7 @@ def run(root, run_id):
                 break
             time.sleep(0.1)
         else:
+            print("Worker ownership handshake expired; execution not started", flush=True)
             return
         secrets = runtime_secrets()
         sys.stdout = RedactedStream(sys.stdout, secrets)

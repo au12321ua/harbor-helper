@@ -386,12 +386,13 @@ def scheduler_identity(store):
 
 def stop_supervisor(store, timeout=10):
     from harbor_helper.execution.processes import process_birth
-    from harbor_helper.persistence.store import TERMINAL
 
     with store.control():
-        if any(row["status"] not in TERMINAL for row in store.runs()):
-            raise ValueError("Only stop idle scheduler; cancel/wait for all tasks first")
         with store.connect() as db:
+            if db.execute(
+                "SELECT 1 FROM runs WHERE status IN ('queued','starting','running','cancelling','cleanup_blocked') LIMIT 1"
+            ).fetchone():
+                raise ValueError("Only stop idle scheduler; cancel/wait for all tasks first")
             if db.execute("SELECT 1 FROM submissions WHERE status='preparing' LIMIT 1").fetchone():
                 raise ValueError("Input preparation active; wait before stopping scheduler")
         identity = scheduler_identity(store)

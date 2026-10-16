@@ -356,6 +356,9 @@ def test_snapshot_evidence_lock_defers_without_holding_control(processes, tmp_pa
             ops.backup(
                 backup_args(p.data.root.parent, tmp_path.parent / (tmp_path.name + "-backup-busy"))
             )
+        admin = next(u for u in p.data.users() if u["role"] == "admin")
+        with pytest.raises(ValueError, match="Evidence maintenance"):
+            p.app.delete_artifact(admin, run_id, "fixture-file")
         with (p.data.root / "control.lock").open("a") as lock:
             __import__("fcntl").flock(
                 lock, __import__("fcntl").LOCK_EX | __import__("fcntl").LOCK_NB

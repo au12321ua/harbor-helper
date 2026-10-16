@@ -319,6 +319,9 @@ def test_hard_worker_missing_key_releases_capacity_other_key_proceeds(processes)
     hold.unlink()
     assert p.terminal(next_id)["status"] == "succeeded"
     assert p.app.usage()["active_jobs"] == 0
+    from harbor_helper.execution.runs import stop_supervisor
+
+    assert stop_supervisor(p.data.store)["confirmed"]
 
 
 def test_wake_before_long_reconcile_capacity_and_live_worker_adoption(processes):
@@ -408,6 +411,9 @@ def test_unregistered_worker_handshake_refuses_execution(processes):
     try:
         wait(lambda: process_birth(identity["pid"]) != identity["birth"], timeout=13)
         assert not (p.data.store.path(run_id) / "boundary.json").exists()
+        assert (
+            "ownership handshake expired" in (p.data.store.path(run_id) / "worker.log").read_text()
+        )
         p.start()
         assert p.terminal(run_id)["status"] == "failed"
     finally:
@@ -566,3 +572,54 @@ def test_slow_termination_has_a_slot_for_each_existing_worker(processes):
     hold.unlink()
     assert p.terminal(first)["status"] == "cancelled"
     assert p.terminal(second)["status"] == "cancelled"
+
+
+def test_cleanup_blocked_retries_persistent_cancel_and_holds_capacity(processes):
+    from harbor_helper.persistence.wakeup import notify
+
+    p = processes
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    first = p.run_id(p.submit())
+    wait(lambda: (p.data.store.path(first) / "boundary.json").exists())
+    blocked = p.data.store.path(first) / "resource-blocked"
+    blocked.touch()
+    p.app.cancel_run(p.actor, first)
+    wait(lambda: p.data.store.get(first)["status"] == "cleanup_blocked")
+    second = p.run_id(p.submit("m2", "queued-during-block"))
+    assert p.data.store.get(second)["status"] == "queued"
+    assert p.app.usage()["active_jobs"] == 1
+    p.kill_scheduler()
+    p.start()
+    assert p.data.store.get(first)["finish_status"] == "cancelled"
+    blocked.unlink()
+    notify(p.data.root)
+    wait(lambda: p.data.store.get(first)["status"] == "cancelled")
+    wait(lambda: (p.data.store.path(second) / "boundary.json").exists())
+    (p.data.root / "worker-hold").unlink()
+    assert p.terminal(second)["status"] == "succeeded"
+
+
+def test_slow_preparation_and_maintenance_leave_control_responsive(processes):
+    p = processes
+    maintenance = p.data.root / "maintenance-hold"
+    preparation = p.data.root / "prepare-hold"
+    maintenance.touch()
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    first = p.run_id(p.submit())
+    wait(lambda: (p.data.store.path(first) / "boundary.json").exists())
+    preparation.touch()
+    second = p.submit("m2", "slow-prepare")
+    time.sleep(0.3)
+    assert p.data.submission(second["id"])["status"] == "preparing"
+    heartbeat = read_json(p.data.root / "scheduler.json")["observed"]
+    p.app.cancel_run(p.actor, first)
+    wait(lambda: not process_birth(p.data.store.get(first)["pid"]), timeout=4)
+    assert p.terminal(first)["status"] == "cancelled"
+    wait(lambda: read_json(p.data.root / "scheduler.json")["observed"] > heartbeat)
+    assert preparation.exists() and maintenance.exists()
+    preparation.unlink()
+    maintenance.unlink()
+    (p.data.root / "worker-hold").unlink()
+    assert p.terminal(p.run_id(second))["status"] == "succeeded"

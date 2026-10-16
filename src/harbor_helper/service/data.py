@@ -58,6 +58,7 @@ class ServiceData(Accounts, Objects, Credentials, Capacity, SubmissionRecords):
                     run_id TEXT, status TEXT NOT NULL, created REAL NOT NULL, error TEXT,
                     cancel INTEGER NOT NULL DEFAULT 0, parent TEXT,
                     UNIQUE(user_id,operation,idem));
+                CREATE INDEX IF NOT EXISTS submissions_work ON submissions(status,created);
                 CREATE TABLE IF NOT EXISTS bundles (
                     id TEXT PRIMARY KEY, digest TEXT NOT NULL, created REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS attachments (
