@@ -254,3 +254,79 @@ def test_cleanup_detached_exact_marker_preserves_unrelated(tmp_path):
             if process.poll() is None:
                 process.send_signal(signal.SIGTERM)
             process.wait(timeout=5)
+
+
+@pytest.mark.parametrize(
+    ("command", "relative"),
+    [
+        ("backup", "state/service.json"),
+        ("backup", "http.json"),
+        ("backup", "state/control.lock"),
+        ("check", "http.json"),
+        ("check", "state/scheduler.json"),
+        ("check", "state/queue.sqlite"),
+    ],
+)
+def test_cli_refuses_fifo_inputs_without_blocking(tmp_path, command, relative):
+    base = tmp_path / "instance"
+    state = base / "state"
+    state.mkdir(parents=True, mode=0o700)
+    master = base / "master.key"
+    master.write_bytes(b"x" * 32)
+    master.chmod(0o600)
+    (state / "service.json").write_text(json.dumps({"master_file": str(master)}))
+    (state / "control.lock").touch()
+    special = base / relative
+    special.unlink(missing_ok=True)
+    os.mkfifo(special, 0o600)
+    output = tmp_path / "backups"
+    args = [sys.executable, str(REPO / "scripts/ops.py"), command, "--directory", str(base)]
+    if command == "backup":
+        args += ["--output", str(output), "--release", SHA, "--kind", "online"]
+    # The timeout is a regression guard only: the CLI must exit on its own.
+    result = subprocess.run(args, capture_output=True, text=True, timeout=2, check=False)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {
+        "status": "failed",
+        "error_type": "NonregularFileError",
+        "reason": "nonregular file refused",
+    }
+    assert not result.stderr
+    assert special.is_fifo()
+    assert not list(output.glob("snapshot-*/manifest.json"))
+    assert not list(output.glob("*.master"))
+
+
+def test_json_reader_refuses_fifo_replaced_during_open(tmp_path):
+    source = tmp_path / "record.json"
+    source.write_text("{}")
+    # Exercise a real path replacement after lstat, rather than mocking fstat
+    # or the resulting failure. A blocking open would time out this child.
+    script = """
+import os
+import sys
+sys.path.insert(0, sys.argv[1])
+import ops
+path = ops.Path(sys.argv[2])
+original = os.open
+def replace_then_open(target, flags):
+    path.unlink()
+    os.mkfifo(path, 0o600)
+    return original(target, flags)
+os.open = replace_then_open
+try:
+    ops.read_json(path)
+except ops.NonregularFileError:
+    print("replacement FIFO refused")
+else:
+    raise AssertionError("replacement FIFO accepted")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(REPO / "scripts"), str(source)],
+        capture_output=True,
+        text=True,
+        timeout=2,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "replacement FIFO refused"

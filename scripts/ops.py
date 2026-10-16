@@ -36,8 +36,27 @@ def plain(path):
     return path
 
 
+class NonregularFileError(ValueError):
+    """Invalid local input must fail the command rather than appear merely unknown."""
+
+
+@contextmanager
+def regular_reader(path):
+    path = plain(path)
+    # Reject special files before opening (including devices). NONBLOCK and fstat
+    # also cover replacement with a FIFO between the path check and open.
+    if not stat.S_ISREG(path.lstat().st_mode):
+        raise NonregularFileError("nonregular file refused")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as file:
+        if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+            raise NonregularFileError("nonregular file refused")
+        yield file
+
+
 def read_json(path):
-    return json.loads(plain(path).read_text())
+    with regular_reader(path) as file:
+        return json.load(file)
 
 
 def write_json(path, data):
@@ -51,9 +70,7 @@ def write_json(path, data):
 
 
 def digest(path):
-    fd = os.open(plain(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as file:
-        require(stat.S_ISREG(os.fstat(file.fileno()).st_mode), "nonregular file refused")
+    with regular_reader(path) as file:
         return hashlib.file_digest(file, "sha256").hexdigest()
 
 
@@ -69,8 +86,7 @@ def inventory(root):
 
 def key_bytes(path):
     path = plain(path)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as file:
+    with regular_reader(path) as file:
         meta = os.fstat(file.fileno())
         require(
             stat.S_ISREG(meta.st_mode)
@@ -86,7 +102,7 @@ def key_bytes(path):
 @contextmanager
 def ro_db(state):
     path = plain(state / "queue.sqlite")
-    with path.open("rb") as header:
+    with regular_reader(path) as header:
         prefix = header.read(20)
     require(
         prefix[:16] == b"SQLite format 3\0" and prefix[18:20] == b"\1\1",
@@ -222,6 +238,8 @@ def identity(path, state, http=False):
                 time.time() - heartbeat if type(heartbeat) in (int, float) else None
             )
         return result
+    except NonregularFileError:
+        raise
     except (OSError, ValueError, KeyError, TypeError):
         return {"state": "unknown", "reason": "identity_unavailable"}
 
@@ -254,6 +272,8 @@ def inspect(base, backup_directory=None):
             result["api"] = {
                 k: data[k] if type(data.get(k)) is bool else "unknown" for k in ("alive", "ready")
             }
+        except NonregularFileError:
+            raise
         except (OSError, ValueError, KeyError):
             pass
     try:
@@ -261,6 +281,8 @@ def inspect(base, backup_directory=None):
             result["runs"] = {
                 r[0]: r[1] for r in db.execute("SELECT status,count(*) FROM runs GROUP BY status")
             }
+    except NonregularFileError:
+        raise
     except (sqlite3.Error, ValueError, OSError):
         result["database"] = "unknown/unsupported"
     completed = []
@@ -270,6 +292,8 @@ def inspect(base, backup_directory=None):
                 manifest = read_json(p)
                 if manifest.get("format") == FORMAT and manifest.get("completed"):
                     completed.append(manifest["created"])
+            except NonregularFileError:
+                raise
             except (OSError, ValueError, KeyError):
                 pass
     result["backup_age_seconds"] = time.time() - max(completed) if completed else None
@@ -278,19 +302,16 @@ def inspect(base, backup_directory=None):
 
 @contextmanager
 def control(state, timeout):
-    fd = os.open(plain(state / "control.lock"), os.O_RDONLY | os.O_NOFOLLOW)
-    deadline = time.monotonic() + timeout
-    try:
+    with regular_reader(state / "control.lock") as file:
+        deadline = time.monotonic() + timeout
         while True:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
                 require(time.monotonic() < deadline, "deferred: control lock timeout")
                 time.sleep(0.05)
         yield
-    finally:
-        os.close(fd)
 
 
 def writers(base, db_data):
