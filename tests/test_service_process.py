@@ -680,3 +680,65 @@ def test_full_capacity_rechecks_queued_authorization_on_production_wake(processe
     for run_id in (first, unaffected, restored):
         assert p.terminal(run_id)["status"] == "succeeded"
     assert p.data.store.get(rejected)["status"] == "failed"
+
+
+@pytest.mark.parametrize("damage", ["missing", "json", "field", "type", "directory"])
+def test_damaged_queued_input_does_not_block_following_worker_or_cancel(processes, damage):
+    from harbor_helper.persistence.wakeup import notify
+
+    p = processes
+    hold = p.data.root / "worker-hold"
+    hold.touch()
+    p.start()  # Reconciliation is 3600s; use real FIFO notifications.
+    active = p.run_id(p.submit("m1", "active"))
+    wait(lambda: (p.data.store.path(active) / "boundary.json").exists())
+    broken = p.run_id(p.submit("m1", "broken"))
+    healthy = p.run_id(p.submit("m2", "healthy"))
+    cancelled = p.run_id(p.submit("m3", "cancelled"))
+    assert p.data.store.get(broken)["status"] == "queued"
+    assert p.data.store.get(healthy)["status"] == "queued"
+    observed = read_json(p.data.root / "scheduler.json")["observed"]
+    folder = p.data.store.path(broken)
+    manifest = folder / "manifest.json"
+    if damage in {"missing", "directory"}:
+        manifest.unlink()
+        if damage == "directory":
+            manifest.mkdir()
+    elif damage == "json":
+        manifest.write_text('{"fixture-secret-path-key":')
+    elif damage == "field":
+        manifest.write_text('{"service": {}, "effective": {}}')
+    else:
+        manifest.write_text("null")
+    notify(p.data.root)
+    p.app.cancel_run(p.actor, cancelled)
+    wait(lambda: p.data.store.get(broken)["status"] == "failed", timeout=4)
+    wait(lambda: p.data.store.get(cancelled)["status"] == "cancelled", timeout=4)
+    wait(lambda: read_json(p.data.root / "scheduler.json")["observed"] > observed, timeout=4)
+    row = p.data.store.get(broken)
+    assert row["pid"] is None and row["started"] is None
+    assert row["audit_status"] == "incomplete"
+    assert row["reason"] == "Queued execution input unavailable; worker not started"
+    assert not (folder / "boundary.json").exists()
+    active_rows = [
+        r
+        for r in p.data.store.runs()
+        if r["status"] in {"starting", "running", "cancelling", "cleanup_blocked"}
+    ]
+    assert [r["id"] for r in active_rows] == [active]
+    assert sum(r["concurrency"] for r in active_rows) == 1
+    assert p.data.store.get(healthy)["status"] == "queued"
+    with pytest.raises((ServiceError, ValueError, OSError, KeyError, TypeError, AttributeError)):
+        p.app.safe_report(broken)
+    hold.unlink()
+    assert p.terminal(active)["status"] == "succeeded"
+    assert p.terminal(healthy)["status"] == "succeeded"
+    row = p.data.store.get(healthy)
+    assert row["started"] is not None and row["pid"] is not None
+    assert (p.data.store.path(healthy) / "boundary.json").exists()
+    assert p.data.store.get(broken)["status"] == "failed"
+    output = (p.cwd.parent / "supervisor-output.log").read_text()
+    assert "Scheduler error:" not in output
+    assert "fixture-secret-path-key" not in output
+    assert str(folder) not in output
+    assert all(key not in output for key in p.keys)

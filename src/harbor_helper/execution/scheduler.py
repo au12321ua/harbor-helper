@@ -1,6 +1,8 @@
 """Single decision owner, durable work, FIFO wake hints and bounded slow lanes."""
 
+import errno
 import fcntl
+import json
 import os
 import queue
 import selectors
@@ -27,6 +29,13 @@ HEARTBEAT_SECONDS = 2
 ACTIVE_SECONDS = 1
 RETRY_SECONDS = 5
 MAINTENANCE_SECONDS = 30
+
+
+def audit_pending(store, row):
+    # Path inspection belongs to this record's bounded lane too. A damaged path
+    # must not abort the next controller pass after a queued failure was recorded.
+    if not (store.path(row["id"]) / "archived.json").exists():
+        return audit_finished(store, row)
 
 
 class Lane:
@@ -175,12 +184,8 @@ class Controller:
                             if self.launch(row):
                                 active.append(row)
                                 slots += row["concurrency"]
-                    elif (
-                        row["status"] in TERMINAL
-                        and self.available(self.auditing, row["id"])
-                        and not (store.path(row["id"]) / "archived.json").exists()
-                    ):
-                        self.auditing.submit(row["id"], audit_finished, store, row)
+                    elif row["status"] in TERMINAL and self.available(self.auditing, row["id"]):
+                        self.auditing.submit(row["id"], audit_pending, store, row)
                 # Queued cancellation/authorization failures require an audit pass.
                 # Wake once after state changes rather than wait for reconciliation.
                 with store.connect() as db:
@@ -242,33 +247,84 @@ class Controller:
         )
         notify(self.store.root)
 
-    def authorized(self, row):
-        from harbor_helper.service.data import ServiceData
+    def fail_input(self, key):
+        # No process has been reserved or started. Unavailable input is terminal,
+        # while its evidence remains withheld and may be audited after repair.
+        self.store.update(
+            key,
+            status=status.FAILED,
+            finished=time.time(),
+            reason="Queued execution input unavailable; worker not started",
+            audit_status=status.INCOMPLETE,
+            audit_reason="Evidence audit incomplete; affected logs and artifacts withheld",
+        )
+        notify(self.store.root)
 
-        try:
-            # Check every queued candidate before capacity selection. Discard the
-            # key here; launch must obtain current authorization again.
-            ServiceData(self.store.root).run_key(row["id"], execution=True)
-        except ValueError:
-            self.fail_authorization(row["id"])
+    def local_input_error(self, row, error):
+        # Only expected per-run file failures are record-local. Resource exhaustion,
+        # I/O failures and errors opening global configuration must reach supervision.
+        if error.errno not in {
+            errno.ENOENT,
+            errno.ENOTDIR,
+            errno.EISDIR,
+            errno.EACCES,
+            errno.EPERM,
+            errno.ELOOP,
+        }:
             return False
-        return True
+        if error.filename is None:
+            return False
+        path = Path(error.filename).absolute()
+        return path.is_relative_to(self.store.root / "runs" / row["id"])
 
-    def launch(self, row):
+    def execution_environment(self, row):
         from harbor_helper.security.credentials import KEY_ENV
         from harbor_helper.service.data import ServiceData
 
-        store, key = self.store, row["id"]
+        # Initialization and SQLite failures are global, outside the input boundary.
+        data = ServiceData(self.store.root)
         environment = safe_environment()
         try:
-            credential = ServiceData(store.root).run_key(key, execution=True)
-            if credential:
-                environment[KEY_ENV] = credential
+            credential = data.run_key(row["id"], execution=True)
+        except (json.JSONDecodeError, UnicodeError, KeyError, TypeError, AttributeError):
+            self.fail_input(row["id"])
+            return None
         except ValueError:
-            self.fail_authorization(key)
+            self.fail_authorization(row["id"])
+            return None
+        except OSError as error:
+            if not self.local_input_error(row, error):
+                raise
+            self.fail_input(row["id"])
+            return None
+        if credential:
+            environment[KEY_ENV] = credential
+        return environment
+
+    def authorized(self, row):
+        # Discard this environment immediately; launch obtains current authorization
+        # again, with the same record-local failure boundary.
+        return self.execution_environment(row) is not None
+
+    def launch(self, row):
+        store, key = self.store, row["id"]
+        environment = self.execution_environment(row)
+        if environment is None:
             return False
-        store.update(key, status=status.STARTING, started=time.time())
-        with (store.path(key) / "worker.log").open("a") as log:
+        try:
+            log = (store.path(key) / "worker.log").open("a")
+        except ValueError:
+            self.fail_input(key)
+            return False
+        except OSError as error:
+            if not self.local_input_error(row, error):
+                raise
+            self.fail_input(key)
+            return False
+        with log:
+            # Opening the per-run log can fail independently of authorization.
+            # Reserve capacity only after all pre-spawn record reads have succeeded.
+            store.update(key, status=status.STARTING, started=time.time())
             child = subprocess.Popen(
                 [
                     sys.executable,

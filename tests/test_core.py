@@ -654,3 +654,105 @@ def test_launch_rechecks_authorization_after_queue_selection(store, monkeypatch)
         assert not (store.path("hh-test") / "worker.log").exists()
     finally:
         controller.close()
+
+
+@pytest.mark.parametrize("phase", ["queue", "launch"])
+@pytest.mark.parametrize("damage", ["missing", "permission", "json", "field", "type", "shape"])
+def test_scheduler_isolates_record_input_errors_at_both_authorization_checks(
+    store, monkeypatch, phase, damage
+):
+    import errno
+
+    from harbor_helper.execution.scheduler import Controller
+
+    folder, _ = add_run(store)
+    checked = []
+    errors = {
+        "missing": FileNotFoundError(errno.ENOENT, "secret", str(folder / "manifest.json")),
+        "permission": PermissionError(errno.EACCES, "secret", str(folder / "manifest.json")),
+        "json": json.JSONDecodeError("secret", "secret", 0),
+        "field": KeyError("secret"),
+        "type": TypeError("secret"),
+        "shape": AttributeError("secret"),
+    }
+
+    def run_key(self, key, execution=False):
+        checked.append(key)
+        if phase == "queue" or len(checked) == 2:
+            raise errors[damage]
+        return "ephemeral-key"
+
+    monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", run_key)
+    controller = Controller(store)
+    try:
+        controller.decide()
+        assert len(checked) == (1 if phase == "queue" else 2)
+        row = store.get("hh-test")
+        assert row["status"] == "failed" and row["audit_status"] == "incomplete"
+        assert row["pid"] is None and row["started"] is None
+        assert "secret" not in row["reason"] and "secret" not in row["audit_reason"]
+        assert not (folder / "worker.log").exists()
+        controller.decide()  # A subsequent pass must also keep making progress.
+    finally:
+        controller.close()
+
+
+def test_scheduler_log_open_failure_does_not_reserve_capacity(store, monkeypatch):
+    from harbor_helper.execution.scheduler import Controller
+
+    folder, _ = add_run(store)
+    (folder / "worker.log").mkdir()
+    add_run(store, "next")
+    launched = []
+    monkeypatch.setattr(
+        "harbor_helper.execution.scheduler.subprocess.Popen",
+        lambda argv, **kwargs: (
+            launched.append(argv[-1]) or SimpleNamespace(pid=999999, wait=lambda: None)
+        ),
+    )
+    controller = Controller(store)
+    try:
+        controller.decide()
+        row = store.get("hh-test")
+        assert row["status"] == "failed"
+        assert row["started"] is None and row["pid"] is None
+        assert row["audit_status"] == "incomplete"
+        assert launched == ["next"]
+        assert store.get("next")["status"] == "running"
+    finally:
+        controller.close()
+
+
+@pytest.mark.parametrize("failure", ["sqlite", "io", "fds", "global_file", "initialization"])
+def test_scheduler_does_not_reclassify_global_failures_as_bad_runs(store, monkeypatch, failure):
+    import errno
+
+    from harbor_helper.execution.scheduler import Controller
+
+    folder, _ = add_run(store)
+    errors = {
+        "sqlite": sqlite3.OperationalError("database unavailable"),
+        "io": OSError(errno.EIO, "disk unavailable", str(folder / "manifest.json")),
+        "fds": OSError(errno.EMFILE, "file descriptors exhausted", str(folder / "manifest.json")),
+        "global_file": FileNotFoundError(
+            errno.ENOENT, "missing global file", str(store.root / "service.json")
+        ),
+        "initialization": ValueError("global initialization unavailable"),
+    }
+
+    def fail(*args, **kwargs):
+        raise errors[failure]
+
+    if failure == "initialization":
+        monkeypatch.setattr("harbor_helper.service.data.ServiceData.__init__", fail)
+    else:
+        monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", fail)
+    controller = Controller(store)
+    try:
+        with pytest.raises(type(errors[failure])):
+            controller.decide()
+        row = store.get("hh-test")
+        assert row["status"] == "queued"
+        assert row["started"] is None and row["pid"] is None
+    finally:
+        controller.close()
