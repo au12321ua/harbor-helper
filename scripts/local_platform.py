@@ -26,8 +26,7 @@ from harbor_helper.execution.runs import stop_supervisor
 root = Path(sys.argv[1])
 if (root / 'service.json').is_file():
     store = Store(root)
-    with store.control():
-        print(stop_supervisor(store))
+    print(stop_supervisor(store))
 else:
     print('Scheduler: not initialized')
 """

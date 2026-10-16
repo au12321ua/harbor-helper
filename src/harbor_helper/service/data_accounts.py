@@ -9,6 +9,7 @@ import uuid
 from argon2.exceptions import Argon2Error
 
 from harbor_helper.persistence.files import read_json
+from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.security.passwords import PASSWORDS
 from harbor_helper.service.primitives import (
     ServiceError,
@@ -18,6 +19,7 @@ from harbor_helper.service.primitives import (
 
 
 class Accounts:
+    @wake_after
     def create_user(self, username, password, role="member"):
         identifier(username)
         if (
@@ -54,6 +56,7 @@ class Accounts:
             raise ServiceError("unknown_user", "Account not found", 404)
         return public_user(row)
 
+    @wake_after
     def update_user(self, user_id, enabled=None, password=None):
         user = self.user(user_id)
         with self.store.connect() as db:

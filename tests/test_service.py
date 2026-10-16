@@ -465,3 +465,21 @@ def test_compare_api_startup_conditions(data, preparation, left, right, comparab
         )
         assert value["mean_task_delta"] is None
     assert manifests == [(data.store.path(run) / "manifest.json").read_bytes() for run in runs]
+
+
+def test_pruning_merges_submission_accepted_during_dependency_inspection(
+    data, preparation, monkeypatch
+):
+    original = data.dependencies
+    accepted = []
+
+    def snapshot_with_race():
+        refs = original()
+        accepted.append(accept_model(data, key="pruning-race"))
+        data.add_credential("k1", "p1", "Key 1", "fake-new-key-2026", rotate=True)
+        return refs
+
+    monkeypatch.setattr(data, "dependencies", snapshot_with_race)
+    assert data.prune_credentials()["pruned_versions"] == 0
+    assert accepted
+    assert data.credential("k1", 1)

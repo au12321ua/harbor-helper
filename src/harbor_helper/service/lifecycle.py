@@ -109,20 +109,21 @@ def maintenance(store):
             or not row["finished"]
         ):
             continue
-        path = store.path(row["id"])
-        age = time.time() - row["finished"]
-        if age > limits["artifact_retention_days"] * 86400:
-            for folder in (path / "harbor").glob("*/*/artifacts"):
-                if folder.is_dir() and not folder.is_symlink():
-                    shutil.rmtree(folder)
-        if age > limits["log_retention_days"] * 86400 and not (path / "archived.json").exists():
-            report = Evidence(data).safe_report(row["id"])
-            if report:
-                write_json(path / "safe-report.json", report)
-            shutil.rmtree(path / "harbor", ignore_errors=True)
-            (path / "worker.log").unlink(missing_ok=True)
-            write_json(
-                path / "archived.json",
-                {"time": time.time(), "reason": "Configured raw evidence retention"},
-            )
+        with store.evidence(row["id"]):
+            path = store.path(row["id"])
+            age = time.time() - row["finished"]
+            if age > limits["artifact_retention_days"] * 86400:
+                for folder in (path / "harbor").glob("*/*/artifacts"):
+                    if folder.is_dir() and not folder.is_symlink():
+                        shutil.rmtree(folder)
+            if age > limits["log_retention_days"] * 86400 and not (path / "archived.json").exists():
+                report = Evidence(data).safe_report(row["id"])
+                if report:
+                    write_json(path / "safe-report.json", report)
+                shutil.rmtree(path / "harbor", ignore_errors=True)
+                (path / "worker.log").unlink(missing_ok=True)
+                write_json(
+                    path / "archived.json",
+                    {"time": time.time(), "reason": "Configured raw evidence retention"},
+                )
     data.prune_credentials()

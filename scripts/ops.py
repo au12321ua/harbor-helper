@@ -17,7 +17,7 @@ import sys
 import time
 import urllib.request
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -424,7 +424,7 @@ def backup(args):
         master_path = plain(service["master_file"])
         require(not master_path.is_relative_to(state), "master must be outside state")
         master = key_bytes(master_path)
-        with control(state, args.lock_timeout):
+        with control(state, args.lock_timeout), ExitStack() as evidence_locks:
             data = validate_db(state, master)
             if args.kind == "offline":
                 observed_writers = writers(base, data)
@@ -432,6 +432,20 @@ def backup(args):
                     not observed_writers,
                     "busy/unknown: state writers have not exited " + json.dumps(observed_writers),
                 )
+            if args.kind == "online":
+                # Never wait for a long archive/audit while holding global control.
+                folder = plain(state / "evidence-locks")
+                folder.mkdir(mode=0o700, exist_ok=True)
+                for row in data["runs"]:
+                    if row["status"] in TERMINAL and row.get("audit_status") == "clean":
+                        path = plain(folder / (safe_id(row["id"]) + ".lock"))
+                        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+                        file = evidence_locks.enter_context(os.fdopen(fd, "rb"))
+                        require(stat.S_ISREG(os.fstat(fd).st_mode), "nonregular evidence lock")
+                        try:
+                            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            raise ValueError("deferred: run evidence busy") from None
             snapshot = target / "state"
             snapshot.mkdir(mode=0o700)
             with ro_db(state) as source, sqlite3.connect(snapshot / "queue.sqlite") as dest:
@@ -477,6 +491,9 @@ def backup(args):
                     "control.lock",
                     "scheduler.json",
                     "supervisor.lock",
+                    "scheduler.wake",
+                    "scheduler-stop.json",
+                    "evidence-locks",
                 } | set(config_names)
                 for path in state.iterdir():
                     if path.name not in excluded:
@@ -604,7 +621,7 @@ def restore(args):
         config["master_file"] = str(target / "private/master.key")
         write_json(staging / "state/service.json", config)
         # All original process records removed; this tool never starts anything.
-        for name in ("scheduler.json", "supervisor.lock", "control.lock"):
+        for name in ("scheduler.json", "supervisor.lock", "control.lock", "scheduler.wake", "scheduler-stop.json"):
             (staging / "state" / name).unlink(missing_ok=True)
         result = {
             "format": FORMAT,

@@ -2,6 +2,7 @@
 
 import json
 
+from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.service.primitives import (
     ServiceError,
     public_object,
@@ -30,6 +31,7 @@ class Objects:
             raise ServiceError("unknown_configuration", "Configuration not found", 404)
         return public_object(row)
 
+    @wake_after
     def save_version(self, kind, value):
         object_id = value["id"]
         with self.store.connect() as db:

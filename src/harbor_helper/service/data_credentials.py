@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from harbor_helper.persistence.files import read_json
 from harbor_helper.persistence.store import TERMINAL
+from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.service.primitives import (
     ServiceError,
     identifier,
@@ -63,6 +64,7 @@ class Credentials:
             ]
         return [self.credential(i) for i in ids]
 
+    @wake_after
     def add_credential(self, credential_id, provider_id, label, key, rotate=False):
         identifier(credential_id)
         self.object("provider", provider_id)
@@ -94,6 +96,7 @@ class Credentials:
             )
         return self.credential(credential_id)
 
+    @wake_after
     def disable_credential(self, credential_id):
         self.credential(credential_id)
         with self.store.connect() as db:
@@ -199,10 +202,30 @@ class Credentials:
         return refs
 
     def prune_credentials(self):
+        # File inspection stays outside the write transaction/control path. Merge
+        # durable submissions again inside the transaction: a preparation may
+        # have been accepted/published while the archive snapshot was inspected.
         dependencies = self.dependencies()
-        current = {(c["id"], c["version"]) for c in self.credentials()}
+        archived = {
+            row["id"]
+            for row in self.store.runs()
+            if row["status"] in TERMINAL and (self.store.path(row["id"]) / "archived.json").exists()
+        }
         count = 0
         with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for row in db.execute(
+                "SELECT target_id,frozen FROM submissions WHERE status='preparing' OR run_id IS NOT NULL"
+            ):
+                if row["target_id"] in archived:
+                    continue
+                binding = json.loads(row["frozen"])["service"]
+                if binding.get("credential_id"):
+                    dependencies.add((binding["credential_id"], binding["credential_version"]))
+            current = {
+                (row[0], row[1])
+                for row in db.execute("SELECT id,MAX(version) FROM credential_versions GROUP BY id")
+            }
             for row in db.execute("SELECT id,version FROM credential_versions").fetchall():
                 ref = (row["id"], row["version"])
                 if ref not in dependencies and ref not in current:

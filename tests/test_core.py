@@ -8,6 +8,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
+from scheduler_support import settle
 
 from harbor_helper.execution.audit import finish
 from harbor_helper.execution.config import (
@@ -18,7 +19,6 @@ from harbor_helper.execution.config import (
 )
 from harbor_helper.execution.resources import cleanup
 from harbor_helper.execution.runs import job_config, safe_environment, submit
-from harbor_helper.execution.scheduler import tick
 from harbor_helper.execution.sources import verify_inputs
 from harbor_helper.persistence.files import read_json, tree_digest, write_json
 from harbor_helper.persistence.store import Store
@@ -219,7 +219,7 @@ def test_cleanup_failure_retains_capacity(store, monkeypatch):
     add_run(store, "queued")
     write_json(p / "projects.json", ["owned-project"])
     monkeypatch.setattr(
-        "harbor_helper.execution.audit.cleanup",
+        "harbor_helper.execution.scheduler.cleanup",
         lambda _: (_ for _ in ()).throw(RuntimeError("Docker unavailable")),
     )
 
@@ -227,7 +227,7 @@ def test_cleanup_failure_retains_capacity(store, monkeypatch):
         pytest.fail("Capacity was released before cleanup confirmation")
 
     monkeypatch.setattr("harbor_helper.execution.scheduler.subprocess.Popen", no_start)
-    tick(store, {})
+    settle(store)
     assert store.get("broken")["status"] == "cleanup_blocked"
     assert store.get("queued")["status"] == "queued"
 
@@ -290,10 +290,13 @@ def test_audit_failure_releases_slot(store, monkeypatch):
     launched = []
     monkeypatch.setattr(
         "harbor_helper.execution.scheduler.subprocess.Popen",
-        lambda *args, **kwargs: launched.append(kwargs) or SimpleNamespace(pid=999999),
+        lambda *args, **kwargs: (
+            launched.append(kwargs) or SimpleNamespace(pid=999999, wait=lambda: None)
+        ),
     )
+    monkeypatch.setattr("harbor_helper.execution.scheduler.alive", lambda row: row["id"] == "next")
     (first / "worker.log").write_text("fake-first-marker")
-    tick(store, {})
+    settle(store)
     assert store.get("first")["status"] == "failed"
     assert store.get("first")["audit_status"] == "incomplete"
     assert read_json(first / "cleanup.json")["confirmed"]
@@ -373,41 +376,25 @@ def test_service_submit_publication_lock_cancel_and_frozen_rerun(store, monkeypa
 
 
 def test_service_preparation_does_not_pause_supervision(store, monkeypatch):
-    from harbor_helper.execution.scheduler import supervise
-    from harbor_helper.security import credentials
+    from harbor_helper.execution.scheduler import Controller
 
-    monkeypatch.delenv(credentials.KEY_ENV, raising=False)
     entered, release = threading.Event(), threading.Event()
 
     def prepare(_):
         entered.set()
         assert release.wait(5)
 
-    monkeypatch.setitem(
-        sys.modules, "harbor_helper.service.lifecycle", SimpleNamespace(prepare_one=prepare)
-    )
-    ticked = []
-
-    def responsive_tick(*_):
-        assert entered.wait(2)
-        assert not release.is_set()
-        ticked.append(True)
-
-    monkeypatch.setattr("harbor_helper.execution.scheduler.tick", responsive_tick)
-    monkeypatch.setattr("harbor_helper.execution.scheduler.RedactedStream", lambda stream, _: stream)
-
-    class Done(BaseException):
-        pass
-
-    monkeypatch.setattr(
-        "harbor_helper.execution.scheduler.time.sleep", lambda _: (_ for _ in ()).throw(Done())
-    )
+    controller = Controller(store)
     try:
-        with pytest.raises(Done):
-            supervise(store.root)
+        controller.preparation.submit("prepare", prepare, store)
+        assert entered.wait(2)
+        started = time.monotonic()
+        controller.decide(changed=False)
+        assert time.monotonic() - started < 1
+        assert not release.is_set()
     finally:
         release.set()
-    assert ticked == [True]
+        controller.close()
 
 
 def test_opencode_config_uses_only_selected_provider_and_placeholder(store):
@@ -570,3 +557,45 @@ def test_tool_preparation_condition_has_legacy_semantics(store, right, comparabl
             "right": right,
         }
     assert (a / "manifest.json").read_bytes() == before
+
+
+def test_audit_report_failure_never_publishes_clean(store, monkeypatch):
+    from harbor_helper.execution.audit import audit_finished
+
+    path, _ = add_run(store, status="failed")
+    observed = []
+
+    def fail_report(*args):
+        observed.append(store.get(path.name)["audit_status"])
+        raise OSError("fixture report unavailable")
+
+    monkeypatch.setattr("harbor_helper.execution.audit.report", fail_report)
+    assert not audit_finished(store, store.get(path.name))
+    assert observed == ["pending"]
+    assert store.get(path.name)["audit_status"] == "incomplete"
+    assert not (path / "report.json").exists()
+
+
+def test_scheduler_keeps_capacity_bypass_in_creation_order(store, monkeypatch):
+    from harbor_helper.execution.scheduler import Controller
+
+    add_run(store, "active", "running", concurrency=1)
+    add_run(store, "large", concurrency=2)
+    add_run(store, "small", concurrency=1)
+    team = load_team(store)
+    team.update(max_jobs=2, max_trials=2)
+    write_json(store.root / "team.json", team)
+    monkeypatch.setattr("harbor_helper.execution.scheduler.alive", lambda _: True)
+    launched = []
+
+    def launch(self, row):
+        launched.append(row["id"])
+        return True
+
+    monkeypatch.setattr(Controller, "launch", launch)
+    controller = Controller(store)
+    try:
+        controller.decide()
+        assert launched == ["small"]
+    finally:
+        controller.close()

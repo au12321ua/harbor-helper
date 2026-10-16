@@ -9,6 +9,7 @@ import uuid
 
 from argon2.exceptions import Argon2Error
 
+from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.security.passwords import PASSWORDS
 from harbor_helper.service.primitives import ServiceError
 
@@ -34,6 +35,7 @@ def public(row):
     return value
 
 
+@wake_after
 def issue(data, actor, name, password, scopes, expires, *, access_value=None):
     if actor.get("access_credential_id"):
         raise ServiceError("session_required", "Browser session required", 403)
@@ -105,6 +107,7 @@ def listing(data, actor, all_users=False):
     return [public(r) for r in rows]
 
 
+@wake_after
 def revoke(data, actor, credential_id):
     if actor.get("access_credential_id"):
         raise ServiceError("session_required", "Browser session required", 403)

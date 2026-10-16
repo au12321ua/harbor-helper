@@ -141,9 +141,9 @@ def register(app, deps):
                 body.key.get_secret_value(),
                 rotate=True,
             )
-            deps.data.prune_credentials()
             deps.data.event(user, "rotate_credential", credential_id)
-            return result
+        deps.data.prune_credentials()
+        return result
 
     @app.post("/api/v1/admin/credentials/{credential_id}/disable")
     def disable(credential_id: str, user: Annotated[dict, Depends(administrator)]):

@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from harbor_helper.execution.config import reject_secrets
 from harbor_helper.persistence.files import read_json, write_json
+from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.service.primitives import ServiceError, identifier, secret_value
 from harbor_helper.service.sources import source_call
 
@@ -20,6 +21,7 @@ from harbor_helper.service.sources import source_call
 class TeamConfiguration:
     def __init__(self, data):
         self.data = data
+        self.store = data.store
         with data.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS source_credentials (
@@ -34,6 +36,7 @@ class TeamConfiguration:
         path = self.data.root / "web.json"
         return read_json(path) if path.exists() else {}
 
+    @wake_after
     def save_settings(self, value):
         if set(value) - {"team_name", "default_dataset_id", "default_model_profile"}:
             raise ServiceError("settings_options", "Unknown team setting")
@@ -62,6 +65,7 @@ class TeamConfiguration:
             "updated_at": row["updated_at"] if row else None,
         }
 
+    @wake_after
     def save_hub(self, key=None, enabled=True):
         if not enabled:
             with self.data.store.connect() as db:
@@ -383,6 +387,7 @@ class TeamConfiguration:
             },
         )
 
+    @wake_after
     def save_author_parameters(self, object_id, values):
         from harbor_helper.execution.author_inputs import AuthorInputError, check_inputs
 

@@ -283,9 +283,9 @@ def test_actual_preparation_failure_and_queue_cancel_release(data, preparation, 
     Application(data.root).cancel_run(actor(data), rid)
     # Cancellation request alone does not manufacture a terminal run state.
     assert admission.pending(data, actor(data)["id"])["member_pending"] == 1
-    from harbor_helper.execution.scheduler import tick
+    from scheduler_support import settle
 
-    tick(data.store, {})
+    settle(data.store)
     assert data.store.get(rid)["status"] == "cancelled"
     assert admission.pending(data, actor(data)["id"])["member_pending"] == 0
     accept(data, "replacement")

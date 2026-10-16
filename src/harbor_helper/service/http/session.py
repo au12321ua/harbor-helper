@@ -39,8 +39,7 @@ def register(app, deps, *, setup_token_file, master_key_file, start_scheduler):
         if start_scheduler:
             from harbor_helper.execution.runs import ensure_supervisor
 
-            with deps.store.control():
-                ensure_supervisor(deps.store)
+            ensure_supervisor(deps.store)
         return {"initialized": True}
 
     @app.post("/api/v1/auth/password")

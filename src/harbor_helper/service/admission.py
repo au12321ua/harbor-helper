@@ -4,6 +4,7 @@ import re
 import time
 
 from harbor_helper.persistence.files import read_json, write_json
+from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
 from harbor_helper.security.credentials import redact_value
 from harbor_helper.service.observation import finite_number, scheduler
@@ -29,6 +30,7 @@ def maintenance(data):
     return {k: value.get(k) for k in DEFAULT_MAINTENANCE}
 
 
+@wake_after
 def set_maintenance(data, body):
     if not isinstance(body, dict) or set(body) - {"paused", "reason", "retry_at"}:
         raise ServiceError("maintenance_options", "Unknown maintenance field")

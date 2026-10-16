@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from test_automation_http import http_service  # noqa: F401
-from test_service_process import Processes, wait
+from test_service_process import Processes, processes, wait  # noqa: F401
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -47,6 +47,7 @@ def test_online_snapshot_live_writers_restore_and_ownership(http_service, tmp_pa
     # A completed zero-score fixture plus a worker deliberately held in execution.
     done = p.run_id(p.submit(idem="ops-terminal"))
     p.terminal(done)
+    wait(lambda: p.data.store.get(done)["audit_status"] == "clean")
     (p.data.root / "worker-hold").touch()
     active = p.run_id(p.submit(idem="ops-active"))
     wait(lambda: p.data.store.get(active)["status"] == "running")
@@ -330,3 +331,84 @@ else:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "replacement FIFO refused"
+
+
+def test_snapshot_evidence_lock_defers_without_holding_control(processes, tmp_path):  # noqa: F811
+    p = processes
+    p.start()
+    run_id = p.run_id(p.submit())
+    p.terminal(run_id)
+    wait(lambda: p.data.store.get(run_id)["audit_status"] == "clean")
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+
+    def own_evidence():
+        with p.data.store.evidence(run_id):
+            entered.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=own_evidence)
+    thread.start()
+    assert entered.wait(2)
+    try:
+        with pytest.raises(ValueError, match="deferred: run evidence busy"):
+            ops.backup(
+                backup_args(p.data.root.parent, tmp_path.parent / (tmp_path.name + "-backup-busy"))
+            )
+        with (p.data.root / "control.lock").open("a") as lock:
+            __import__("fcntl").flock(
+                lock, __import__("fcntl").LOCK_EX | __import__("fcntl").LOCK_NB
+            )
+    finally:
+        release.set()
+        thread.join()
+
+
+def test_offline_fifo_excluded_and_holder_detected(tmp_path, monkeypatch):
+    from harbor_helper.persistence.wakeup import Mailbox
+
+    (tmp_path / "instance").mkdir()
+    p = Processes(tmp_path / "instance")
+    # This fixture has no scheduler; its held FIFO is still a state writer.
+    mailbox = Mailbox(p.data.root)
+    reader = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import os,sys,time; fd=os.open(sys.argv[1],os.O_RDONLY); time.sleep(30)",
+            str(p.data.root / "scheduler.wake"),
+        ]
+    )
+    try:
+        wait(
+            lambda: any(
+                r.get("pid") == reader.pid for r in ops.writers(p.data.root.parent, {"runs": []})
+            )
+        )
+        with pytest.raises(ValueError, match="writers"):
+            ops.backup(backup_args(p.data.root.parent, tmp_path / "busy-fifo", "offline"))
+        reader.terminate()
+        reader.wait(timeout=3)
+        mailbox.close()
+        remaining = ops.writers(p.data.root.parent, {"runs": []})
+        if remaining:
+            assert all(row["kind"] == "unknown" for row in remaining)
+            with pytest.raises(ValueError, match="unknown"):
+                ops.backup(backup_args(p.data.root.parent, tmp_path / "unknown-refused", "offline"))
+        # File-copy/restore subcase uses a synthetic empty writer gate because the
+        # desktop has nondumpable unrelated same-UID processes. Real FIFO holder
+        # detection and fail-closed unknown handling were asserted above.
+        with monkeypatch.context() as patch:
+            patch.setattr(ops, "writers", lambda *args: [])
+            result = ops.backup(backup_args(p.data.root.parent, tmp_path / "offline", "offline"))
+        snapshot = Path(result["snapshot"])
+        assert not (snapshot / "state/scheduler.wake").exists()
+        restored = tmp_path / "restored"
+        ops.restore(restore_args(result, restored))
+        assert not (restored / "state/scheduler.wake").exists()
+    finally:
+        if reader.poll() is None:
+            reader.kill()
+            reader.wait()
+        p.close()

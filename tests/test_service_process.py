@@ -94,13 +94,56 @@ async def execute(store,run_id):
 
 """
         cleanup_fixture, execute_fixture = fixture.split("async def execute", 1)
-        with (package / "execution/audit.py").open("a") as f:
+        with (package / "execution/scheduler.py").open("a") as f:
             f.write(cleanup_fixture)
         with (package / "execution/runner.py").open("a") as f:
             f.write("async def execute" + execute_fixture)
+        with (package / "execution/scheduler.py").open("a") as f:
+            f.write("""
+RECONCILE_SECONDS = 3600
+RETRY_SECONDS = .5
+HEARTBEAT_SECONDS = .2
+MAINTENANCE_SECONDS = .5
+_original_fixture_cleanup = cleanup
+def cleanup(path):
+    while (path/"cleanup-hold").exists():time.sleep(.02)
+    return _original_fixture_cleanup(path)
+_original_fixture_stop = stop_group
+def stop_group(row):
+    while (Path(__import__('sys').argv[-1])/"runs"/row["id"]/"termination-hold").exists():time.sleep(.02)
+    return _original_fixture_stop(row)
+_original_fixture_audit = audit_finished
+def audit_finished(store,row):
+    while (store.path(row['id'])/"audit-hold").exists():time.sleep(.02)
+    return _original_fixture_audit(store,row)
+_original_fixture_popen = subprocess.Popen
+def _launch_window(*args,**kwargs):
+    root=Path(args[0][-2])
+    if (root/"spawn-hold").exists():
+        (root/"spawn-waiting").touch()
+        while (root/"spawn-hold").exists():time.sleep(.02)
+    child = _original_fixture_popen(*args,**kwargs)
+    if (root/"register-hold").exists():
+        write_json(root/"unregistered-worker.json", {"pid":child.pid,"birth":process_birth(child.pid)})
+        while (root/"register-hold").exists():time.sleep(.02)
+    return child
+subprocess.Popen = _launch_window
+""")
+        with (package / "service/lifecycle.py").open("a") as f:
+            f.write("""
+_original_fixture_maintenance = maintenance
+def maintenance(store):
+    while (store.root/"maintenance-hold").exists():time.sleep(.02)
+    return _original_fixture_maintenance(store)
+""")
         self.home = base / "home"
         self.home.mkdir()
-        self.env = {**os.environ, "HOME": str(self.home)}
+        self.env = {
+            k: v
+            for k, v in os.environ.items()
+            if k in {"PATH", "LANG", "HH_VERIFY_RUN", "DOCKER_HOST", "PLAYWRIGHT_BROWSERS_PATH"}
+        }
+        self.env["HOME"] = str(self.home)
         for name in (
             "PYTHONPATH",
             "VLLM_API_KEY",
@@ -145,7 +188,13 @@ async def execute(store,run_id):
 
     def start(self):
         self.child = subprocess.Popen(
-            [sys.executable, "-m", "harbor_helper.execution.worker", "supervise", str(self.data.root)],
+            [
+                sys.executable,
+                "-m",
+                "harbor_helper.execution.worker",
+                "supervise",
+                str(self.data.root),
+            ],
             cwd=self.cwd,
             env=self.env,
             stdout=self.log,
@@ -270,3 +319,250 @@ def test_hard_worker_missing_key_releases_capacity_other_key_proceeds(processes)
     hold.unlink()
     assert p.terminal(next_id)["status"] == "succeeded"
     assert p.app.usage()["active_jobs"] == 0
+
+
+def test_wake_before_long_reconcile_capacity_and_live_worker_adoption(processes):
+    p = processes
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    first = p.run_id(p.submit())
+    wait(lambda: (p.data.store.path(first) / "boundary.json").exists())
+    original = p.data.store.get(first)
+    p.kill_scheduler()
+    p.start()
+    assert p.data.store.get(first)["pid"] == original["pid"]
+    assert process_birth(original["pid"]) == original["birth"]
+    second = p.run_id(p.submit("m2", "next"))
+    assert p.data.store.get(second)["status"] == "queued"
+    started = time.monotonic()
+    p.data.set_limits({"max_jobs": 2, "max_trials": 2})  # direct production persistence path
+    wait(lambda: (p.data.store.path(second) / "boundary.json").exists(), timeout=4)
+    assert time.monotonic() - started < 4
+    p.app.cancel_run(p.actor, first)
+    assert p.terminal(first)["status"] == "cancelled"
+    (p.data.root / "worker-hold").unlink()
+    assert p.terminal(second)["status"] == "succeeded"
+
+
+def test_slow_cleanup_does_not_delay_other_worker_termination_or_heartbeat(processes):
+    p = processes
+    p.data.set_limits({"max_jobs": 2, "max_trials": 2})
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    first = p.run_id(p.submit())
+    second = p.run_id(p.submit("m2", "second"))
+    wait(lambda: (p.data.store.path(second) / "boundary.json").exists())
+    first_path = p.data.store.path(first)
+    (first_path / "cleanup-hold").touch()
+    (first_path / "audit-hold").touch()
+    p.app.cancel_run(p.actor, first)
+    wait(lambda: not process_birth(p.data.store.get(first)["pid"]))
+    assert p.app.usage()["active_jobs"] == 2
+    p.data.set_limits({"max_jobs": 1, "max_trials": 1})
+    p.app.cancel_run(p.actor, second)
+    started = time.monotonic()
+    second_pid = p.data.store.get(second)["pid"]
+    wait(lambda: not process_birth(second_pid), timeout=4)
+    assert time.monotonic() - started < 4
+    assert p.terminal(second)["status"] == "cancelled"
+    before = read_json(p.data.root / "scheduler.json")["observed"]
+    wait(lambda: read_json(p.data.root / "scheduler.json")["observed"] > before)
+    assert p.data.store.get(first)["status"] == "cancelling"
+    (first_path / "cleanup-hold").unlink()
+    assert p.terminal(first)["status"] == "cancelled"
+    assert p.app.usage()["active_jobs"] == 0  # audit still held
+    assert p.data.store.get(first)["audit_status"] != "clean"
+    (first_path / "audit-hold").unlink()
+    wait(lambda: p.data.store.get(first)["audit_status"] == "clean")
+
+
+def test_finish_decision_survives_supervisor_crash_during_cleanup(processes):
+    p = processes
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    run_id = p.run_id(p.submit())
+    path = p.data.store.path(run_id)
+    wait(lambda: (path / "boundary.json").exists())
+    (path / "cleanup-hold").touch()
+    p.app.cancel_run(p.actor, run_id)
+    wait(lambda: p.data.store.get(run_id)["finish_status"] == "cancelled")
+    wait(lambda: not process_birth(p.data.store.get(run_id)["pid"]))
+    p.kill_scheduler()
+    (path / "cleanup-hold").unlink()
+    p.start()
+    assert p.terminal(run_id)["status"] == "cancelled"
+    assert p.data.store.get(run_id)["reason"] == "Cancelled by member"
+
+
+def test_unregistered_worker_handshake_refuses_execution(processes):
+    p = processes
+    (p.data.root / "register-hold").touch()
+    p.start()
+    run_id = p.run_id(p.submit())
+    marker = p.data.root / "unregistered-worker.json"
+    wait(marker.exists)
+    identity = read_json(marker)
+    assert p.data.store.get(run_id)["status"] == "starting"
+    p.kill_scheduler()
+    (p.data.root / "register-hold").unlink()
+    try:
+        wait(lambda: process_birth(identity["pid"]) != identity["birth"], timeout=13)
+        assert not (p.data.store.path(run_id) / "boundary.json").exists()
+        p.start()
+        assert p.terminal(run_id)["status"] == "failed"
+    finally:
+        if process_birth(identity["pid"]) == identity["birth"]:
+            os.killpg(identity["pid"], signal.SIGKILL)
+
+
+def test_graceful_stop_waits_for_maintenance_and_rejects_new_admission(processes):
+    from harbor_helper.execution.runs import stop_supervisor
+
+    p = processes
+    hold = p.data.root / "maintenance-hold"
+    hold.touch()
+    p.start()
+    time.sleep(0.7)
+    with pytest.raises(ValueError, match="not confirmed"):
+        stop_supervisor(p.data.store, timeout=0.3)
+    assert process_birth(p.child.pid)
+    with pytest.raises(ServiceError, match="stopping"):
+        p.submit()
+    hold.unlink()
+    p.child.wait(timeout=5)
+    assert stop_supervisor(p.data.store)["confirmed"]
+
+
+def test_start_identity_precedes_control_and_sqlite_wait(processes):
+    p = processes
+    # Store constructor itself waits on this writer, after identity/FIFO publication.
+    with p.data.store.connect() as db, p.data.store.control():
+        db.execute("BEGIN IMMEDIATE")
+        p.child = subprocess.Popen(
+            [sys.executable, "-m", "harbor_helper.execution.worker", "supervise", str(p.data.root)],
+            cwd=p.cwd,
+            env=p.env,
+            stdout=p.log,
+            stderr=p.log,
+            start_new_session=True,
+        )
+        wait(lambda: (p.data.root / "scheduler.json").exists(), timeout=3)
+        identity = read_json(p.data.root / "scheduler.json")
+        assert identity["pid"] == p.child.pid and "observed" not in identity
+        assert scheduler(p.app)["state"] != "ready"
+    wait(lambda: scheduler(p.app)["state"] == "ready")
+
+
+def test_lost_notification_reconciles_durable_submission(processes):
+    p = processes
+    package = p.cwd / "harbor_helper"
+    with (package / "execution/scheduler.py").open("a") as file:
+        file.write("\nRECONCILE_SECONDS = .5\n")
+    p.start()
+    # Remove the published name while the reader remains alive: all producer hints
+    # now disappear. The durable preparing record must still be recovered.
+    (p.data.root / "scheduler.wake").unlink()
+    run_id = p.run_id(p.submit())
+    assert p.terminal(run_id)["status"] == "succeeded"
+
+
+def test_message_storm_does_not_starve_running_cancellation(processes):
+    import threading
+
+    from harbor_helper.persistence.wakeup import notify
+
+    p = processes
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    run_id = p.run_id(p.submit())
+    wait(lambda: (p.data.store.path(run_id) / "boundary.json").exists())
+    stopped = threading.Event()
+
+    def flood():
+        while not stopped.is_set():
+            notify(p.data.root)
+
+    thread = threading.Thread(target=flood)
+    thread.start()
+    try:
+        p.app.cancel_run(p.actor, run_id)
+        wait(lambda: not process_birth(p.data.store.get(run_id)["pid"]), timeout=4)
+        assert p.terminal(run_id)["status"] == "cancelled"
+    finally:
+        stopped.set()
+        thread.join(timeout=3)
+
+
+def test_duplicate_supervisor_keeps_canonical_identity(processes):
+    p = processes
+    p.start()
+    identity = read_json(p.data.root / "scheduler.json")
+    duplicate = subprocess.Popen(
+        [sys.executable, "-m", "harbor_helper.execution.worker", "supervise", str(p.data.root)],
+        cwd=p.cwd,
+        env=p.env,
+        stdout=p.log,
+        stderr=p.log,
+    )
+    duplicate.wait(timeout=4)
+    assert duplicate.returncode == 0
+    assert read_json(p.data.root / "scheduler.json")["pid"] == identity["pid"]
+
+
+def test_wall_deadline_progresses_during_slow_audit(processes):
+    from harbor_helper.persistence.files import write_json
+
+    p = processes
+    p.data.set_limits({"max_jobs": 2, "max_trials": 2})
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    first = p.run_id(p.submit())
+    wait(lambda: (p.data.store.path(first) / "boundary.json").exists())
+    (p.data.store.path(first) / "audit-hold").touch()
+    p.app.cancel_run(p.actor, first)
+    assert p.terminal(first)["status"] == "cancelled"
+    second = p.run_id(p.submit("m2", "timeout"))
+    wait(lambda: (p.data.store.path(second) / "boundary.json").exists())
+    path = p.data.store.path(second) / "manifest.json"
+    manifest = read_json(path)
+    manifest["effective"]["wall_seconds"] = 0.5
+    write_json(path, manifest)
+    assert p.terminal(second)["reason"] == "Wall-clock budget exceeded"
+    assert p.app.usage()["active_jobs"] == 0
+    (p.data.store.path(first) / "audit-hold").unlink()
+
+
+def test_reservation_crash_before_spawn_recovers_without_executor(processes):
+    p = processes
+    (p.data.root / "spawn-hold").touch()
+    p.start()
+    run_id = p.run_id(p.submit())
+    wait(lambda: (p.data.root / "spawn-waiting").exists())
+    assert p.data.store.get(run_id)["status"] == "starting"
+    assert p.data.store.get(run_id)["pid"] is None
+    p.kill_scheduler()
+    (p.data.root / "spawn-hold").unlink()
+    p.start()
+    assert p.terminal(run_id)["status"] == "failed"
+    assert not (p.data.store.path(run_id) / "boundary.json").exists()
+
+
+def test_slow_termination_has_a_slot_for_each_existing_worker(processes):
+    p = processes
+    p.data.set_limits({"max_jobs": 2, "max_trials": 2})
+    (p.data.root / "worker-hold").touch()
+    p.start()
+    first = p.run_id(p.submit())
+    second = p.run_id(p.submit("m2", "second"))
+    wait(lambda: (p.data.store.path(second) / "boundary.json").exists())
+    hold = p.data.store.path(first) / "termination-hold"
+    hold.touch()
+    p.app.cancel_run(p.actor, first)
+    wait(lambda: p.data.store.get(first)["finish_status"] == "cancelled")
+    p.data.set_limits({"max_jobs": 1, "max_trials": 1})
+    p.app.cancel_run(p.actor, second)
+    wait(lambda: not process_birth(p.data.store.get(second)["pid"]), timeout=4)
+    assert process_birth(p.data.store.get(first)["pid"])
+    hold.unlink()
+    assert p.terminal(first)["status"] == "cancelled"
+    assert p.terminal(second)["status"] == "cancelled"

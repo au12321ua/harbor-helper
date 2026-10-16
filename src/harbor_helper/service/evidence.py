@@ -2,6 +2,7 @@
 
 import hashlib
 import time
+from functools import wraps
 
 from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import read_json
@@ -10,6 +11,15 @@ from harbor_helper.security.credentials import redact_value
 from harbor_helper.service.permissions import admin
 from harbor_helper.service.primitives import ServiceError
 from harbor_helper.service.views import public_submission, safe_view
+
+
+def locked(function):
+    @wraps(function)
+    def wrapped(self, run_id, *args, **kwargs):
+        with self.store.evidence(run_id):
+            return function(self, run_id, *args, **kwargs)
+
+    return wrapped
 
 
 class Evidence:
@@ -89,6 +99,7 @@ class Evidence:
             )
         return key
 
+    @locked
     def safe_report(self, run_id):
         path = self.store.path(run_id)
         if (path / "archived.json").exists():
@@ -125,6 +136,7 @@ class Evidence:
         # Path-bearing internal Harbor fields never leave service views.
         return safe_view(value)
 
+    @locked
     def detail(self, run_id):
         from harbor_helper.execution.runs import detail_startup_policy
 
@@ -163,6 +175,7 @@ class Evidence:
             "report": report,
         }
 
+    @locked
     def logs(self, run_id):
         key = self.safe_key(run_id)
         path = self.store.path(run_id) / "worker.log"
@@ -185,6 +198,7 @@ class Evidence:
         text = raw.decode("utf-8", errors="replace")
         return {"text": redact_value(text, [key] if key else []), "truncated": length > 262144}
 
+    @locked
     def artifacts(self, run_id, allow_blocked=False):
         try:
             self.safe_key(run_id)
@@ -223,6 +237,7 @@ class Evidence:
         ]
         return values
 
+    @locked
     def artifact_path(self, run_id, file_id):
         self.safe_key(run_id)
         artifact = next((a for a in self.artifacts(run_id) if a["id"] == file_id), None)
@@ -242,24 +257,31 @@ class Evidence:
     def delete_artifact(self, actor, run_id, file_id):
         admin(actor)
         with self.store.control():
-            row = self.store.get(run_id)
-            if row["status"] not in TERMINAL:
+            try:
+                with self.store.evidence(run_id, blocking=False):
+                    return self._delete_artifact(actor, run_id, file_id)
+            except BlockingIOError:
                 raise ServiceError(
-                    "resource_active", "Artifact deletion awaits terminal cleanup", 409
-                )
-            with self.store.connect() as db:
-                if db.execute(
-                    "SELECT 1 FROM artifact_deletions WHERE run_id=? AND file_id=?",
-                    (run_id, file_id),
-                ).fetchone():
-                    return {"id": file_id, "deleted": True}
-            path = self.artifact_path(run_id, file_id)
-            path.unlink()
-            with self.store.connect() as db:
-                db.execute(
-                    "INSERT INTO artifact_deletions VALUES(?,?,?,?)",
-                    (run_id, file_id, actor["username"], time.time()),
-                )
+                    "evidence_busy", "Evidence maintenance active; retry later", 409
+                ) from None
+
+    def _delete_artifact(self, actor, run_id, file_id):
+        row = self.store.get(run_id)
+        if row["status"] not in TERMINAL:
+            raise ServiceError("resource_active", "Artifact deletion awaits terminal cleanup", 409)
+        with self.store.connect() as db:
+            if db.execute(
+                "SELECT 1 FROM artifact_deletions WHERE run_id=? AND file_id=?",
+                (run_id, file_id),
+            ).fetchone():
+                return {"id": file_id, "deleted": True}
+        path = self.artifact_path(run_id, file_id)
+        path.unlink()
+        with self.store.connect() as db:
+            db.execute(
+                "INSERT INTO artifact_deletions VALUES(?,?,?,?)",
+                (run_id, file_id, actor["username"], time.time()),
+            )
         return {"id": file_id, "deleted": True}
 
     def usage(self):

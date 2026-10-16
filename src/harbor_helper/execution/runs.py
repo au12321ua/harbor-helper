@@ -388,21 +388,26 @@ def stop_supervisor(store, timeout=10):
     from harbor_helper.execution.processes import process_birth
     from harbor_helper.persistence.store import TERMINAL
 
-    if any(row["status"] not in TERMINAL for row in store.runs()):
-        raise ValueError("Only stop idle scheduler; cancel/wait for all tasks first")
-    with store.connect() as db:
-        if db.execute("SELECT 1 FROM submissions WHERE status='preparing' LIMIT 1").fetchone():
-            raise ValueError("Input preparation active; wait before stopping scheduler")
-    identity = scheduler_identity(store)
+    with store.control():
+        if any(row["status"] not in TERMINAL for row in store.runs()):
+            raise ValueError("Only stop idle scheduler; cancel/wait for all tasks first")
+        with store.connect() as db:
+            if db.execute("SELECT 1 FROM submissions WHERE status='preparing' LIMIT 1").fetchone():
+                raise ValueError("Input preparation active; wait before stopping scheduler")
+        identity = scheduler_identity(store)
+        if identity:
+            write_json(store.root / "scheduler-stop.json", identity)
+            try:
+                os.kill(identity["pid"], 15)
+            except ProcessLookupError:
+                pass
     if identity:
-        try:
-            os.kill(identity["pid"], 15)
-        except ProcessLookupError:
-            pass
         deadline = time.monotonic() + timeout
         while process_birth(identity["pid"]) == identity["birth"]:
             if time.monotonic() >= deadline:
-                raise ValueError("Scheduler stop timed out; original PID/birth still active")
+                raise ValueError(
+                    "Scheduler stop not confirmed; in-flight work or original PID/birth still active"
+                )
             time.sleep(0.05)
         if scheduler_identity(store):
             raise ValueError("Another scheduler is active; stop not confirmed")
@@ -410,7 +415,15 @@ def stop_supervisor(store, timeout=10):
 
 
 def ensure_supervisor(store):
-    if scheduler_identity(store):
+    identity = scheduler_identity(store)
+    marker = store.root / "scheduler-stop.json"
+    if (
+        identity
+        and marker.exists()
+        and all(read_json(marker).get(k) == identity[k] for k in ("pid", "birth"))
+    ):
+        raise ValueError("Scheduler stopping; retry after shutdown completes")
+    if identity:
         return
     environment = safe_environment()
     with (store.root / "supervisor.log").open("a") as log:

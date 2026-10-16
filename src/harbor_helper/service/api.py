@@ -40,8 +40,7 @@ def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_
         if start_scheduler and application is not None:
             from harbor_helper.execution.runs import ensure_supervisor
 
-            with application.store.control():
-                ensure_supervisor(application.store)
+            ensure_supervisor(application.store)
         yield
         # Queue/workers deliberately survive an API restart.
 

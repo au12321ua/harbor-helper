@@ -103,3 +103,6 @@ def run(root, run_id):
         redact_files(path, secrets)
         outcome["reason"] = redact_value(outcome["reason"], secrets)
         write_json(path / "outcome.json", outcome)
+        from harbor_helper.persistence.wakeup import notify
+
+        notify(store.root)

@@ -40,11 +40,11 @@ UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏�
   --release FULL_SOURCE_SHA --output /absolute/private/backups --kind online
 ```
 
-在线模式允许 HTTP、scheduler、worker 活着。限时获取**已有** control.lock，SQLite backup API 产生一致数据库副本，复制 service/team/limits/web/admission 配置、bundles、author-inputs 和 audit=clean 的终态 run 证据，前后检查摘要。活动 run 证据排除；preparing submission、活动 run、缺失 bundle/终态证据以及审计受限项写入 manifest。配置或不可变证据变化、symlink、锁超时均拒绝完成；`.incomplete` 目录不是可恢复备份。在线包始终 `full_state=false`，即使没有活动任务也只证明列明范围；scope=partial 必须保留到恢复结果。运行时日志/锁和未选择的 state 内容不在在线保证内。
+在线模式允许 HTTP、scheduler、worker 活着。限时获取**已有** control.lock，SQLite backup API 产生一致数据库副本，复制 service/team/limits/web/admission 配置、bundles、author-inputs 和 audit=clean 的终态 run 证据，前后检查摘要。活动 run 证据排除；preparing submission、活动 run、缺失 bundle/终态证据以及审计受限项写入 manifest。在线复制先非阻塞取得所选终态 run 的 evidence-locks 锁；锁忙返回 deferred，释放 control 后再由操作者重试。配置或不可变证据变化、symlink、锁超时均拒绝完成；`.incomplete` 目录不是可恢复备份。在线包始终 `full_state=false`，即使没有活动任务也只证明列明范围；scope=partial 必须保留到恢复结果。运行时日志/锁和未选择的 state 内容不在在线保证内。
 
 快照 master 是包目录旁独立的 `snapshot-ID.master`，保持 0600，不在 state、manifest 或报告中输出密钥。该文件与快照一并留在受保护的私有存储；不能上传 CI artifact。没有自动保留清理，所有备份和未知文件均保留，容量由管理员监控。
 
-完整快照只用于人工维护窗口：先在网页暂停新受理、等待/取消活动工作，再由**对应源 release** 的控制器安排停写。工具本身不启停服务。显式 `--kind offline` 才执行全写者门：HTTP/scheduler 身份、run PID、同 UID 进程 state argv/cwd/fd；无法观察即 busy/unknown。门在 control 锁内复制前后重查，禁止把 timer 变成自动停机工具。该观察要求同 UID 私有实例及可读 `/proc`；有跨用户写者、容器外不可见写者或外部进程能在观察后重新进入的环境，管理员必须在维护窗口另行隔离这些写者，不能仅凭此工具宣称全局无写入。
+完整快照只用于人工维护窗口：先在网页暂停新受理、等待/取消活动工作，再由**对应源 release** 的控制器安排停写。工具本身不启停服务。显式 `--kind offline` 才执行全写者门：HTTP/scheduler 身份、run PID、同 UID 进程 state argv/cwd/fd；无法观察即 busy/unknown。门在 control 锁内复制前后重查；scheduler.wake、scheduler-stop.json 和 evidence-locks 等瞬态控制记录不入离线快照，恢复也清除运行身份。持 FIFO fd 的进程同样属于 state 写者。禁止把 timer 变成自动停机工具。该观察要求同 UID 私有实例及可读 `/proc`；有跨用户写者、容器外不可见写者或外部进程能在观察后重新进入的环境，管理员必须在维护窗口另行隔离这些写者，不能仅凭此工具宣称全局无写入。
 
 ## 新目标离线恢复检查
 

@@ -11,9 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 from harbor.environments.docker.docker import DockerEnvironment
+from scheduler_support import settle
 
 from harbor_helper.execution.processes import process_birth
-from harbor_helper.execution.scheduler import tick
 from harbor_helper.persistence.files import write_json
 from harbor_helper.persistence.store import Store
 from harbor_helper.security.credentials import (
@@ -183,7 +183,7 @@ def test_unclean_frozen_inputs_withhold_report_but_release_capacity(tmp_path, mo
     frozen = path / "tasks" / "box.txt"
     frozen.parent.mkdir()
     frozen.write_text(MARKER)
-    tick(store, {})
+    settle(store)
     assert store.get(path.name)["status"] == "failed"
     assert store.get(path.name)["audit_status"] == "incomplete"
     assert store.get(path.name)["finished"] is not None
@@ -303,7 +303,7 @@ def test_hard_exit_scrubs_before_report_and_audits_database(tmp_path, monkeypatc
     os.kill(child.pid, signal.SIGKILL)
     child.wait(timeout=5)
     assert not audit_run(store, path.name, [MARKER])["clean"]
-    tick(store, {})
+    settle(store)
     assert store.get(path.name)["status"] == "failed"
     assert audit_run(store, path.name, [MARKER])["clean"]
     assert json.loads((path / "credential-audit.json").read_text())["clean"]

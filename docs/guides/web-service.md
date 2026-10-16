@@ -208,3 +208,8 @@ Docker 诊断页面点击“发现本机 Docker 与镜像”，只读取服务�
 同页可持久暂停/恢复 submit/rerun/retry/recover 新受理。维护原因与可选建议重试时间仅授权成员可读，不能填秘密/内部路径，时间不触发自动恢复。已有准备/队列继续排空，查询、取消和安全报告可用；暂停不能代替完整停写或备份检查。管理员 PAT 没有维护配置能力。
 
 共享实验和新建页面显示受理状态、调度器活动及观察时间、本人/全局待处理计数。活动过旧显示未知并拒绝新键，既有原键找回仍可用；不提供预计开始时间。`/api/v1/health` 匿名只含存活/就绪布尔值，`/api/v1/readiness` 授权读取安全详情；就绪不保证 Docker/Hub/模型成功。迁移/回退的维护保护限制见[自动化接口](../reference/automation-api.md#兼容升级与回退)。
+
+
+调度器以 SQLite 持久状态配合本机 `scheduler.wake` FIFO 唤醒，端点须为当前用户拥有的 0600 FIFO，不能以普通文件或 symlink 替代。通知失败不撤销已提交操作，低频对账会恢复推进。新增 runs.finish_status/finish_reason 由 Store 幂等初始化，保存取消/超时等最终决定；仍使用 SQLite rollback journal。`scheduler-stop.json` 只属于瞬态停止握手；正常启停按 PID/birth 判定，不能复制它到恢复实例。
+
+停止仅允许空闲队列，在途审计/维护尚未退出时可能超过等待期限；“stop not confirmed”表示仍需等待并核对身份，不能据此强杀或宣称已停止。证据维护竞争时，产物删除可返回 evidence_busy（409），在线备份返回 deferred；释放控制锁后重试。

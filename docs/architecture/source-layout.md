@@ -40,7 +40,7 @@ HTTP 依赖只保存 app、store 和认证依赖；业务数据每次从 `app.st
 | 资源回收与进程组终止、证据审计与终态发布 | `execution/resources.py`、`audit.py` |
 | 进程身份/安全环境、作者输入/来源/配置 | `execution/processes.py`、`author_inputs.py`、`sources.py`、`config.py` |
 | Harbor 适配 | `execution/agents.py`、`environments.py`、`agent_tools.py` |
-| 持久锁、SQLite、JSON、树与输入摘要 | `persistence/store.py`、`files.py` |
+| 持久锁、SQLite、FIFO 唤醒、JSON、树与输入摘要 | `persistence/store.py`、`wakeup.py`、`files.py` |
 | 私有文件、共享错误、脱敏与令牌 | `security/files.py`、`errors.py`、`credentials.py`、`access_tokens.py` |
 | 评分、可比性与展示 | `results/reports.py`、`presentation.py` |
 | CLI 参数、远程 HTTP/profile、服务启动 | `commands/main.py`、`remote.py`、`service.py` |
@@ -51,7 +51,11 @@ HTTP 依赖只保存 app、store 和认证依赖；业务数据每次从 `app.st
 
 - `runs.submit` 准备阶段通过 `TeamConfiguration(ServiceData(store))` 取得固定来源凭据和作者输入，调用隔离 `source_call`；发布阶段用 `ServiceData.submission/allow_publish` 固定原始摘要、检查取消与账户许可。这些步骤仍在原有 control 锁和发布顺序中。
 - `scheduler` 取得执行凭据并调用 `lifecycle.prepare_one/maintenance`。持久准备只构造 ServiceData；保留维护额外构造 `Evidence(data)` 生成安全归档，不构造 Application、配置或附件。
-- `runner` 在实际执行前核对固定输入和执行凭据；`audit` 用审计凭据清洗和检查终态证据。执行许可与审计许可保持分离。`audit.finish` 先确认进程终止与资源回收，再释放容量，之后单独审计证据。
+- `runner` 在实际执行前核对固定输入和执行凭据；`audit` 用审计凭据清洗和检查终态证据。执行许可与审计许可保持分离。`scheduler.Controller` 先持久化 finish_status/finish_reason，再分别派发终止和资源清理；清理确认后提交终态释放容量，审计另用串行通道，完整 report 写成后才提交 CLEAN。
+
+调度使用 SQLite 工作记录和 `state/scheduler.wake`（0600 owner-only FIFO），消息只提示重读持久事实。`Store.control()` 释放锁后通知，控制者用 `quiet_control()` 避免自唤醒；直接配置持久入口和 worker outcome 也通知。正常路径只查询待办/活动/待审计记录；定向存活检查每秒一次，心跳两秒、丢通知对账六十秒，维护三十秒。准备/审计/维护各一条通道，清理四条；终止每个活动 run 一条，降低容量不影响已运行任务终止。executor 没有无界待办队列。
+
+`Store.evidence()` 以 `evidence-locks/<run>.lock` 串行审计、归档、删除及在线快照。持 run 锁不反取 control；持 control 的删除/快照仅非阻塞尝试证据锁，忙时返回可重试结果。停止在短 control 内检查空闲、发布带 PID/birth 的停止记录再发 SIGTERM，等待在途工作收束；新的受理在此期间拒绝。启动先持单实例锁并发布 FIFO/身份，再构造 Store；observed 由实际控制路径更新，不能把初始化写库等待报成 ready。
 
 这些是固定输入、授权与持久发布的组合边界，不要求所有包严格单向。延迟导入的执行组合点不代替上述职责归属；文件 IO 和通用校验没有上层服务依赖。
 
@@ -76,6 +80,6 @@ HTTP 依赖只保存 app、store 和认证依赖；业务数据每次从 `app.st
 
 console script 为 `harbor_helper.commands.main:main`。调度器与 worker 保持 `python -m harbor_helper.execution.worker supervise|run`；隔离 Hub 子进程保持 `python -m harbor_helper.service.sources`。Job 的 agent 类路径和 `execution.environments:NativeDockerEnvironment` 保持稳定。
 
-进程 fixture 复制完整包后，必须在实际查找绑定的模块替换外部能力。例如终态回收 patch `execution.audit.cleanup/stop_group`，精确 Docker 命令 patch `execution.resources.run_command`，worker 启动 patch `execution.scheduler.subprocess.Popen`，单次执行 fixture 写入 `execution/runner.py`。不得在旧 worker 路径留别名使补丁虚假成立。Harbor Trial 构造中的内核能力探针也是外部 Docker 边界，代理参数测试应明确替换它。
+进程 fixture 复制完整包后，必须在实际查找绑定的模块替换外部能力。例如调度回收 patch `execution.scheduler.cleanup/stop_group`，精确 Docker 命令 patch `execution.resources.run_command`，worker 启动 patch `execution.scheduler.subprocess.Popen`，单次执行 fixture 写入 `execution/runner.py`。不得在旧 worker 路径留别名使补丁虚假成立。Harbor Trial 构造中的内核能力探针也是外部 Docker 边界，代理参数测试应明确替换它。
 
 回归使用独立 HOME/state/master 和白名单环境；完整 Python 回归需在不提供 docker 可执行文件的 PATH 下运行。真实 Docker/Hub/模型验证与 fixture 结果分开说明。运行与协作入口见[交接](../HANDOFF.md)与[开发规则](../guides/development-workflow.md)。

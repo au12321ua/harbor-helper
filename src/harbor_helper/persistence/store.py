@@ -1,10 +1,13 @@
 import fcntl
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
 from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.statuses import ACTIVE, TERMINAL  # noqa: F401
+
+_held_evidence = threading.local()
 
 
 class Store:
@@ -25,12 +28,26 @@ class Store:
             for name, definition in (
                 ("audit_status", f"TEXT NOT NULL DEFAULT {lifecycle_status.PENDING!r}"),
                 ("audit_reason", "TEXT"),
+                ("finish_status", "TEXT"),
+                ("finish_reason", "TEXT"),
             ):
                 if name not in columns:
                     db.execute(f"ALTER TABLE runs ADD COLUMN {name} {definition}")
+            db.execute("CREATE INDEX IF NOT EXISTS runs_work ON runs(status,audit_status,created)")
 
     @contextmanager
-    def control(self):
+    def control(self, *, notify=True):
+        try:
+            with self.quiet_control():
+                yield
+        finally:
+            if notify:
+                from harbor_helper.persistence.wakeup import notify as wake
+
+                wake(self.root)
+
+    @contextmanager
+    def quiet_control(self):
         with (self.root / "control.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             yield
@@ -49,6 +66,36 @@ class Store:
         with self.connect() as db:
             return [dict(r) for r in db.execute("SELECT * FROM runs ORDER BY created")]
 
+    def work(self):
+        """Only actionable records; completed clean history is never a normal-loop input."""
+        with self.connect() as db:
+            return [
+                dict(r)
+                for r in db.execute(
+                    "SELECT * FROM runs WHERE status IN ('queued','starting','running','cancelling','cleanup_blocked') "
+                    "UNION ALL SELECT * FROM runs WHERE status IN ('succeeded','failed','cancelled') "
+                    "AND audit_status IN ('pending','incomplete') ORDER BY created"
+                )
+            ]
+
+    @contextmanager
+    def evidence(self, run_id, *, blocking=True):
+        # Kept outside run directories, including across archive/delete operations.
+        key = (str(self.root), run_id)
+        held = getattr(_held_evidence, "keys", set())
+        if key in held:
+            yield
+            return
+        folder = self.root / "evidence-locks"
+        folder.mkdir(exist_ok=True, mode=0o700)
+        with (folder / (run_id + ".lock")).open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            _held_evidence.keys = held | {key}
+            try:
+                yield
+            finally:
+                _held_evidence.keys = held
+
     def get(self, run_id):
         with self.connect() as db:
             row = db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -59,7 +106,7 @@ class Store:
     def update(self, run_id, **fields):
         from harbor_helper.security.credentials import redact_value, runtime_secrets
 
-        for name in ("reason", "audit_reason"):
+        for name in ("reason", "audit_reason", "finish_reason"):
             if name in fields:
                 fields[name] = redact_value(fields[name], runtime_secrets())
         with self.connect() as db:

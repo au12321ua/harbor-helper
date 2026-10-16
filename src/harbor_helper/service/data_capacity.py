@@ -2,6 +2,7 @@
 
 from harbor_helper.execution.config import DEFAULT
 from harbor_helper.persistence.files import read_json, write_json
+from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.service.primitives import (
     LIMITS,
     ServiceError,
@@ -13,6 +14,7 @@ class Capacity:
         path = self.root / "limits.json"
         return {**LIMITS, **(read_json(path) if path.exists() else {})}
 
+    @wake_after
     def set_limits(self, value):
         if set(value) - set(LIMITS):
             raise ServiceError("unknown_limit", "Unknown capacity or retention parameter")

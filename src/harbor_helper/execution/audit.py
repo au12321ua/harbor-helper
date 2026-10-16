@@ -16,6 +16,11 @@ from harbor_helper.security.credentials import (
 
 
 def audit_finished(store, row):
+    with store.evidence(row["id"]):
+        return _audit_finished(store, row)
+
+
+def _audit_finished(store, row):
     """Publish evidence only with a complete audit; never reserve execution capacity."""
     secrets = []
     audit = None
@@ -37,6 +42,7 @@ def audit_finished(store, row):
         write_json(path / "credential-audit.json", audit)
         if not audit["clean"]:
             raise RuntimeError("Credential audit not clean; raw evidence withheld")
+        report(store, row["id"])
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
         # Third-party exceptions can carry unavailable secrets. Persist a fixed,
         # actionable message rather than potentially unsafe original exception text.
@@ -57,11 +63,13 @@ def audit_finished(store, row):
             pass  # Database audit_status still withholds evidence; queue keeps advancing.
         return False
     store.update(row["id"], audit_status=lifecycle_status.CLEAN, audit_reason=None)
-    report(store, row["id"])
     return True
 
 
 def finish(store, row, status, reason):
+    if not row.get("finish_status"):
+        store.update(row["id"], finish_status=status, finish_reason=reason)
+        row = store.get(row["id"])
     try:
         stop_group(row)
         cleanup(store.path(row["id"]))
@@ -76,8 +84,8 @@ def finish(store, row, status, reason):
     # unavailable independently and can be audited again after restoring its key.
     store.update(
         row["id"],
-        status=status,
-        reason=redact_value(reason, []),
+        status=row["finish_status"],
+        reason=redact_value(row["finish_reason"], []),
         finished=time.time(),
     )
     audit_finished(store, store.get(row["id"]))
