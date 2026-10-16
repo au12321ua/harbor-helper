@@ -83,6 +83,16 @@ def test_online_snapshot_live_writers_restore_and_ownership(http_service, tmp_pa
     finally:
         (p.data.root / "worker-hold").unlink(missing_ok=True)
         (p.data.root / "prepare-hold").unlink(missing_ok=True)
+        # Drain fixture work and observe actual worker exit before the shared
+        # HTTP fixture tears down; killing then immediately sampling is racy.
+        p.terminal(active)
+        p.terminal(p.run_id(preparing))
+        wait(
+            lambda: all(
+                not row["pid"] or ops.birth(row["pid"]) != row["birth"]
+                for row in p.data.store.runs()
+            )
+        )
 
 
 def test_readonly_check_health_ready_and_unknown(http_service):  # noqa: F811
