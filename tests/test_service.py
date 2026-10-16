@@ -483,3 +483,40 @@ def test_pruning_merges_submission_accepted_during_dependency_inspection(
     assert data.prune_credentials()["pruned_versions"] == 0
     assert accepted
     assert data.credential("k1", 1)
+
+
+@pytest.mark.parametrize("field", ["left", "right"])
+@pytest.mark.parametrize("reference", ["absolute", "traversal", "backslash", "missing"])
+def test_compare_json_rejects_run_paths_without_external_lock_writes(
+    data, preparation, tmp_path, field, reference
+):
+    c = client(data)
+    accepted = c.post(
+        "/api/v1/submissions",
+        headers={**WRITE, "Idempotency-Key": "compare-path-boundary"},
+        json={"agent": "oracle", "dataset": "test/data@1"},
+    )
+    assert accepted.status_code == 202
+    prepare_one(data.store)
+    valid = data.submission(accepted.json()["id"])["run_id"]
+    data.store.update(valid, status="succeeded", audit_status="clean")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel"
+    sentinel.write_bytes(b"unchanged")
+    invalid = {
+        "absolute": str(outside / "victim"),
+        "traversal": "../../outside/victim",
+        "backslash": "..\\outside\\victim",
+        "missing": "unknown-run",
+    }[reference]
+    response = c.post(
+        "/api/v1/compare", headers=WRITE, json={"left": valid, "right": valid, field: invalid}
+    )
+    assert response.status_code == (404 if reference == "missing" else 422)
+    assert list(outside.iterdir()) == [sentinel]
+    assert sentinel.read_bytes() == b"unchanged"
+    locks = data.root / "evidence-locks"
+    assert {p.name for p in locks.glob("*")} <= {valid + ".lock"}
+    if field == "left":
+        assert not locks.exists()  # Invalid first input has no lock-directory side effect.

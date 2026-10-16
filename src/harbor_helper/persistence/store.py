@@ -1,5 +1,8 @@
 import fcntl
+import os
+import re
 import sqlite3
+import stat
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -80,6 +83,8 @@ class Store:
 
     @contextmanager
     def evidence(self, run_id, *, blocking=True):
+        # Resolve an existing run before creating even the lock directory.
+        self.path(run_id)
         # Kept outside run directories, including across archive/delete operations.
         key = (str(self.root), run_id)
         held = getattr(_held_evidence, "keys", set())
@@ -88,7 +93,22 @@ class Store:
             return
         folder = self.root / "evidence-locks"
         folder.mkdir(exist_ok=True, mode=0o700)
-        with (folder / (run_id + ".lock")).open("a") as lock:
+        # Pin a real directory; never follow a substituted directory or lock
+        # symlink. State is trusted, but these checks also fail closed on damage.
+        directory = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fd = os.open(
+                run_id + ".lock",
+                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                0o600,
+                dir_fd=directory,
+            )
+        finally:
+            os.close(directory)
+        with os.fdopen(fd, "rb", buffering=0) as lock:
+            meta = os.fstat(lock.fileno())
+            if not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1 or meta.st_uid != os.getuid():
+                raise ValueError("Evidence lock requires an owned regular file")
             fcntl.flock(lock, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
             _held_evidence.keys = held | {key}
             try:
@@ -116,5 +136,12 @@ class Store:
             )
 
     def path(self, run_id):
+        # Match the identity grammar used when runs are created. Check before
+        # lookup or filesystem operations, including evidence-lock acquisition.
+        if not isinstance(run_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", run_id):
+            raise ValueError("Invalid run identifier")
         self.get(run_id)
-        return self.root / "runs" / run_id
+        path = self.root / "runs" / run_id
+        if path.resolve() != path:
+            raise ValueError("Invalid run path")
+        return path
