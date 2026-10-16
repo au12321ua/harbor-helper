@@ -297,11 +297,18 @@ def writers(base, db_data):
     result = []
     for path, http in ((base / "http.json", True), (state / "scheduler.json", False)):
         observed = identity(path, state, http)
-        if observed["state"] not in {"absent", "stopped"}:
+        if (
+            observed["state"] not in {"absent", "stopped"}
+            and observed.get("reason") != "birth_mismatch"
+        ):
             result.append({"kind": "record", "state": observed["state"]})
     for row in db_data["runs"]:
-        if row.get("pid") and birth(row["pid"]) is not None:
-            result.append({"kind": "worker", "run": row["id"]})
+        if row.get("pid"):
+            actual = birth(row["pid"])
+            if actual and actual == row.get("birth"):
+                result.append({"kind": "worker", "run": row["id"]})
+            elif actual and not row.get("birth"):
+                result.append({"kind": "unknown_worker_identity", "run": row["id"]})
     # Catch preparation threads/subprocesses and unrecorded HTTP/SQLite users.
     for proc in Path("/proc").iterdir():
         if not proc.name.isdigit() or int(proc.name) == os.getpid():

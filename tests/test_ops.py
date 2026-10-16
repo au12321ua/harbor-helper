@@ -147,9 +147,19 @@ def test_offline_full_nonempty_and_rejection_paths(tmp_path):
         run = p.run_id(p.submit())
         p.terminal(run)
         p.close()
+        # Old PID/birth records must not reserve a different, reused process.
+        # An unrelated real sleeper supplies a live PID with a different birth.
+        unrelated = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"])
+        with p.data.store.connect() as db:
+            db.execute("UPDATE runs SET pid=?,birth=?", (unrelated.pid, "old-birth"))
+        ops.write_json(
+            base / "http.json",
+            {"pid": unrelated.pid, "birth": "old-birth", "code": str(base / "releases" / SHA)},
+        )
         try:
             result = ops.backup(backup_args(base, tmp_path / "backups", "offline"))
             assert result["full_state"] is True
+            assert unrelated.poll() is None
             print("offline_writers_path=full_snapshot_verified")
         except ValueError as error:
             # On a desktop, nondumpable same-UID processes make a complete
@@ -159,6 +169,9 @@ def test_offline_full_nonempty_and_rejection_paths(tmp_path):
             print("offline_writers_path=host_unknown_refused")
             result = ops.backup(backup_args(base, tmp_path / "online-backups"))
             assert result["full_state"] is False
+        finally:
+            unrelated.terminate()
+            unrelated.wait(timeout=5)
         args = restore_args(result, tmp_path / "restored")
         assert ops.restore(args)["credentials_checked"] == 3
         with pytest.raises(ValueError, match="already exists"):
