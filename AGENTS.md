@@ -33,7 +33,7 @@
 
 当前实现需要 Linux、Python 3.12–3.13、uv；实际执行另需 Docker/Compose、可用镜像及 Hub 数据集权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
-- Python：`uv sync --locked --group dev`；`uv run pytest -q`；`uv run ruff check src tests`。测试隔离前提与覆盖边界见交接，不能默认这些命令无副作用。
+- Python：`uv sync --locked --group dev`；`uv run pytest -q`；`uv run ruff check src tests scripts tools`、`uv run ruff format --check src tests scripts tools`、`uv run ty check --python .venv --error-on-warning src tests scripts tools`。测试隔离前提与覆盖边界见交接，不能默认这些命令无副作用。
 - Web：在 `frontend/` 运行 `npm ci`、`npm run build`、`npm run lint`；构建会写入 `src/harbor_helper/static/`。`npm run test:ui` 另需 Playwright Chromium，使用拦截 API 的 UI fixture。
 - 服务：按操作说明用全新独立 state 执行 `service serve --root … --setup-token-file … --master-key-file … --host … --port …`，引导凭证和主密钥在 state 外；首管理员及业务设置在网页完成。成员用浏览器，远程 CLI 用 `service login`。
 

@@ -10,7 +10,7 @@ python3 scripts/verify.py --prepare \
 
 依赖按 `uv.lock` 和 `frontend/package-lock.json` 安装。`--prepare` 可以联网下载依赖/Chromium，不执行模型请求。依赖缓存可通过 `--dependency-cache` 指定，默认复用调用者 uv 缓存，运行缓存仍隔离。运行阶段使用环境白名单、独立 HOME/XDG/TMPDIR 和不含 Docker CLI 的工具 PATH，无可用 Docker socket；不会继承模型、Hub 或 CLI profile 凭据。`--browsers` 必须是绝对路径，不能位于测试临时 HOME。输出目录必须不存在；保留诊断时只选 `report.json`、`command-*.log`、`pytest.xml`，不得上传整个临时 HOME、state 或备份。
 
-默认 `full` 运行 Python lint、契约、前端类型/lint/build、全部 pytest 和独占 UI fixture，强制 `HH_TEST_BROWSER=1`，要求 pytest skip=0 且三条生产网页用例通过。构建后对 tracked/untracked static 和契约检查 Git 漂移；发布物落后源码会失败。`--mode backend --python 3.13` 显式排除三条浏览器用例和前端/UI 检查，用于 Python 3.13 兼容检查，不能代替 full。`frontend/qa/live-service.mjs` 和 `final-integration-production.mjs` 是未接入此入口的手工脚本，不计为自动覆盖。此入口不证明真实 Docker、Hub、模型或发布环境可用。
+`full` 与 `backend` 均先对 `src tests scripts tools` 运行 Ruff lint、`ruff format --check` 和 `ty check --python .venv --error-on-warning`。ty 精确锁定为 0.0.89；格式检查不改文件，类型警告也会阻断。默认 `full` 随后运行契约、前端类型/lint/build、全部 pytest 和独占 UI fixture，强制 `HH_TEST_BROWSER=1`，要求 pytest skip=0 且三条生产网页用例通过。构建后对 tracked/untracked static 和契约检查 Git 漂移；发布物落后源码会失败。`--mode backend --python 3.13` 显式排除三条浏览器用例和前端/UI 检查，用于 Python 3.13 兼容检查，不能代替 full。`frontend/qa/live-service.mjs` 和 `final-integration-production.mjs` 是未接入此入口的手工脚本，不计为自动覆盖。此入口不证明真实 Docker、Hub、模型或发布环境可用。
 
 UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏览器、命令失败、生成物漂移均返回非零。输出记录固定 Git SHA、脏树状态、命令/版本、pytest 用例/skip、退出状态、精确回收记录。每次运行的唯一环境标记传给子树，包括 setsid 子进程；结束和 INT/TERM 时扫描 `/proc` 标记，以 PID birth 和 pidfd 回收，不按进程名或公共端口杀进程。整个监督入口被 SIGKILL/宿主宕机时自身无法清理，须由 CI 作业容器或外部监督者兜底；不能把这类情况说成 trap 已执行。
 

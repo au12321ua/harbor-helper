@@ -26,7 +26,7 @@ Harbor按作者Dockerfile、Compose、镜像及网络定义执行；helper管理
 
 需要Linux、Python3.12–3.13和uv；实际执行另需Docker/Compose、可用作者依赖与Hub权限。依赖由`pyproject.toml`、`uv.lock`、`frontend/package-lock.json`记录。
 
-- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests`。
+- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests scripts tools`、`uv run ruff format --check src tests scripts tools`、`uv run ty check --python .venv --error-on-warning src tests scripts tools`。
 - 前端：在`frontend/`执行`npm ci`、`npm run build`、`npm run lint`；`npm run test:ui`另需Playwright Chromium，使用拦截API的fixture。build会更新包内static。
 - 验证使用独立HOME/state/master，隔离Harbor/profile并清除继承的真实凭据环境。测试含本地子进程，不能默认没有副作用；真实Hub、Docker、模型请求与fixture验证分列，真实模型请求须核当前授权与预算。
 

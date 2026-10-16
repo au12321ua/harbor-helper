@@ -29,7 +29,7 @@ git status --short --branch
 
 后续修改、构建和验证都在这项工作的工作树内。前端构建会更新包内 `static/`，应与对应前端源码一起交付。测试须沿交接的独立HOME/state/凭据隔离要求执行，不能使用正式团队state作随手测试。
 
-提交前按影响范围完成必要检查，再推送自己的分支：
+提交前按影响范围完成必要检查，再推送自己的分支。Python 静态门禁覆盖 `src tests scripts tools`：Ruff lint、`ruff format --check` 与锁定的 `ty==0.0.89`（`ty check --python .venv --error-on-warning`）；full/backend 统一入口均执行三项。类型修复优先用注解、cast 或 Protocol 表达已有边界；动态框架确实无法表达时才使用附原因的局部单规则抑制，不以全局降级、目录排除或改变 DTO Schema 消除诊断。纯格式提交独立保存，并核对 Python AST 等价。统一验证入口及隔离前提见[自动化验证](automation-ops-ci.md)。
 
 ```bash
 git diff --check

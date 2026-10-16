@@ -93,3 +93,14 @@ npm run lint
 | GET | `/runs/{run_id}/artifacts/{file_id}` | 浏览器链接导航 | 200 | application/octet-stream；原权限/审计门禁 |
 
 `browser/PAT` 项分别校验两种投影。Accepted 相关提交、取消、重跑、重试、恢复和幂等查询也分别验证；logs 是 JSON 文本信封。报告与附件下载保留原权限与安全门禁。机器专用 API、SPA catch-all、assets/favicon 不进入浏览器生成契约。
+
+
+## 路由全集闭合
+
+HTTP 装配只接受精确 `ContractRoute` 和登记的可选 `/assets` 包内 `StaticFiles` 挂载。每条 HTTP 路由在构造时分类，装配末尾再穷尽检查 `app.routes`；include_router 包装、子应用 Mount、WebSocket、普通 Route/APIRoute 和意外子类均会明确失败。将来改变扁平装配方式时须同步更新边界和逃逸测试。
+
+浏览器路由必须有 BROWSER 登记、`/api/v1/` 前缀、单一方法和原始输出校验包装。非浏览器 HTTP 入口只能匹配 `service/route_contracts.py` 中带原因的精确豁免：方法集、保留转换器的原始路径、handler module/qualname。健康探针、机器投影/schema、二进制下载、favicon 和两个 fallback 是独立豁免；机器前缀不是通用豁免。资产 Mount 可缺席，其余登记必须实际出现。
+
+handler 名字全局唯一；相同方法集和参数名归一化路径不得重复，归一化保留 `:path` 等转换器。BROWSER 与豁免不能重叠或悬空，MACHINE/REQUESTS 必须是 BROWSER 子集，API 404 与 SPA fallback 必须最后注册。检查使用运行时异常，在优化 Python 下仍有效。未知输出模型返回安全 503。
+
+导出消费共享完整分类结果，不再通过 BROWSER 名字过滤实际路由；JSON/TS 生成物的 `--check` 仍负责绑定名字到方法/路径并防止漂移。维护新增路由时同时更新登记、精确豁免（如适用）、生成物和正反例，不以名称或路径前缀绕过检查。
