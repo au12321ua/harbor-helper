@@ -117,7 +117,7 @@ async def execute(store,run_id):
         for index in range(1, 4):
             provider = "p1" if index < 3 else "p2"
             if index in (1, 3):
-                self.data.save_object(
+                self.data.models.save_object(
                     "provider",
                     {
                         "id": provider,
@@ -129,7 +129,7 @@ async def execute(store,run_id):
             key = f"fake-process-key-{index}-2026"
             self.keys.append(key)
             self.data.add_credential(f"k{index}", provider, f"key{index}", key)
-            self.data.save_object(
+            self.data.models.save_object(
                 "profile",
                 {
                     "id": f"m{index}",

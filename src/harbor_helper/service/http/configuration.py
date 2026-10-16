@@ -99,7 +99,7 @@ def register(app, deps):
     @app.post("/api/v1/admin/providers")
     def provider(body: dict, user: Annotated[dict, Depends(administrator)]):
         with deps.application.store.control():
-            result = deps.data.save_object("provider", body)
+            result = deps.data.models.save_object("provider", body)
             deps.data.event(user, "save_provider", result["id"])
             return result
 
@@ -110,7 +110,7 @@ def register(app, deps):
     @app.post("/api/v1/admin/model-profiles")
     def profile(body: dict, user: Annotated[dict, Depends(administrator)]):
         with deps.application.store.control():
-            result = deps.data.save_object("profile", body)
+            result = deps.data.models.save_object("profile", body)
             deps.data.event(user, "save_model_profile", result["id"])
             return result
 

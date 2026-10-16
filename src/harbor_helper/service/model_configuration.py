@@ -1,13 +1,26 @@
-"""Provider/profile validation; version persistence belongs to Objects."""
+"""Provider/profile rules with explicit metadata reads and version persistence."""
 
 import re
 import uuid
+from collections.abc import Callable
 
 from harbor_helper.execution.config import reject_secrets
 from harbor_helper.service.primitives import ServiceError, identifier
 
 
 class Models:
+    def __init__(
+        self,
+        *,
+        read_object: Callable[[str, str], dict],
+        read_credential: Callable[[str], dict],
+        save_version: Callable[[str, dict], dict],
+    ):
+        """Use metadata only; callers retain control-lock and transaction ownership."""
+        self._read_object = read_object
+        self._read_credential = read_credential
+        self._save_version = save_version
+
     def save_object(self, kind, value):
         object_id = identifier(value.get("id") or uuid.uuid4().hex)
         value = dict(value)
@@ -41,8 +54,8 @@ class Models:
                 "enabled",
             }:
                 raise ServiceError("profile_options", "Unknown model profile options")
-            provider = self.object("provider", value.get("provider_id"))
-            credential = self.credential(value.get("credential_id"))
+            provider = self._read_object("provider", value.get("provider_id"))
+            credential = self._read_credential(value.get("credential_id"))
             if credential["provider_id"] != provider["id"]:
                 raise ServiceError("credential_binding", "Credential belongs to another provider")
             if (
@@ -62,4 +75,4 @@ class Models:
         value.setdefault("enabled", True)
         if type(value["enabled"]) is not bool:
             raise ServiceError("invalid_status", "enabled must be boolean")
-        return self.save_version(kind, value)
+        return self._save_version(kind, value)

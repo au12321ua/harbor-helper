@@ -26,7 +26,9 @@ Python 位于 `src/harbor_helper/`；前端源码位于 `frontend/src/`，构建
 
 HTTP 依赖只保存 app、store 和认证依赖；业务数据每次从 `app.state.application` 取得。setup 和另一个进程完成初始化后，既有路由不捕获旧的空 application。API 关闭不停止队列和 worker。
 
-`Application` 通过继承组合受理、取消与证据能力，构造一份数据、配置和附件依赖；方法只在所属能力类定义，不保留转发实现。证据、取消、包能力可只用 data 独立构造，受理需要 data、配置和附件；附件只取得 data 与包暂存能力。`ServiceData` 同样组合共用一个 store/root 的持久能力，初始化协调建表、引导与 PAT 表。通用对象存储只负责版本读写；模型配置负责业务验证后调用 `save_version`，存储不反向加载配置。
+`Application` 通过继承组合受理、取消与证据能力，构造一份数据、配置和附件依赖；方法只在所属能力类定义，不保留转发实现。证据、取消、包能力可只用 data 独立构造，受理需要 data、配置和附件；附件只取得 data 与包暂存能力。`ServiceData` 同样组合共用一个 store/root 的持久能力，初始化协调建表、引导与 PAT 表。通用对象存储只负责版本读写，不反向加载配置。
+
+`model_configuration.Models` 是可独立构造的配置规则对象，显式接收对象读取、凭据元数据读取、版本持久化三个 callable；`ServiceData` 将 `Objects.object`、`Credentials.credential`、`Objects.save_version` 绑定为 `data.models` 的依赖，HTTP 通过 `data.models.save_object` 写入配置。模型规则不继承持久能力、不取得秘密解密能力；HTTP 的 control 锁与版本存储的事务边界保留在各自原位置。
 
 ## 执行与基础设施
 

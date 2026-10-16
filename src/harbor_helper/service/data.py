@@ -27,7 +27,7 @@ from harbor_helper.service.primitives import (
 )
 
 
-class ServiceData(Accounts, Objects, Models, Credentials, Capacity, SubmissionRecords):
+class ServiceData(Accounts, Objects, Credentials, Capacity, SubmissionRecords):
     def __init__(self, root, *, initializing=False):
         self.store = root if isinstance(root, Store) else Store(root)
         self.root = self.store.root
@@ -83,6 +83,12 @@ class ServiceData(Accounts, Objects, Models, Credentials, Capacity, SubmissionRe
 
         with self.store.connect() as db:
             initialize(db)
+
+        self.models = Models(
+            read_object=self.object,
+            read_credential=self.credential,
+            save_version=self.save_version,
+        )
 
     @classmethod
     def initialize(cls, root, master_file, username, password, team=None):

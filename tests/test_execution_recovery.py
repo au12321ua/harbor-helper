@@ -442,7 +442,7 @@ def test_compose_failure_is_explicit_and_infra_list_comes_from_harbor(tmp_path, 
 def test_retry_model_only_fills_missing_strategy_preserves_research_and_identity(recovery):
     data, app, actor, dataset, _task = recovery
     configured(recovery)
-    data.save_object(
+    data.models.save_object(
         "provider",
         {
             "id": "provider",
@@ -452,7 +452,7 @@ def test_retry_model_only_fills_missing_strategy_preserves_research_and_identity
         },
     )
     data.add_credential("fixture-key", "provider", "Fixture", "fake-only-nonproduction-credential")
-    data.save_object(
+    data.models.save_object(
         "profile",
         {
             "id": "model",

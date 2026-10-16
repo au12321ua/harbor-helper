@@ -23,7 +23,7 @@ CHANGED = {
 def flows(recovery):  # noqa: F811
     data, app, actor, dataset, _task = recovery
     configured(recovery)
-    data.save_object(
+    data.models.save_object(
         "provider",
         {
             "id": "p1",
@@ -33,7 +33,7 @@ def flows(recovery):  # noqa: F811
         },
     )
     data.add_credential("k1", "p1", "Key", "fake-flow-key-2026")
-    data.save_object(
+    data.models.save_object(
         "profile",
         {
             "id": "m1",

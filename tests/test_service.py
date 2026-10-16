@@ -31,7 +31,7 @@ def data(tmp_path):
     data.create_user("alice", PASSWORD)
     data.create_user("bob", PASSWORD)
     for i in (1, 2):
-        data.save_object(
+        data.models.save_object(
             "provider",
             {
                 "id": f"p{i}",
@@ -43,7 +43,7 @@ def data(tmp_path):
     for i, key in enumerate(KEYS, 1):
         provider = "p1" if i < 3 else "p2"
         data.add_credential(f"k{i}", provider, f"Key {i}", key)
-        data.save_object(
+        data.models.save_object(
             "profile",
             {
                 "id": f"m{i}",
@@ -217,7 +217,7 @@ def test_idempotency_concurrency_and_freezing(data):
     with pytest.raises(ServiceError, match="different input"):
         Application(data.root).accept(actor, {"model_profile": "m2"}, "same")
     frozen = data.submission(ids[0])["frozen"]
-    data.save_object(
+    data.models.save_object(
         "provider",
         {
             "id": "p1",
@@ -226,7 +226,7 @@ def test_idempotency_concurrency_and_freezing(data):
             "name": "changed",
         },
     )
-    data.save_object(
+    data.models.save_object(
         "profile",
         {
             "id": "m1",
@@ -389,7 +389,7 @@ def test_rerun_cannot_bypass_disabled_model_profile(data, preparation):
     run_id = prepare(data, preparation)
     profile = data.object("profile", "m1")
     profile["enabled"] = False
-    data.save_object("profile", profile)
+    data.models.save_object("profile", profile)
     actor = next(u for u in data.users() if u["username"] == "bob")
     with pytest.raises(ServiceError, match="profile disabled"):
         Application(data.root).accept(actor, {}, "disabled-rerun", parent=run_id)

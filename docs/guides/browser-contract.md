@@ -1,6 +1,6 @@
 # 浏览器 HTTP 类型契约
 
-后端公开 DTO 是字段来源：`service/browser_contracts.py` 定义浏览器投影，复用 `machine.py` 的共享模型和 `attachment_contracts.py` 的附件模型。`persistence/statuses.py` 定义运行、提交、审计和报告状态；执行写入和浏览器 DTO 引用同一来源，不改变状态转换。
+后端公开 DTO 是字段来源：`service/dtos.py` 定义机器传输及共享模型，`service/browser_contracts.py` 定义浏览器 DTO 与契约注册表，复用这些共享模型和 `service/attachment_contracts.py` 的附件模型。`service/machine.py` 负责机器运行时投影；机器 schema 路由与装配在 `service/http/machine.py`，引用 `dtos.py` 的传输模型。`persistence/statuses.py` 定义运行、提交、审计和报告状态；执行写入和浏览器 DTO 引用同一来源，不改变状态转换。
 
 在仓库根目录执行：
 
