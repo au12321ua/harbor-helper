@@ -7,6 +7,7 @@ import secrets
 import tempfile
 import time
 import uuid
+from typing import cast
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -79,7 +80,7 @@ class TeamConfiguration:
             ).fetchone()[0]
             nonce = secrets.token_bytes(12)
             encrypted = AESGCM(self.data._master()).encrypt(
-                nonce, key.encode(), f"hub/{version}".encode()
+                nonce, cast(str, key).encode(), f"hub/{version}".encode()
             )
             db.execute(
                 "INSERT INTO source_credentials(version,enabled,nonce,ciphertext,updated_at) "
@@ -263,7 +264,7 @@ class TeamConfiguration:
             try:
                 discovery = discover(cache / "tasks", {**source, "tasks": [task]})
             except AuthorInputError as error:
-                discovery = {
+                discovery: dict = {
                     "variables": {},
                     "fixed_names": [],
                     "blocked": error.issues,
@@ -297,7 +298,7 @@ class TeamConfiguration:
                 if not records and old.get("discovery"):
                     for task in catalog:
                         previous = old["discovery"]
-                        discovery = {
+                        discovery: dict = {
                             "source": reference,
                             "fixed_names": previous.get("fixed_names", []),
                         }
@@ -331,7 +332,7 @@ class TeamConfiguration:
         from harbor_helper.execution.author_inputs import AuthorInputError, check_inputs
 
         records = dict(sorted(records.items()))
-        discovery = {
+        discovery: dict = {
             "variables": {},
             "fixed_names": [],
             "blocked": [],

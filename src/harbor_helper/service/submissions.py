@@ -271,7 +271,7 @@ class Submissions:
 
     def _freeze_author_inputs(self, cfg, service, *, check_source):
         dataset_id = service.get("dataset_id")
-        parameters = (
+        parameters: dict = (
             self.configuration.author_parameters(dataset_id)
             if dataset_id
             else {"version": 0, "values": {}}

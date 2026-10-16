@@ -5,6 +5,7 @@ import json
 import secrets
 import time
 import uuid
+from typing import TYPE_CHECKING
 
 from argon2.exceptions import Argon2Error
 
@@ -17,8 +18,18 @@ from harbor_helper.service.primitives import (
     public_user,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from harbor_helper.persistence.store import Store
+
 
 class Accounts:
+    if TYPE_CHECKING:
+        store: Store
+        root: Path
+
+
     @wake_after
     def create_user(self, username, password, role="member"):
         identifier(username)

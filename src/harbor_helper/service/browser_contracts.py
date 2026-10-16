@@ -18,8 +18,8 @@ class DTO(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
-Limits = create_model("Limits", __base__=DTO, **{name: (int, ...) for name in LIMITS})
-LimitsInput = create_model(
+Limits = create_model("Limits", __base__=DTO, **{name: (int, ...) for name in LIMITS})  # ty: ignore[no-matching-overload]  # Runtime Pydantic field tuples generate the existing limits schema.
+LimitsInput = create_model(  # ty: ignore[no-matching-overload]  # Runtime Pydantic field tuples generate the existing limits schema.
     "LimitsInput",
     __base__=DTO,
     **{name: (int, Field(default_factory=lambda: None)) for name in LIMITS},
@@ -200,7 +200,7 @@ class Dataset(DTO):
 
 
 class CatalogDataset(Dataset):
-    author_parameters: AuthorParameters
+    author_parameters: AuthorParameters  # ty: ignore[invalid-mutable-override]  # Pydantic response specialization; keep the strict wire schema.
     ready: bool
     readiness_error: dict[str, str] | None
 
@@ -275,7 +275,7 @@ class UsageRow(DTO):
 
 
 class CancelResult(m.CancelResult):
-    status: RunStatus
+    status: RunStatus  # ty: ignore[invalid-mutable-override]  # Pydantic response specialization; keep the strict wire schema.
 
 
 class Usage(DTO):

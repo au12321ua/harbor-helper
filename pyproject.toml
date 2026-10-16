@@ -22,7 +22,7 @@ dependencies = [
 harbor-helper = "harbor_helper.commands.main:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "ty==0.0.89"]
 
 [tool.ruff]
 line-length = 100

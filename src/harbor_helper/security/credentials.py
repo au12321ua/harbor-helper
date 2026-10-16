@@ -305,5 +305,5 @@ def install_docker_credential_forwarding():
                 raise RuntimeError("Refusing credential value in Docker argv")
         return await original(self, command, **kwargs)
 
-    forward._helper_credentials = True
-    DockerEnvironment._run_docker_compose_command = forward
+    forward._helper_credentials = True  # ty: ignore[unresolved-attribute]  # Marker on the dynamically installed Harbor wrapper prevents double installation.
+    DockerEnvironment._run_docker_compose_command = forward  # ty: ignore[invalid-assignment]  # Transparent kwargs forwarding wrapper on locked Harbor 0.23 method.

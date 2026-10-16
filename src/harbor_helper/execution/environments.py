@@ -96,7 +96,7 @@ class NativeDockerEnvironment(DockerEnvironment):
         except Exception:  # noqa: BLE001 - observations do not turn execution success into failure.
             self.logger.warning("Helper environment observation unavailable")
 
-    async def _run_docker_compose_command(self, command, **kwargs):
+    async def _run_docker_compose_command(self, command, **kwargs):  # ty: ignore[invalid-method-override]  # Harbor 0.23 forwarding override; preserve the existing execution signature.
         if command == ["down", "--rmi", "local", "--volumes", "--remove-orphans"]:
             await self._observe()  # Persist ownership before containers disappear.
             command = ["down", "--volumes", "--remove-orphans"]

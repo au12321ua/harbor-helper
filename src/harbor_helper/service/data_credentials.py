@@ -6,6 +6,7 @@ import secrets
 import stat
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -20,8 +21,20 @@ from harbor_helper.service.primitives import (
     secret_value,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from harbor_helper.persistence.store import Store
+
 
 class Credentials:
+    if TYPE_CHECKING:
+        store: Store
+        root: Path
+        object: Callable[..., dict]
+        user: Callable[..., dict]
+
+
     def _master(self, path=None):
         path = Path(path or read_json(self.root / "service.json")["master_file"])
         if path.resolve().is_relative_to(self.root) or path.is_symlink():

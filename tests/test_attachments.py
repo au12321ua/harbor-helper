@@ -25,12 +25,12 @@ from harbor_helper.service.primitives import ServiceError
 
 @pytest.fixture
 def data(tmp_path):
-    return service_fixture_data.__wrapped__(tmp_path)
+    return service_fixture_data._get_wrapped_function()(tmp_path)
 
 
 @pytest.fixture
 def preparation(monkeypatch):
-    return service_fixture_preparation.__wrapped__(monkeypatch)
+    return service_fixture_preparation._get_wrapped_function()(monkeypatch)
 
 
 PAT = "hh_pat_v1_" + "A" * 43

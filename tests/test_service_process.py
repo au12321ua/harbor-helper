@@ -204,6 +204,7 @@ def maintenance(store):
         wait(
             lambda: (
                 (self.data.root / "scheduler.json").exists()
+                and self.child is not None
                 and read_json(self.data.root / "scheduler.json")["pid"] == self.child.pid
                 and scheduler(self.app)["state"] == "ready"
             )

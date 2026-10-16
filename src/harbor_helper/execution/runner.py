@@ -6,6 +6,8 @@ import importlib.metadata
 import os
 import sys
 import time
+from pathlib import Path
+from typing import cast
 
 from harbor_helper.execution.audit import redact_files
 from harbor_helper.execution.config import HARBOR_VERSION
@@ -49,10 +51,10 @@ async def execute(store, run_id):
         from types import SimpleNamespace
 
         trial = SimpleNamespace(config=cfg)
-        task = Task(cfg.task.path)
-        sessions = [f"{cfg.trial_name}__env", Trial._separate_verifier_session_id(trial, "trial")]
+        task = Task(cast("Path", cfg.task.path))
+        sessions = [f"{cfg.trial_name}__env", Trial._separate_verifier_session_id(cast(Trial, trial), "trial")]
         sessions += [
-            Trial._separate_verifier_session_id(trial, s.name) for s in task.config.steps or []
+            Trial._separate_verifier_session_id(cast(Trial, trial), s.name) for s in task.config.steps or []
         ]
         projects.extend(_sanitize_docker_compose_project_name(s) for s in sessions)
         trials.append({"trial_name": cfg.trial_name, "task": task.name})

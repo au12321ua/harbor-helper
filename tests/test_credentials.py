@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from harbor.environments.docker.docker import DockerEnvironment
@@ -138,7 +139,7 @@ def test_actual_spawn_argv_contains_name_and_env_contains_value(tmp_path, monkey
     env = ProbeEnvironment()
     result = asyncio.run(
         DockerEnvironment._compose_exec(
-            env,
+            cast(DockerEnvironment, env),
             "true",
             service="probe",
             cwd=None,
@@ -147,6 +148,7 @@ def test_actual_spawn_argv_contains_name_and_env_contains_value(tmp_path, monkey
             user=None,
         )
     )
+    assert result.stdout is not None
     assert json.loads(result.stdout) == {
         "value_in_argv": False,
         "name_in_argv": True,
@@ -218,7 +220,7 @@ def test_fixed_opencode_installer_uses_system_node_without_nvm(tmp_path, previou
         ensure_system_dependencies=dependencies,
         exec_as_agent=execute,
     )
-    asyncio.run(HelperOpenCode.install(agent, SimpleNamespace(exec=probe)))
+    asyncio.run(HelperOpenCode.install(cast(HelperOpenCode, agent), SimpleNamespace(exec=probe)))
     assert "npm i -g opencode-ai@1.18.35" in calls[-1]
     assert "nvm" not in calls[-1]
     decision = json.loads((tmp_path / "install-decision.json").read_text())
@@ -227,7 +229,7 @@ def test_fixed_opencode_installer_uses_system_node_without_nvm(tmp_path, previou
     assert decision["actual_version"] == "1.18.35"
     agent._version = "latest"
     with pytest.raises(ValueError):
-        asyncio.run(HelperOpenCode.install(agent, None))
+        asyncio.run(HelperOpenCode.install(cast(HelperOpenCode, agent), None))
 
 
 def test_preinstalled_opencode_skips_dependency_and_npm_install(tmp_path):
@@ -245,7 +247,7 @@ def test_preinstalled_opencode_skips_dependency_and_npm_install(tmp_path):
         ensure_system_dependencies=unexpected,
         exec_as_agent=unexpected,
     )
-    asyncio.run(HelperOpenCode.install(agent, SimpleNamespace(exec=probe)))
+    asyncio.run(HelperOpenCode.install(cast(HelperOpenCode, agent), SimpleNamespace(exec=probe)))
     decision = json.loads((tmp_path / "install-decision.json").read_text())
     assert decision["reused"]
     assert decision["actual_version"] == "1.18.35"
@@ -267,7 +269,7 @@ def test_opencode_rejects_wrong_version_after_install(tmp_path):
         exec_as_agent=install,
     )
     with pytest.raises(RuntimeError, match="fixed version"):
-        asyncio.run(HelperOpenCode.install(agent, SimpleNamespace(exec=probe)))
+        asyncio.run(HelperOpenCode.install(cast(HelperOpenCode, agent), SimpleNamespace(exec=probe)))
     decision = json.loads((tmp_path / "install-decision.json").read_text())
     assert not decision["reused"]
     assert decision["actual_version"] == "1.18.34"

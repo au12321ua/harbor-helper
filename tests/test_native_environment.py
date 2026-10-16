@@ -5,10 +5,12 @@ import json
 import subprocess
 import sys
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from admission_fixture import synthetic_activity
 from harbor.environments.docker.docker import DockerEnvironment
+from harbor.models.trial.paths import TrialPaths
 
 from harbor_helper.execution.environments import (
     NativeDockerEnvironment,
@@ -32,6 +34,7 @@ def test_native_submit_and_rerun_keep_parent_snapshot(tmp_path, monkeypatch):
     actor = data.users()[0]
 
     def source(reference, *, target=None, **kwargs):
+        assert target is not None
         directory = target / "task"
         directory.mkdir(parents=True)
         (directory / "task.toml").write_text('version = "1.0"\n# author original input')
@@ -87,7 +90,7 @@ def test_native_adapter_preserves_build_up_and_down_volumes(monkeypatch, tmp_pat
     monkeypatch.setattr(NativeDockerEnvironment, "_observe", observe)
     env = object.__new__(NativeDockerEnvironment)
     env.session_id = "owned-test"
-    env.trial_paths = SimpleNamespace(trial_dir=tmp_path)
+    env.trial_paths = cast(TrialPaths, SimpleNamespace(trial_dir=tmp_path))
     asyncio.run(
         env._run_docker_compose_command(["down", "--rmi", "local", "--volumes", "--remove-orphans"])
     )

@@ -1,5 +1,7 @@
 import fnmatch
+from typing import cast
 
+from harbor.models.task.id import PackageTaskId
 from harbor.registry.client.package import PackageDatasetClient
 from harbor.tasks.client import TaskClient
 
@@ -26,11 +28,11 @@ def exact_task_names(names, known_names):
 async def resolve_dataset(reference, target, task_filter=None, *, selected_tasks=None):
     client = PackageDatasetClient()
     metadata = await client.get_dataset_metadata(reference)
-    if not metadata.version.startswith("sha256:"):
+    if not cast(str, metadata.version).startswith("sha256:"):
         raise ValueError("Dataset did not resolve to immutable digest")
     if metadata.metrics or metadata.files:
         raise UnsupportedDatasetError("Dataset-level custom metrics/files are not supported")
-    tasks = metadata.task_ids
+    tasks = cast(list[PackageTaskId], metadata.task_ids)
     if selected_tasks is not None:
         catalog = {t.name: t for t in tasks}
         if not isinstance(selected_tasks, list) or any(
@@ -76,7 +78,7 @@ async def resolve_dataset(reference, target, task_filter=None, *, selected_tasks
         )
     return {
         "requested": reference,
-        "resolved": metadata.name + "@" + metadata.version,
+        "resolved": metadata.name + "@" + cast(str, metadata.version),
         "tasks": identities,
     }
 

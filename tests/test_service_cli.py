@@ -33,7 +33,7 @@ def api():
     submissions = {}
 
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *_):
+        def log_message(self, format, *args):
             pass
 
         def respond(self, body, code=200, binary=False):

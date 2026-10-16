@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def module(name):
     spec = importlib.util.spec_from_file_location(name, REPO / "scripts" / f"{name}.py")
+    assert spec is not None and spec.loader is not None
     value = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(value)
     return value
@@ -227,6 +228,7 @@ def test_control_lock_timeout_and_unrecorded_writer(tmp_path):
             text=True,
         )
         try:
+            assert child.stdout is not None
             assert child.stdout.readline().strip() == "ready"
             with pytest.raises(ValueError, match="writers"):
                 ops.backup(backup_args(base, tmp_path / "busy-fd", "offline"))

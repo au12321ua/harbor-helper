@@ -2,6 +2,7 @@ import math
 import re
 from collections import defaultdict
 from datetime import datetime
+from typing import cast
 
 from harbor_helper.persistence.files import read_json, write_json
 
@@ -206,13 +207,13 @@ def report(store, run_id):
     by_task = defaultdict(list)
     for row in rows:
         by_task[row["task"]].append(row)
-    tasks = []
+    tasks: list[dict] = []
     for name in expected:
         attempts = by_task[name]
         valid = [a for a in attempts if a["valid"]]
         metrics = sorted({k for a in valid for k in a["rewards"]})
         means = {
-            k: sum(a["rewards"][k] for a in valid if k in a["rewards"])
+            k: sum(cast(float, a["rewards"][k]) for a in valid if k in a["rewards"])
             / sum(k in a["rewards"] for a in valid)
             for k in metrics
         }

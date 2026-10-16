@@ -14,7 +14,7 @@ from harbor_helper.service.application import Application
 
 @pytest.fixture
 def data(tmp_path):
-    return data_fixture.__wrapped__(tmp_path)
+    return data_fixture._get_wrapped_function()(tmp_path)
 
 
 INVALID = [True, float("nan"), float("inf"), float("-inf"), 10**400, -(10**400)]

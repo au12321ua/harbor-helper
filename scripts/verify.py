@@ -105,7 +105,7 @@ def main():
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     scratch = Path(tempfile.mkdtemp(prefix="hh-verify-"))
     marker = uuid.uuid4().hex
-    report = {
+    report: dict = {
         "sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
         "mode": args.mode,
         "commands": [],
@@ -195,7 +195,11 @@ def main():
             ["uv", "--version"],
             ["node", "--version"],
             [".venv/bin/python", "--version"],
-            [".venv/bin/ruff", "check", "src", "tests", "scripts"],
+            [".venv/bin/ruff", "--version"],
+            [".venv/bin/ty", "--version"],
+            [".venv/bin/ruff", "check", "src", "tests", "scripts", "tools"],
+            [".venv/bin/ruff", "format", "--check", "src", "tests", "scripts", "tools"],
+            [".venv/bin/ty", "check", "--python", ".venv", "--error-on-warning", "src", "tests", "scripts", "tools"],
         ):
             run(command)
         run([".venv/bin/python", "tools/browser_contract.py", "--check"])

@@ -249,6 +249,7 @@ def release(base, env):
             extract = subprocess.run(
                 ["tar", "-x", "-C", str(stage)], stdin=archive.stdout, check=False
             )
+            assert archive.stdout is not None
             archive.stdout.close()
             if archive.wait() or extract.returncode:
                 fail("Fixed-commit export failed.")
@@ -260,6 +261,7 @@ def release(base, env):
         fail("Committed production static missing; build and commit frontend first.")
     if (code / ".installed").exists() and (code / ".venv/bin/python").exists():
         return code
+    assert uv is not None
     with (base / "logs/install.log").open("a") as log:
         result = subprocess.run(
             [uv, "sync", "--locked", "--no-dev", "--python", sys.executable],

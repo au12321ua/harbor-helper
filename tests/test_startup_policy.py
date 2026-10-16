@@ -1,10 +1,12 @@
 import asyncio
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from admission_fixture import synthetic_activity
 from harbor.environments.docker.docker import DockerEnvironment
 from harbor.models.task.config import NetworkMode, NetworkPolicy
+from harbor.models.trial.paths import TrialPaths
 
 from harbor_helper.execution.agents import HelperOpenCode
 from harbor_helper.execution.config import DEFAULT, validate_effective
@@ -105,7 +107,7 @@ def test_compose_failure_records_phase_without_secret(tmp_path, monkeypatch, fai
     monkeypatch.setattr(DockerEnvironment, "_run_docker_compose_command", original)
     env = object.__new__(NativeDockerEnvironment)
     env.session_id = "owned"
-    env.trial_paths = SimpleNamespace(trial_dir=tmp_path)
+    env.trial_paths = cast(TrialPaths, SimpleNamespace(trial_dir=tmp_path))
     with pytest.raises(failure):
         asyncio.run(env._run_docker_compose_command(["build"]))
     phase = read_json(tmp_path / "helper-phases-owned.json")[0]

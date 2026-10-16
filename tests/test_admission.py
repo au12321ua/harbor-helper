@@ -24,12 +24,12 @@ from harbor_helper.service.primitives import ServiceError
 
 @pytest.fixture
 def data(tmp_path):
-    return data_fixture.__wrapped__(tmp_path)
+    return data_fixture._get_wrapped_function()(tmp_path)
 
 
 @pytest.fixture
 def preparation(monkeypatch):
-    return preparation_fixture.__wrapped__(monkeypatch)
+    return preparation_fixture._get_wrapped_function()(monkeypatch)
 
 
 def actor(data, name="alice"):

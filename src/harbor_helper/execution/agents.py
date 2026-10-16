@@ -29,7 +29,7 @@ class HelperOpenCode(OpenCode):
         self._offline_tool = False
         super().__init__(*args, helper_tool_cache=helper_tool_cache, **kwargs)
 
-    async def exec_as_agent(self, environment, command, **kwargs):
+    async def exec_as_agent(self, environment, command, **kwargs):  # ty: ignore[invalid-method-override]  # Harbor 0.23 forwarding override; preserve the existing execution signature.
         if self.helper_tool_cache:
             # Public catalog refresh/updater downloads are preparation, not inference.
             kwargs["env"] = {
@@ -185,6 +185,7 @@ class HelperOpenCode(OpenCode):
 
 
 class BundleMixin:
+    logs_dir: Path
     """Keep task execution in Harbor; install the frozen experiment payload."""
 
     def __init__(self, *args, helper_bundle=None, **kwargs):
@@ -220,7 +221,7 @@ class BundleMixin:
             if self.helper_bundle
             else {}
         ):
-            await super().run(instruction, environment, context)
+            await super().run(instruction, environment, context)  # ty: ignore[unresolved-attribute]  # Cooperative mixin dispatch resolves run on the next Harbor agent in the MRO.
 
 
 class BundledOracle(BundleMixin, OracleAgent):

@@ -1,5 +1,7 @@
 """Capacity persistence operations sharing the service store."""
 
+from typing import TYPE_CHECKING
+
 from harbor_helper.execution.config import DEFAULT
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.persistence.wakeup import wake_after
@@ -8,8 +10,15 @@ from harbor_helper.service.primitives import (
     ServiceError,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 class Capacity:
+    if TYPE_CHECKING:
+        root: Path
+
+
     def limits(self):
         path = self.root / "limits.json"
         return {**LIMITS, **(read_json(path) if path.exists() else {})}

@@ -9,6 +9,8 @@ from harbor.job import Job
 from harbor.models.job.config import JobConfig
 from harbor.trial.trial import Trial
 
+from harbor_helper.execution.agents import BundledOpenCode, HelperOpenCode, HelperOpenCodeOptions
+
 TASK = (
     Path(__file__).resolve().parents[1]
     / "examples/harbor-helper-switch-smoke/harbor-helper-switch-answer"
@@ -53,12 +55,15 @@ def test_real_job_preflight_and_trial_receive_options(tmp_path, monkeypatch, bun
         job = await Job.create(config(tmp_path, bundled, **kwargs))
         trial = await Trial.create(job._trial_configs[0])
         agent = trial.agent
+        assert isinstance(agent, HelperOpenCode)
+        assert isinstance(agent.options, HelperOpenCodeOptions)
         assert agent.helper_tool_cache == (tmp_path / "agent-tools" if cache else None)
         assert agent.options.helper_tool_cache == kwargs.get("helper_tool_cache")
         assert agent._version == "1.18.35"
         assert agent.options.variant == "minimal"
         assert agent.options.opencode_config == kwargs["opencode_config"]
         if bundled:
+            assert isinstance(agent, BundledOpenCode)
             assert agent.helper_bundle == tmp_path / "bundle"
 
     asyncio.run(check())

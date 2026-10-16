@@ -2,6 +2,7 @@
 
 import re
 import time
+from typing import cast
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.persistence.wakeup import wake_after
@@ -20,7 +21,7 @@ def maintenance(data):
         not isinstance(value, dict)
         or type(value.get("paused")) is not bool
         or not isinstance(value.get("reason"), str)
-        or len(value["reason"]) > 500
+        or len(cast(str, value["reason"])) > 500
         or any(
             value.get(k) is not None and not finite_number(value[k])
             for k in ("retry_at", "updated")
@@ -51,7 +52,7 @@ def set_maintenance(data, body):
             "maintenance_reason", "Use a short notice without secrets or internal paths"
         )
     retry = value["retry_at"]
-    if retry is not None and (not finite_number(retry) or retry <= time.time()):
+    if retry is not None and (not finite_number(retry) or cast(float, retry) <= time.time()):
         raise ServiceError("maintenance_retry", "Retry time must be a finite future timestamp")
     value = {"paused": value["paused"], "reason": reason, "retry_at": retry, "updated": time.time()}
     write_json(data.root / "admission.json", value)

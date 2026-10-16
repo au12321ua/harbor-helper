@@ -3,6 +3,7 @@
 import re
 import uuid
 from collections.abc import Callable
+from typing import cast
 
 from harbor_helper.execution.config import reject_secrets
 from harbor_helper.service.primitives import ServiceError, identifier
@@ -54,8 +55,8 @@ class Models:
                 "enabled",
             }:
                 raise ServiceError("profile_options", "Unknown model profile options")
-            provider = self._read_object("provider", value.get("provider_id"))
-            credential = self._read_credential(value.get("credential_id"))
+            provider = self._read_object("provider", cast(str, value.get("provider_id")))
+            credential = self._read_credential(cast(str, value.get("credential_id")))
             if credential["provider_id"] != provider["id"]:
                 raise ServiceError("credential_binding", "Credential belongs to another provider")
             if (

@@ -49,15 +49,15 @@ class Axis(BaseModel):
 
 
 class ResourceAxis(Axis):
-    state: Literal["active", "released", "cleanup_blocked", "unknown"]
+    state: Literal["active", "released", "cleanup_blocked", "unknown"]  # ty: ignore[invalid-mutable-override]  # Pydantic response specialization; keep the strict wire schema.
 
 
 class AuditAxis(Axis):
-    state: AuditStatus
+    state: AuditStatus  # ty: ignore[invalid-mutable-override]  # Pydantic response specialization; keep the strict wire schema.
 
 
 class ReportAxis(Axis):
-    state: ReportStatus
+    state: ReportStatus  # ty: ignore[invalid-mutable-override]  # Pydantic response specialization; keep the strict wire schema.
 
 
 class AttachmentBinding(BaseModel):

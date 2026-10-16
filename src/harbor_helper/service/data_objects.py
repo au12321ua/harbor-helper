@@ -1,6 +1,7 @@
 """Objects persistence operations sharing the service store."""
 
 import json
+from typing import TYPE_CHECKING
 
 from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.service.primitives import (
@@ -8,8 +9,15 @@ from harbor_helper.service.primitives import (
     public_object,
 )
 
+if TYPE_CHECKING:
+    from harbor_helper.persistence.store import Store
+
 
 class Objects:
+    if TYPE_CHECKING:
+        store: Store
+
+
     def objects(self, kind):
         with self.store.connect() as db:
             rows = db.execute(

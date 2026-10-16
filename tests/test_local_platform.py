@@ -10,6 +10,7 @@ import pytest
 spec = importlib.util.spec_from_file_location(
     "local_platform", Path(__file__).resolve().parents[1] / "scripts/local_platform.py"
 )
+assert spec is not None and spec.loader is not None
 platform = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(platform)
 

@@ -6,6 +6,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import cast
+
+from harbor.models.task.id import PackageTaskId
 
 from harbor_helper.service.primitives import ServiceError
 
@@ -93,12 +96,12 @@ def main():
         metadata = await PackageDatasetClient().get_dataset_metadata(request["reference"])
         if metadata.metrics or metadata.files:
             raise UnsupportedDatasetError("Dataset-level custom metrics/files unsupported")
-        if not metadata.version.startswith("sha256:"):
+        if not cast(str, metadata.version).startswith("sha256:"):
             raise ValueError("Unsupported dataset")
-        tasks = [{"name": t.name, "package": t.get_name(), "ref": t.ref} for t in metadata.task_ids]
-        if not tasks or any(not t["ref"].startswith("sha256:") for t in tasks):
+        tasks = [{"name": t.name, "package": t.get_name(), "ref": t.ref} for t in cast(list[PackageTaskId], metadata.task_ids)]
+        if not tasks or any(not cast(str, t["ref"]).startswith("sha256:") for t in tasks):
             raise ValueError("Unsupported tasks")
-        return {"resolved": metadata.name + "@" + metadata.version, "tasks": tasks}
+        return {"resolved": metadata.name + "@" + cast(str, metadata.version), "tasks": tasks}
 
     try:
         value = asyncio.run(execute())

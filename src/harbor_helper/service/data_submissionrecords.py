@@ -1,13 +1,24 @@
 """SubmissionRecords persistence operations sharing the service store."""
 
 import json
+from typing import TYPE_CHECKING
 
 from harbor_helper.service.primitives import (
     ServiceError,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from harbor_helper.persistence.store import Store
+
 
 class SubmissionRecords:
+    if TYPE_CHECKING:
+        store: Store
+        user: Callable[..., dict]
+
+
     def submission(self, submission_id):
         with self.store.connect() as db:
             row = db.execute("SELECT * FROM submissions WHERE id=?", (submission_id,)).fetchone()

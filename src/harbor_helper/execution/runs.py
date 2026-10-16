@@ -10,6 +10,7 @@ import tomllib
 import uuid
 from copy import deepcopy
 from pathlib import Path
+from typing import cast
 
 from harbor.models.job.config import JobConfig
 
@@ -207,6 +208,7 @@ def submit(
 ):
     if parent and cfg is None:
         cfg = read_json(store.path(parent) / "manifest.json")["effective"]
+    cfg = cast(dict, cfg)  # Frozen configuration is validated by validate_effective.
     validate_effective(team, cfg)
 
     if importlib.metadata.version("harbor") != HARBOR_VERSION:

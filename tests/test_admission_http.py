@@ -18,7 +18,7 @@ from harbor_helper.service.observation import scheduler
 
 @pytest.fixture
 def http_service(tmp_path):
-    yield from production_http_fixture.__wrapped__(tmp_path)
+    yield from production_http_fixture._get_wrapped_function()(tmp_path)
 
 
 def cli(p, *argv, code=0):
