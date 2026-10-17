@@ -142,6 +142,7 @@ class Controller:
         if self.stopping:
             return
         store = self.store
+        master_error = None
         with store.quiet_control():
             if changed:
                 rows = store.work()
@@ -176,15 +177,22 @@ class Controller:
                                 reason="Cancelled while queued",
                             )
                             notify(store.root)
-                        elif not self.authorized(row):
-                            continue
-                        elif (
-                            len(active) < team["max_jobs"]
-                            and slots + row["concurrency"] <= team["max_trials"]
-                        ):
-                            if self.launch(row):
-                                active.append(row)
-                                slots += row["concurrency"]
+                        elif master_error is None:
+                            try:
+                                if not self.authorized(row):
+                                    continue
+                                if (
+                                    len(active) < team["max_jobs"]
+                                    and slots + row["concurrency"] <= team["max_trials"]
+                                    and self.launch(row)
+                                ):
+                                    active.append(row)
+                                    slots += row["concurrency"]
+                            except MasterUnavailable as error:
+                                # Defer this global fault until cancellations and
+                                # independent terminal audit work have had a turn.
+                                # No later queued authorization may start work.
+                                master_error = error
                     elif row["status"] in TERMINAL and self.available(self.auditing, row["id"]):
                         self.auditing.submit(row["id"], audit_pending, store, row)
                 # Queued cancellation/authorization failures require an audit pass.
@@ -204,6 +212,9 @@ class Controller:
                     from harbor_helper.service.lifecycle import prepare_one
 
                     self.preparation.submit("prepare", prepare_one, store)
+        if master_error is not None:
+            # Preserve supervision/backoff rather than classifying a run failure.
+            raise master_error
 
     def advance(self, row):
         store, key = self.store, row["id"]

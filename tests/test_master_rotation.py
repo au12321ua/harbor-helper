@@ -456,3 +456,78 @@ def test_deleted_active_table_is_global_fault_without_import_fallback(vault):
     assert client.get("/api/v1/health").json() == {"alive": True, "ready": False}
     with recovered.store.connect() as db:
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='master_active'").fetchone()
+
+
+@pytest.mark.parametrize("fault_at", ["authorization", "launch"])
+def test_master_fault_does_not_starve_later_cancellation_or_terminal_audit(
+    vault, monkeypatch, fault_at
+):
+    from harbor_helper.execution.scheduler import Controller
+    from harbor_helper.persistence.files import write_json
+
+    store = vault.store
+    # created order is essential: the failing uncancelled run precedes all work.
+    with store.connect() as db:
+        for number, (name, status, cancel) in enumerate(
+            [
+                ("first", "queued", 0),
+                ("later-cancel", "queued", 1),
+                ("later-terminal", "succeeded", 0),
+                ("later-queued", "queued", 0),
+            ]
+        ):
+            db.execute(
+                "INSERT INTO runs(id,status,cancel,created,concurrency) VALUES(?,?,?,?,1)",
+                (name, status, cancel, time.time() + number),
+            )
+            folder = store.root / "runs" / name
+            folder.mkdir()
+            write_json(
+                folder / "manifest.json",
+                {"effective": {"agent": "oracle"}, "service": {"user_id": actor(vault)["id"]}},
+            )
+    master = vault.root.parent / "private/master"
+    raw = master.read_bytes()
+    controller = Controller(store)
+    launched, audited, authorized = [], [], []
+    original_authorized = controller.authorized
+
+    def authorize(row):
+        authorized.append(row["id"])
+        return original_authorized(row)
+
+    def launch(row):
+        # Cover disappearance between the two real authorization/key checks too.
+        if fault_at == "launch" and master.exists():
+            master.unlink()
+        assert controller.execution_environment(row) is not None
+        launched.append(row["id"])
+        return True
+
+    monkeypatch.setattr(controller, "authorized", authorize)
+    monkeypatch.setattr(controller, "launch", launch)
+    # Record dispatch, without requiring the terminal audit itself to use a key.
+    monkeypatch.setattr(
+        controller.auditing, "submit", lambda key, *args: audited.append(key) or True
+    )
+    if fault_at == "authorization":
+        master.unlink()
+    try:
+        for _ in range(2):
+            with pytest.raises(crypto.MasterUnavailable):
+                controller.decide()
+            assert store.get("first")["status"] == "queued"
+            assert store.get("later-queued")["status"] == "queued"
+            assert store.get("later-cancel")["status"] == "cancelled"
+            assert launched == []
+            assert "later-terminal" in audited
+        assert authorized == ["first", "first"]
+        # Recovery resumes the first run through the actual environment boundary.
+        master.write_bytes(raw)
+        master.chmod(0o600)
+        fault_at = "recovered"
+        controller.decide()
+        assert launched == ["first"]
+        assert store.get("later-cancel")["status"] == "cancelled"
+    finally:
+        controller.close()
