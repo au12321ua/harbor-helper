@@ -125,19 +125,25 @@ def job_config(run_dir, manifest):
         agent["extra_allowed_hosts"] = [
             __import__("urllib.parse", fromlist=["urlparse"]).urlparse(model["endpoint"]).hostname
         ]
+        from harbor_helper.execution.model_protocols import ADAPTERS, bundle_config, parameters
+
+        protocol = model.get("protocol", "openai-compatible")
+        params = parameters(protocol, model.get("parameters", {}), model["opencode_version"])
+        model_settings = {"id": model["name"], "name": model["name"]}
+        if protocol == "openai-compatible":
+            model_settings["options"] = params
+        else:
+            model_settings["limit"] = {"context": 200000, "output": params["max_output_tokens"]}
         custom = {
+            "model": "vllm/" + model["name"],
+            "small_model": "vllm/" + model["name"],
             "enabled_providers": ["vllm"],
             "provider": {
                 "vllm": {
-                    "npm": "@ai-sdk/openai-compatible",
+                    "npm": ADAPTERS[protocol],
                     "name": "Maintainer OpenAI-compatible service",
                     "options": {"baseURL": model["endpoint"]},
-                    "models": {
-                        model["name"]: {
-                            "name": model["name"],
-                            "options": deepcopy(model.get("parameters", {})),
-                        }
-                    },
+                    "models": {model["name"]: model_settings},
                 }
             },
         }
@@ -148,15 +154,7 @@ def job_config(run_dir, manifest):
         if bundle_cfg.exists():
             from harbor.agents.installed.opencode import OpenCode
 
-            custom = OpenCode._deep_merge(custom, read_json(bundle_cfg))
-            # A bundle cannot redirect the maintainer's endpoint/model selection.
-            if custom["provider"]["vllm"]["options"]["baseURL"] != model["endpoint"]:
-                raise ValueError("Bundle cannot override model endpoint")
-            if custom["provider"]["vllm"]["models"][model["name"]].get("options", {}) != model.get(
-                "parameters", {}
-            ):
-                raise ValueError("Bundle cannot override frozen model parameters")
-            custom["enabled_providers"] = ["vllm"]
+            custom = OpenCode._deep_merge(bundle_config(read_json(bundle_cfg)), custom)
         agent["kwargs"]["opencode_config"] = custom
     return JobConfig.model_validate(
         {

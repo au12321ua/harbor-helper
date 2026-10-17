@@ -17,7 +17,9 @@ def check_bundle(path, access_value=None):
         raise ValueError("Bundle config supports opencode.json only")
     cfg = config_dir / "opencode.json"
     if cfg.exists():
-        reject_secrets(read_json(cfg))
+        from harbor_helper.execution.model_protocols import bundle_config
+
+        reject_secrets(bundle_config(read_json(cfg)))
     for p in path.rglob("*"):
         if p.is_file() and (
             p.name.startswith(".env")

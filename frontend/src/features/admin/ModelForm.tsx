@@ -25,6 +25,9 @@ export function ModelForm({
   onSaved: (value: Profile) => void;
 }) {
   const [provider, setProvider] = useState(String(selected?.provider_id || ""));
+  const native =
+    catalog.providers.find((p) => p.id === provider)?.protocol !==
+      "openai-compatible" && !!provider;
   const credentials = (catalog.credentials || []).filter(
     (c) => c.provider_id === provider && c.enabled,
   );
@@ -62,7 +65,11 @@ export function ModelForm({
           key={`${selected?.id || "new"}-${provider}`}
           resetOnSave={!selected}
           title="模型配置"
-          description="常用参数可留空；JSON 高级参数与常用参数合并。已有实验保留旧版本。"
+          description={
+            native
+              ? "Responses / Messages 当前仅支持 max_output_tokens（默认4096），固定 OpenCode 1.18.35；未知参数会拒绝。改变协议后请检查旧参数。"
+              : "Chat 常用参数可留空；JSON 高级参数与常用参数合并。已有实验保留旧版本。"
+          }
           fields={[
             {
               name: "name",
@@ -86,20 +93,33 @@ export function ModelForm({
               label: "供应商模型名称",
               defaultValue: selected?.model,
             },
-            {
-              name: "temperature",
-              label: "Temperature（可选）",
-              type: "number",
-              required: false,
-              defaultValue: String(selected?.params?.temperature ?? ""),
-            },
-            {
-              name: "max_tokens",
-              label: "最大输出 tokens（可选）",
-              type: "number",
-              required: false,
-              defaultValue: String(selected?.params?.max_tokens ?? ""),
-            },
+            ...(native
+              ? [
+                  {
+                    name: "max_output_tokens",
+                    label: "最大输出 tokens（正整数）",
+                    type: "number",
+                    defaultValue: String(
+                      selected?.params?.max_output_tokens ?? 4096,
+                    ),
+                  },
+                ]
+              : [
+                  {
+                    name: "temperature",
+                    label: "Temperature（可选）",
+                    type: "number",
+                    required: false,
+                    defaultValue: String(selected?.params?.temperature ?? ""),
+                  },
+                  {
+                    name: "max_tokens",
+                    label: "最大输出 tokens（可选）",
+                    type: "number",
+                    required: false,
+                    defaultValue: String(selected?.params?.max_tokens ?? ""),
+                  },
+                ]),
             {
               name: "params",
               label: "高级参数 JSON",
@@ -115,9 +135,11 @@ export function ModelForm({
           onSave={async (v) => {
             const params: unknown = JSON.parse(v.params);
             if (!isJsonMapping(params)) throw new Error("参数须为 JSON 对象");
-            if (v.temperature !== "")
+            if (native) params.max_output_tokens = Number(v.max_output_tokens);
+            if (!native && v.temperature !== "")
               params.temperature = Number(v.temperature);
-            if (v.max_tokens !== "") params.max_tokens = Number(v.max_tokens);
+            if (!native && v.max_tokens !== "")
+              params.max_tokens = Number(v.max_tokens);
             const saved = await save("/admin/model-profiles", {
               id: selected?.id,
               name: v.name,

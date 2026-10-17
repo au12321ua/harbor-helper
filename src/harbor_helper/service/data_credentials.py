@@ -1,19 +1,15 @@
 """Credentials persistence operations sharing the service store."""
 
 import json
-import os
-import secrets
-import stat
+import sqlite3
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from harbor_helper.persistence.files import read_json
 from harbor_helper.persistence.store import TERMINAL
 from harbor_helper.persistence.wakeup import wake_after
+from harbor_helper.security.master_key import MasterKeys, MasterUnavailable, aad, decrypt, encrypt
 from harbor_helper.service.primitives import (
     ServiceError,
     identifier,
@@ -33,30 +29,7 @@ class Credentials:
         root: Path
         object: Callable[..., dict]
         user: Callable[..., dict]
-
-    def _master(self, path=None):
-        path = Path(path or read_json(self.root / "service.json")["master_file"])
-        if path.resolve().is_relative_to(self.root) or path.is_symlink():
-            raise ServiceError(
-                "master_unavailable", "Protected external master key unavailable", 503
-            )
-        try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-            with os.fdopen(fd, "rb") as file:
-                meta = os.fstat(file.fileno())
-                raw = file.read(33)
-            if (
-                not stat.S_ISREG(meta.st_mode)
-                or meta.st_uid != os.getuid()
-                or (stat.S_IMODE(meta.st_mode) & 0o077)
-                or len(raw) != 32
-            ):
-                raise ValueError
-            return raw
-        except (OSError, ValueError):
-            raise ServiceError(
-                "master_unavailable", "Protected external master key unavailable", 503
-            ) from None
+        master_keys: MasterKeys
 
     def credential(self, credential_id, version=None):
         with self.store.connect() as db:
@@ -83,9 +56,9 @@ class Credentials:
         secret_value(key)
         if not isinstance(label, str) or not 1 <= len(label) <= 128:
             raise ServiceError("invalid_label", "Credential label must be 1–128 characters")
-        master = self._master()
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            master = self.master_keys.current(db)
             old = db.execute(
                 "SELECT * FROM credential_versions WHERE id=? ORDER BY version DESC LIMIT 1",
                 (credential_id,),
@@ -99,9 +72,7 @@ class Credentials:
             if rotate and old is None:
                 raise ServiceError("credential_missing", "Credential not found", 404)
             version = old["version"] + 1 if old else 1
-            nonce = secrets.token_bytes(12)
-            aad = f"{provider_id}/{credential_id}/{version}".encode()
-            ciphertext = AESGCM(master).encrypt(nonce, key.encode(), aad)
+            nonce, ciphertext = encrypt(master, key, f"{provider_id}/{credential_id}/{version}")
             db.execute(
                 "INSERT INTO credential_versions VALUES(?,?,?,?,1,?,?,?)",
                 (credential_id, version, provider_id, label, nonce, ciphertext, time.time()),
@@ -116,55 +87,41 @@ class Credentials:
         return self.credential(credential_id)
 
     def key(self, credential_id, version, provider_id, execution=False):
-        with self.store.connect() as db:
-            row = db.execute(
-                "SELECT * FROM credential_versions WHERE id=? AND version=?",
-                (credential_id, version),
-            ).fetchone()
+        rows = self.master_keys.rows(
+            "credential_versions", "WHERE c.id=? AND c.version=?", (credential_id, version)
+        )
+        row = rows[0] if rows else None
         if row is None or row["provider_id"] != provider_id or (execution and not row["enabled"]):
             raise ServiceError(
                 "credential_unavailable", "Bound credential unavailable or disabled", 409
             )
-        try:
-            return (
-                AESGCM(self._master())
-                .decrypt(
-                    row["nonce"],
-                    row["ciphertext"],
-                    f"{provider_id}/{credential_id}/{version}".encode(),
-                )
-                .decode()
-            )
-        except (InvalidTag, UnicodeError):
-            raise ServiceError(
-                "credential_unavailable", "Bound credential cannot be decrypted", 409
-            ) from None
+        return decrypt(self.master_keys.load(row), row, aad(row, "credential_versions"))
 
     def notice_secrets(self):
-        """Known team keys for validating a public maintenance notice, never metadata."""
-        with self.store.connect() as db:
-            credentials = db.execute(
-                "SELECT id,version,provider_id FROM credential_versions"
-            ).fetchall()
-            has_sources = db.execute(
-                "SELECT 1 FROM sqlite_master WHERE name='source_credentials'"
-            ).fetchone()
-            sources = (
-                db.execute("SELECT * FROM source_credentials").fetchall() if has_sources else []
-            )
-        values = [self.key(r["id"], r["version"], r["provider_id"]) for r in credentials]
+        """One statement snapshots both credential families and their active key."""
         try:
-            for row in sources:
-                values.append(
-                    AESGCM(self._master())
-                    .decrypt(row["nonce"], row["ciphertext"], f"hub/{row['version']}".encode())
-                    .decode()
+            with self.store.connect() as db:
+                has_sources = db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='source_credentials'"
+                ).fetchone()
+                source = (
+                    "UNION ALL SELECT 'source_credentials',NULL,version,NULL,nonce,ciphertext FROM source_credentials"
+                    if has_sources
+                    else ""
                 )
-        except (InvalidTag, UnicodeError):
-            raise ServiceError(
-                "admission_state_unavailable", "Notice safety unavailable", 503
-            ) from None
-        return values
+                rows = db.execute(f"""WITH c AS (
+                    SELECT 'credential_versions' kind,id,version,provider_id,nonce,ciphertext FROM credential_versions
+                    {source}) SELECT c.*,m.generation,m.basename,m.kcv,m.rotated_at,
+                    (SELECT COUNT(*) FROM master_active) active_count FROM c LEFT JOIN master_active m ON m.singleton=1""").fetchall()
+        except sqlite3.DatabaseError:
+            raise MasterUnavailable() from None
+        if not rows:
+            self.master_keys.current()
+            return []
+        if rows[0]["active_count"] != 1:
+            raise MasterUnavailable()
+        master = self.master_keys.load(rows[0])
+        return [decrypt(master, row, aad(row, row["kind"])) for row in rows]
 
     def run_key(self, run_id, execution=False):
         manifest = read_json(self.store.path(run_id) / "manifest.json")
@@ -181,11 +138,11 @@ class Credentials:
                 raise ServiceError(
                     "execution_disabled", "Submitting account or provider disabled", 409
                 )
-            if (
-                self.object("provider", binding["provider_id"], binding["provider_version"])[
-                    "endpoint"
-                ]
-                != manifest["effective"]["model"]["endpoint"]
+            provider = self.object("provider", binding["provider_id"], binding["provider_version"])
+            model = manifest["effective"]["model"]
+            if (provider.get("protocol", "openai-compatible"), provider["endpoint"]) != (
+                model.get("protocol", "openai-compatible"),
+                model["endpoint"],
             ):
                 raise ServiceError("binding_mismatch", "Fixed provider binding mismatch", 409)
         return self.key(

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
 class Login(BaseModel):
@@ -33,3 +33,9 @@ class PasswordChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     current_password: SecretStr
     password: SecretStr
+
+
+class MasterRotation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: SecretStr
+    expected_generation: int = Field(strict=True, ge=1)

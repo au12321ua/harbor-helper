@@ -302,7 +302,10 @@ def test_legacy_json_upgrade_preserves_schema_ciphertext_master_and_manifest(dat
     legacy_limits.pop("max_pending_per_member")
     legacy_limits["max_queue"] = 4
     write_json(data.root / "limits.json", legacy_limits)
-    master = __import__("pathlib").Path(read_json(data.root / "service.json")["master_file"])
+    master = (
+        __import__("pathlib").Path(read_json(data.root / "service.json")["master_directory"])
+        / "master"
+    )
     key_bytes = master.read_bytes()
 
     def preserved():

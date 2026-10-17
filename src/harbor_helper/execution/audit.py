@@ -13,6 +13,7 @@ from harbor_helper.security.credentials import (
     scrub_file,
     scrub_run,
 )
+from harbor_helper.security.master_key import MasterUnavailable
 
 
 def audit_finished(store, row):
@@ -43,6 +44,8 @@ def _audit_finished(store, row):
         if not audit["clean"]:
             raise RuntimeError("Credential audit not clean; raw evidence withheld")
         report(store, row["id"])
+    except MasterUnavailable:
+        raise
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
         # Third-party exceptions can carry unavailable secrets. Persist a fixed,
         # actionable message rather than potentially unsafe original exception text.
@@ -73,6 +76,8 @@ def finish(store, row, status, reason):
     try:
         stop_group(row)
         cleanup(store.path(row["id"]))
+    except MasterUnavailable:
+        raise
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
         store.update(
             row["id"],

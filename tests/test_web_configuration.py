@@ -42,7 +42,7 @@ def test_protected_setup_concurrent_and_invalid_retry(tmp_path):
     assert sorted(r.status_code for r in responses) == [201, 409]
     data = ServiceData(root)
     assert len(data.users()) == 1
-    assert not Path(read_json(root / "service.json")["master_file"]).is_relative_to(root)
+    assert not Path(read_json(root / "service.json")["master_directory"]).is_relative_to(root)
     assert token not in json.dumps([r.json() for r in responses])
     assert client.post("/api/v1/setup", headers=WRITE, json=request).status_code == 409
     assert (

@@ -183,13 +183,24 @@ class Submissions:
         if credential["provider_id"] != provider["id"]:
             raise ServiceError("credential_binding", "Credential provider mismatch", 409)
         self.data.key(credential["id"], credential["version"], provider["id"], True)
+        from harbor_helper.execution.model_protocols import parameters
+
+        try:
+            params = parameters(
+                provider.get("protocol", "openai-compatible"),
+                profile["params"],
+                profile["opencode_version"],
+            )
+        except ValueError as error:
+            raise ServiceError("model_parameters", str(error)) from None
         cfg["model"] = {
             "endpoint": provider["endpoint"],
             "name": profile["model"],
             "declared_version": "unknown",
             "credential_env": "VLLM_API_KEY",
             "opencode_version": profile["opencode_version"],
-            "parameters": profile["params"],
+            "parameters": params,
+            "protocol": provider.get("protocol", "openai-compatible"),
         }
         service.update(
             provider_id=provider["id"],
@@ -265,6 +276,25 @@ class Submissions:
         provider = self.data.object("provider", binding["provider_id"])
         if not provider["enabled"]:
             raise ServiceError("provider_disabled", "Original provider disabled", 409)
+        if (provider.get("protocol", "openai-compatible"), provider["endpoint"]) != (
+            cfg["model"].get("protocol", "openai-compatible"),
+            cfg["model"]["endpoint"],
+        ):
+            raise ServiceError(
+                "provider_changed",
+                "提供商协议或端点已改变；请新建实验，不能向旧端点发送新凭据",
+                409,
+            )
+        from harbor_helper.execution.model_protocols import parameters
+
+        try:
+            parameters(
+                cfg["model"].get("protocol", "openai-compatible"),
+                cfg["model"].get("parameters", {}),
+                cfg["model"]["opencode_version"],
+            )
+        except ValueError as error:
+            raise ServiceError("model_parameters", str(error)) from None
         self.data.key(credential["id"], credential["version"], provider["id"], True)
         service["credential_version"] = credential["version"]
         return cfg

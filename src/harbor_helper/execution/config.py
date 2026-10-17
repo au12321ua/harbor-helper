@@ -102,6 +102,7 @@ def validate_effective(team, cfg):
             "name",
             "declared_version",
             "credential_env",
+            "protocol",
             "opencode_version",
             "parameters",
         }:
@@ -113,6 +114,13 @@ def validate_effective(team, cfg):
             raise ValueError("Set model.name and fixed model.opencode_version")
         if not isinstance(model.get("parameters", {}), dict):
             raise ValueError("Model parameters must be a non-secret object")
+        from harbor_helper.execution.model_protocols import parameters
+
+        parameters(
+            model.get("protocol", "openai-compatible"),
+            model.get("parameters", {}),
+            model["opencode_version"],
+        )
         key = model.get("credential_env")
         if key and (key != "VLLM_API_KEY"):
             raise ValueError("Use explicit VLLM_API_KEY runtime credential reference")

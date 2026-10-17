@@ -7,6 +7,7 @@ This module deliberately imports no harbor_helper application or Store classes.
 import argparse
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -84,6 +85,14 @@ def inventory(root):
     return result
 
 
+def write_key(path, raw):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as file:
+        file.write(raw)
+        file.flush()
+        os.fsync(file.fileno())
+
+
 def key_bytes(path):
     path = plain(path)
     with regular_reader(path) as file:
@@ -113,6 +122,10 @@ def ro_db(state):
     db.execute("PRAGMA query_only=ON")
     try:
         yield db
+    except sqlite3.DatabaseError as error:
+        raise ValueError(
+            "Read-only database unavailable; recover hot journal with the product before retrying"
+        ) from error
     finally:
         db.close()
 
@@ -136,6 +149,64 @@ def schema(db):
     }
 
 
+def active_reference(db):
+    found = db.execute("SELECT * FROM master_active").fetchall()
+    require(len(found) == 1 and found[0]["singleton"] == 1, "invalid active master reference")
+    ref = dict(found[0])
+    require(
+        type(ref["generation"]) is int
+        and ref["generation"] > 0
+        and isinstance(ref["basename"], str)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", ref["basename"])
+        and isinstance(ref["kcv"], str)
+        and re.fullmatch("[a-f0-9]{64}", ref["kcv"]),
+        "invalid active master reference",
+    )
+    return ref
+
+
+def check_kcv(master, ref):
+    expected = hmac.new(
+        master, f"harbor-helper/master/{ref['generation']}".encode(), hashlib.sha256
+    ).hexdigest()
+    require(hmac.compare_digest(expected, ref["kcv"]), "active master KCV mismatch")
+
+
+def startup_master(state):
+    """Read-only preflight for one-time legacy upgrade, never active fallback."""
+    with ro_db(state) as db:
+        imported = db.execute("SELECT 1 FROM sqlite_master WHERE name='master_active'").fetchone()
+    if imported:
+        return current_master(state)
+    config = read_json(state / "service.json")
+    require("master_file" in config, "active master metadata missing")
+    path = plain(config["master_file"])
+    require(not path.resolve().is_relative_to(state.resolve()), "master must be outside state")
+    meta = path.parent.stat()
+    require(
+        stat.S_ISDIR(meta.st_mode) and meta.st_uid == os.getuid() and not meta.st_mode & 0o022,
+        "master directory must be protected",
+    )
+    return key_bytes(path)
+
+
+def current_master(state, ref=None):
+    config = read_json(state / "service.json")
+    folder = plain(config["master_directory"])
+    require(not folder.resolve().is_relative_to(state.resolve()), "master must be outside state")
+    meta = folder.stat()
+    require(
+        stat.S_ISDIR(meta.st_mode) and meta.st_uid == os.getuid() and not meta.st_mode & 0o022,
+        "master directory must be protected",
+    )
+    if ref is None:
+        with ro_db(state) as db:
+            ref = active_reference(db)
+    raw = key_bytes(folder / ref["basename"])
+    check_kcv(raw, ref)
+    return raw
+
+
 def validate_db(state, master):
     # Validate raw source schema without constructing/migrating a product Store.
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -144,6 +215,8 @@ def validate_db(state, master):
         require(
             db.execute("PRAGMA integrity_check").fetchone()[0] == "ok", "database integrity failed"
         )
+        ref = active_reference(db)
+        check_kcv(master, ref)
         shape = schema(db)
         require(
             all(
@@ -188,6 +261,7 @@ def validate_db(state, master):
             ).decode()
         return {
             "schema": shape,
+            "master_active": ref,
             "runs": runs,
             "submissions": submissions,
             "credentials_checked": len(encrypted) + len(hubs),
@@ -420,12 +494,10 @@ def backup(args):
         record = read_json(base / "http.json") if (base / "http.json").exists() else None
         if record:
             require(Path(record["code"]).name == args.release, "release/process record mismatch")
-        service = read_json(state / "service.json")
-        master_path = plain(service["master_file"])
-        require(not master_path.is_relative_to(state), "master must be outside state")
-        master = key_bytes(master_path)
+        read_json(state / "service.json")  # Validate nonregular input before opening the DB.
         with control(state, args.lock_timeout), ExitStack() as evidence_locks:
-            data = validate_db(state, master)
+            with ro_db(state) as db:
+                data = {"runs": rows(db, "runs"), "submissions": rows(db, "submissions")}
             if args.kind == "offline":
                 observed_writers = writers(base, data)
                 require(
@@ -442,7 +514,7 @@ def backup(args):
                         fd = os.open(
                             path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600
                         )
-                        file = evidence_locks.enter_context(os.fdopen(fd, "rb"))
+                        evidence_locks.enter_context(os.fdopen(fd, "rb"))
                         require(stat.S_ISREG(os.fstat(fd).st_mode), "nonregular evidence lock")
                         try:
                             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -459,6 +531,9 @@ def backup(args):
 
                 source.backup(dest, pages=256, progress=progress, sleep=0.05)
             manifest["db_snapshot_time"] = time.time()
+            with ro_db(snapshot) as db:
+                ref = active_reference(db)
+            master = current_master(state, ref)
             frozen = validate_db(snapshot, master)
             manifest["schema"] = frozen["schema"]
             manifest["master_sha256"] = hashlib.sha256(master).hexdigest()
@@ -527,8 +602,8 @@ def backup(args):
                 "configuration changed during snapshot",
             )
             require(
-                key_bytes(master_path) == master
-                and read_json(snapshot / "service.json") == service,
+                current_master(state, ref) == master
+                and read_json(snapshot / "service.json") == read_json(state / "service.json"),
                 "source/master changed during snapshot",
             )
             if args.kind == "offline":
@@ -541,9 +616,7 @@ def backup(args):
                 require(not manifest["missing"], "offline evidence missing")
                 manifest["full_state"] = True
             validate_evidence(snapshot, frozen, manifest["included_runs"])
-            with master_target.open("xb") as file:
-                file.write(master)
-            master_target.chmod(0o600)
+            write_key(master_target, master)
             manifest["excluded_root_entries"] = sorted(
                 p.name for p in state.iterdir() if not (snapshot / p.name).exists()
             )
@@ -617,10 +690,11 @@ def restore(args):
     try:
         copy_stable(source / "state", staging / "state")
         (staging / "private").mkdir(mode=0o700)
-        (staging / "private/master.key").write_bytes(master)
-        (staging / "private/master.key").chmod(0o600)
+        basename = validated["master_active"]["basename"]
+        write_key(staging / "private" / basename, master)
         config = read_json(staging / "state/service.json")
-        config["master_file"] = str(target / "private/master.key")
+        config.pop("master_file", None)
+        config["master_directory"] = str(target / "private")
         write_json(staging / "state/service.json", config)
         # All original process records removed; this tool never starts anything.
         for name in (

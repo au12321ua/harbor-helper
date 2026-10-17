@@ -27,9 +27,12 @@ from harbor_helper.results.reports import compare, report
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    s = Store(tmp_path / "state")
+    from harbor_helper.service.data import ServiceData
+
+    s = ServiceData.initialize(
+        tmp_path / "state", tmp_path / "private/master", "admin", "fake-test-password"
+    ).store
     write_json(s.root / "team.json", DEFAULT)
-    write_json(s.root / "service.json", {})
     # Oracle fixtures carry no service binding; credentials are covered separately.
     monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", lambda *_, **__: None)
     return s
@@ -278,6 +281,9 @@ def test_audit_failure_releases_slot(store, monkeypatch):
     class Credentials:
         def __init__(self, root):
             assert root == store.root
+            from harbor_helper.security.master_key import MasterKeys
+
+            self.master_keys = MasterKeys(store)
 
         def run_key(self, run_id, execution=False):
             if run_id == "first" and not available:
@@ -434,7 +440,7 @@ def test_bundle_cannot_silently_override_selected_model_parameters(store):
         bundle / "opencode.json",
         {"provider": {"vllm": {"models": {"selected": {"options": {"temperature": 1}}}}}},
     )
-    with pytest.raises(ValueError, match="frozen model parameters"):
+    with pytest.raises(ValueError, match="Bundle config supports only"):
         job_config(p, m)
     assert m["effective"]["model"]["parameters"]["temperature"] == 0
 

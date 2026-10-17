@@ -177,7 +177,10 @@ def test_credentials_encrypted_aad_no_secret_response(data, tmp_path):
     assert data.key("k1", 1, "p1") == KEYS[0]
     with pytest.raises(ServiceError):
         data.key("k1", 1, "p2")
-    master = read_json(data.root / "service.json")["master_file"]
+    master = str(
+        __import__("pathlib").Path(read_json(data.root / "service.json")["master_directory"])
+        / "master"
+    )
     from pathlib import Path
 
     original = Path(master).read_bytes()

@@ -8,6 +8,7 @@ from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import read_json
 from harbor_helper.persistence.store import ACTIVE, TERMINAL
 from harbor_helper.security.credentials import redact_value
+from harbor_helper.security.master_key import MasterUnavailable
 from harbor_helper.service.permissions import admin
 from harbor_helper.service.primitives import ServiceError
 from harbor_helper.service.run_metadata import local_file_error, read_manifest, recovered_metadata
@@ -50,6 +51,8 @@ class Evidence:
         ):
             try:
                 self.data.run_key(row["id"], False)
+            except MasterUnavailable:
+                raise
             except (ValueError, KeyError, TypeError, AttributeError):
                 audit_status = lifecycle_status.INCOMPLETE
             except OSError as error:
@@ -111,6 +114,8 @@ class Evidence:
             )
         try:
             key = self.data.run_key(run_id, False)
+        except MasterUnavailable:
+            raise
         except (ValueError, KeyError, TypeError, AttributeError):
             raise ServiceError(
                 "audit_incomplete", "Bound audit source unavailable; raw evidence withheld", 409
@@ -173,6 +178,8 @@ class Evidence:
         manifest = read_manifest(self.store, run_id)
         try:
             report = self.safe_report(run_id)
+        except MasterUnavailable:
+            raise
         except ServiceError:
             report = None
         diagnosis = None
@@ -234,6 +241,8 @@ class Evidence:
             row = self.store.get(run_id)
             if row["status"] not in TERMINAL or row.get("audit_status") != lifecycle_status.CLEAN:
                 raise ServiceError("audit_pending", "Artifacts await terminal safety audit", 409)
+        except MasterUnavailable:
+            raise
         except ServiceError:
             if allow_blocked:
                 return []

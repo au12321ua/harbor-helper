@@ -2343,3 +2343,46 @@ test("login setup and empty error surfaces use the same workbench visual system"
     });
   }
 });
+
+test("administrator rotates master with password and expected generation", async ({
+  page,
+}) => {
+  await fixture(page);
+  let rotations = 0;
+  let generation = 1;
+  await page.route("**/api/v1/admin/master-key", (route) =>
+    route.fulfill({
+      json: {
+        generation,
+        rotated_at: generation === 1 ? null : 1791460000,
+        available: true,
+      },
+    }),
+  );
+  await page.route("**/api/v1/admin/master-key/rotate", async (route) => {
+    rotations++;
+    const body = route.request().postDataJSON();
+    expect(body).toEqual({
+      password: "fake-revalidation-password",
+      expected_generation: 1,
+    });
+    generation++;
+    await route.fulfill({
+      json: {
+        generation,
+        rotated_at: 1791460000,
+        available: true,
+        counts: { credential_versions: 4, source_credentials: 2 },
+      },
+    });
+  });
+  await page.goto("/admin?section=security");
+  await expect(page.getByText(/当前代次：1/)).toBeVisible();
+  await page.getByLabel("当前管理员密码").fill("fake-revalidation-password");
+  await page.getByRole("button", { name: "轮换主密钥", exact: true }).click();
+  await expect(page.getByText(/已轮换至代次 2/)).toBeVisible();
+  await expect(page.getByLabel("当前管理员密码")).toHaveValue("");
+  await page.reload();
+  await expect(page.getByText(/当前代次：2/)).toBeVisible();
+  expect(rotations).toBe(1);
+});

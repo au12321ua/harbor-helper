@@ -279,10 +279,12 @@ def test_opencode_rejects_wrong_version_after_install(tmp_path):
 
 def test_hard_exit_scrubs_before_report_and_audits_database(tmp_path, monkeypatch):
     from harbor_helper.execution.config import DEFAULT
+    from harbor_helper.service.data import ServiceData
 
+    ServiceData.initialize(
+        tmp_path / "state", tmp_path / "private/master", "admin", "fake-test-password", DEFAULT
+    )
     store, path = fixture_run(tmp_path / "state")
-    write_json(store.root / "team.json", DEFAULT)
-    write_json(store.root / "service.json", {})
     monkeypatch.setattr("harbor_helper.service.data.ServiceData.run_key", lambda *_, **__: MARKER)
     native = path / "harbor" / "job" / "box"
     native.mkdir(parents=True)

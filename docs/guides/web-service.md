@@ -185,7 +185,13 @@ PY_STOP
 
 保留维护只处理资源清理与审计已确认的终态run。到期日志/产物不再可下载；安全评分报告和固定重跑输入仍保留。未使用旧凭据版本会回收，仍有运行或保留日志审计依赖的版本保留；存在审计异常的证据不自动删作clean。不会自动删除实验记录/固定输入，运维仍需监控磁盘或使用宿主配额；这些资源限制不是精确金额保证。
 
-首版模型适配为多个独立OpenAI-compatible提供商端点，不包括未验证的原生协议适配、自动key池或自动failover。保存配置不会发真实模型请求；供应商认证和模型能力需另作明确验证。
+模型提供商可选择 `openai-compatible`（Chat Completions）、`openai`（Responses）、`anthropic`（Messages）。填写 API 基址，例如 OpenAI 的 `https://api.openai.com/v1`、Anthropic 的 `https://api.anthropic.com/v1`，不附 `/responses`、`/messages` 或 `/chat/completions`，不含 URL 凭据、query 或 fragment。自定义可信 HTTP(S) 端点同样按所选协议请求，不自动探测或 failover。
+
+Responses/Messages 当前固定 OpenCode 1.18.35，只支持 `max_output_tokens` 正整数，默认4096；未知键（含 temperature、thinking、max_tokens）拒绝。Chat 保留原有参数与固定数字版本规则。保存与受理均重验；修改提供商协议后，旧方案需要按新协议调整参数。保存配置不会发真实模型请求；供应商认证和模型能力需另作明确验证。
+
+普通已受理任务保留原提供商/凭据版本；重跑、修复后重试与恢复取同一身份最新 key 前，当前协议及端点必须等于冻结值，否则409并要求新建实验。需要阻断已受理任务时明确停用凭据；编辑提供商不会暗改冻结输入。
+
+helper 管理完整模型选择、SDK、鉴权引用和 small_model。附件的 `config/opencode.json` 只支持 `instructions`、`permission`、`tools` 及受限 `agent` 提示/工具设置（prompt、description、tools、permission、steps、disable、hidden），不能含 provider/model/small_model、agent 模型切换、mode、plugin 等。运行时使用独立配置目录，禁用项目配置并用受控 inline 重申绑定。此保证覆盖受控配置通道，不承诺任意容器 root/bootstrap 恶意代码无法读取进程环境中的 key。
 
 ### 网页管理员配置提示
 
@@ -213,3 +219,16 @@ Docker 诊断页面点击“发现本机 Docker 与镜像”，只读取服务�
 调度器以 SQLite 持久状态配合本机 `scheduler.wake` FIFO 唤醒，端点须为当前用户拥有的 0600 FIFO，不能以普通文件或 symlink 替代。通知失败不撤销已提交操作，低频对账会恢复推进。新增 runs.finish_status/finish_reason 由 Store 幂等初始化，保存取消/超时等最终决定；仍使用 SQLite rollback journal。`scheduler-stop.json` 只属于瞬态停止握手；正常启停按 PID/birth 判定，不能复制它到恢复实例。
 
 停止仅允许空闲队列，在途审计/维护尚未退出时可能超过等待期限；“stop not confirmed”表示仍需等待并核对身份，不能据此强杀或宣称已停止。证据维护竞争时，产物删除可返回 evidence_busy（409），在线备份返回 deferred；释放控制锁后重试。
+
+
+## 外置主密钥升级与泄露轮换
+
+首次升级到代次 schema 前，停止并实时确认该 state 的全部旧 HTTP、scheduler、worker、准备/下载等写者已经退出。旧代码不认识 active 代次，不能混用写入。此升级规程不代表已授权操作任何正在运行的团队实例。
+
+首次正常打开时从旧 `service.json.master_file` 一次导入：可靠保存外置目录，事务建立 active 的代次、basename、KCV，然后移除旧字段。导入中断可重启完成。active 表已存在但缺行、损坏或文件/KCV 不匹配时拒绝，不重建、不回退旧路径。正常 `service.json` 仅保留 `master_directory`；部署启动参数的 `--master-key-file` 只用于首次初始化，不覆盖已有 active。文件须为当前属主的 owner-only regular 32字节文件，禁止 symlink/FIFO；目录须在 state 外、当前属主且 group/other 不可写。
+
+管理员在“团队管理 → 安全与主密钥”查看代次与可用性，重验证当前密码后轮换。全部模型/Hub 历史及停用版本在同一事务重加密，业务版本和绑定不变。界面使用预期代次防止重复轮换；响应丢失先刷新确认结果。密钥文件先 fsync 文件及目录，再发布 active。主密钥不可用会阻止新执行并保留排队任务，就绪页显示故障；恢复正确文件后继续。
+
+泄露处置顺序：暂停受理（不停止已有队列）→先停用受影响凭据的全部旧版本→按需取消运行任务→轮换主密钥→上游撤销旧凭据→对同一身份轮换写入新值→验证新实验→恢复受理。先停用再写新值，避免把新版本一起停用；先换主密钥再保存新上游秘密。旧队列不自动改绑，可按需要新建或等价重跑。
+
+轮换不撤销已泄露旧快照或上游 key，也不承诺擦除 SQLite 旧页、journal、WAL 或备份。已运行进程可能仍持有明文。旧代次文件和崩溃孤儿不会自动删除；确认非 active、无旧快照读者并满足外部备份保留策略后，由部署者单独处置。ops 生成的每份快照自带当时配对 key，新快照只需当时 active key。代码回退不等于 state 回退，不用旧备份覆盖后续业务数据。

@@ -57,6 +57,16 @@ class PasswordResult(DTO):
     login_required: bool
 
 
+class MasterStatus(DTO):
+    generation: int
+    rotated_at: float | None
+    available: bool
+
+
+class MasterRotated(MasterStatus):
+    counts: dict[str, int]
+
+
 class CredentialInfo(DTO):
     id: str
     version: int
@@ -602,6 +612,8 @@ BROWSER = {
     "provider": Provider,
     "profiles": list[Profile],
     "profile": Profile,
+    "master_key_status": MasterStatus,
+    "rotate_master_key": MasterRotated,
     "credentials": list[CredentialInfo],
     "credential": CredentialInfo,
     "rotate": CredentialInfo,

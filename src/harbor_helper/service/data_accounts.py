@@ -96,7 +96,7 @@ class Accounts:
                 )
         return self.user(user_id)
 
-    def login(self, username, password):
+    def verify_password(self, username, password):
         username = username if isinstance(username, str) and len(username) <= 64 else "invalid"
         with self.store.connect() as db:
             row = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
@@ -126,6 +126,12 @@ class Accounts:
                     (username, time.time() + 300, time.time(), time.time() + 300),
                 )
             raise ServiceError("invalid_login", "Invalid login", 401) from None
+        with self.store.connect() as db:
+            db.execute("DELETE FROM login_failures WHERE username=?", (username,))
+        return self.user(row["id"])
+
+    def login(self, username, password):
+        user = self.verify_password(username, password)
         token = secrets.token_urlsafe(32)
         seconds = read_json(self.root / "service.json")["session_seconds"]
         with self.store.connect() as db:
@@ -133,9 +139,9 @@ class Accounts:
             db.execute("DELETE FROM login_failures WHERE username=?", (username,))
             db.execute(
                 "INSERT INTO sessions VALUES(?,?,?)",
-                (hashlib.sha256(token.encode()).hexdigest(), row["id"], time.time() + seconds),
+                (hashlib.sha256(token.encode()).hexdigest(), user["id"], time.time() + seconds),
             )
-        return token, self.user(row["id"])
+        return token, user
 
     def actor(self, token):
         digest = hashlib.sha256((token or "").encode()).hexdigest()

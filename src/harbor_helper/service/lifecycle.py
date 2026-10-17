@@ -7,6 +7,7 @@ from harbor_helper.execution.config import load_team
 from harbor_helper.persistence import statuses as lifecycle_status
 from harbor_helper.persistence.files import write_json
 from harbor_helper.persistence.store import TERMINAL
+from harbor_helper.security.master_key import MasterUnavailable
 from harbor_helper.service.data import ServiceData
 from harbor_helper.service.evidence import Evidence
 from harbor_helper.service.primitives import ServiceError
@@ -19,6 +20,7 @@ def prepare_one(store):
     repeats only input preparation. runs.submit atomically gates queue publication.
     """
     data = ServiceData(store)
+    data.master_keys.current()
     with store.connect() as db:
         ids = [
             r[0]
@@ -66,6 +68,8 @@ def prepare_one(store):
                 f"UPDATE submissions SET status={lifecycle_status.READY!r},run_id=? WHERE id=?",
                 (run_id, row["id"]),
             )
+    except MasterUnavailable:
+        raise
     except Exception as error:  # noqa: BLE001 - third-party source errors may carry credentials
         from harbor_helper.execution.author_inputs import AuthorInputError
 

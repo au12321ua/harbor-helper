@@ -1,7 +1,9 @@
 import asyncio
+import json
 import re
 import shlex
 import time
+import uuid
 from pathlib import Path
 
 from harbor.agents.installed.opencode import OpenCode, OpenCodeOptions
@@ -27,9 +29,28 @@ class HelperOpenCode(OpenCode):
     def __init__(self, *args, helper_tool_cache=None, **kwargs):
         self.helper_tool_cache = Path(helper_tool_cache) if helper_tool_cache else None
         self._offline_tool = False
+        self._helper_config_root = "/tmp/harbor-helper-opencode-" + uuid.uuid4().hex
         super().__init__(*args, helper_tool_cache=helper_tool_cache, **kwargs)
 
+    def _build_register_config_command(self):
+        command = super()._build_register_config_command()
+        return (
+            command.replace("~/.config/opencode", self._helper_config_root + "/config")
+            if command
+            else None
+        )
+
     async def exec_as_agent(self, environment, command, **kwargs):  # ty: ignore[invalid-method-override]  # Harbor 0.23 forwarding override; preserve the existing execution signature.
+        # A private XDG tree prevents global config/plugins/auth inheritance.
+        # Inline content is highest priority and project configuration is disabled.
+        kwargs["env"] = {
+            **kwargs.get("env", {}),
+            "XDG_CONFIG_HOME": self._helper_config_root + "/config",
+            "XDG_DATA_HOME": self._helper_config_root + "/data",
+            "OPENCODE_CONFIG": self._helper_config_root + "/config/opencode.json",
+            "OPENCODE_DISABLE_PROJECT_CONFIG": "true",
+            "OPENCODE_CONFIG_CONTENT": json.dumps(self._opencode_config),
+        }
         if self.helper_tool_cache:
             # Public catalog refresh/updater downloads are preparation, not inference.
             kwargs["env"] = {

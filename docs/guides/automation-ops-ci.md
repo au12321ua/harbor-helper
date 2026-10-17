@@ -14,6 +14,8 @@ python3 scripts/verify.py --prepare \
 
 UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏览器、命令失败、生成物漂移均返回非零。输出记录固定 Git SHA、脏树状态、命令/版本、pytest 用例/skip、退出状态、精确回收记录。每次运行的唯一环境标记传给子树，包括 setsid 子进程；结束和 INT/TERM 时扫描 `/proc` 标记，以 PID birth 和 pidfd 回收，不按进程名或公共端口杀进程。整个监督入口被 SIGKILL/宿主宕机时自身无法清理，须由 CI 作业容器或外部监督者兜底；不能把这类情况说成 trap 已执行。
 
+独立模型协议 wire 测试不进入默认 pytest 收集，避免未安装的外部 OpenCode 二进制改变 full 的零跳过约束。显式执行 `HH_OPENCODE_BINARY=/absolute/verified/opencode uv run pytest -q tests/protocol_wire.py`，需预先核对版本1.18.35及二进制来源；仅使用本地假协议服务与假key，覆盖三协议流式文本、工具往返、参数、usage与配置覆盖负例。该检查与独立Docker微任务另行记录，不能以普通full代替。
+
 ## Gitea 接入
 
 `.gitea/workflows/verify.yml` 当前仅手动触发：远端 CI 未验证，用户决定后续手动验证。本轮 feature push 不主动运行远端任务。核验后可在 `on` 中加入 `push: {branches: ["**"]}` 与 `pull_request: {}`，使 feature 候选在集成前也能运行；不要只限制 dev/master。外来 fork PR 在 job 条件中拒绝，不使用 `pull_request_target`。普通 job 仅需仓库读权限，无生产凭据或自动部署步骤。`HH_RUNNER_LABEL` 仓库变量选择已核实可用的 label，未设置时使用 `ubuntu-latest`。上线 CI 前核 runner 在线/本仓可用范围、实际执行方式、宿主敏感挂载以及网络；label 名称本身不能证明容器隔离。
@@ -33,7 +35,7 @@ UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏�
 
 ## 在线快照与停写全量
 
-备份输出须在 Git 和源实例之外的 owner-only 0700 目录。操作者明确提供与源配置对应的完整 release SHA（有 http.json 时还检查 code 的 release 目录名）。配置里的 master_file 必须在 state 外、非 symlink、当前 owner、0600、32 字节。
+备份输出须在 Git 和源实例之外的 owner-only 0700 目录。操作者明确提供与源配置对应的完整 release SHA（有 http.json 时还检查 code 的 release 目录名）。配置中的 `master_directory` 必须是 state 外受保护的真实目录；从固定数据库副本读取 active 的代次、basename 与 KCV，再配对校验当前 owner、0600、32 字节的文件。空凭据实例也校验 KCV。
 
 ```bash
 /path/to/python scripts/ops.py backup --directory /absolute/instance \
@@ -55,7 +57,7 @@ UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏�
   --release FULL_SOURCE_SHA --target /absolute/new-instance
 ```
 
-拒绝已有目标、symlink、未完成包、错 master、摘要/版本/schema 不符。原始配置不变；新目标 master 位于 `<target>/private/master.key`，0600、32 字节，副本 service.json 原子重绑定该绝对路径。用只读 SQLite 验证 integrity、记录归属和凭据 AESGCM 解密，不构造应用、不迁移、不启动 scheduler 或执行任务；同一源 release 的 schema 原样保存并核对。
+拒绝已有目标、symlink、未完成包、错 master、摘要/版本/schema 不符。原始配置不变；新目标 master 位于 `<target>/private/<active basename>`，0600、32 字节；仅将副本 service.json 的 `master_directory` 重绑定到 `<target>/private`，数据库 basename 与业务 schema 保持原样。用只读 SQLite 验证 integrity、记录归属和凭据 AESGCM 解密，不构造应用、不迁移、不启动 scheduler 或执行任务；同一源 release 的 schema 原样保存并核对。热 journal 需要写入恢复而只读无法打开时明确拒绝，先由产品正常打开恢复；不使用 immutable 跳过未完成事务。
 
 结果 `offline_validation=passed` 只表示列明离线内容可校验。在线包的活动/缺失项仍不完整，所有恢复结果均 `automatically_startable=false`。手工启动前应核对源 release、冻结输入里的绝对路径/外部镜像、受理状态及中断任务处置；本工具不自动重写冻结任务或恢复执行，也不把离线校验当成可运行性验收。
 

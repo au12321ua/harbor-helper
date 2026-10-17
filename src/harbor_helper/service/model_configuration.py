@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import cast
 
 from harbor_helper.execution.config import reject_secrets
+from harbor_helper.execution.model_protocols import ADAPTERS, parameters
 from harbor_helper.service.primitives import ServiceError, identifier
 
 
@@ -35,13 +36,17 @@ class Models:
 
             url = urlparse(value.get("endpoint", ""))
             if (
-                value.get("protocol") != "openai-compatible"
+                value.get("protocol") not in ADAPTERS
                 or url.scheme not in {"http", "https"}
                 or not url.hostname
+                or url.username is not None
+                or url.password is not None
+                or url.query
+                or url.fragment
             ):
                 raise ServiceError(
                     "unsupported_provider",
-                    "First release supports explicit OpenAI-compatible endpoints",
+                    "Choose Chat Completions, Responses or Messages and a credential-free HTTP(S) API base",
                 )
         elif kind == "profile":
             if set(value) - {
@@ -71,6 +76,14 @@ class Models:
                 raise ServiceError(
                     "invalid_runtime", "A fixed numeric OpenCode version is required"
                 )
+            try:
+                value["params"] = parameters(
+                    provider.get("protocol", "openai-compatible"),
+                    value["params"],
+                    value["opencode_version"],
+                )
+            except ValueError as error:
+                raise ServiceError("model_parameters", str(error)) from None
         else:
             raise ServiceError("configuration_kind", "Unsupported configuration")
         value.setdefault("enabled", True)

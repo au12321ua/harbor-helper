@@ -218,16 +218,19 @@ def check_master(base):
     if not service.exists():
         return
     try:
-        data = json.loads(service.read_text())
-        path = Path(data["master_file"])
-        info = path.lstat()
-        assert path == base / "private/master.key"
-        assert stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
-        assert stat.S_IMODE(info.st_mode) == 0o600 and info.st_size == 32
+        # Import only the standalone read-only ops module; never build a Store/app.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "helper_ops", Path(__file__).with_name("ops.py")
+        )
+        assert spec is not None and spec.loader is not None
+        ops = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ops)
+        ops.startup_master(base / "state")
     except (OSError, KeyError, ValueError, AssertionError, TypeError):
         fail(
-            "Existing state master reference is missing/invalid or not owner-only; "
-            "restore the original master, do not initialize again."
+            "Existing active master reference/KCV unavailable; restore its original file, do not initialize again."
         )
 
 

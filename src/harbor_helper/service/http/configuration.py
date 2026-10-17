@@ -3,12 +3,21 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from harbor_helper.service.http.inputs import Account, Credential, Rotation
+from harbor_helper.service.http.inputs import Account, Credential, MasterRotation, Rotation
 from harbor_helper.service.primitives import ServiceError
 
 
 def register(app, deps):
     administrator = deps.administrator
+
+    @app.get("/api/v1/admin/master-key")
+    def master_key_status(user: Annotated[dict, Depends(administrator)]):
+        return deps.data.master_keys.status()
+
+    @app.post("/api/v1/admin/master-key/rotate")
+    def rotate_master_key(body: MasterRotation, user: Annotated[dict, Depends(administrator)]):
+        deps.data.verify_password(user["username"], body.password.get_secret_value())
+        return deps.data.master_keys.rotate(user, body.expected_generation)
 
     @app.get("/api/v1/admin/users")
     def users(user: Annotated[dict, Depends(administrator)]):

@@ -266,12 +266,25 @@ export function ModelsPanel({ c, save, action }: AdminPanelProps) {
           <AdminForm
             key={JSON.stringify(edit.provider || {})}
             title="提供商配置"
-            description="OpenAI-compatible HTTP API；已有实验保留提交时的端点。"
+            description="选择请求协议与 API 基址（如 https://api.openai.com/v1 或 https://api.anthropic.com/v1）；已有实验保留原绑定，协议或端点改变后请新建实验。"
             fields={[
               {
                 name: "name",
                 label: "提供商名称",
                 defaultValue: String(edit.provider?.name || ""),
+              },
+              {
+                name: "protocol",
+                label: "请求协议",
+                defaultValue: edit.provider?.protocol || "openai-compatible",
+                options: [
+                  {
+                    value: "openai-compatible",
+                    label: "OpenAI Chat Completions / 兼容服务",
+                  },
+                  { value: "openai", label: "OpenAI Responses" },
+                  { value: "anthropic", label: "Anthropic Messages" },
+                ],
               },
               {
                 name: "endpoint",
@@ -284,7 +297,6 @@ export function ModelsPanel({ c, save, action }: AdminPanelProps) {
               const saved = await save("/admin/providers", {
                 ...v,
                 id: edit.provider?.id,
-                protocol: "openai-compatible",
                 enabled: edit.provider?.enabled ?? true,
               });
               setEdit((current) => ({ ...current, provider: saved }));

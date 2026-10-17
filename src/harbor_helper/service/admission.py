@@ -95,12 +95,21 @@ def readiness(app, user_id=None):
 
     activity = scheduler(app)
     state = maintenance(app.data)
-    allowed = not state["paused"] and activity["state"] == "ready"
+    from harbor_helper.security.master_key import MasterUnavailable
+
+    master_available = True
+    try:
+        app.data.master_keys.current()
+    except MasterUnavailable:
+        master_available = False
+    allowed = not state["paused"] and activity["state"] == "ready" and master_available
     limits = app.data.limits()
     return {
         "initialized": True,
         "accepting": allowed,
-        "reason": "maintenance_paused"
+        "reason": "master_unavailable"
+        if not master_available
+        else "maintenance_paused"
         if state["paused"]
         else "ready"
         if allowed

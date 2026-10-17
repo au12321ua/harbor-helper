@@ -3,18 +3,15 @@
 import hashlib
 import json
 import re
-import secrets
 import tempfile
 import time
 import uuid
 from typing import cast
 
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from harbor_helper.execution.config import reject_secrets
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.persistence.wakeup import wake_after
+from harbor_helper.security.master_key import aad, decrypt, encrypt
 from harbor_helper.service.primitives import ServiceError, identifier, secret_value
 from harbor_helper.service.sources import source_call
 
@@ -78,9 +75,8 @@ class TeamConfiguration:
             version = db.execute(
                 "SELECT COALESCE(MAX(version),0)+1 FROM source_credentials"
             ).fetchone()[0]
-            nonce = secrets.token_bytes(12)
-            encrypted = AESGCM(self.data._master()).encrypt(
-                nonce, cast(str, key).encode(), f"hub/{version}".encode()
+            nonce, encrypted = encrypt(
+                self.data.master_keys.current(db), cast(str, key), f"hub/{version}"
             )
             db.execute(
                 "INSERT INTO source_credentials(version,enabled,nonce,ciphertext,updated_at) "
@@ -90,13 +86,14 @@ class TeamConfiguration:
         return self.hub_status()
 
     def hub_key(self, version=None):
-        with self.data.store.connect() as db:
-            row = db.execute(
-                "SELECT * FROM source_credentials "
-                + ("WHERE version=?" if version else "ORDER BY version DESC LIMIT 1"),
-                (version,) if version else (),
-            ).fetchone()
+        rows = self.data.master_keys.rows(
+            "source_credentials",
+            "WHERE c.version=?" if version else "ORDER BY c.version DESC LIMIT 1",
+            (version,) if version else (),
+        )
+        row = rows[0] if rows else None
         if not row:
+            self.data.master_keys.current()
             if version:
                 raise ServiceError("source_auth", "Bound team Hub credential unavailable", 409)
             return None
@@ -104,16 +101,7 @@ class TeamConfiguration:
             if version:
                 raise ServiceError("source_auth", "Bound team Hub credential disabled", 409)
             return None
-        try:
-            return (
-                AESGCM(self.data._master())
-                .decrypt(row["nonce"], row["ciphertext"], f"hub/{row['version']}".encode())
-                .decode()
-            )
-        except (InvalidTag, UnicodeError):
-            raise ServiceError(
-                "source_auth", "Team Hub credential cannot be decrypted", 409
-            ) from None
+        return decrypt(self.data.master_keys.load(row), row, aad(row, "source_credentials"))
 
     def persist(self, kind, value):
         value = dict(value)

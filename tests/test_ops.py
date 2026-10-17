@@ -75,8 +75,8 @@ def test_online_snapshot_live_writers_restore_and_ownership(http_service, tmp_pa
         assert restored["automatically_startable"] is False
         assert not (target / "state/scheduler.json").exists()
         config = ops.read_json(target / "state/service.json")
-        assert config["master_file"] == str(target / "private/master.key")
-        assert ops.key_bytes(target / "private/master.key") == p.data._master()
+        assert config["master_directory"] == str(target / "private")
+        assert ops.current_master(target / "state") == p.data.master_keys.current()
         assert ops.inspect(base)["scheduler"]["state"] == "running"
         with pytest.raises(ValueError, match="writers"):
             ops.backup(

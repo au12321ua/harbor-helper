@@ -6,13 +6,13 @@ an independent worker or its audit, never through public metadata.
 
 import json
 import os
-import secrets
 import time
 from pathlib import Path
 
 from harbor_helper.execution.config import DEFAULT, reject_secrets
 from harbor_helper.persistence.files import write_json
 from harbor_helper.persistence.store import Store
+from harbor_helper.security.master_key import MasterKeys, create_key, directory, durable_config
 from harbor_helper.service.access import initialize
 from harbor_helper.service.data_accounts import Accounts
 from harbor_helper.service.data_capacity import Capacity
@@ -85,6 +85,10 @@ class ServiceData(Accounts, Objects, Credentials, Capacity, SubmissionRecords):
         with self.store.connect() as db:
             initialize(db)
 
+        self.master_keys = MasterKeys(self.store)
+        if not initializing:
+            self.master_keys.initialize()
+
         self.models = Models(
             read_object=self.object,
             read_credential=self.credential,
@@ -109,11 +113,12 @@ class ServiceData(Accounts, Objects, Credentials, Capacity, SubmissionRecords):
             raise ServiceError("already_initialized", "Use a new dedicated service state", 409)
         master.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if not master.exists():
-            fd = os.open(master, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            with os.fdopen(fd, "wb") as file:
-                file.write(secrets.token_bytes(32))
+            fd = directory(master.parent, store.root)
+            try:
+                create_key(fd, master.name)
+            finally:
+                os.close(fd)
         data = cls(store, initializing=True)
-        data._master(master)
         config = json.loads(json.dumps(team or DEFAULT))
         reject_secrets(config)
         config.update({key: value for key, value in LIMITS.items() if key in DEFAULT})
@@ -122,9 +127,10 @@ class ServiceData(Accounts, Objects, Credentials, Capacity, SubmissionRecords):
         (store.root / "runs").chmod(0o700)
         data.create_user(username, password, "admin")
         data.set_limits(LIMITS)
-        write_json(
+        durable_config(
             store.root / "service.json", {"master_file": str(master), "session_seconds": 28800}
         )
+        data.master_keys.initialize()
         for name in ("service.json", "team.json", "queue.sqlite", "limits.json"):
             (store.root / name).chmod(0o600)
         return data

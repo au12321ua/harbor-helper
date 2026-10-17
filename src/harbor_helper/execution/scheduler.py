@@ -23,6 +23,7 @@ from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.persistence.store import ACTIVE, TERMINAL, Store
 from harbor_helper.persistence.wakeup import Mailbox, notify
 from harbor_helper.security.credentials import RedactedStream, runtime_secrets
+from harbor_helper.security.master_key import MasterUnavailable
 
 RECONCILE_SECONDS = 60
 HEARTBEAT_SECONDS = 2
@@ -283,12 +284,15 @@ class Controller:
 
         # Initialization and SQLite failures are global, outside the input boundary.
         data = ServiceData(self.store.root)
+        data.master_keys.current()
         environment = safe_environment()
         try:
             credential = data.run_key(row["id"], execution=True)
         except (json.JSONDecodeError, UnicodeError, KeyError, TypeError, AttributeError):
             self.fail_input(row["id"])
             return None
+        except MasterUnavailable:
+            raise
         except ValueError:
             self.fail_authorization(row["id"])
             return None

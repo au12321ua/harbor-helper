@@ -7,6 +7,7 @@ import { DatasetsPanel } from "./DatasetsPanel";
 import { LimitsPanel } from "./LimitsPanel";
 import { ModelsPanel } from "./ModelsPanel";
 import { RuntimePanel } from "./RuntimePanel";
+import { SecurityPanel } from "./SecurityPanel";
 import { SourcesPanel } from "./SourcesPanel";
 import { useAdminActions } from "./useAdminActions";
 import { useDockerDiagnostics } from "./useDockerDiagnostics";
@@ -24,6 +25,7 @@ export function Admin() {
     "models",
     "users",
     "limits",
+    "security",
   ].includes(requested)
     ? requested
     : "readiness";
@@ -52,8 +54,10 @@ export function Admin() {
             <TabsTrigger value="dataset">数据集</TabsTrigger>
             <TabsTrigger value="models">模型与 key</TabsTrigger>
             <TabsTrigger value="users">受邀账户</TabsTrigger>
+            <TabsTrigger value="security">安全与主密钥</TabsTrigger>
             <TabsTrigger value="limits">容量与保留</TabsTrigger>
           </TabsList>
+          <SecurityPanel />
           <SourcesPanel c={c} save={save} />
           <RuntimePanel diagnostics={diagnostics} />
           <DatasetsPanel

@@ -3193,6 +3193,98 @@
       "title": "Manifest",
       "type": "object"
     },
+    "MasterRotated": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        },
+        "generation": {
+          "title": "Generation",
+          "type": "integer"
+        },
+        "rotated_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rotated At"
+        }
+      },
+      "required": [
+        "generation",
+        "rotated_at",
+        "available",
+        "counts"
+      ],
+      "title": "MasterRotated",
+      "type": "object"
+    },
+    "MasterRotation": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_generation": {
+          "minimum": 1,
+          "title": "Expected Generation",
+          "type": "integer"
+        },
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "password",
+        "expected_generation"
+      ],
+      "title": "MasterRotation",
+      "type": "object"
+    },
+    "MasterStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "generation": {
+          "title": "Generation",
+          "type": "integer"
+        },
+        "rotated_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rotated At"
+        }
+      },
+      "required": [
+        "generation",
+        "rotated_at",
+        "available"
+      ],
+      "title": "MasterStatus",
+      "type": "object"
+    },
     "MetricDelta": {
       "additionalProperties": false,
       "properties": {
@@ -5010,6 +5102,36 @@
       },
       "response": {
         "$ref": "#/definitions/MaintenanceInfo"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "master_key_status",
+      "path": "/admin/master-key",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/MasterStatus"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "rotate_master_key",
+      "path": "/admin/master-key/rotate",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/MasterRotation"
+      },
+      "response": {
+        "$ref": "#/definitions/MasterRotated"
       },
       "status": 200
     },
