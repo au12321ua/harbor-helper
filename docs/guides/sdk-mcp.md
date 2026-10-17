@@ -27,6 +27,7 @@ except RemoteError as error:
 | `history`, `lookup_by_key` | `/operations`（有界分页） | 同名 |
 | `get_state`, `cancel` | `/runs/{id}` 或 `/submissions/{id}` 及 `/cancel` | 同名 |
 | `get_report`, `compare`, `get_logs` | `/runs/{id}/report`, `/compare`, `/runs/{id}/logs` | 同名 |
+| `get_artifacts`, `fetch_artifact` | `/runs/{id}`（artifacts字段）, `/runs/{id}/artifacts/{opaque-id}` | 同名 |
 | `evidence_manifest`, `fetch_evidence` | `/runs/{id}/evidence`, `/evidence/files/{opaque-id}`, `/evidence/package` | 同名 |
 
 所有实验写调用立即返回受理身份，不等待执行完成。`RemoteError.as_dict()` 保留服务端错误字段、HTTP 状态及本次键；已知时包括 operation ID。自动生成键只发生在一次新调用开始；发生通信失败后调用者必须复用原键。没有客户端长期 journal 或 last receipt。
