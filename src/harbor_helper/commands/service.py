@@ -60,6 +60,11 @@ def add_parsers(sub):
         if command == "history":
             child.add_argument("--offset", type=int, default=0)
             child.add_argument("--limit", type=int, default=50)
+            child.add_argument("--mine", action="store_true")
+            for field in ("operation", "key", "operation-id", "user-id", "status"):
+                child.add_argument("--" + field)
+            child.add_argument("--created-from", type=float)
+            child.add_argument("--created-to", type=float)
         if command == "tasks":
             child.add_argument("dataset_id")
             child.add_argument("--offset", type=int, default=0)

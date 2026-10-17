@@ -110,8 +110,32 @@ def serve(profile_name, upload_root, download_root):
         return call(client.lookup_by_key, operation, key)
 
     @server.tool()
-    def history(offset: int = 0, limit: int = 50, mine: bool = False):
-        return call(client.history, offset=offset, limit=limit, mine="true" if mine else "false")
+    def history(
+        offset: int = 0,
+        limit: int = 50,
+        mine: bool = False,
+        operation: str | None = None,
+        key: str | None = None,
+        operation_id: str | None = None,
+        user_id: str | None = None,
+        status: str | None = None,
+        created_from: float | None = None,
+        created_to: float | None = None,
+    ):
+        """Query shared operation history with combinable identity, status and time filters."""
+        return call(
+            client.history,
+            offset=offset,
+            limit=limit,
+            mine=mine,
+            operation=operation,
+            key=key,
+            operation_id=operation_id,
+            user_id=user_id,
+            status=status,
+            created_from=created_from,
+            created_to=created_to,
+        )
 
     @server.tool()
     def get_state(record_id: str):

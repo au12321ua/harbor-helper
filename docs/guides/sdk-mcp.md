@@ -34,10 +34,19 @@ except RemoteError as error:
 
 历史保留已登记操作及最新裁决，不按天数或条数静默删除。每个操作保留最近 32 次尝试及总数、被汇总数量；分页每页最多 100 条。拒绝不创造 submission，不占队列/执行容量；同键同正文的拒绝可在条件恢复后重新裁决。未认证、schema、非法键或秘密输入拒绝不保存原正文。
 
+HTTP、SDK、MCP `history` 与 CLI `service history` 共用这些可组合过滤：`operation`、`key`（幂等键）、`operation_id`、`user_id`、`status`、`created_from`、`created_to`，以及分页 `offset=0`、`limit=50` 和本人过滤 `mine=false`。身份/类别/状态字段为可选字符串，时间为可选 Unix 秒数（浮点数，含两端边界，允许 `0`）；不传表示不限制。SDK/MCP 参数用下划线，CLI 用对应连字符选项；CLI 的 `--mine` 表示仅本人。`mine=true` 时服务端使用当前成员，优先于 `user_id`。
+
+```python
+client.history(operation="submit", status="rejected", mine=True,
+               created_from=0.0, limit=20)
+# MCP history 工具使用同样的 JSON 参数名和类型；省略或 null 的可选字段不加入查询。
+```
+
 CLI JSON 成功与失败都在 stdout 输出结构化数据。显式重发示例：
 
 ```bash
 harbor-helper service history --json
+harbor-helper service history --operation submit --status rejected --mine --created-from 0 --limit 20 --json
 harbor-helper service retry /submissions --body '{"agent":"oracle"}' --idempotency-key research-example-001 --json
 ```
 

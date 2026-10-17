@@ -149,7 +149,23 @@ def dispatch(args, name):
                 args.idempotency_key,
             )
         if operation == "history":
-            return client.history(offset=args.offset, limit=args.limit)
+            return client.history(
+                **{
+                    field: getattr(args, field)
+                    for field in (
+                        "offset",
+                        "limit",
+                        "mine",
+                        "operation",
+                        "key",
+                        "operation_id",
+                        "user_id",
+                        "status",
+                        "created_from",
+                        "created_to",
+                    )
+                }
+            )
         if operation == "retry":
             return client.write(args.path, json.loads(args.body), args.idempotency_key)
     if cmd == "attachments":

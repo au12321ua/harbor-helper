@@ -240,7 +240,9 @@ class Client:
     def history(self, **filters):
         from urllib.parse import urlencode
 
-        return self.request("GET", "/operations?" + urlencode(filters))
+        return self.request(
+            "GET", "/operations?" + urlencode({k: v for k, v in filters.items() if v is not None})
+        )
 
     def lookup_by_key(self, operation, key):
         return self.history(mine="true", operation=operation, key=key)
