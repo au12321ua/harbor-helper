@@ -355,7 +355,9 @@ export function AttachmentsPage({ user }: { user: User }) {
                         <Button asChild variant="outline">
                           <Link
                             to="/new"
-                            state={{ request: { attachment_version_id: v.id } }}
+                            state={{
+                              entry: { kind: "attachment", version: v.id },
+                            }}
                           >
                             使用 v{v.number} 新建实验
                           </Link>

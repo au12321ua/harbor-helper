@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useLoad } from "@/hooks/useLoad";
+import { fromParent, fromRequest } from "./reuse";
 import { terminal } from "@/presentation";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -18,6 +19,12 @@ export function Submission({ user }: { user: User }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const recoveryKey = useRef(newIdempotencyKey());
+  const copyRequest = useRef(0);
+  useEffect(() => {
+    return () => {
+      copyRequest.current++;
+    };
+  }, [id]);
   const [recovering, setRecovering] = useState(false);
   const { data, error, loading, reload } = useLoad(
     () => api(`/submissions/${id}`),
@@ -111,11 +118,6 @@ export function Submission({ user }: { user: User }) {
                   {issue.reason}
                 </p>
               ))}
-              <Button variant="outline" asChild>
-                <Link to="/new" state={{ request: data.request }}>
-                  修改输入后新提交
-                </Link>
-              </Button>
               {user.role === "admin" ? (
                 <Button variant="outline" asChild>
                   <Link to="/admin">修复团队配置</Link>
@@ -125,6 +127,35 @@ export function Submission({ user }: { user: User }) {
               )}
             </>
           ) : null}
+          {data && !data.run_id && (
+            <Button
+              variant="outline"
+              disabled={recovering}
+              onClick={async () => {
+                setRecovering(true);
+                const token = ++copyRequest.current;
+                try {
+                  const entry = data.parent
+                    ? fromParent(
+                        (await api(`/runs/${data.parent}`)).manifest,
+                        data.request,
+                        `提交 ${data.id}`,
+                      )
+                    : fromRequest(data.request, `提交 ${data.id}`);
+                  if (token === copyRequest.current)
+                    navigate("/new", { state: { entry } });
+                } catch (error) {
+                  toast.error(
+                    `恢复失败，未打开副本：${(error as Error).message}`,
+                  );
+                } finally {
+                  setRecovering(false);
+                }
+              }}
+            >
+              {data.status === "failed" ? "修改输入后新提交" : "复制配置新建"}
+            </Button>
+          )}
           <Button variant="ghost" asChild>
             <Link to="/">返回实验列表</Link>
           </Button>

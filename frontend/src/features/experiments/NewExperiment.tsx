@@ -1,4 +1,4 @@
-import { api, newIdempotencyKey, post } from "@/api";
+import { api, newIdempotencyKey, post, type Catalog } from "@/api";
 import { ErrorNotice, Loading, SelectField, Title } from "@/components/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -8,29 +8,77 @@ import { Input } from "@/components/ui/input";
 import { ReadinessNotice } from "@/features/admission/ReadinessPanel";
 import { useLoad } from "@/hooks/useLoad";
 import { LoaderCircle, Plus } from "lucide-react";
+import {
+  initialDraft,
+  problems,
+  profilesFor,
+  submissionBody,
+  text,
+  type DraftField,
+  type NewEntry,
+} from "./reuse";
 import { useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+const fieldLabels: Record<DraftField, string> = {
+  name: "实验名称",
+  dataset_id: "数据集",
+  task: "任务",
+  agent: "执行方案",
+  model_profile: "模型方案",
+  attachment_version_id: "附件版本",
+  attempts: "尝试次数",
+  concurrency: "并发数",
+  wall_seconds: "总时长",
+  environment_build_timeout_multiplier: "环境启动等待倍数",
+};
 export function NewExperiment() {
-  const restored = useLocation().state?.request || {};
-  const [execution, setExecution] = useState({
-    attempts: restored.attempts || 1,
-    concurrency: restored.concurrency || 1,
-  });
-  const submitKey = useRef(newIdempotencyKey());
+  const location = useLocation();
   const { data, error, loading } = useLoad(() => api("/catalog"));
+  if (loading) return <Loading />;
+  if (!data) return <ErrorNotice error={error} />;
+  return (
+    <ExperimentForm
+      key={location.key}
+      data={data}
+      entry={location.state?.entry}
+    />
+  );
+}
+function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
+  const [draft, setDraft] = useState(() => initialDraft(data, entry));
+  const submitKey = useRef(newIdempotencyKey());
   const navigate = useNavigate();
-  const [dataset, setDataset] = useState(restored.dataset_id || ""),
-    [agent, setAgent] = useState(restored.agent || "opencode"),
-    [profile, setProfile] = useState(restored.model_profile || ""),
-    [version, setVersion] = useState(restored.attachment_version_id || ""),
-    [taskName, setTaskName] = useState(restored.task || ""),
-    [wall, setWall] = useState<number | undefined>(restored.wall_seconds),
-    [busy, setBusy] = useState(false),
+  const [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>();
-  const datasets = (data?.datasets || []).filter((d) => d.ready);
-  const selectedDataset =
-    dataset || data?.settings?.default_dataset_id || datasets[0]?.id || "";
-  const selected = datasets.find((d) => d.id === selectedDataset);
+  const change = (field: DraftField, value: unknown) => {
+    setDraft((d) => ({ ...d, [field]: value }));
+    submitKey.current = newIdempotencyKey();
+  };
+  const issues = problems(draft, data);
+  const datasets = data.datasets.filter((d) => d.ready && d.enabled !== false);
+  const selectedDataset = text(draft.dataset_id),
+    agent = text(draft.agent),
+    selectedProfile = text(draft.model_profile),
+    version = text(draft.attachment_version_id),
+    taskName = text(draft.task),
+    wall = Number(draft.wall_seconds);
+  const execution = {
+    attempts: text(draft.attempts),
+    concurrency: text(draft.concurrency),
+  };
+  const selected = datasets.find((d) => d.id === draft.dataset_id);
+  const profiles = profilesFor(data),
+    limits = data.limits;
+  const originalOption = (field: DraftField) =>
+    issues[field] ? (
+      <option
+        value={draft[field] === undefined ? "__unknown__" : text(draft[field])}
+      >
+        {draft[field] === undefined
+          ? "未知：请明确选择"
+          : `原值 ${text(draft[field])}（需修正）`}
+      </option>
+    ) : null;
   const selectedTasks = (selected?.tasks || []).filter(
     (task) => !taskName || task.name === taskName,
   );
@@ -55,60 +103,53 @@ export function NewExperiment() {
         Number.isFinite(budget.agent_seconds) &&
         Number.isFinite(budget.verifier_seconds),
     ).length;
-  const selectedProfile =
-    profile || String(data?.settings?.default_model_profile || "");
-  if (loading) return <Loading />;
-  const profiles = (data?.model_profiles || []).filter(
-    (p) =>
-      p.enabled !== false &&
-      (data?.providers || []).some(
-        (v) => v.id === p.provider_id && v.enabled,
-      ) &&
-      (data?.credentials || []).some(
-        (v) => v.id === p.credential_id && v.enabled,
-      ),
-  );
-  const limits = data?.limits;
   return (
     <>
       <Title
         title="新建实验"
         description="选择数据集与模型方案；提交后固定本次实验的配置。"
       />
-      <ErrorNotice error={error || failure} />
+      <ErrorNotice error={failure} />
+      {entry?.kind === "history" && (
+        <Alert>
+          <AlertTitle>从 {entry.source} 复制新建</AlertTitle>
+          <AlertDescription>
+            按当前目录、模型和附件重新校验并冻结；“按原条件重跑”仍保留原冻结条件。
+            {entry.datasetVersion != null &&
+            selected &&
+            entry.datasetVersion !== selected.version
+              ? `来源数据集版本 ${entry.datasetVersion}，当前版本 ${selected.version}。`
+              : ""}
+          </AlertDescription>
+        </Alert>
+      )}
+      {Object.entries(issues).length > 0 && (
+        <Alert variant="destructive">
+          <AlertTitle>配置需要明确修正</AlertTitle>
+          <AlertDescription>
+            {Object.entries(issues).map(([field, reason]) => (
+              <p key={field}>
+                {fieldLabels[field as DraftField]}：{reason}；原值{" "}
+                {draft[field as DraftField] === undefined
+                  ? "未知"
+                  : text(draft[field as DraftField])}
+              </p>
+            ))}
+          </AlertDescription>
+        </Alert>
+      )}
       <ReadinessNotice />
       <form
         className="new-experiment-form"
-        onChange={(event) => {
-          const values = new FormData(event.currentTarget);
-          setExecution({
-            attempts: Number(values.get("attempts")),
-            concurrency: Number(values.get("concurrency")),
-          });
-          submitKey.current = newIdempotencyKey();
-        }}
         onSubmit={async (e) => {
           e.preventDefault();
+          if (Object.keys(problems(draft, data)).length) return;
           setBusy(true);
           setFailure(undefined);
-          const f = new FormData(e.currentTarget);
           try {
             const s = await post(
               "/submissions",
-              {
-                dataset_id: selectedDataset,
-                name: String(f.get("experiment_name") || ""),
-                agent,
-                model_profile: agent === "oracle" ? null : selectedProfile,
-                attachment_version_id: version || null,
-                task: String(f.get("task") || "") || null,
-                attempts: Number(f.get("attempts")),
-                concurrency: Number(f.get("concurrency")),
-                wall_seconds: Number(f.get("wall_seconds")),
-                environment_build_timeout_multiplier: Number(
-                  f.get("environment_build_timeout_multiplier"),
-                ),
-              },
+              submissionBody(draft),
               submitKey.current,
             );
             navigate(`/submissions/${s.id}`);
@@ -143,17 +184,23 @@ export function NewExperiment() {
                       id="experiment_name"
                       name="experiment_name"
                       maxLength={128}
-                      defaultValue={restored.name}
+                      value={text(draft.name)}
+                      onChange={(e) => change("name", e.target.value)}
                       placeholder="例如：基线参考解 / 参数 A"
                     />
                   </Field>
                   <SelectField
                     label="数据集"
                     name="dataset"
-                    value={selectedDataset}
+                    value={
+                      draft.dataset_id === undefined
+                        ? "__unknown__"
+                        : selectedDataset
+                    }
                     onChange={(value) => {
-                      setDataset(value);
-                      setTaskName("");
+                      change("dataset_id", value);
+                      // Require an explicit task choice after changing dataset.
+                      change("task", undefined);
                     }}
                     description={
                       selected
@@ -161,7 +208,10 @@ export function NewExperiment() {
                         : "选择管理员验证的数据集"
                     }
                   >
-                    <option value="">选择数据集</option>
+                    {originalOption("dataset_id")}
+                    {draft.dataset_id !== undefined && (
+                      <option value="">选择数据集</option>
+                    )}
                     {datasets.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.name}
@@ -174,9 +224,12 @@ export function NewExperiment() {
                       key={selectedDataset}
                       id="task"
                       name="task"
-                      value={taskName}
-                      onChange={(e) => setTaskName(e.target.value)}
+                      value={
+                        draft.task === undefined ? "__unknown__" : taskName
+                      }
+                      onChange={(e) => change("task", e.target.value)}
                     >
+                      {originalOption("task")}
                       <option value="">全部任务</option>
                       {(selected?.tasks || []).map((t) => (
                         <option key={t.name} value={t.name}>
@@ -188,20 +241,26 @@ export function NewExperiment() {
                   <SelectField
                     label="执行方案"
                     name="agent"
-                    value={agent}
-                    onChange={setAgent}
+                    value={draft.agent === undefined ? "__unknown__" : agent}
+                    onChange={(v) => change("agent", v)}
                   >
+                    {originalOption("agent")}
                     <option value="opencode">模型 · OpenCode</option>
                     <option value="oracle">Oracle · 数据集参考解</option>
                   </SelectField>
-                  {agent === "opencode" ? (
+                  {agent !== "oracle" ? (
                     <SelectField
                       label="模型方案"
                       name="profile"
-                      value={selectedProfile}
-                      onChange={setProfile}
+                      value={
+                        draft.model_profile === undefined
+                          ? "__unknown__"
+                          : selectedProfile
+                      }
+                      onChange={(v) => change("model_profile", v)}
                       description="使用管理员配置的团队凭据，密钥不会展示给成员。"
                     >
+                      {originalOption("model_profile")}
                       <option value="">选择模型方案</option>
                       {profiles.map((p) => (
                         <option key={p.id} value={p.id}>
@@ -221,9 +280,14 @@ export function NewExperiment() {
                     label="团队附件版本（可选）"
                     required={false}
                     name="attachment_version"
-                    value={version}
-                    onChange={setVersion}
+                    value={
+                      draft.attachment_version_id === undefined
+                        ? "__unknown__"
+                        : version
+                    }
+                    onChange={(v) => change("attachment_version_id", v)}
                   >
+                    {originalOption("attachment_version_id")}
                     <option value="">无附件</option>
                     {(data?.attachments || []).flatMap((a) =>
                       a.versions.map((v) => (
@@ -246,7 +310,7 @@ export function NewExperiment() {
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        setVersion("");
+                        change("attachment_version_id", "");
                         submitKey.current = newIdempotencyKey();
                       }}
                     >
@@ -274,11 +338,16 @@ export function NewExperiment() {
                     <Input
                       id="environment_build_timeout_multiplier"
                       name="environment_build_timeout_multiplier"
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       min="1"
                       step="0.1"
-                      defaultValue={
-                        restored.environment_build_timeout_multiplier ?? 10
+                      value={text(draft.environment_build_timeout_multiplier)}
+                      onChange={(e) =>
+                        change(
+                          "environment_build_timeout_multiplier",
+                          e.target.value,
+                        )
                       }
                       required
                     />
@@ -288,10 +357,12 @@ export function NewExperiment() {
                     <Input
                       id="attempts"
                       name="attempts"
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       min="1"
                       max={limits?.max_attempts || 3}
-                      defaultValue={restored.attempts || 1}
+                      value={text(draft.attempts)}
+                      onChange={(e) => change("attempts", e.target.value)}
                       required
                     />
                   </Field>
@@ -300,10 +371,12 @@ export function NewExperiment() {
                     <Input
                       id="concurrency"
                       name="concurrency"
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       min="1"
                       max={limits?.max_trials || 2}
-                      defaultValue={restored.concurrency || 1}
+                      value={text(draft.concurrency)}
+                      onChange={(e) => change("concurrency", e.target.value)}
                       required
                     />
                   </Field>
@@ -314,13 +387,12 @@ export function NewExperiment() {
                     <Input
                       id="wall_seconds"
                       name="wall_seconds"
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       min="1"
                       max={limits?.max_wall_seconds || 1800}
-                      value={
-                        wall ?? Math.min(1800, limits?.max_wall_seconds || 1800)
-                      }
-                      onChange={(e) => setWall(Number(e.target.value))}
+                      value={text(draft.wall_seconds)}
+                      onChange={(e) => change("wall_seconds", e.target.value)}
                       required
                     />
                   </Field>
@@ -376,12 +448,7 @@ export function NewExperiment() {
               <ReadinessNotice />
               <Button
                 type="submit"
-                disabled={
-                  busy ||
-                  !selected ||
-                  (agent === "opencode" &&
-                    !profiles.some((p) => p.id === selectedProfile))
-                }
+                disabled={busy || Object.keys(issues).length > 0}
               >
                 {busy ? (
                   <LoaderCircle
@@ -401,12 +468,13 @@ export function NewExperiment() {
               <dl>
                 {Object.entries({
                   数据集: selected?.reference || "—",
-                  任务: taskName || "全部任务",
+                  任务:
+                    draft.task === undefined ? "未知" : taskName || "全部任务",
                   模型方案:
                     agent === "oracle" ? "Oracle" : selectedProfile || "—",
                   附件: version || "无附件",
                   "尝试 / 并发": `${execution.attempts} / ${execution.concurrency}`,
-                  总时长: `${wall ?? Math.min(1800, limits?.max_wall_seconds || 1800)} s`,
+                  总时长: `${draft.wall_seconds === undefined ? "未知" : text(draft.wall_seconds)} s`,
                 }).map(([k, v]) => (
                   <div key={k}>
                     <dt>{k}</dt>

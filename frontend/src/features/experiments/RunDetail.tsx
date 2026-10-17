@@ -18,6 +18,7 @@ import { ArrowLeft, Copy, RefreshCw } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import { fromManifest } from "./reuse";
 import { MaterialsPanel } from "./MaterialsPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { OverviewPanel } from "./OverviewPanel";
@@ -66,6 +67,14 @@ export function RunDetailContent({ user }: { user: User }) {
         description={`由 ${row.submitter || "—"} 提交于 ${date(row.created)}`}
         action={
           <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <Link
+                to="/new"
+                state={{ entry: fromManifest(manifest, `实验 ${row.id}`) }}
+              >
+                复制配置新建
+              </Link>
+            </Button>
             {canCancel ? (
               <Button
                 variant="outline"

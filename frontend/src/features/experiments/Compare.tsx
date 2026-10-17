@@ -15,6 +15,7 @@ import { useLoad } from "@/hooks/useLoad";
 import { canCompare, labels, metricNumber } from "@/presentation";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { downloadComparison } from "./comparisonExport";
 function NumberCell({ value }: { value: number | null | undefined }) {
   return (
     <TableCell className="num" title={value == null ? "缺失" : String(value)}>
@@ -36,7 +37,7 @@ export function ComparisonResult({ value }: { value: Comparison }) {
         <AlertDescription>
           {value.comparable
             ? "结果遵循服务端评分与可比性判断。"
-            : "未生成聚合评分或逐任务变化；请检查差异原因。"}
+            : "不可据此给出改进结论；JSON保留服务端原始观察值（含可能存在的delta），CSV不输出不可比差值或均值。请检查差异原因。"}
           {!!value.reasons?.length && (
             <ul className="list-disc pl-4">
               {value.reasons.map((reason) => (
@@ -288,7 +289,25 @@ export function Compare() {
           </AlertDescription>
         </Alert>
       )}
-      {result?.key === key && <ComparisonResult value={result.value} />}
+      {result?.key === key && busy !== key && !currentFailure && (
+        <>
+          <div className="flex gap-2">
+            <Button onClick={() => downloadComparison(result.value, "json")}>
+              下载 JSON
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => downloadComparison(result.value, "csv")}
+            >
+              下载 CSV
+            </Button>
+          </div>
+          <p className="quiet-note">
+            下载当前响应，不重新评分。JSON原样保留Comparison；不可比时其中的delta不能作为改进结论。CSV不可比差值留空。
+          </p>
+          <ComparisonResult value={result.value} />
+        </>
+      )}
     </>
   );
 }

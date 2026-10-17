@@ -512,12 +512,18 @@ test("protected setup and failed preparation offer actionable new submission", a
       "本次准备已停止。修复配置或修改输入后重新提交，会创建新的实验。",
     ),
   ).toBeVisible();
-  await page.getByRole("link", { name: "修改输入后新提交" }).click();
+  await page.getByRole("button", { name: "修改输入后新提交" }).click();
   await expect(page.getByLabel("实验名称（可选）")).toHaveValue("失败示例");
   await expect(page.getByLabel("任务", { exact: true })).toHaveValue("answer");
   await expect(page.getByLabel("执行方案", { exact: true })).toHaveValue(
     "oracle",
   );
+  // Public request lacks numeric intent: explicitly confirm unknown values.
+  await expect(page.getByRole("button", { name: "提交实验", exact: true })).toBeDisabled();
+  await page.getByLabel("每任务尝试次数").fill("1");
+  await page.getByLabel("实验并发数").fill("1");
+  await page.getByLabel("实验总时长上限（秒，含准备）").fill("600");
+  await page.getByLabel("环境启动等待倍数", { exact: true }).fill("10");
   await page.getByRole("button", { name: "提交实验", exact: true }).click();
   const submission = calls.find((c) => c.path === "/submissions" && c.body);
   expect(submission?.body.name).toBe("失败示例");
