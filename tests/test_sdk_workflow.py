@@ -375,6 +375,18 @@ def test_rejected_history_redecides_and_bounds_attempts(tmp_path, monkeypatch):
     assert conflict.value.code == "idempotency_conflict"
     assert listing(data.store, user)["operations"][0]["status"] == "accepted"
     assert app.accept(user, {"agent": "oracle"}, "explicit-new")["id"] != accepted["id"]
+    with pytest.raises(ServiceError):
+        app.accept(user, {}, "missing-parent", parent="hh-missing-target")
+    rejected_target = listing(data.store, user, key="missing-parent")["operations"][0]
+    assert rejected_target["request"] == {
+        "body": {},
+        "parent": "hh-missing-target",
+        "recovery": None,
+    }
+    with pytest.raises(ServiceError) as unsafe:
+        app.accept(user, {}, "unsafe-parent", parent="hh_pat_v1_" + "A" * 43)
+    assert unsafe.value.code == "access_plaintext"
+    assert listing(data.store, user, key="unsafe-parent")["total"] == 0
 
 
 def test_attachment_business_rejection_is_durable_and_retriable(tmp_path):
@@ -403,6 +415,9 @@ def test_attachment_business_rejection_is_durable_and_retriable(tmp_path):
     )
     assert result["operation_id"] == operation_id
     assert result["version"]["number"] == 2
+    entry = listing(data.store, user, operation="attachment_publish")["operations"][0]
+    assert entry["request"]["attachment_id"] == aid
+    assert entry["request"]["digest"] == result["version"]["digest"]
     assert (
         listing(data.store, user, operation="attachment_publish")["operations"][0]["attempts"] == 2
     )

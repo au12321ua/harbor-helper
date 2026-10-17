@@ -35,10 +35,10 @@ REQUEST_FIELDS = {
 IDENTITY_FIELDS = {"user_id", "submitter", "submission_id", "name", "access_credential_id"}
 
 
-def validate_request(request, idem, operation, access_value):
+def validate_request(request, idem, operation, access_value, references=()):
     from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
 
-    text = json.dumps([request, idem], ensure_ascii=False)
+    text = json.dumps([request, idem, references], ensure_ascii=False)
     if ACCESS_TOKEN_TEXT.search(text) or (access_value and access_value in text):
         raise ServiceError("access_plaintext", "Access credential plaintext forbidden in inputs")
     if (
@@ -77,7 +77,7 @@ class Submissions:
         authorize(actor, OPERATION_SCOPES[operation])
         if not self.data.user(actor["id"])["enabled"]:
             raise ServiceError("member_disabled", "Account disabled", 403)
-        validate_request(request, idem, operation, access_value)
+        validate_request(request, idem, operation, access_value, (parent, recovery))
         request_hash = (
             digest({"request": request, "parent": parent, "recovery": recovery})
             if parent or recovery
@@ -150,7 +150,12 @@ class Submissions:
 
         from harbor_helper.service.history import decision
 
-        return decision(self.store, actor, operation, idem, request_hash, request, perform)
+        safe_input = (
+            {"body": request, "parent": parent, "recovery": recovery}
+            if parent or recovery
+            else request
+        )
+        return decision(self.store, actor, operation, idem, request_hash, safe_input, perform)
 
     def _existing_submission(self, actor, operation, idem, request_hash):
         with self.store.connect() as db:

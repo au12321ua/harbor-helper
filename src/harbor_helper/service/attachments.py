@@ -271,7 +271,7 @@ class Attachments:
                 operation,
                 idem,
                 digest({**normalized, "digest": staged["digest"]}),
-                normalized,
+                {**normalized, "digest": staged["digest"]},
                 perform,
             )
             committed = result["version"]["bundle_id"] == staged["id"]
