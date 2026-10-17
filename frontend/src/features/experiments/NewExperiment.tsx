@@ -339,9 +339,8 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
                       id="environment_build_timeout_multiplier"
                       name="environment_build_timeout_multiplier"
                       type="text"
-                      inputMode="decimal"
-                      min="1"
-                      step="0.1"
+                      inputMode="numeric"
+                      aria-describedby="environment-multiplier-hint"
                       value={text(draft.environment_build_timeout_multiplier)}
                       onChange={(e) =>
                         change(
@@ -351,6 +350,9 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
                       }
                       required
                     />
+                    <p id="environment-multiplier-hint" className="quiet-note">
+                      等待倍数必须为正整数（至少 1），不支持小数。
+                    </p>
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="attempts">每任务尝试次数</FieldLabel>

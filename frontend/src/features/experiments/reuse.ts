@@ -191,14 +191,9 @@ export function problems(
       typeof raw === "number" || (typeof raw === "string" && raw.trim() !== "")
         ? Number(raw)
         : NaN;
-    if (
-      !Number.isFinite(n) ||
-      n < 1 ||
-      n > max ||
-      (field !== "environment_build_timeout_multiplier" && !Number.isInteger(n))
-    )
+    if (!Number.isFinite(n) || n < 1 || n > max || !Number.isInteger(n))
       issues[k] =
-        `${raw === undefined ? "未知" : "不可用"}：必须${field === "environment_build_timeout_multiplier" ? "为数值" : "为整数"}，范围 1–${max === Infinity ? "无上限" : max}；请明确修改`;
+        `${raw === undefined ? "未知" : "不可用"}：必须为整数，范围 1–${max === Infinity ? "无上限" : max}；请明确修改`;
   }
   if (typeof draft.name !== "string" || draft.name.length > 128)
     issues.name = "名称须为不超过128字符的文本";

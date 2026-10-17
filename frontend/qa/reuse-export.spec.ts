@@ -530,3 +530,85 @@ test("unavailable dataset and model never fall back to defaults; changing datase
     task: "题目",
   });
 });
+
+test("multiplier pure validation follows the positive-integer DTO without rewriting raw values", () => {
+  const good = fromManifest(manifest, "source").values;
+  for (const value of [1.5, "1.5", 0, "0", -1, "bad", undefined]) {
+    const draft = { ...good, environment_build_timeout_multiplier: value };
+    expect(
+      problems(draft, catalog).environment_build_timeout_multiplier,
+    ).toContain("必须为整数");
+    expect(draft.environment_build_timeout_multiplier).toBe(value);
+  }
+  for (const value of [1, 2, 10, "1", "2", "10"]) {
+    const draft = { ...good, environment_build_timeout_multiplier: value };
+    expect(problems(draft, catalog)).toEqual({});
+    expect(submissionBody(draft).environment_build_timeout_multiplier).toBe(
+      Number(value),
+    );
+  }
+  const history = structuredClone(manifest);
+  history.effective.environment_build_timeout_multiplier = 1.5;
+  const draft = initialDraft(catalog, fromManifest(history, "history"));
+  expect(draft.environment_build_timeout_multiplier).toBe(1.5);
+  expect(
+    problems(draft, catalog).environment_build_timeout_multiplier,
+  ).toContain("必须为整数");
+});
+
+for (const source of ["ordinary", "history"] as const) {
+  test(`${source} multiplier preserves decimal, blocks every write, and submits corrected integers`, async ({
+    page,
+  }, testInfo) => {
+    const history = structuredClone(manifest);
+    history.effective.environment_build_timeout_multiplier = 1.5;
+    const writes = await fixture(page, history);
+    if (source === "history") await copy(page);
+    else {
+      await page.goto("/new");
+      await page.getByLabel("环境启动等待倍数", { exact: true }).fill("1.5");
+    }
+    const multiplier = page.getByLabel("环境启动等待倍数", { exact: true });
+    const submit = page.getByRole("button", { name: "提交实验", exact: true });
+    await expect(multiplier).toHaveValue("1.5");
+    await expect(multiplier).toHaveAttribute("inputmode", "numeric");
+    await expect(
+      page.getByText("等待倍数必须为正整数（至少 1），不支持小数。", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/环境启动等待倍数：不可用：必须为整数/),
+    ).toBeVisible();
+    await expect(submit).toBeDisabled();
+    // Exercise onSubmit too: validation must guard even a programmatic form submit.
+    await page
+      .locator("form.new-experiment-form")
+      .evaluate((form) => (form as HTMLFormElement).requestSubmit());
+    expect(writes).toHaveLength(0);
+    await expect(multiplier).toHaveValue("1.5");
+    await page.screenshot({
+      path: testInfo.outputPath(`multiplier-${source}-decimal.png`),
+      fullPage: true,
+    });
+    for (const [index, value] of ["1", "2", "10"].entries()) {
+      await multiplier.fill(value);
+      await expect(multiplier).toHaveValue(value);
+      await expect(submit).toBeEnabled();
+      await submit.click();
+      await expect.poll(() => writes.length).toBe(index + 1);
+      expect(writes[index].body).toMatchObject({
+        environment_build_timeout_multiplier: Number(value),
+      });
+      await expect(page.getByText("操作未完成")).toBeVisible();
+    }
+    await testInfo.attach("multiplier-request-evidence", {
+      body: JSON.stringify(
+        { source, decimal: "1.5", decimalWrites: 0, correctedWrites: writes },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+  });
+}
