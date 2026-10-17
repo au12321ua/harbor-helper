@@ -9,6 +9,10 @@ def parser():
     p.add_argument("--json", action="store_true", help="Original machine-readable output")
     p.add_argument("--remote-profile", help="Use named service member profile")
     sub = p.add_subparsers(dest="command", required=True)
+    mcp = sub.add_parser("mcp", help="Official MCP SDK stdio server (optional extra)")
+    mcp.add_argument("--profile", required=True)
+    mcp.add_argument("--upload-root", type=Path, default=Path.cwd())
+    mcp.add_argument("--download-root", type=Path, default=Path.cwd())
     submit_p = sub.add_parser("submit", help="Submit an experiment to the team service")
     submit_p.add_argument("--dataset")
     submit_p.add_argument("--model-profile", help="Team model profile ID from catalog")
@@ -87,6 +91,11 @@ def main():
     from harbor_helper.commands.remote import dispatch as remote_dispatch
 
     try:
+        if args.command == "mcp":
+            from harbor_helper.mcp_server import serve
+
+            serve(args.profile, args.upload_root, args.download_root)
+            return 0
         if args.command == "service":
             from harbor_helper.commands.service import dispatch as service_dispatch
 
@@ -102,7 +111,18 @@ def main():
         render(args.command, value, args.json)
         return exit_code
     except (ValueError, OSError) as error:
-        print(f"harbor-helper: {error}", file=sys.stderr)
+        if args.json:
+            import json
+
+            print(
+                json.dumps(
+                    error.as_dict()
+                    if isinstance(error, RemoteError)
+                    else {"code": "client_error", "message": str(error)}
+                )
+            )
+        else:
+            print(f"harbor-helper: {error}", file=sys.stderr)
         return 1
 
 

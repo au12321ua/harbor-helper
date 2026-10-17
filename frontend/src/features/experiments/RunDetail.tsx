@@ -18,6 +18,7 @@ import { ArrowLeft, Copy, RefreshCw } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import { MaterialsPanel } from "./MaterialsPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { OverviewPanel } from "./OverviewPanel";
 import { ReportPanel } from "./ReportPanel";
@@ -179,7 +180,9 @@ export function RunDetailContent({ user }: { user: User }) {
           <TabsTrigger value="report">评分报告</TabsTrigger>
           <TabsTrigger value="logs">运行日志</TabsTrigger>
           <TabsTrigger value="artifacts">实验产物</TabsTrigger>
+          <TabsTrigger value="materials">完整资料</TabsTrigger>
         </TabsList>
+        {tab === "materials" && <MaterialsPanel id={id || ""} />}
         <OverviewPanel
           row={row}
           manifest={manifest}

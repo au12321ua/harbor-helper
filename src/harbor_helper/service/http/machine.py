@@ -7,12 +7,44 @@ from harbor_helper.service.attachment_contracts import (
     AttachmentCreate,
     AttachmentPublish,
 )
+from harbor_helper.service.browser_contracts import OperationHistory
 from harbor_helper.service.dtos import MachineState
 from harbor_helper.service.primitives import ServiceError
 
 
 def register(app, deps):
     actor = deps.actor
+
+    @app.get("/api/v1/operations", response_model=OperationHistory)
+    def operation_history(
+        user: Annotated[dict, Depends(actor)],
+        offset: int = 0,
+        limit: int = 50,
+        mine: bool = False,
+        operation: str | None = None,
+        key: str | None = None,
+        operation_id: str | None = None,
+        user_id: str | None = None,
+        status: str | None = None,
+        created_from: float | None = None,
+        created_to: float | None = None,
+    ):
+        from harbor_helper.service.history import listing
+
+        return listing(
+            deps.store,
+            user,
+            offset=offset,
+            limit=limit,
+            mine=mine,
+            operation=operation,
+            key=key,
+            operation_id=operation_id,
+            user_id=user_id,
+            status=status,
+            created_from=created_from,
+            created_to=created_to,
+        )
 
     @app.get("/api/v1/machine/discovery", response_model=dtos.Discovery)
     def discovery(user: Annotated[dict, Depends(actor)]):

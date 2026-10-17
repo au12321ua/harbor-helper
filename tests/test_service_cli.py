@@ -200,7 +200,22 @@ def test_remote_multi_cli_profile_idempotency_and_shared_views(api, home, monkey
     )
     accepted = json.loads(result.stdout)
     assert accepted["status"] == "preparing" and accepted["run_id"] is None
-    assert json.loads(call(home, "service", "retry", "--json").stdout) == accepted
+    assert (
+        json.loads(
+            call(
+                home,
+                "service",
+                "retry",
+                "/submissions",
+                "--body",
+                json.dumps({"model_profile": "team-profile"}),
+                "--idempotency-key",
+                "retry-one",
+                "--json",
+            ).stdout
+        )
+        == accepted
+    )
     assert len(submissions) == 1
     assert calls[0][1]["model_profile"] == "team-profile"
     assert "user_id" not in calls[0][1]
@@ -208,7 +223,10 @@ def test_remote_multi_cli_profile_idempotency_and_shared_views(api, home, monkey
     assert json.loads(call(home, "status", accepted["id"], "--json").stdout)["id"] == accepted["id"]
     call(home, "cancel", accepted["id"], "--json")
     assert "bob" in call(home, "status", "hh-one").stdout
-    assert json.loads(call(home, "logs", "hh-one", "--json").stdout) == 'literal [bold] "log"\n'
+    assert (
+        json.loads(call(home, "logs", "hh-one", "--json").stdout)["text"]
+        == 'literal [bold] "log"\n'
+    )
     assert "[bold]" in call(home, "logs", "hh-one").stdout
     assert json.loads(call(home, "report", "hh-one", "--json").stdout)["complete"]
     compare = call(home, "compare", "hh-one", "hh-two", "--json", code=2)
@@ -347,7 +365,22 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
         (
             root / "scheduler.json"
         ).unlink()  # Remove synthetic activity; old-key/read/cancel remain available.
-        assert json.loads(call(home, "service", "retry", "--json").stdout)["id"] == accepted["id"]
+        assert (
+            json.loads(
+                call(
+                    home,
+                    "service",
+                    "retry",
+                    "/submissions",
+                    "--body",
+                    json.dumps({"agent": "oracle"}),
+                    "--idempotency-key",
+                    "actual-api-once",
+                    "--json",
+                ).stdout
+            )["id"]
+            == accepted["id"]
+        )
         listing = json.loads(call(home, "list", "--json").stdout)
         assert len(listing["submissions"]) == 1
         assert listing["submissions"][0]["submitter"] == "alice"

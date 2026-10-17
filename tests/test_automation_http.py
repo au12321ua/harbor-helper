@@ -132,7 +132,16 @@ def test_noninteractive_cli_http_baseline_version_and_response_recovery(http_ser
         }
         recovered, _ = cli(p, "service", "lookup", "submit", "baseline")
         assert recovered["id"] == baseline["id"]
-        repeated, _ = cli(p, "service", "retry")
+        repeated, _ = cli(
+            p,
+            "service",
+            "retry",
+            "/submissions",
+            "--body",
+            json.dumps(baseline["request"]),
+            "--idempotency-key",
+            "baseline",
+        )
         assert repeated["id"] == baseline["id"]
         # Upload two immutable versions with an actual automation HTTP client.
         with httpx.Client(

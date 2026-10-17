@@ -177,19 +177,37 @@ def scan_tree(root, secrets):
                     counts["matched_files"] += int(found)
                     continue
                 source.seek(0)
+                magic = source.read(2)
+                source.seek(0)
+                if magic == b"\x1f\x8b":
+                    import gzip
+
+                    with gzip.GzipFile(fileobj=source) as decoded:
+                        consumed = 0
+                        while chunk := decoded.read(65536):
+                            consumed += len(chunk)
+                            if consumed > 64 * 1024 * 1024:
+                                raise OSError("Compressed evidence exceeds audit bound")
+                            data = tail + chunk
+                            found |= bool(ACCESS_TOKEN.search(data)) or any(
+                                p in data for p in patterns
+                            )
+                            tail = data[-overlap:]
+                    source.seek(0)
+                    tail = b""
                 while chunk := source.read(65536):
                     data = tail + chunk
                     found |= bool(ACCESS_TOKEN.search(data)) or any(p in data for p in patterns)
                     tail = data[-overlap:] if overlap else b""
             counts["files_scanned"] += 1
             counts["matched_files"] += int(found)
-        except (OSError, sqlite3.Error):
+        except (OSError, sqlite3.Error, EOFError):
             counts["unreadable_files"] += 1
     return {**counts, "clean": not (counts["matched_files"] or counts["unreadable_files"])}
 
 
 def scrub_file(path, secrets):
-    """Streaming exact-value scrub; supports binary files and chunk boundaries."""
+    """Scrub only known UTF-8 text; leave opaque bytes for fail-closed audit."""
     patterns = secret_patterns(secrets)
     if not patterns or not path.is_file() or path.is_symlink():
         return
@@ -201,6 +219,30 @@ def scrub_file(path, secrets):
     if scan_tree(path, secrets)["clean"]:
         # Container-owned log directories may be readable but not writable.
         # Clean files need no replacement or temporary output in that directory.
+        return
+    if path.suffix.lower() not in {
+        ".txt",
+        ".log",
+        ".json",
+        ".jsonl",
+        ".ndjson",
+        ".md",
+        ".toml",
+        ".yaml",
+        ".yml",
+        ".py",
+        ".sh",
+        ".csv",
+        ".xml",
+        ".html",
+    }:
+        return
+    try:
+        with path.open("r", encoding="utf-8") as text:
+            while chunk := text.read(65536):
+                if "\x00" in chunk:
+                    return
+    except UnicodeError:
         return
     overlap = max(map(len, patterns)) - 1
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".redact-")
@@ -230,15 +272,26 @@ def scrub_file(path, secrets):
             target.write(pending)
         if changed:
             os.replace(temporary, path)
+        return changed
     finally:
         Path(temporary).unlink(missing_ok=True)
 
 
 def scrub_run(path, secrets):
     # Never rewrite immutable inputs. Scan them separately before evidence handoff.
+    processing = Path(path) / "material-processing.json"
+    changed = __import__("json").loads(processing.read_text()) if processing.exists() else []
     for file in Path(path).rglob("*"):
-        if file.relative_to(path).parts[0] not in {"tasks", "bundle", "manifest.json", "job.json"}:
-            scrub_file(file, secrets)
+        if file.relative_to(path).parts[0] not in {
+            "tasks",
+            "bundle",
+            "manifest.json",
+            "job.json",
+        } and scrub_file(file, secrets):
+            changed.append(file.relative_to(path).as_posix())
+    from harbor_helper.persistence.files import write_json
+
+    write_json(Path(path) / "material-processing.json", changed)
 
 
 def audit_run(store, run_id, secrets):
@@ -260,7 +313,19 @@ def audit_run(store, run_id, secrets):
 
 def install_docker_credential_forwarding():
     """Adapt only helper workers; Harbor 0.23.0 constructs secret exec assignments."""
+    from importlib.metadata import version
+
+    from harbor.agents.installed import base as installed_base
     from harbor.environments.docker.docker import DockerEnvironment
+
+    if version("harbor") != "0.23.0":
+        raise RuntimeError("Review credential debug adapter for changed Harbor version")
+
+    # Harbor imports the formatter by name here. Replace the actual writer reference.
+    def fully_redacted(value: str) -> str:
+        return "[REDACTED]"
+
+    installed_base.redact_sensitive_value = fully_redacted  # ty: ignore[invalid-assignment]  # Replace Harbor 0.23 imported formatter reference; signature is version-guarded.
 
     original = DockerEnvironment._run_docker_compose_command
     if getattr(original, "_helper_credentials", False):

@@ -1,3 +1,4 @@
+import { OperationHistory } from "@/features/experiments/OperationHistory";
 import { type User } from "@/api";
 import { EmptyState } from "@/components/shared";
 import { AccessCredentialsPage } from "@/features/account/AccessCredentialsPage";
@@ -19,6 +20,7 @@ export function AppRoutes({
 }) {
   return (
     <Routes>
+      <Route path="/operations" element={<OperationHistory />} />
       <Route path="/account" element={<AccountPage logout={onLogout} />} />
       <Route path="/" element={<ExperimentList />} />
       <Route path="/new" element={<NewExperiment />} />

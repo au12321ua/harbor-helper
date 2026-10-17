@@ -83,6 +83,7 @@ export function Shell({
       ? "受理准备"
       : {
           "/": "共享实验",
+          "/operations": "请求历史",
           "/new": "新建实验",
           "/compare": "实验对比",
           "/attachments": "团队附件",
@@ -142,6 +143,10 @@ export function Shell({
           <NavLink to="/compare">
             <GitCompareArrows />
             实验对比
+          </NavLink>
+          <NavLink to="/operations">
+            <LayoutList />
+            <span>请求历史</span>
           </NavLink>
           <NavLink to="/attachments">
             <Paperclip />

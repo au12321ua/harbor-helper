@@ -47,11 +47,11 @@
 | `update_attachment` | PATCH `/attachments/{id}` | attachments | `AttachmentUpdate {name?,description?,enabled?}` → `{updated:true}`；创建者权限 |
 | `update_attachment_version` | PATCH `/attachments/{id}/versions/{version_id}` | attachments | `AttachmentVersionUpdate {enabled}` → `{updated:true}`；创建者权限 |
 
-`Discovery.allowed_operations` 使用上述操作标识，另包括有明确能力的旧兼容操作：me/catalog/usage/runs/submission/run/report/download_report/compare。这些别名保留 HTTP 兼容，但自动化 catalog/run/list/report 会采用安全投影；原始 logs/artifacts/download 只向浏览器会话开放。机器契约优先使用 `/machine/...`。旧会话远程 profile 保留原角色及旧响应。
+`Discovery.allowed_operations` 使用上述操作标识，另包括有明确能力的旧兼容操作：me/catalog/usage/runs/submission/run/report/download_report/compare。这些别名保留 HTTP 兼容，但catalog 保留发现投影，run/list/report 与网页共用安全业务事实；read PAT 可读取与网页相同的安全日志、产物和诊断/比较事实；更完整资料需要账户授信及 read+evidence。机器契约优先使用 `/machine/...`。旧会话远程 profile 保留原角色及旧响应。
 
 `SubmissionInput` 严格拒绝未知字段和错误类型，身份不由客户端提交。可用字段：`dataset_id`（网页配置的数据集，优先）、`dataset`（旧显式引用）、`model_profile`、`agent`（oracle/opencode）、`attachment_version_id`、`attempts`、`concurrency`、`wall_seconds`、`environment_build_timeout_multiplier`、`task`、`name`。数值为正整数且继续受现有团队限额校验；name≤128 字符。选择 task 使用任务名 glob；省略 task 选择整个数据集。模型实验选择方案，Oracle 显式选择 agent。省略附件字段是无附件基线；版本必须明确，不接受 latest，不自动沿用。dataset 验证/ready 仅表示当前配置的来源检查，不证明作者输入、Docker、Hub 或模型下一次一定可执行。
 
-`Accepted` 保留旧 id/status/request/run_id/parent/submitter/created/error 及附件字段，新增 user_id/access_credential_id。token 调用不输出原始作者诊断或配置变更值。输入和输出的详细字段、null/可选规则以运行时 schema 为准；机器报告只给各任务的有效性、聚合评分、尝试奖励和安全失败类别。有效 0.0 是合法评分；缺评分为 missing_score；执行异常为 execution_failure，证据不足为 unknown，不凭 run status 推断评分。
+`Accepted` 保留旧 id/status/request/run_id/parent/submitter/created/error 及附件字段，新增 user_id/access_credential_id。已安全检查的作者诊断、配置变更与网页一致。输入和输出的详细字段、null/可选规则以运行时 schema 为准；机器报告只给各任务的有效性、聚合评分、尝试奖励和安全失败类别。有效 0.0 是合法评分；缺评分为 missing_score；执行异常为 execution_failure，证据不足为 unknown，不凭 run status 推断评分。
 
 ## 幂等与通信恢复
 
@@ -92,7 +92,7 @@ harbor-helper --remote-profile research service query sub-RECEIPT --json
 harbor-helper --remote-profile research service report hh-RUN --json
 ```
 
-模型实验改用 `--model-profile MODEL_ID`；明确版本对照新 submit 选择 `--attachment-version-id VERSION_ID` 和新键；不带该参数是无附件。`service retry` 重发最近一次保存的实验操作原正文/原键；单个 profile 只保存一个最近 receipt，研究客户端仍应自行保存并行请求。`rerun/retry` 原命令继续使用，失败准备的主动新恢复用 `service recover sub-ID --idempotency-key NEW_KEY`。`service logout` 对会话 profile 撤会话并删本地 profile；对自动化 profile 仅删本地副本，服务端撤销在网页完成。远程请求失败无本地执行回退，复用同一 HTTP 契约和队列。
+模型实验改用 `--model-profile MODEL_ID`；明确版本对照新 submit 选择 `--attachment-version-id VERSION_ID` 和新键；不带该参数是无附件。`service history` 查询服务端操作历史；`service retry PATH --body JSON --idempotency-key KEY` 显式重发原正文/原键，不保存 last receipt。`rerun/retry` 原命令继续使用，失败准备的主动新恢复用 `service recover sub-ID --idempotency-key NEW_KEY`。`service logout` 对会话 profile 撤会话并删本地 profile；对自动化 profile 仅删本地副本，服务端撤销在网页完成。远程请求失败无本地执行回退，复用同一 HTTP 契约和队列。
 
 ## 迁移与回退
 
@@ -115,3 +115,5 @@ harbor-helper --remote-profile research service report hh-RUN --json
 本次不新增/更改 SQLite 表，不重写旧 manifest、冻结输入、密文或外主密钥。旧 limits.json 缺成员字段时读取默认10；不要求落盘迁移，维护文件缺失仅按首次默认开放解释，仍须 scheduler 就绪。维护文件损坏拒绝新受理并匿名 unready，不静默开放。按部署流程保全最新 state 和原外主密钥；生产升级需独立授权，本轮没有升级部署。
 
 代码回退到本轮之前会忽略 admission.json 和成员字段，并且不执行新就绪门；**暂停保护不能靠旧代码继续维持**。需先停止外部新写入口、确认全部写者与队列/资源状态，再按固定旧版本执行回退，保留新文件和所有受理/幂等/历史数据；不可删文件开放、重 init、更换 master 或用旧备份覆盖新业务。恢复本轮代码后读取原持久暂停值。暂停/就绪不替代一致备份和独立 scheduler 停机确认。
+
+SDK、MCP、完整资料权限与下载范围见 [使用指南](../guides/sdk-mcp.md)。

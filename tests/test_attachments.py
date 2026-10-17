@@ -310,9 +310,21 @@ if sys.argv[2] == "before_commit":
         with original() as db: yield Proxy(db)
     app.store.connect=connection
 else:
-    original=app.attachments.public
-    def public(db, version_id): os._exit(72)
-    app.attachments.public=public
+    original=app.store.connect
+    class Proxy:
+        def __init__(self, db): self.db=db; self.published=False
+        def execute(self, sql, *args):
+            result=self.db.execute(sql, *args)
+            if sql.startswith("INSERT INTO operations"): self.published=True
+            return result
+    @contextmanager
+    def connection():
+        proxy=None
+        with original() as db:
+            proxy=Proxy(db)
+            yield proxy
+        if proxy.published: os._exit(72)
+    app.store.connect=connection
 stream=io.BytesIO()
 with zipfile.ZipFile(stream,"w") as z: z.writestr("sdk/readme",b"v1")
 stream.seek(0)

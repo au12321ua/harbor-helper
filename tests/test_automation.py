@@ -573,7 +573,13 @@ def test_all_machine_schema_operations_have_types_permissions_and_safe_errors(da
     for item in schema["paths"].values():
         for operation in item.values():
             operations.append(operation["x-operation"])
-            assert operation["x-capability"] in {"read", "attachments", "execute", "cancel_own"}
+            assert operation["x-capability"] in {
+                "read",
+                "attachments",
+                "execute",
+                "cancel_own",
+                "evidence",
+            }
             assert operation["responses"]["403"]["content"]["application/json"]["schema"][
                 "$ref"
             ].endswith("ErrorResponse")

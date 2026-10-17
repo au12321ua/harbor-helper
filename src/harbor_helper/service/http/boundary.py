@@ -12,9 +12,10 @@ from harbor_helper.service.primitives import LIMITS, ServiceError
 
 
 def register(app, deps):
-    def failure(request, code, message, status):
+    def failure(request, code, message, status, operation_id=None):
         return JSONResponse(
             {
+                "operation_id": operation_id,
                 "code": code,
                 "message": message,
                 "request_id": getattr(request.state, "request_id", uuid.uuid4().hex),
@@ -35,6 +36,9 @@ def register(app, deps):
     @app.middleware("http")
     async def boundary(request, call_next):
         request.state.request_id = uuid.uuid4().hex
+        from harbor_helper.service.history import REQUEST_ID
+
+        REQUEST_ID.set(request.state.request_id)
         if deps.application is None and (deps.store.root / "service.json").exists():
             deps.application = Application(deps.store)
         if (
@@ -116,7 +120,7 @@ def register(app, deps):
 
     @app.exception_handler(ServiceError)
     async def service_error(request, error):
-        return failure(request, error.code, str(error), error.status)
+        return failure(request, error.code, str(error), error.status, error.operation_id)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, error):

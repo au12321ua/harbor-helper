@@ -118,7 +118,10 @@ def maintenance(store):
         with store.evidence(row["id"]):
             path = store.path(row["id"])
             age = time.time() - row["finished"]
+            from harbor_helper.service.materials import tombstone
+
             if age > limits["artifact_retention_days"] * 86400:
+                tombstone(store, row["id"], status="expired", category_filter="artifact")
                 for folder in (path / "harbor").glob("*/*/artifacts"):
                     if folder.is_dir() and not folder.is_symlink():
                         shutil.rmtree(folder)
@@ -126,6 +129,7 @@ def maintenance(store):
                 report = Evidence(data).safe_report(row["id"])
                 if report:
                     write_json(path / "safe-report.json", report)
+                tombstone(store, row["id"], status="expired")
                 shutil.rmtree(path / "harbor", ignore_errors=True)
                 (path / "worker.log").unlink(missing_ok=True)
                 write_json(

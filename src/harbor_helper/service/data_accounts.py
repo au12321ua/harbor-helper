@@ -54,7 +54,9 @@ class Accounts:
         with self.store.connect() as db:
             return [
                 public_user(r)
-                for r in db.execute("SELECT id,username,role,enabled FROM users ORDER BY username")
+                for r in db.execute(
+                    "SELECT u.id,u.username,u.role,u.enabled,COALESCE(g.granted,0) evidence_grant FROM users u LEFT JOIN evidence_grants g ON g.user_id=u.id ORDER BY u.username"
+                )
             ]
 
     def user(self, user_id):
@@ -64,7 +66,9 @@ class Accounts:
             ).fetchone()
         if row is None:
             raise ServiceError("unknown_user", "Account not found", 404)
-        return public_user(row)
+        from harbor_helper.service.access import granted
+
+        return {**public_user(row), "evidence_grant": granted(self, user_id)}
 
     @wake_after
     def update_user(self, user_id, enabled=None, password=None):
@@ -154,6 +158,12 @@ class Accounts:
                     (digest, time.time()),
                 ).fetchone()
                 if row is not None:
+                    from harbor_helper.service.access import granted
+
+                    if "evidence" in json.loads(row["scopes"]) and not granted(self, row["id"], db):
+                        raise ServiceError(
+                            "login_required", "Automation authorization revoked", 401
+                        )
                     db.execute(
                         "UPDATE access_credentials SET last_used=? WHERE id=?",
                         (time.time(), row["access_credential_id"]),

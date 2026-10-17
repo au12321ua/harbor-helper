@@ -27,6 +27,7 @@ LimitsInput = create_model(  # ty: ignore[no-matching-overload]  # Runtime Pydan
 
 
 class User(DTO):
+    evidence_grant: bool = False
     id: str
     username: str
     role: Literal["admin", "member"]
@@ -229,6 +230,8 @@ class Catalog(DTO):
 
 
 class Accepted(DTO):
+    operation_id: str | None = None
+    idempotency_key: str | None = None
     id: str
     user_id: str | None
     access_credential_id: str | None
@@ -564,7 +567,66 @@ class ProfileInput(DTO):
     enabled: bool = True
 
 
+class AccessCapabilities(DTO):
+    scopes: list[str]
+    evidence_grant: bool
+
+
+class GrantResult(DTO):
+    user_id: str
+    evidence_grant: bool
+
+
+class OperationRecord(DTO):
+    id: str
+    user_id: str
+    operation: str
+    idem: str
+    request: dict
+    created: float
+    updated: float
+    attempts: int
+    status: str
+    result: dict | None
+    error: dict | None
+    recent: list[dict]
+    summarized_attempts: int
+
+
+class OperationHistory(DTO):
+    operations: list[OperationRecord]
+    total: int
+    offset: int
+    next_offset: int | None
+    attempt_limit: int
+
+
+class Material(DTO):
+    id: str
+    name: str
+    category: str
+    bytes: int
+    sha256: str
+    status: str
+    source: str
+    processing: str | None
+
+
+class Materials(DTO):
+    run_id: str
+    state: str
+    files: list[Material]
+    session_coverage: list[dict] = []
+    scope: str | None = None
+    limitations: list[str] = []
+    legacy: bool = False
+
+
 BROWSER = {
+    "access_capabilities": AccessCapabilities,
+    "evidence_grant": GrantResult,
+    "operation_history": OperationHistory,
+    "evidence_manifest": Materials,
     "setup_status": Initialized,
     "setup": Initialized,
     "login": LoginResult,
@@ -625,27 +687,7 @@ BROWSER = {
     "list_all_access": list[AccessCredential],
     "revoke_access": Revoked,
 }
-MACHINE = {
-    "me": MachineUser,
-    "catalog": m.Discovery,
-    "runs": MachineRuns,
-    "run": m.MachineState,
-    "report": m.SafeReport | None,
-    "download_report": m.SafeReport,
-    "compare": m.Comparison,
-    **dict.fromkeys(
-        (
-            "submission",
-            "submit",
-            "recover_submission",
-            "cancel_submission",
-            "rerun",
-            "retry_run",
-            "lookup_submission",
-        ),
-        m.Accepted,
-    ),
-}
+MACHINE = {"me": MachineUser, "catalog": m.Discovery}
 REQUESTS = {
     "set_maintenance": MaintenanceInput,
     "update_user": UserUpdate,

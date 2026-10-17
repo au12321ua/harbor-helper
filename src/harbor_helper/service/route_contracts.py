@@ -30,6 +30,16 @@ def exception(path: str, handler: str, reason: str, methods: str = "GET") -> Exe
 
 
 EXEMPTIONS = (
+    exception(
+        "/api/v1/runs/{run_id}/evidence/package",
+        "experiments.register.<locals>.evidence_package",
+        "Verified snapshot streaming",
+    ),
+    exception(
+        "/api/v1/runs/{run_id}/evidence/files/{file_id}",
+        "experiments.register.<locals>.evidence_file",
+        "Verified snapshot streaming",
+    ),
     exception("/api/v1/health", "status.register.<locals>.health", "Health probe"),
     exception(
         "/api/v1/machine/discovery", "machine.register.<locals>.discovery", "Machine discovery"

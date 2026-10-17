@@ -29,11 +29,13 @@ harbor-helper --remote-profile research submit --dataset DATASET_REFERENCE --mod
 
 仅隔离验证且明确选择 Oracle 时改用 `--agent oracle` 代替模型方案；不把 Oracle 分数当模型效果。
 
-提交前在用户私有操作记录中保存确切正文（由 CLI 字段映射形成）：dataset、model_profile、task、attempts、concurrency、wall_seconds，候选另有 attachment_version_id。例子中的固定类别均为 submit、路径 `/submissions`，无附件正文不含附件字段。CLI 发请求前还自动写 `~/.config/harbor-helper/remote/receipt-research.json`（0600）。**每次写返回/失败后、下一次写前**复制该 receipt 到本次研究独立私有目录，保全其原 path/body/user_id/idempotency_key/url；给记录补固定类别与授权范围。不得复制 profiles 中含 token 的文件、整包 remote 目录或把记录放附件。并行操作优先各自保存 HTTP 请求记录，不能共用最近 receipt 恢复。
+按本次输入固定原键；跨会话使用服务端 `/operations` 历史查回，不复制 profile 或维护长期客户端账本。CLI/SDK 不再保存 last receipt；未知响应始终重用原键。
 
 ```bash
 harbor-helper --remote-profile research service lookup submit STUDY-baseline --json
-harbor-helper --remote-profile research service retry --json
+harbor-helper --remote-profile research service history --json
+# 明确原正文与原键的重发示例（替换成本次原输入）
+harbor-helper --remote-profile research service retry /submissions --body '{"agent":"oracle"}' --idempotency-key ORIGINAL_KEY --json
 harbor-helper --remote-profile research service query sub-RECEIPT --json
 harbor-helper --remote-profile research service query hh-RUN --json
 harbor-helper --remote-profile research service report hh-RUN --json
@@ -43,7 +45,7 @@ harbor-helper --remote-profile research cancel sub-OWN_RECEIPT --json
 harbor-helper --remote-profile research cancel hh-OWN_RUN --json
 ```
 
-service retry 仅在**最近 receipt 就是待恢复操作**时使用；其他记录用其原请求重发。compare 通过兼容 `/compare` 返回机器安全投影；comparable=false 时 CLI 退出 2，仍应读取输出 reasons。取消请求成功不代表资源已释放，继续查三轴。
+service retry 需要明确原路径、正文和键。compare 通过共用 `/compare` 返回与网页相同的安全业务事实；comparable=false 时 CLI 退出 2，仍应读取输出 reasons。取消请求成功不代表资源已释放，继续查三轴。
 
 ## 直接 HTTP（CLI 未暴露字段时）
 

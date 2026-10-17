@@ -17,7 +17,7 @@ class Input(BaseModel):
 class AccessIssue(Input):
     name: str = Field(min_length=1, max_length=128)
     current_password: SecretStr
-    scopes: list[Literal["read", "attachments", "execute", "cancel_own"]] = ["read"]
+    scopes: list[Literal["read", "attachments", "execute", "cancel_own", "evidence"]] = ["read"]
     expires: float | None = None
 
 
@@ -86,6 +86,8 @@ class MachineState(BaseModel):
 
 
 class Accepted(BaseModel):
+    operation_id: str | None = None
+    idempotency_key: str | None = None
     id: str
     user_id: str | None = None
     access_credential_id: str | None = None
@@ -222,6 +224,7 @@ class CancelResult(BaseModel):
 
 
 class ErrorResponse(BaseModel):
+    operation_id: str | None = None
     code: str
     message: str
     request_id: str
@@ -276,3 +279,7 @@ class Comparison(BaseModel):
     attachment_inputs: dict[str, CompareAttachment]
     tasks: list[MetricDelta]
     mean_task_delta: dict[str, float] | None
+
+
+class EvidenceGrant(Input):
+    enabled: bool

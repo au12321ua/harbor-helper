@@ -83,14 +83,14 @@ def test_cross_write_and_flush_never_release_secret(split):
     assert target.getvalue() == "before [REDACTED] after\n"
 
 
-def test_large_binary_scan_and_scrub_chunk_boundary(tmp_path):
+def test_large_binary_scan_withholds_without_mutating_chunk_boundary(tmp_path):
     data = b"\x00" * 65530 + MARKER.encode() + b"\xff" * 21_000_000
     path = tmp_path / "binary"
     path.write_bytes(data)
     assert not scan_tree(tmp_path, [MARKER])["clean"]
     scrub_file(path, [MARKER])
-    assert scan_tree(tmp_path, [MARKER])["clean"]
-    assert path.read_bytes() == data.replace(MARKER.encode(), b"[REDACTED]")
+    assert not scan_tree(tmp_path, [MARKER])["clean"]
+    assert path.read_bytes() == data
     assert not scan_tree(tmp_path / "missing", [MARKER])["clean"]
 
 

@@ -39,6 +39,7 @@ def add_parsers(sub):
     source.add_argument("--token-file", type=Path)
     source.add_argument("--token-stdin", action="store_true")
     for command in (
+        "history",
         "status",
         "logout",
         "retry",
@@ -52,6 +53,13 @@ def add_parsers(sub):
     ):
         child = operations.add_parser(command)
         child.add_argument("--profile")
+        if command == "retry":
+            child.add_argument("path", help="Original API path, for example /submissions")
+            child.add_argument("--body", required=True, help="Original JSON body")
+            child.add_argument("--idempotency-key", required=True)
+        if command == "history":
+            child.add_argument("--offset", type=int, default=0)
+            child.add_argument("--limit", type=int, default=50)
         if command == "tasks":
             child.add_argument("dataset_id")
             child.add_argument("--offset", type=int, default=0)

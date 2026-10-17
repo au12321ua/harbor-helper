@@ -64,6 +64,7 @@ async function request(
 }
 export function api<P extends GETPath>(
   path: ValidPath<P, GET<P>>,
+  options?: { query: Record<string, string> },
 ): Promise<GET<P>["response"]>;
 export function api<P extends PATCHPath>(
   path: ValidPath<P, PATCH<P>>,
@@ -79,9 +80,13 @@ export function api<P extends DELETEPath>(
 ): Promise<DELETE<P>["response"]>;
 export function api(
   path: string,
-  options?: { method: string; body?: unknown },
+  options?: { method?: string; body?: unknown; query?: Record<string, string> },
 ): Promise<unknown> {
-  return request(path, options?.method || "GET", options?.body);
+  return request(
+    path + (options?.query ? "?" + new URLSearchParams(options.query) : ""),
+    options?.method || "GET",
+    options?.body,
+  );
 }
 export function post<P extends JsonPostPath>(
   path: ValidPath<P, POST<P>>,

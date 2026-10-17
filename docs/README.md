@@ -11,6 +11,7 @@
 - [前端开发](../frontend/README.md)、[源码职责](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
 - [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
 - [自动化授权与机器 API](reference/automation-api.md)：固定能力、schema、状态、幂等与薄 CLI；迁移/回退边界。
+- [SDK 与 MCP](guides/sdk-mcp.md)：Python 客户端、stdio 配置、服务端历史及完整资料授权。
 - [研究客户端 skill](guides/research-skill.md)：可移植发布源、安装/调用与无附件/明确版本对照流程。
 - [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
 

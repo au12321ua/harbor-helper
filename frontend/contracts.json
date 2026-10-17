@@ -50,6 +50,18 @@
           "title": "Id",
           "type": "string"
         },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
         "operation": {
           "enum": [
             "submit",
@@ -59,6 +71,18 @@
           ],
           "title": "Operation",
           "type": "string"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
         },
         "parent": {
           "anyOf": [
@@ -138,6 +162,28 @@
         "retry_changes"
       ],
       "title": "Accepted",
+      "type": "object"
+    },
+    "AccessCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_grant": {
+          "title": "Evidence Grant",
+          "type": "boolean"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scopes",
+        "evidence_grant"
+      ],
+      "title": "AccessCapabilities",
       "type": "object"
     },
     "AccessCredential": {
@@ -242,7 +288,8 @@
               "read",
               "attachments",
               "execute",
-              "cancel_own"
+              "cancel_own",
+              "evidence"
             ],
             "type": "string"
           },
@@ -545,6 +592,30 @@
       "properties": {
         "attachment": {
           "$ref": "#/definitions/AttachmentIdentity"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
         },
         "version": {
           "$ref": "#/definitions/AttachmentVersion"
@@ -2428,6 +2499,18 @@
           "title": "Message",
           "type": "string"
         },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        },
         "poll_after_seconds": {
           "anyOf": [
             {
@@ -2484,6 +2567,20 @@
       "title": "ErrorResponse",
       "type": "object"
     },
+    "EvidenceGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "EvidenceGrant",
+      "type": "object"
+    },
     "FailureDiagnosis": {
       "additionalProperties": false,
       "properties": {
@@ -2506,6 +2603,25 @@
         "message"
       ],
       "title": "FailureDiagnosis",
+      "type": "object"
+    },
+    "GrantResult": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_grant": {
+          "title": "Evidence Grant",
+          "type": "boolean"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "evidence_grant"
+      ],
+      "title": "GrantResult",
       "type": "object"
     },
     "Hub": {
@@ -3285,6 +3401,123 @@
       "title": "MasterStatus",
       "type": "object"
     },
+    "Material": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "processing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Processing"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "category",
+        "bytes",
+        "sha256",
+        "status",
+        "source",
+        "processing"
+      ],
+      "title": "Material",
+      "type": "object"
+    },
+    "Materials": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/definitions/Material"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "legacy": {
+          "default": false,
+          "title": "Legacy",
+          "type": "boolean"
+        },
+        "limitations": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope"
+        },
+        "session_coverage": {
+          "default": [],
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Session Coverage",
+          "type": "array"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "state",
+        "files"
+      ],
+      "title": "Materials",
+      "type": "object"
+    },
     "MetricDelta": {
       "additionalProperties": false,
       "properties": {
@@ -3321,6 +3554,145 @@
         "delta"
       ],
       "title": "MetricDelta",
+      "type": "object"
+    },
+    "OperationHistory": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_limit": {
+          "title": "Attempt Limit",
+          "type": "integer"
+        },
+        "next_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Offset"
+        },
+        "offset": {
+          "title": "Offset",
+          "type": "integer"
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/definitions/OperationRecord"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operations",
+        "total",
+        "offset",
+        "next_offset",
+        "attempt_limit"
+      ],
+      "title": "OperationHistory",
+      "type": "object"
+    },
+    "OperationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "idem": {
+          "title": "Idem",
+          "type": "string"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "recent": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Recent",
+          "type": "array"
+        },
+        "request": {
+          "additionalProperties": true,
+          "title": "Request",
+          "type": "object"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "summarized_attempts": {
+          "title": "Summarized Attempts",
+          "type": "integer"
+        },
+        "updated": {
+          "title": "Updated",
+          "type": "number"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "operation",
+        "idem",
+        "request",
+        "created",
+        "updated",
+        "attempts",
+        "status",
+        "result",
+        "error",
+        "recent",
+        "summarized_attempts"
+      ],
+      "title": "OperationRecord",
       "type": "object"
     },
     "PasswordChange": {
@@ -4709,6 +5081,11 @@
           "title": "Enabled",
           "type": "boolean"
         },
+        "evidence_grant": {
+          "default": false,
+          "title": "Evidence Grant",
+          "type": "boolean"
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -4819,6 +5196,20 @@
     "$ref": "#/definitions/ErrorResponse"
   },
   "routes": [
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "access_capabilities",
+      "path": "/access-capabilities",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/AccessCapabilities"
+      },
+      "status": 200
+    },
     {
       "media": "application/json",
       "metadata": null,
@@ -5269,6 +5660,22 @@
     {
       "media": "application/json",
       "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "evidence_grant",
+      "path": "/admin/users/{user_id}/evidence-grant",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/EvidenceGrant"
+      },
+      "response": {
+        "$ref": "#/definitions/GrantResult"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
       "method": "GET",
       "navigation": false,
       "operation": "attachment_lookup",
@@ -5441,7 +5848,7 @@
       "navigation": false,
       "operation": "compare",
       "path": "/compare",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": {
         "$ref": "#/definitions/CompareInput"
       },
@@ -5469,6 +5876,20 @@
       "metadata": null,
       "method": "GET",
       "navigation": false,
+      "operation": "operation_history",
+      "path": "/operations",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/OperationHistory"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
       "operation": "readiness",
       "path": "/readiness",
       "projection": "shared/session",
@@ -5485,7 +5906,7 @@
       "navigation": false,
       "operation": "runs",
       "path": "/runs",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": null,
       "response": {
         "$ref": "#/definitions/Runs"
@@ -5499,7 +5920,7 @@
       "navigation": false,
       "operation": "run",
       "path": "/runs/{run_id}",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": null,
       "response": {
         "$ref": "#/definitions/RunDetail"
@@ -5548,6 +5969,20 @@
       "metadata": null,
       "method": "GET",
       "navigation": false,
+      "operation": "evidence_manifest",
+      "path": "/runs/{run_id}/evidence",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Materials"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
       "operation": "logs",
       "path": "/runs/{run_id}/logs",
       "projection": "shared/session",
@@ -5564,7 +5999,7 @@
       "navigation": false,
       "operation": "report",
       "path": "/runs/{run_id}/report",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": null,
       "response": {
         "anyOf": [
@@ -5585,7 +6020,7 @@
       "navigation": true,
       "operation": "download_report",
       "path": "/runs/{run_id}/report/download",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": null,
       "response": {
         "$ref": "#/definitions/Report"
@@ -5599,7 +6034,7 @@
       "navigation": false,
       "operation": "rerun",
       "path": "/runs/{run_id}/rerun",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": {
         "anyOf": [
           {
@@ -5622,7 +6057,7 @@
       "navigation": false,
       "operation": "retry_run",
       "path": "/runs/{run_id}/retry",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": {
         "$ref": "#/definitions/RetryInput"
       },
@@ -5668,7 +6103,7 @@
       "navigation": false,
       "operation": "lookup_submission",
       "path": "/submission-operations/{operation}/{key:path}",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": null,
       "response": {
         "$ref": "#/definitions/Accepted"
@@ -5682,7 +6117,7 @@
       "navigation": false,
       "operation": "submit",
       "path": "/submissions",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": {
         "$ref": "#/definitions/SubmissionInput"
       },
@@ -5698,7 +6133,7 @@
       "navigation": false,
       "operation": "submission",
       "path": "/submissions/{submission_id}",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": null,
       "response": {
         "$ref": "#/definitions/Accepted"
@@ -5712,7 +6147,7 @@
       "navigation": false,
       "operation": "cancel_submission",
       "path": "/submissions/{submission_id}/cancel",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": {
         "anyOf": [
           {
@@ -5735,7 +6170,7 @@
       "navigation": false,
       "operation": "recover_submission",
       "path": "/submissions/{submission_id}/retry",
-      "projection": "browser/PAT",
+      "projection": "shared/session",
       "request": {
         "anyOf": [
           {

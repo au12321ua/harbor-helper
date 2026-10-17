@@ -314,6 +314,14 @@ class Evidence:
             ).fetchone():
                 return {"id": file_id, "deleted": True}
         path = self.artifact_path(run_id, file_id)
+        from harbor_helper.service.materials import tombstone
+
+        tombstone(
+            self.store,
+            run_id,
+            status="deleted",
+            name=path.relative_to(self.store.path(run_id)).as_posix(),
+        )
         path.unlink()
         with self.store.connect() as db:
             db.execute(

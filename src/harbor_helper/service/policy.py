@@ -3,6 +3,13 @@
 from harbor_helper.service.primitives import ServiceError
 
 CAPABILITIES = {
+    "evidence_manifest": "evidence",
+    "evidence_package": "evidence",
+    "evidence_file": "evidence",
+    "operation_history": "read",
+    "access_capabilities": "read",
+    "logs": "read",
+    "artifact": "read",
     "attachment_lookup": "attachments",
     "attachments": "read",
     "cancel": "cancel_own",
@@ -37,6 +44,8 @@ CAPABILITIES = {
 }
 
 SCHEMA_OPERATIONS = {
+    "operation_history",
+    "evidence_manifest",
     "update_attachment_version",
     "attachment_lookup",
     "machine_report",

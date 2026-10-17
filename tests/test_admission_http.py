@@ -130,7 +130,16 @@ def test_pause_two_http_processes_cli_drain_and_unready_old_key(http_service):
                     headers={"Idempotency-Key": "drain"},
                 )
                 assert old.status_code == 202 and old.json()["id"] == accepted["id"]
-                recovered, _ = cli(p, "service", "retry")
+                recovered, _ = cli(
+                    p,
+                    "service",
+                    "retry",
+                    "/submissions",
+                    "--body",
+                    json.dumps(accepted["request"]),
+                    "--idempotency-key",
+                    "drain",
+                )
                 assert recovered["id"] == accepted["id"]
                 hold.unlink()
                 rid = p.run_id(accepted)
@@ -142,7 +151,7 @@ def test_pause_two_http_processes_cli_drain_and_unready_old_key(http_service):
                 _, rejected = cli(
                     p, "submit", "--agent", "oracle", "--idempotency-key", "denied-cli", code=1
                 )
-                assert "maintenance_paused" in rejected.stderr
+                assert json.loads(rejected.stdout)["code"] == "maintenance_paused"
                 assert token not in rejected.stdout + rejected.stderr
                 assert second.get("/api/v1/readiness").json()["maintenance"]["paused"]
                 # Actual process birth becomes unavailable when the scheduler stops.

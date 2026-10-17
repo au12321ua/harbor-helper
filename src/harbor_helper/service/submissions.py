@@ -41,7 +41,11 @@ def validate_request(request, idem, operation, access_value):
     text = json.dumps([request, idem], ensure_ascii=False)
     if ACCESS_TOKEN_TEXT.search(text) or (access_value and access_value in text):
         raise ServiceError("access_plaintext", "Access credential plaintext forbidden in inputs")
-    if not isinstance(idem, str) or not 1 <= len(idem) <= 128:
+    if (
+        not isinstance(idem, str)
+        or not 1 <= len(idem) <= 128
+        or any(ord(c) < 33 or ord(c) > 126 for c in idem)
+    ):
         raise ServiceError("idempotency_required", "A stable Idempotency-Key is required")
     if not isinstance(request, dict) or set(request) - REQUEST_FIELDS:
         raise ServiceError(
@@ -79,7 +83,8 @@ class Submissions:
             if parent or recovery
             else digest(request)
         )
-        with self.store.control():
+
+        def perform(db):
             from harbor_helper.execution.runs import scheduler_identity
 
             marker = self.store.root / "scheduler-stop.json"
@@ -129,9 +134,23 @@ class Submissions:
             if copy_parent:
                 self._check_parent_snapshot(copy_parent, access_value)
             submission_id = self._record(
-                actor, operation, idem, request_hash, request, cfg, service, copy_parent
+                actor, operation, idem, request_hash, request, cfg, service, copy_parent, db
             )
-        return public_submission(self.data.submission(submission_id))
+            return public_submission(
+                {
+                    **dict(
+                        db.execute(
+                            "SELECT * FROM submissions WHERE id=?", (submission_id,)
+                        ).fetchone()
+                    ),
+                    "request": request,
+                    "frozen": {"effective": cfg, "service": service},
+                }
+            )
+
+        from harbor_helper.service.history import decision
+
+        return decision(self.store, actor, operation, idem, request_hash, request, perform)
 
     def _existing_submission(self, actor, operation, idem, request_hash):
         with self.store.connect() as db:
@@ -348,38 +367,37 @@ class Submissions:
                 "attachment_unavailable", "Parent attachment snapshot unsafe or changed", 409
             ) from None
 
-    def _record(self, actor, operation, idem, request_hash, request, cfg, service, parent):
+    def _record(self, actor, operation, idem, request_hash, request, cfg, service, parent, db):
         submission_id = "sub-" + uuid.uuid4().hex[:16]
         service["submission_id"] = submission_id
         frozen = {"effective": cfg, "service": service, "bundle_id": service["bundle_id"]}
-        with self.store.connect() as db:
-            db.execute(
-                f"""INSERT INTO submissions(id,user_id,submitter,operation,idem,request_hash,
-                request,frozen,target_id,status,created,parent) VALUES(?,?,?,?,?,?,?,?,?,{lifecycle_status.PREPARING!r},?,?)""",
-                (
-                    submission_id,
-                    actor["id"],
-                    actor["username"],
-                    operation,
-                    idem,
-                    request_hash,
-                    json.dumps(request),
-                    json.dumps(frozen),
-                    "hh-" + uuid.uuid4().hex[:16],
-                    time.time(),
-                    parent,
-                ),
-            )
-            db.execute(
-                "INSERT INTO access_events(user_id,access_credential_id,action,object_id,time) VALUES(?,?,?,?,?)",
-                (
-                    actor["id"],
-                    actor.get("access_credential_id"),
-                    operation,
-                    submission_id,
-                    time.time(),
-                ),
-            )
+        db.execute(
+            f"""INSERT INTO submissions(id,user_id,submitter,operation,idem,request_hash,
+            request,frozen,target_id,status,created,parent) VALUES(?,?,?,?,?,?,?,?,?,{lifecycle_status.PREPARING!r},?,?)""",
+            (
+                submission_id,
+                actor["id"],
+                actor["username"],
+                operation,
+                idem,
+                request_hash,
+                json.dumps(request),
+                json.dumps(frozen),
+                "hh-" + uuid.uuid4().hex[:16],
+                time.time(),
+                parent,
+            ),
+        )
+        db.execute(
+            "INSERT INTO access_events(user_id,access_credential_id,action,object_id,time) VALUES(?,?,?,?,?)",
+            (
+                actor["id"],
+                actor.get("access_credential_id"),
+                operation,
+                submission_id,
+                time.time(),
+            ),
+        )
         return submission_id
 
     def recover_submission(self, actor, submission_id, idem, *, access_value=None):

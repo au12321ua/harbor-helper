@@ -166,7 +166,7 @@ def test_pause_restart_old_keys_scope_and_all_new_operations(data, preparation):
     assert accept(data, "old")["id"] == first["id"]
     for opts in ({}, {"parent": rid}, {"parent": rid, "retry": True}, {"recovery": failed["id"]}):
         with pytest.raises(ServiceError) as e:
-            reopened.accept(actor(data), {}, "new", **opts)
+            reopened.accept(actor(data), {"agent": "oracle"} if not opts else {}, "new", **opts)
         assert e.value.code == "maintenance_paused"
     _, readonly, _ = issue(data, scopes=["read"])
     denied = readonly.post(

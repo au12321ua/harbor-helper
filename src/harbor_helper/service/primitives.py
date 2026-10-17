@@ -21,6 +21,7 @@ LIMITS = {
 class ServiceError(ValueError):
     def __init__(self, code, message, status=422):
         self.code, self.status = code, status
+        self.operation_id = None
         super().__init__(message)
 
 
@@ -41,7 +42,13 @@ def secret_value(value):
 
 
 def public_user(row):
-    return {**dict(row), "enabled": bool(row["enabled"])}
+    return {
+        **dict(row),
+        "enabled": bool(row["enabled"]),
+        **(
+            {"evidence_grant": bool(row["evidence_grant"])} if "evidence_grant" in dict(row) else {}
+        ),
+    }
 
 
 def public_object(row):

@@ -13,7 +13,7 @@ from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.security.passwords import PASSWORDS
 from harbor_helper.service.primitives import ServiceError
 
-SCOPES = {"read", "attachments", "execute", "cancel_own"}
+SCOPES = {"read", "attachments", "execute", "cancel_own", "evidence"}
 PUBLIC = "id,user_id,name,scopes,created,expires,revoked,last_used"
 
 
@@ -72,6 +72,10 @@ def issue(data, actor, name, password, scopes, expires, *, access_value=None):
             raise ServiceError(
                 "login_required", "Current password verification required", 401
             ) from None
+        if "evidence" in scopes and ("read" not in scopes or not granted(data, actor["id"], db)):
+            raise ServiceError(
+                "evidence_grant_required", "Evidence requires account grant and read scope", 403
+            )
         db.execute(
             "INSERT INTO access_credentials VALUES(?,?,?,?,?,?,?,NULL,NULL)",
             (
@@ -127,3 +131,50 @@ def revoke(data, actor, credential_id):
             (actor["id"], "revoke_access_credential", credential_id, time.time()),
         )
     return {"id": credential_id, "revoked": True}
+
+
+def granted(data, user_id, db=None):
+    if db is None:
+        with data.store.connect() as connection:
+            return granted(data, user_id, connection)
+    row = db.execute("SELECT granted FROM evidence_grants WHERE user_id=?", (user_id,)).fetchone()
+    return bool(row and row[0])
+
+
+def grant(data, actor, user_id, enabled):
+    from harbor_helper.service.permissions import admin
+
+    admin(actor)
+    if actor.get("access_credential_id"):
+        raise ServiceError("session_required", "Browser session required", 403)
+    data.user(user_id)
+    with data.store.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "INSERT INTO evidence_grants VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET granted=excluded.granted",
+            (user_id, int(enabled)),
+        )
+        if not enabled:
+            for row in db.execute(
+                "SELECT id,scopes FROM access_credentials WHERE user_id=? AND revoked IS NULL",
+                (user_id,),
+            ).fetchall():
+                if "evidence" in json.loads(row["scopes"]):
+                    db.execute(
+                        "UPDATE access_credentials SET revoked=? WHERE id=?",
+                        (time.time(), row["id"]),
+                    )
+        db.execute(
+            "INSERT INTO access_events(user_id,action,object_id,time) VALUES(?,?,?,?)",
+            (actor["id"], "grant_evidence" if enabled else "revoke_evidence", user_id, time.time()),
+        )
+    return {"user_id": user_id, "evidence_grant": enabled}
+
+
+def require_evidence(data, actor):
+    if not granted(data, actor["id"]) or (
+        actor.get("access_credential_id") and not {"read", "evidence"} <= set(actor["scopes"])
+    ):
+        raise ServiceError(
+            "evidence_grant_required", "Explicit evidence authorization required", 403
+        )

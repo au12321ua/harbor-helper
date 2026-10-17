@@ -18,6 +18,9 @@ dependencies = [
     "uvicorn>=0.34,<1",
 ]
 
+[project.optional-dependencies]
+mcp = ["mcp>=1.26,<2"]
+
 [project.scripts]
 harbor-helper = "harbor_helper.commands.main:main"
 

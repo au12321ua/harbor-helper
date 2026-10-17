@@ -97,3 +97,5 @@ cat "$HOME/harbor-helper-private/setup-token"
 - [远程CLI](docs/guides/web-service.md#成员远程-cli)：可选的自动化入口，使用成员账户而非个人模型key。
 - [文档导航](docs/README.md)：安装、运行、架构、验收标准及历史设计。
 - [开发交接](docs/HANDOFF.md)：维护入口、兼容策略与验证边界。
+
+Python 与自动化 Agent 接入见 [SDK 与 MCP](docs/guides/sdk-mcp.md)。

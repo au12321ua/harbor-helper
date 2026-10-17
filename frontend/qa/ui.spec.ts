@@ -89,7 +89,8 @@ async function fixture(page: Page, role = "admin", logged = true) {
     calls.push({ path, body, headers: request.headers() });
     let value: any = {};
     let status = 200;
-    if (path === "/setup") value = { initialized: true };
+    if (path === "/access-capabilities") value = {scopes:["read","attachments","execute","cancel_own"], evidence_grant:false};
+    else if (path === "/setup") value = { initialized: true };
     else if (path === "/me") {
       value = { ...user, role };
       if (!authenticated) {
@@ -2385,4 +2386,38 @@ test("administrator rotates master with password and expected generation", async
   await page.reload();
   await expect(page.getByText(/当前代次：2/)).toBeVisible();
   expect(rotations).toBe(1);
+});
+
+test("管理员授信、动态凭证能力、拒绝历史及完整资料", async ({page}) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await fixture(page);
+  let granted = false;
+  await page.route("**/api/v1/admin/users", route => route.fulfill({json:[{id:"u1",username:"test-admin",role:"admin",enabled:true,evidence_grant:granted}]}));
+  await page.route("**/api/v1/admin/users/u1/evidence-grant", async route => {
+    granted = route.request().postDataJSON().enabled;
+    await route.fulfill({json:{user_id:"u1",evidence_grant:granted}});
+  });
+  await page.route("**/api/v1/access-capabilities", route => route.fulfill({json:{scopes:granted ? ["read","execute","evidence"] : ["read","execute"],evidence_grant:granted}}));
+  await page.route("**/api/v1/access-credentials", route => route.fulfill({json:[]}));
+  await page.goto("/access-credentials");
+  await expect(page.getByLabel("完整实验资料（须同时选择读取）")).toHaveCount(0);
+  await page.goto("/admin");
+  await page.getByRole("tab",{name:"受邀账户"}).click();
+  await page.getByRole("button",{name:"授予完整资料权限"}).click();
+  await expect(page.getByRole("button",{name:"撤销完整资料授信"})).toBeVisible();
+  await page.goto("/access-credentials");
+  await expect(page.getByLabel("完整实验资料（须同时选择读取）")).toBeVisible();
+  await page.route("**/api/v1/operations?**", route => route.fulfill({json:{operations:[{id:"op-denied",user_id:"u1",operation:"submit",idem:"stable-key",request:{agent:"oracle"},created:1,updated:2,attempts:2,status:"rejected",result:null,error:{code:"queue_full",action:"retry_same_request"},recent:[{time:2,error:{code:"queue_full"}}],summarized_attempts:0}],offset:0,total:1,next_offset:null,attempt_limit:32}}));
+  await page.goto("/operations");
+  await page.getByText("submit · rejected · op-denied · 尝试 2 次").click();
+  await expect(page.getByText("键：stable-key",{exact:false})).toBeVisible();
+  await expect(page.getByText('"action": "retry_same_request"',{exact:false})).toBeVisible();
+  await page.route("**/api/v1/runs/hh-test-zero/evidence", route => route.fulfill({json:{run_id:"hh-test-zero",state:"available",files:[{id:"opaque",name:"part.step",category:"artifact",bytes:10,sha256:"a".repeat(64),status:"original",processing:null,source:"run_local"}],limitations:["原生鉴权目录不采集"],session_coverage:[],legacy:false}}));
+  await page.goto("/runs/hh-test-zero");
+  await page.getByRole("tab",{name:"完整资料"}).click();
+  await expect(page.getByRole("link",{name:"下载文件",exact:true})).toHaveAttribute("href","/api/v1/runs/hh-test-zero/evidence/files/opaque");
+  await expect(page.getByText("SHA256:",{exact:false})).toBeVisible();
+  await page.screenshot({path:process.env.HH_UI_OUTPUT + "/materials.png"});
+  expect(errors).toEqual([]);
 });

@@ -130,7 +130,16 @@ class Attachments:
             version = self.version(db, row[0])
             if operation == "attachment_publish":
                 self.maintain(actor, self.identity(db, version["attachment_id"]))
-            return self.public(db, row[0])
+            result = self.public(db, row[0])
+            history = db.execute(
+                "SELECT id FROM operations WHERE user_id=? AND operation=? AND idem=?",
+                (actor["id"], operation, idem),
+            ).fetchone()
+            return {
+                **result,
+                "operation_id": history[0] if history else None,
+                "idempotency_key": idem,
+            }
 
     def write(self, actor, operation, idem, body, archive=None, *, access_value=None):
         from harbor_helper.security.access_tokens import ACCESS_TOKEN_TEXT
@@ -142,7 +151,11 @@ class Attachments:
 
         if operation not in OPERATIONS:
             raise ServiceError("attachment_operation", "Unknown attachment operation")
-        if not isinstance(idem, str) or not 1 <= len(idem) <= 128:
+        if (
+            not isinstance(idem, str)
+            or not 1 <= len(idem) <= 128
+            or any(ord(c) < 33 or ord(c) > 126 for c in idem)
+        ):
             raise ServiceError("idempotency_required", "A stable Idempotency-Key is required")
         fields = {
             "attachment_create": {"name", "description"},
@@ -175,7 +188,8 @@ class Attachments:
             if archive is None:
                 raise ServiceError("attachment_file", "ZIP input required")
             staged = self.bundles.upload_bundle(archive, access_value=access_value)
-            with self.store.control(), self.store.connect() as db:
+
+            def perform(db):
                 if not self.data.user(actor["id"])["enabled"]:
                     raise ServiceError("member_disabled", "Account disabled", 403)
                 bundle_id, sha = staged["id"], staged["digest"]
@@ -247,9 +261,21 @@ class Attachments:
                         version_id,
                     ),
                 )
-            committed = True
-            with self.store.connect() as db:
                 return self.public(db, version_id)
+
+            from harbor_helper.service.history import decision
+
+            result = decision(
+                self.store,
+                actor,
+                operation,
+                idem,
+                digest({**normalized, "digest": staged["digest"]}),
+                normalized,
+                perform,
+            )
+            committed = result["version"]["bundle_id"] == staged["id"]
+            return result
         finally:
             if staged and not committed:
                 shutil.rmtree(self.store.root / "bundles" / staged["id"], ignore_errors=True)

@@ -37,6 +37,14 @@ class ServiceData(Accounts, Objects, Credentials, Capacity, SubmissionRecords):
             )
         with self.store.connect() as db:
             db.executescript("""
+                CREATE TABLE IF NOT EXISTS operations (
+                    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, operation TEXT NOT NULL,
+                    idem TEXT NOT NULL, request_hash TEXT NOT NULL, request TEXT NOT NULL,
+                    created REAL NOT NULL, updated REAL NOT NULL, attempts INTEGER NOT NULL,
+                    status TEXT NOT NULL, result TEXT, error TEXT, recent TEXT NOT NULL,
+                    UNIQUE(user_id,operation,idem));
+                CREATE TABLE IF NOT EXISTS evidence_grants (
+                    user_id TEXT PRIMARY KEY, granted INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
                     password TEXT NOT NULL, role TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);

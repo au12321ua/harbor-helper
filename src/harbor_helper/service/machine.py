@@ -148,7 +148,13 @@ def lookup(app, user, operation, key):
             "idempotency_missing", "Key not observed; resend original body with original key", 404
         )
 
-    return public_submission(app.data.submission(row[0]))
+    result = public_submission(app.data.submission(row[0]))
+    with app.store.connect() as db:
+        identity = db.execute(
+            "SELECT id FROM operations WHERE user_id=? AND operation=? AND idem=?",
+            (user["id"], operation, key),
+        ).fetchone()
+    return {**result, "operation_id": identity[0] if identity else None, "idempotency_key": key}
 
 
 def discovery(app, user):
@@ -162,7 +168,13 @@ def discovery(app, user):
         {k: p.get(k) for k in ("id", "version", "name", "model", "enabled")}
         for p in app.data.objects("profile")
     ]
-    scopes = user.get("scopes", ["read", "attachments", "execute", "cancel_own"])
+    from harbor_helper.service.access import granted
+
+    scopes = list(user.get("scopes", ["read", "attachments", "execute", "cancel_own"]))
+    if granted(app.data, user["id"]) and not user.get("access_credential_id"):
+        scopes.append("evidence")
+    if not granted(app.data, user["id"]):
+        scopes = [s for s in scopes if s != "evidence"]
     return {
         "contract_version": "1.0",
         "datasets": datasets,
@@ -266,11 +278,4 @@ def report_view(value):
 
 
 def accepted_view(user, value):
-    if user.get("access_credential_id"):
-        value = {
-            **value,
-            "diagnosis": None,
-            "retry_changes": {k: {"changed": True} for k in value.get("retry_changes", {})},
-        }
-
     return safe_view(value)

@@ -54,5 +54,7 @@ class AttachmentVersion(BaseModel):
 
 
 class AttachmentResult(BaseModel):
+    operation_id: str | None = None
+    idempotency_key: str | None = None
     attachment: AttachmentIdentity
     version: AttachmentVersion

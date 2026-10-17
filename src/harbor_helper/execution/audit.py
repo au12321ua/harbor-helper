@@ -44,6 +44,9 @@ def _audit_finished(store, row):
         if not audit["clean"]:
             raise RuntimeError("Credential audit not clean; raw evidence withheld")
         report(store, row["id"])
+        from harbor_helper.service.materials import inventory
+
+        inventory(store, row["id"])
     except MasterUnavailable:
         raise
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):

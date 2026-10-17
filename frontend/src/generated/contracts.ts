@@ -12,9 +12,10 @@ type RouteMatches<P extends string, R extends string> =
       SegmentMatches<PH, H> extends true ? RouteMatches<PT, T> : false : false :
   P extends `${string}/${string}` ? false : SegmentMatches<P, R>;
 
-export type Accepted = { "id": string; "user_id": (string | null); "access_credential_id": (string | null); "submitter": string; "operation": "submit" | "rerun" | "retry" | "recover"; "request": SubmissionInput; "run_id": (string | null); "status": "preparing" | "ready" | "failed" | "cancelled"; "created": number; "error": (string | null); "parent": (string | null); "attachment": AttachmentBinding; "diagnosis": (Array<Issue> | null); "retry_changes": { [key: string]: { [key: string]: JsonValue } } };
+export type Accepted = { "operation_id"?: (string | null); "idempotency_key"?: (string | null); "id": string; "user_id": (string | null); "access_credential_id": (string | null); "submitter": string; "operation": "submit" | "rerun" | "retry" | "recover"; "request": SubmissionInput; "run_id": (string | null); "status": "preparing" | "ready" | "failed" | "cancelled"; "created": number; "error": (string | null); "parent": (string | null); "attachment": AttachmentBinding; "diagnosis": (Array<Issue> | null); "retry_changes": { [key: string]: { [key: string]: JsonValue } } };
+export type AccessCapabilities = { "scopes": Array<string>; "evidence_grant": boolean };
 export type AccessCredential = { "id": string; "user_id": string; "name": string; "scopes": Array<string>; "created": number; "expires": number; "revoked": (number | null); "last_used": (number | null) };
-export type AccessIssue = { "name": string; "current_password": string; "scopes"?: Array<"read" | "attachments" | "execute" | "cancel_own">; "expires"?: (number | null) };
+export type AccessIssue = { "name": string; "current_password": string; "scopes"?: Array<"read" | "attachments" | "execute" | "cancel_own" | "evidence">; "expires"?: (number | null) };
 export type AccessResult = { "credential": AccessCredential; "token": string };
 export type Account = { "username": string; "password": string; "role"?: string };
 export type Artifact = { "id": string; "deleted": boolean; "name": string };
@@ -24,7 +25,7 @@ export type AttachmentCreate = { "name": string; "description"?: string };
 export type AttachmentEntry = { "id": string; "name": string; "description": string; "creator_id": string; "creator": string; "created": number; "enabled": boolean; "versions": Array<AttachmentVersion> };
 export type AttachmentIdentity = { "id": string; "name": string; "description": string; "creator_id": string; "creator": string; "created": number; "enabled": boolean };
 export type AttachmentPublish = { "notes"?: string };
-export type AttachmentResult = { "attachment": AttachmentIdentity; "version": AttachmentVersion };
+export type AttachmentResult = { "operation_id"?: (string | null); "idempotency_key"?: (string | null); "attachment": AttachmentIdentity; "version": AttachmentVersion };
 export type AttachmentUpdate = { "name"?: (string | null); "description"?: (string | null); "enabled"?: (boolean | null) };
 export type AttachmentVersion = { "id": string; "attachment_id": string; "number": number; "bundle_id": string; "digest": string; "publisher_id": string; "publisher": string; "created": number; "notes": string; "source_version_id": (string | null); "enabled": boolean; "availability": "available" | "unavailable" };
 export type AttachmentVersionUpdate = { "enabled": boolean };
@@ -52,8 +53,10 @@ export type Docker = { "checked_at": number; "images": Array<DockerImage>; "trun
 export type DockerImage = { "reference": string };
 export type Effective = { "agent": string; "dataset": string; "attempts": number; "concurrency": number; "wall_seconds": number; "environment_build_timeout_multiplier"?: number; "task_filter": (string | null); "model": ({ [key: string]: JsonValue } | null); "max_cpus_per_trial": (number | number); "max_memory_mb_per_trial": number; "author_env"?: { [key: string]: string }; "agent_tool_preparation"?: (string | null) };
 export type EmptyInput = Record<string, never>;
-export type ErrorResponse = { "code": string; "message": string; "request_id": string; "retryable": boolean; "action": "retry_same_request" | "poll_existing" | "fix_input" | "reauthorize" | "contact_admin" | "explicit_new_attempt"; "wait_seconds": (number | null); "wait_known": boolean; "poll_after_seconds": (number | null); "related_ids": { [key: string]: string } };
+export type ErrorResponse = { "operation_id"?: (string | null); "code": string; "message": string; "request_id": string; "retryable": boolean; "action": "retry_same_request" | "poll_existing" | "fix_input" | "reauthorize" | "contact_admin" | "explicit_new_attempt"; "wait_seconds": (number | null); "wait_known": boolean; "poll_after_seconds": (number | null); "related_ids": { [key: string]: string } };
+export type EvidenceGrant = { "enabled": boolean };
 export type FailureDiagnosis = { "code": string; "phase": string; "message": string };
+export type GrantResult = { "user_id": string; "evidence_grant": boolean };
 export type Hub = { "mode": "team" | "anonymous"; "version": (number | null); "state": "active" | "disabled" | "unset"; "updated_at": (number | null) };
 export type Image = { "task": string; "role": string; "reference": string; "cached": (boolean | null); "image_id": (string | null) };
 export type Initialized = { "initialized": boolean };
@@ -72,7 +75,11 @@ export type Manifest = { "startup_policy": StartupPolicy; "effective": Effective
 export type MasterRotated = { "generation": number; "rotated_at": (number | null); "available": boolean; "counts": { [key: string]: number } };
 export type MasterRotation = { "password": string; "expected_generation": number };
 export type MasterStatus = { "generation": number; "rotated_at": (number | null); "available": boolean };
+export type Material = { "id": string; "name": string; "category": string; "bytes": number; "sha256": string; "status": string; "source": string; "processing": (string | null) };
+export type Materials = { "run_id": string; "state": string; "files": Array<Material>; "session_coverage"?: Array<{ [key: string]: unknown }>; "scope"?: (string | null); "limitations"?: Array<string>; "legacy"?: boolean };
 export type MetricDelta = { "task": string; "left": { [key: string]: number }; "right": { [key: string]: number }; "delta": { [key: string]: number } };
+export type OperationHistory = { "operations": Array<OperationRecord>; "total": number; "offset": number; "next_offset": (number | null); "attempt_limit": number };
+export type OperationRecord = { "id": string; "user_id": string; "operation": string; "idem": string; "request": { [key: string]: unknown }; "created": number; "updated": number; "attempts": number; "status": string; "result": ({ [key: string]: unknown } | null); "error": ({ [key: string]: unknown } | null); "recent": Array<{ [key: string]: unknown }>; "summarized_attempts": number };
 export type PasswordChange = { "current_password": string; "password": string };
 export type PasswordResult = { "changed": boolean; "login_required": boolean };
 export type Phase = { "phase": string; "reached"?: boolean; "status"?: (string | null); "seconds": (number | null) };
@@ -100,18 +107,20 @@ export type TaskReport = { "task": string; "expected_attempts": number; "valid_a
 export type Updated = { "updated": boolean };
 export type Usage = { "total_submissions": number; "total_runs": number; "active_jobs": number; "active_trials": number; "queued_jobs": number; "by_submitter": Array<UsageRow>; "cost": "unknown" };
 export type UsageRow = { "submitter": string; "submissions": number; "runs": number; "wall_seconds": number };
-export type User = { "id": string; "username": string; "role": "admin" | "member"; "enabled": boolean };
+export type User = { "evidence_grant"?: boolean; "id": string; "username": string; "role": "admin" | "member"; "enabled": boolean };
 export type UserUpdate = { "enabled"?: (boolean | null); "password"?: (string | null) };
 export type VariableUse = { "task": string; "service"?: (string | null); "file": string; "required": boolean; "default"?: (string | null) };
 export type ApiFailure = ErrorResponse;
-export type GETPath = `/attachment-operations/${string}/${string}` | `/submission-operations/${string}/${string}` | `/submissions/${string}` | `/admin/access-credentials` | `/admin/model-profiles` | `/runs/${string}/report` | `/access-credentials` | `/runs/${string}/logs` | `/admin/credentials` | `/admin/master-key` | `/admin/providers` | `/runs/${string}` | `/admin/docker` | `/admin/limits` | `/admin/users` | `/attachments` | `/readiness` | `/catalog` | `/setup` | `/usage` | `/runs` | `/me`;
+export type GETPath = `/attachment-operations/${string}/${string}` | `/submission-operations/${string}/${string}` | `/submissions/${string}` | `/admin/access-credentials` | `/runs/${string}/evidence` | `/admin/model-profiles` | `/runs/${string}/report` | `/access-capabilities` | `/access-credentials` | `/runs/${string}/logs` | `/admin/credentials` | `/admin/master-key` | `/admin/providers` | `/runs/${string}` | `/admin/docker` | `/admin/limits` | `/admin/users` | `/attachments` | `/operations` | `/readiness` | `/catalog` | `/setup` | `/usage` | `/runs` | `/me`;
 export type GET<P extends GETPath> = P extends unknown ?
   RouteMatches<P, "/attachment-operations/{operation}/{key:path}"> extends true ? { request: Record<string, never>; response: AttachmentResult; status: 200; media: "application/json" } :
   RouteMatches<P, "/submission-operations/{operation}/{key:path}"> extends true ? { request: Record<string, never>; response: Accepted; status: 200; media: "application/json" } :
   RouteMatches<P, "/submissions/{submission_id}"> extends true ? { request: Record<string, never>; response: Accepted; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/access-credentials"> extends true ? { request: Record<string, never>; response: Array<AccessCredential>; status: 200; media: "application/json" } :
+  RouteMatches<P, "/runs/{run_id}/evidence"> extends true ? { request: Record<string, never>; response: Materials; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/model-profiles"> extends true ? { request: Record<string, never>; response: Array<Profile>; status: 200; media: "application/json" } :
   RouteMatches<P, "/runs/{run_id}/report"> extends true ? { request: Record<string, never>; response: (Report | null); status: 200; media: "application/json" } :
+  RouteMatches<P, "/access-capabilities"> extends true ? { request: Record<string, never>; response: AccessCapabilities; status: 200; media: "application/json" } :
   RouteMatches<P, "/access-credentials"> extends true ? { request: Record<string, never>; response: Array<AccessCredential>; status: 200; media: "application/json" } :
   RouteMatches<P, "/runs/{run_id}/logs"> extends true ? { request: Record<string, never>; response: Logs; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/credentials"> extends true ? { request: Record<string, never>; response: Array<CredentialInfo>; status: 200; media: "application/json" } :
@@ -122,6 +131,7 @@ export type GET<P extends GETPath> = P extends unknown ?
   RouteMatches<P, "/admin/limits"> extends true ? { request: Record<string, never>; response: Limits; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/users"> extends true ? { request: Record<string, never>; response: Array<User>; status: 200; media: "application/json" } :
   RouteMatches<P, "/attachments"> extends true ? { request: Record<string, never>; response: AttachmentCatalog; status: 200; media: "application/json" } :
+  RouteMatches<P, "/operations"> extends true ? { request: Record<string, never>; response: OperationHistory; status: 200; media: "application/json" } :
   RouteMatches<P, "/readiness"> extends true ? { request: Record<string, never>; response: Readiness; status: 200; media: "application/json" } :
   RouteMatches<P, "/catalog"> extends true ? { request: Record<string, never>; response: Catalog; status: 200; media: "application/json" } :
   RouteMatches<P, "/setup"> extends true ? { request: Record<string, never>; response: Initialized; status: 200; media: "application/json" } :
@@ -129,7 +139,7 @@ export type GET<P extends GETPath> = P extends unknown ?
   RouteMatches<P, "/runs"> extends true ? { request: Record<string, never>; response: Runs; status: 200; media: "application/json" } :
   RouteMatches<P, "/me"> extends true ? { request: Record<string, never>; response: User; status: 200; media: "application/json" } :
   never : never;
-export type POSTPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/admin/catalog/${string}/${string}/verify` | `/attachment-versions/${string}/derive` | `/attachments/${string}/versions` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/auth/password` | `/admin/users` | `/attachments` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
+export type POSTPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/admin/catalog/${string}/${string}/verify` | `/attachment-versions/${string}/derive` | `/admin/users/${string}/evidence-grant` | `/attachments/${string}/versions` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/auth/password` | `/admin/users` | `/attachments` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
 export type POST<P extends POSTPath> = P extends unknown ?
   RouteMatches<P, "/admin/datasets/{object_id}/author-inputs/check"> extends true ? { request: (AuthorCheck | null); response: AuthorParameters; status: 200; media: "application/json" } :
   RouteMatches<P, "/access-credentials/{credential_id}/revoke"> extends true ? { request: Record<string, never>; response: Revoked; status: 200; media: "application/json" } :
@@ -137,6 +147,7 @@ export type POST<P extends POSTPath> = P extends unknown ?
   RouteMatches<P, "/admin/credentials/{credential_id}/rotate"> extends true ? { request: Rotation; response: CredentialInfo; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/catalog/{kind}/{object_id}/verify"> extends true ? { request: Record<string, never>; response: Dataset; status: 200; media: "application/json" } :
   RouteMatches<P, "/attachment-versions/{version_id}/derive"> extends true ? { request: AttachmentCreate; response: AttachmentResult; status: 201; media: "multipart/form-data" } :
+  RouteMatches<P, "/admin/users/{user_id}/evidence-grant"> extends true ? { request: EvidenceGrant; response: GrantResult; status: 200; media: "application/json" } :
   RouteMatches<P, "/attachments/{attachment_id}/versions"> extends true ? { request: AttachmentPublish; response: AttachmentResult; status: 201; media: "multipart/form-data" } :
   RouteMatches<P, "/submissions/{submission_id}/cancel"> extends true ? { request: (EmptyInput | null); response: Accepted; status: 200; media: "application/json" } :
   RouteMatches<P, "/submissions/{submission_id}/retry"> extends true ? { request: (EmptyInput | null); response: Accepted; status: 202; media: "application/json" } :
@@ -160,7 +171,7 @@ export type POST<P extends POSTPath> = P extends unknown ?
   RouteMatches<P, "/compare"> extends true ? { request: CompareInput; response: Comparison; status: 200; media: "application/json" } :
   RouteMatches<P, "/setup"> extends true ? { request: Setup; response: Initialized; status: 201; media: "application/json" } :
   never : never;
-export type JsonPostPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/admin/catalog/${string}/${string}/verify` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/auth/password` | `/admin/users` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
+export type JsonPostPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/admin/catalog/${string}/${string}/verify` | `/admin/users/${string}/evidence-grant` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/auth/password` | `/admin/users` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
 export type UploadPath = `/attachment-versions/${string}/derive` | `/attachments/${string}/versions` | `/attachments`;
 export type PATCHPath = `/attachments/${string}/versions/${string}` | `/attachments/${string}` | `/admin/users/${string}` | `/admin/maintenance` | `/admin/settings` | `/admin/limits`;
 export type PATCH<P extends PATCHPath> = P extends unknown ?

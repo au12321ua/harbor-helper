@@ -53,7 +53,7 @@ harbor-helper --remote-profile team --json submit --agent oracle --idempotency-k
 harbor-helper --remote-profile team --json submit --agent oracle --attachment-version-id av-ID --idempotency-key candidate
 ```
 
-附件写操作要求显式原键；超时后使用 lookup 或原参数重发。`service retry` 保持已有实验受理回执恢复语义，不负责自动重发附件文件。`submit` 只接受 `--attachment-version-id`，不直接上传附件文件。HTTP 与 CLI 不自动换键、批量提交或执行付费模型。Oracle/fixture 只验证流程，不是实际研究 agent/模型效果。
+附件写操作要求显式原键；超时后使用 lookup 或原参数重发。`service retry PATH --body JSON --idempotency-key KEY` 显式重发 JSON 实验请求；附件通过原文件/元信息/原键重发，历史由服务端保存。`submit` 只接受 `--attachment-version-id`，不直接上传附件文件。HTTP 与 CLI 不自动换键、批量提交或执行付费模型。Oracle/fixture 只验证流程，不是实际研究 agent/模型效果。
 
 ## 迁移与回退边界
 

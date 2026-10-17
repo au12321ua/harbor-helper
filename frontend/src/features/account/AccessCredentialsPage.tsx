@@ -32,8 +32,10 @@ const scopes = [
   ["attachments", "上传和维护有权维护的附件"],
   ["execute", "提交、重跑、修复与恢复实验"],
   ["cancel_own", "取消自己的任务"],
+  ["evidence", "完整实验资料（须同时选择读取）"],
 ];
 export function AccessCredentialsPage({ user }: { user: User }) {
+  const { data: capabilities } = useLoad(() => api("/access-capabilities"));
   const [all, setAll] = useState(false);
   const [observedAt] = useState(() => Date.now());
   const { data, error, loading, reload } = useLoad<AccessCredential[]>(
@@ -102,6 +104,7 @@ export function AccessCredentialsPage({ user }: { user: User }) {
                           "attachments",
                           "execute",
                           "cancel_own",
+                          "evidence",
                         ].includes(scope),
                     ),
                 });
@@ -138,17 +141,19 @@ export function AccessCredentialsPage({ user }: { user: User }) {
               </Field>
               <FieldSet>
                 <FieldLegend>固定能力</FieldLegend>
-                {scopes.map(([value, label]) => (
-                  <label key={value} className="flex gap-2 my-2">
-                    <input
-                      type="checkbox"
-                      name="scopes"
-                      value={value}
-                      defaultChecked={value === "read"}
-                    />
-                    {label}
-                  </label>
-                ))}
+                {scopes
+                  .filter(([value]) => capabilities?.scopes.includes(value))
+                  .map(([value, label]) => (
+                    <label key={value} className="flex gap-2 my-2">
+                      <input
+                        type="checkbox"
+                        name="scopes"
+                        value={value}
+                        defaultChecked={value === "read"}
+                      />
+                      {label}
+                    </label>
+                  ))}
               </FieldSet>
               <Field>
                 <FieldLabel htmlFor="access-password">当前密码</FieldLabel>

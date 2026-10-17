@@ -5,6 +5,7 @@ from fastapi import Depends, Header, Request, Response
 from fastapi.responses import FileResponse
 
 from harbor_helper.service import dtos, machine
+from harbor_helper.service.browser_contracts import Materials
 from harbor_helper.service.dtos import RetryInput, SubmissionInput
 from harbor_helper.service.http.dependencies import token
 from harbor_helper.service.primitives import ServiceError
@@ -29,13 +30,6 @@ def register(app, deps):
 
     @app.get("/api/v1/runs")
     def runs(user: Annotated[dict, Depends(actor)]):
-        if user.get("access_credential_id"):
-            with deps.store.connect() as db:
-                ids = [r[0] for r in db.execute("SELECT id FROM submissions ORDER BY created DESC")]
-            return {
-                "runs": [machine.run_state(deps.application, r["id"]) for r in deps.store.runs()],
-                "submissions": [machine.submission_state(deps.application, i) for i in ids],
-            }
         return deps.application.runs()
 
     @app.post(
@@ -98,17 +92,11 @@ def register(app, deps):
 
     @app.get("/api/v1/runs/{run_id}")
     def run(run_id: str, user: Annotated[dict, Depends(actor)]):
-        return (
-            machine.run_state(deps.application, run_id)
-            if user.get("access_credential_id")
-            else deps.application.detail(run_id)
-        )
+        return deps.application.detail(run_id)
 
     @app.get("/api/v1/runs/{run_id}/report/download")
     def download_report(run_id: str, user: Annotated[dict, Depends(actor)]):
         report = deps.application.safe_report(run_id)
-        if report is not None and user.get("access_credential_id"):
-            report = machine.report_view(report)
         if report is None:
             raise ServiceError("report_pending", "Report not available", 409)
         # run identifier is generated and resolved by Store; never an arbitrary filename.
@@ -125,11 +113,7 @@ def register(app, deps):
     @app.get("/api/v1/runs/{run_id}/report")
     def report(run_id: str, user: Annotated[dict, Depends(actor)]):
         value = deps.application.safe_report(run_id)
-        return (
-            machine.report_view(value)
-            if value is not None and user.get("access_credential_id")
-            else value
-        )
+        return value
 
     @app.post("/api/v1/runs/{run_id}/cancel", response_model=dtos.CancelResult)
     def cancel(
@@ -193,9 +177,6 @@ def register(app, deps):
         value = safe_view(
             compare(deps.application.store, body["left"], body["right"], published_reports=reports)
         )
-        if user.get("access_credential_id"):
-            value.pop("environment_observations", None)
-            value["config_changes"] = {k: {"changed": True} for k in value["config_changes"]}
         return value
 
     @app.post("/api/v1/machine/compare", response_model=dtos.Comparison)
@@ -220,3 +201,49 @@ def register(app, deps):
     @app.delete("/api/v1/runs/{run_id}/artifacts/{file_id}")
     def delete_artifact(run_id: str, file_id: str, user: Annotated[dict, Depends(administrator)]):
         return deps.application.delete_artifact(user, run_id, file_id)
+
+    @app.get(
+        "/api/v1/runs/{run_id}/evidence",
+        response_model=Materials,
+        response_model_exclude_unset=True,
+    )
+    def evidence_manifest(run_id: str, user: Annotated[dict, Depends(actor)]):
+        from harbor_helper.service.materials import manifest
+
+        return manifest(deps.application, user, run_id)
+
+    def evidence_response(run_id, user, file_id=None):
+        from fastapi.responses import StreamingResponse
+        from starlette.background import BackgroundTask
+
+        from harbor_helper.service.materials import snapshot
+
+        stream, size, sha = snapshot(deps.application, user, run_id, file_id)
+
+        def chunks():
+            try:
+                while chunk := stream.read(65536):
+                    yield chunk
+            finally:
+                stream.close()
+
+        return StreamingResponse(
+            chunks(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Length": str(size),
+                "X-Content-SHA256": sha,
+                "Content-Disposition": 'attachment; filename="evidence.'
+                + ("bin" if file_id else "zip")
+                + '"',
+            },
+            background=BackgroundTask(stream.close),
+        )
+
+    @app.get("/api/v1/runs/{run_id}/evidence/package")
+    def evidence_package(run_id: str, user: Annotated[dict, Depends(actor)]):
+        return evidence_response(run_id, user)
+
+    @app.get("/api/v1/runs/{run_id}/evidence/files/{file_id}")
+    def evidence_file(run_id: str, file_id: str, user: Annotated[dict, Depends(actor)]):
+        return evidence_response(run_id, user, file_id)
