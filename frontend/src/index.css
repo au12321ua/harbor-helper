@@ -47,6 +47,7 @@
   --warning-background: #18160f;
   --warning-border: #4b3d24;
   --drawer-overlay: #0009;
+  --popover-shadow: 0 8px 30px #0006;
   --background: #0b0d10;
   --foreground: #e3e7ec;
   --card: #12161b;
@@ -118,6 +119,7 @@
   --warning-background: #fbf2df;
   --warning-border: #c1a464;
   --drawer-overlay: #0009;
+  --popover-shadow: 0 8px 30px #17332b24;
 }
 @layer base {
   * {

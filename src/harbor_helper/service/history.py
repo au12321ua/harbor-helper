@@ -137,11 +137,11 @@ def listing(
         ("id", operation_id),
     ):
         if value is not None:
-            where.append(field + "=?")
+            where.append("o." + field + "=?")
             params.append(value)
     if status is not None:
         where.append(
-            "(status=? OR json_extract(result,'$.id') IN (SELECT id FROM submissions WHERE status=? OR run_id IN (SELECT id FROM runs WHERE status=?)))"
+            "(o.status=? OR json_extract(o.result,'$.id') IN (SELECT id FROM submissions WHERE status=? OR run_id IN (SELECT id FROM runs WHERE status=?)))"
         )
         params.extend([status, status, status])
     for operator, timestamp in ((">=", created_from), ("<=", created_to)):
@@ -150,13 +150,15 @@ def listing(
 
             if not math.isfinite(timestamp):
                 raise ServiceError("invalid_range", "Finite time range required")
-            where.append("created" + operator + "?")
+            where.append("o.created" + operator + "?")
             params.append(timestamp)
     clause = " WHERE " + " AND ".join(where) if where else ""
     with store.connect() as db:
-        total = db.execute("SELECT COUNT(*) FROM operations" + clause, params).fetchone()[0]
+        total = db.execute("SELECT COUNT(*) FROM operations o" + clause, params).fetchone()[0]
         rows = db.execute(
-            "SELECT * FROM operations" + clause + " ORDER BY created DESC,id LIMIT ? OFFSET ?",
+            "SELECT o.*,u.username FROM operations o LEFT JOIN users u ON u.id=o.user_id"
+            + clause
+            + " ORDER BY o.created DESC,o.id LIMIT ? OFFSET ?",
             [*params, limit, offset],
         ).fetchall()
     values = []

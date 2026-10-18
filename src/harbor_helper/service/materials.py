@@ -280,7 +280,7 @@ def snapshot(application, actor, run_id, file_id=None):
                                         if time.monotonic() > deadline:
                                             raise ServiceError(
                                                 "evidence_snapshot_busy",
-                                                "Snapshot exceeded 30 seconds; retry or request individual files",
+                                                "资料包准备超时，请稍后重试",
                                                 503,
                                             )
                                         target.write(chunk)

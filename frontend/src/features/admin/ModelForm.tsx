@@ -2,15 +2,9 @@ function isJsonMapping(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 import { mutation, type Catalog, type Profile } from "@/api";
-import { SelectField } from "@/components/shared";
+import { Help, SelectField } from "@/components/shared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState } from "react";
 import { AdminForm } from "./AdminForm";
 export function ModelForm({
@@ -34,11 +28,16 @@ export function ModelForm({
   return (
     <Card className="model-editor">
       <CardHeader>
-        <CardTitle>{selected ? "编辑模型方案" : "添加模型方案"}</CardTitle>
-        <CardDescription>
-          按名称绑定提供商与团队
-          key。保存只检查配置与可解密性，不代表真实认证或推理成功。
-        </CardDescription>
+        <div className="field-heading">
+          <CardTitle>{selected ? "编辑模型方案" : "添加模型方案"}</CardTitle>
+          <Help label="模型方案">
+            按名称绑定提供商与团队
+            key。保存只检查配置与可解密性，不代表真实认证或推理成功。
+            {native
+              ? "Responses / Messages 当前仅支持 max_output_tokens（默认4096），固定 OpenCode 1.18.35；未知参数会拒绝。改变协议后请检查旧参数。"
+              : "Chat 常用参数可留空；JSON 高级参数与常用参数合并。已有实验保留旧版本。"}
+          </Help>
+        </div>
       </CardHeader>
       <CardContent>
         <SelectField

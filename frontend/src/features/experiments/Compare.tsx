@@ -243,7 +243,7 @@ export function Compare() {
                   (r) => r.id === (side === "left" ? left : right),
                 );
                 return selected
-                  ? `${selected.dataset || "—"} · ${selected.model_profile || selected.agent || "—"}`
+                  ? `${selected.name || selected.id} · ${selected.dataset_name || "数据集"} · ${selected.submitter}`
                   : "仅终态且审计完成可选，报告仍可能尚未发布或已过期";
               })()}
             >
@@ -267,10 +267,44 @@ export function Compare() {
               ))}
             </SelectField>
           ))}
+        </FieldGroup>
+        <div className="compare-actions">
           <Button disabled={busy === key || !eligible || left === right}>
             {busy === key ? "正在对比…" : "开始对比"}
           </Button>
-        </FieldGroup>
+          <p className="quiet-note">
+            {!left || !right
+              ? "请选择两个实验"
+              : left === right
+                ? "请选择不同的两个实验"
+                : !eligible
+                  ? "仅终态且审计完成的实验可对比"
+                  : "已选择两个实验，可以开始对比"}
+          </p>
+        </div>
+        {(left || right) && (
+          <details className="raw-details">
+            <summary>所选实验标识与数据集摘要</summary>
+            <pre>
+              {JSON.stringify(
+                [left, right].map((id) => {
+                  const run = runs.find((r) => r.id === id);
+                  return run
+                    ? {
+                        id: run.id,
+                        name: run.name,
+                        dataset: run.dataset,
+                        model_profile: run.model_profile,
+                        submitter: run.submitter,
+                      }
+                    : null;
+                }),
+                null,
+                2,
+              )}
+            </pre>
+          </details>
+        )}
       </form>
       {unavailable && (
         <Alert>

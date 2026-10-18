@@ -580,6 +580,7 @@ class GrantResult(DTO):
 class OperationRecord(DTO):
     id: str
     user_id: str
+    username: str | None = None
     operation: str
     idem: str
     request: dict

@@ -3675,6 +3675,18 @@
         "user_id": {
           "title": "User Id",
           "type": "string"
+        },
+        "username": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Username"
         }
       },
       "required": [

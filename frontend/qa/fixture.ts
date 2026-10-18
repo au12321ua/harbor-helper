@@ -1,5 +1,5 @@
 import { type Page } from "@playwright/test";
-export const user = { id: "u1", username: "test-admin", role: "admin" };
+export const user = { id: "u1", username: "test-admin", role: "admin", evidence_grant: true };
 export const run = {
   id: "hh-test-zero",
   submitter: "test-admin",
@@ -92,19 +92,19 @@ export async function fixture(page: Page, role = "admin", logged = true) {
     let status = 200;
     if (path === "/access-capabilities")
       value = {
-        scopes: ["read", "attachments", "execute", "cancel_own"],
-        evidence_grant: false,
+        scopes: ["read", "attachments", "execute", "cancel_own", ...(role === "admin" ? ["evidence"] : [])],
+        evidence_grant: role === "admin",
       };
     else if (path === "/setup") value = { initialized: true };
     else if (path === "/me") {
-      value = { ...user, role };
+      value = { ...user, role, evidence_grant: role === "admin" };
       if (!authenticated) {
         status = 401;
         value = { code: "unauthorized", message: "请登录" };
       }
     } else if (path === "/auth/login") {
       authenticated = true;
-      value = { user: { ...user, role } };
+      value = { user: { ...user, role, evidence_grant: role === "admin" } };
     } else if (path === "/auth/logout") {
       authenticated = false;
       value = { ok: true };

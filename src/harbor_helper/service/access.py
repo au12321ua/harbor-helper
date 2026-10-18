@@ -137,7 +137,11 @@ def granted(data, user_id, db=None):
     if db is None:
         with data.store.connect() as connection:
             return granted(data, user_id, connection)
-    row = db.execute("SELECT granted FROM evidence_grants WHERE user_id=?", (user_id,)).fetchone()
+    row = db.execute(
+        "SELECT u.role='admin' OR COALESCE(g.granted,0) FROM users u "
+        "LEFT JOIN evidence_grants g ON g.user_id=u.id WHERE u.id=?",
+        (user_id,),
+    ).fetchone()
     return bool(row and row[0])
 
 
@@ -147,9 +151,15 @@ def grant(data, actor, user_id, enabled):
     admin(actor)
     if actor.get("access_credential_id"):
         raise ServiceError("session_required", "Browser session required", 403)
-    data.user(user_id)
     with data.store.connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        target = db.execute("SELECT role FROM users WHERE id=?", (user_id,)).fetchone()
+        if not target:
+            raise ServiceError("unknown_user", "Account not found", 404)
+        if target["role"] == "admin":
+            raise ServiceError(
+                "admin_evidence_inherited", "管理员默认拥有完整资料权限，无需单独授信", 409
+            )
         db.execute(
             "INSERT INTO evidence_grants VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET granted=excluded.granted",
             (user_id, int(enabled)),

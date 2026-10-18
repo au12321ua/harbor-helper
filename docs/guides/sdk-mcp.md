@@ -74,7 +74,7 @@ harbor-helper mcp --profile research --upload-root /private/experiments --downlo
 
 ## 完整资料权限与安全范围
 
-管理员在“受邀账户”授予或撤销完整资料权限，包括管理员自己也须显式授信。session 每次请求检查授信；PAT 另外需要 `read` 与 `evidence`。凭证页可选能力由服务端当前授权决定。撤销授信同时吊销所有含 evidence 的 PAT，其他 PAT 保持；再次授信不会复活旧 PAT。
+管理员默认拥有完整资料资格，无需单独授信；管理员在“受邀账户”授予或撤销成员的完整资料权限。对管理员调用授信接口会被拒绝，且不吊销其凭证。session 每次请求检查授信；PAT 另外需要 `read` 与 `evidence`。凭证页可选能力由服务端当前授权决定。撤销授信同时吊销所有含 evidence 的 PAT，其他 PAT 保持；再次授信不会复活旧 PAT。
 
 完整资料只在终态、审计 CLEAN 后提供。清单列出不透明文件 ID、类别、大小、最终字节 SHA256、处理状态及缺失范围。运行中显示 in_progress；审计异常整 run 拒读。安全报告、诊断、worker 尾部与既有安全产物仍可由 read PAT 读取，与网页使用相同业务事实。
 

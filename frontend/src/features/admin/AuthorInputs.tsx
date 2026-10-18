@@ -1,3 +1,4 @@
+import { Help } from "@/components/shared";
 import { date } from "@/presentation";
 import { AdminForm } from "./AdminForm";
 
@@ -38,11 +39,17 @@ export function AuthorInputs({
                 : "尚未检查"}
         {parameters.checked ? ` · ${date(parameters.checked)}` : ""}
       </p>
-      <p className="text-sm text-muted-foreground">
-        仅非秘密：值进入任务快照、Job与报告，agent可见。此检查只检查输入，不证明构建、评分或模型可用。保存参数不改变来源验证。
-      </p>
+      <div className="field-heading">
+        <span>仅填写非秘密参数</span>
+        <Help label="作者参数">
+          值进入任务快照、Job与报告，agent可见。此检查只检查输入，不证明构建、评分或模型可用。保存参数不改变来源验证。
+        </Help>
+      </div>
       {parameters.source ? (
-        <p className="break-all text-sm">检查来源：{parameters.source}</p>
+        <details className="raw-details">
+          <summary>检查来源</summary>
+          <p className="break-all text-sm">{parameters.source}</p>
+        </details>
       ) : null}
       <Button
         variant="outline"

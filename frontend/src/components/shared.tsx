@@ -1,3 +1,5 @@
+import { Help } from "./Help";
+export { Help } from "./Help";
 import { ApiError } from "@/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +9,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Check,
@@ -103,7 +105,10 @@ export function SelectField({
 }) {
   return (
     <Field>
-      <FieldLabel htmlFor={name}>{label}</FieldLabel>
+      <div className="field-heading">
+        <FieldLabel htmlFor={name}>{label}</FieldLabel>
+        {description ? <Help label={label}>{description}</Help> : null}
+      </div>
       <select
         id={name}
         value={value}
@@ -112,7 +117,6 @@ export function SelectField({
       >
         {children}
       </select>
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
     </Field>
   );
 }

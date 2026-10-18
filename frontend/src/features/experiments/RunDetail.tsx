@@ -124,11 +124,10 @@ export function RunDetailContent({ user }: { user: User }) {
       <ErrorNotice error={error} />
       {manifest.service?.retry_changes &&
       Object.keys(manifest.service.retry_changes).length ? (
-        <Alert>
-          <AlertDescription>
-            修复差异：{JSON.stringify(manifest.service.retry_changes)}
-          </AlertDescription>
-        </Alert>
+        <details className="raw-details">
+          <summary>修复差异</summary>
+          <pre>{JSON.stringify(manifest.service.retry_changes, null, 2)}</pre>
+        </details>
       ) : null}
       {data?.failure_diagnosis ? (
         <Alert variant="destructive">
@@ -157,7 +156,9 @@ export function RunDetailContent({ user }: { user: User }) {
           </Button>
         </div>
         {row.parent ? (
-          <Link to={`/runs/${row.parent}`}>来源实验 {row.parent}</Link>
+          <Link to={`/runs/${row.parent}`} title={row.parent}>
+            来源实验 {row.parent.slice(0, 16)}…
+          </Link>
         ) : null}
       </div>
       {row.audit_status === "incomplete" ? (
@@ -204,16 +205,24 @@ export function RunDetailContent({ user }: { user: User }) {
                   <CardDescription>本实验的固定输入谱系</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p>
-                    {data?.manifest?.service?.attachment_version_id || "无附件"}
-                  </p>
-                  <p>
-                    {data?.manifest?.service?.bundle_id ||
-                      "未绑定底层 bundle ID"}
-                  </p>
-                  <p className="break-all">
-                    {data?.manifest?.bundle_digest || "无附件摘要"}
-                  </p>
+                  <details className="raw-details">
+                    <summary>
+                      {data?.manifest?.service?.attachment_version_id
+                        ? "查看固定引用与摘要"
+                        : "无附件"}
+                    </summary>
+                    <p className="break-all">
+                      {data?.manifest?.service?.attachment_version_id ||
+                        "无附件"}
+                    </p>
+                    <p>
+                      {data?.manifest?.service?.bundle_id ||
+                        "未绑定底层 bundle ID"}
+                    </p>
+                    <p className="break-all">
+                      {data?.manifest?.bundle_digest || "无附件摘要"}
+                    </p>
+                  </details>
                 </CardContent>
               </Card>
             </>

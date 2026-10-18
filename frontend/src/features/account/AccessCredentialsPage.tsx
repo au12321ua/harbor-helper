@@ -5,7 +5,7 @@ import {
   type AccessIssue,
   type User,
 } from "@/api";
-import { ErrorNotice, Loading, Title } from "@/components/shared";
+import { ErrorNotice, Help, Loading, Title } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -70,10 +70,13 @@ export function AccessCredentialsPage({ user }: { user: User }) {
       )}
       <Card>
         <CardHeader>
-          <CardTitle>签发凭证</CardTitle>
-          <CardDescription>
-            签发须复核当前密码；到期、撤销、账户停用或密码重置后失效。
-          </CardDescription>
+          <div className="field-heading">
+            <CardTitle>签发凭证</CardTitle>
+            <Help label="签发凭证">
+              签发须复核当前密码；到期、撤销、账户停用或密码重置后失效。自动化凭证不具有管理员操作权，完整资料需要读取与
+              evidence 两项能力。
+            </Help>
+          </div>
         </CardHeader>
         <CardContent>
           <form
