@@ -11,7 +11,7 @@ from pathlib import Path
 from harbor_helper.persistence.files import read_json
 
 _leases = {}
-_mutex = threading.Lock()
+_mutex = threading.RLock()  # GC may finalize another Store during acquire().
 
 
 def acquire(root):

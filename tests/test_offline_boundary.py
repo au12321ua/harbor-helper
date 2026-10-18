@@ -186,3 +186,27 @@ def test_store_lease_not_inherited_by_exec(offline):
             assert child.poll() is None
     finally:
         stop(child)
+
+
+def test_store_finalization_during_acquire_does_not_deadlock(offline):
+    base, _ = offline
+    code = """
+import gc,sys
+from pathlib import Path
+from harbor_helper.persistence.store import Store
+from harbor_helper.persistence import writers
+gc.disable()
+a=Store(Path(sys.argv[1]));a.cycle=a;del a
+original=writers.os.open
+def collect(*args,**kwargs):
+    gc.collect()
+    return original(*args,**kwargs)
+writers.os.open=collect
+b=Store(Path(sys.argv[2]));b.close()
+"""
+    subprocess.run(
+        [sys.executable, "-c", code, str(base / "state"), str(base / "second-state")],
+        check=True,
+        timeout=10,
+        capture_output=True,
+    )
