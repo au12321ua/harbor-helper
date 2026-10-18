@@ -1,6 +1,8 @@
 name: isolated-verification
 on:
-  # Enable push/pull_request only after the operator verifies the runner.
+  push:
+    branches: ["**"]
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read

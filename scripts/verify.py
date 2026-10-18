@@ -24,6 +24,7 @@ BROWSER = {
     "test_production_static_browser_credentials",
     "test_production_admission_browser",
     "test_production_browser_damaged_manifest_observation",
+    "test_reuse_export_production_page_wiring",
 }
 
 
@@ -180,7 +181,20 @@ def main():
         if missing_tools:
             raise RuntimeError("missing tools: " + ", ".join(missing_tools))
         if args.prepare:
-            run(["uv", "sync", "--locked", "--group", "dev", "--python", args.python], prepare=True)
+            run(
+                [
+                    "uv",
+                    "sync",
+                    "--locked",
+                    "--group",
+                    "dev",
+                    "--extra",
+                    "mcp",
+                    "--python",
+                    args.python,
+                ],
+                prepare=True,
+            )
             if args.mode == "full":
                 run(["npm", "ci"], REPO / "frontend", prepare=True)
                 run(["npx", "playwright", "install", "chromium"], REPO / "frontend", prepare=True)
