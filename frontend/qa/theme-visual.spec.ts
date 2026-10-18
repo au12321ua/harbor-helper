@@ -65,6 +65,7 @@ async function themeFixture(page: Page) {
             attempts: 2,
             idem: "theme-fixture",
             user_id: "u1",
+            username: "test-admin",
             summarized_attempts: 0,
             request: { name: "合成请求" },
             error: { code: "queue_full" },
@@ -118,7 +119,7 @@ async function themeFixture(page: Page) {
   );
 }
 
-for (const width of [1440, 390])
+for (const width of [1440, 1024, 390])
   for (const theme of ["dark", "light"]) {
     test(`all pages and states ${theme} ${width}`, async ({ page }) => {
       test.setTimeout(90000);
@@ -193,6 +194,17 @@ for (const width of [1440, 390])
             .click();
         await page.locator(".theme-toggle").focus();
         await capture(name);
+        const helps = page.getByRole("button", { name: /帮助$/ });
+        if (await helps.count()) {
+          await helps.first().click();
+          const portal = page.getByRole("dialog");
+          await expect(portal).toBeVisible();
+          const box = await portal.boundingBox();
+          expect(box!.x).toBeGreaterThanOrEqual(0);
+          expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+          await capture(`help-${name}`);
+          await page.keyboard.press("Escape");
+        }
         if (name === "list") {
           await page
             .getByRole("checkbox", { name: "选择实验 hh-test-zero" })
@@ -211,12 +223,20 @@ for (const width of [1440, 390])
           await page.keyboard.press("Escape");
         }
         if (name === "detail") {
-          await page.locator(".raw-details summary").click();
+          await page.getByText("查看非敏感配置快照", { exact: true }).click();
           await capture("detail-json");
           for (const tab of ["评分报告", "运行日志", "实验产物", "完整资料"]) {
             await page.getByRole("tab", { name: tab, exact: true }).click();
             await expect(page.getByRole("tabpanel")).toBeVisible();
             await capture(`detail-${tab}`);
+            if (tab === "完整资料") {
+              await page
+                .getByRole("button", { name: "完整资料范围帮助" })
+                .click();
+              await expect(page.getByRole("dialog")).toBeVisible();
+              await capture("help-materials");
+              await page.keyboard.press("Escape");
+            }
           }
           await page.getByRole("button", { name: "复制实验 ID" }).click();
           await expect(page.locator("[data-sonner-toast]")).toBeVisible();

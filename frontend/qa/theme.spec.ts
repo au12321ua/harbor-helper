@@ -226,3 +226,46 @@ test("existing toast follows theme and native confirmation remains usable", asyn
     page.locator('[data-sonner-toast][data-type="error"]').first(),
   ).toBeVisible();
 });
+
+for (const width of [1440, 390])
+  test(`body help portal follows cross-tab theme without resetting compare ${width}`, async ({
+    page,
+    context,
+  }) => {
+    await fixture(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/compare");
+    await page
+      .getByLabel("实验 A", { exact: true })
+      .selectOption("hh-test-zero");
+    const other = await context.newPage();
+    await fixture(other);
+    await other.goto("/");
+    const help = page.getByRole("button", { name: "实验 A帮助", exact: true });
+    await help.click();
+    const portal = page.getByRole("dialog");
+    await expect(portal).toBeVisible();
+    expect(
+      await portal.evaluate(
+        (el) => !document.getElementById("root")!.contains(el),
+      ),
+    ).toBe(true);
+    const before = await portal.evaluate(
+      (el) => getComputedStyle(el).backgroundColor,
+    );
+    const calls: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/")) calls.push(r.url());
+    });
+    await other.getByRole("button", { name: "切换到明主题" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(portal).toBeVisible();
+    await expect
+      .poll(() => portal.evaluate((el) => getComputedStyle(el).backgroundColor))
+      .not.toBe(before);
+    await expect(
+      page.getByRole("combobox", { name: "实验 A", exact: true }),
+    ).toHaveValue("hh-test-zero");
+    expect(calls).toEqual([]);
+    await page.keyboard.press("Escape");
+  });

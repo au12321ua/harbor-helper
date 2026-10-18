@@ -1,5 +1,10 @@
 import { type Page } from "@playwright/test";
-export const user = { id: "u1", username: "test-admin", role: "admin", evidence_grant: true };
+export const user = {
+  id: "u1",
+  username: "test-admin",
+  role: "admin",
+  evidence_grant: true,
+};
 export const run = {
   id: "hh-test-zero",
   submitter: "test-admin",
@@ -92,7 +97,13 @@ export async function fixture(page: Page, role = "admin", logged = true) {
     let status = 200;
     if (path === "/access-capabilities")
       value = {
-        scopes: ["read", "attachments", "execute", "cancel_own", ...(role === "admin" ? ["evidence"] : [])],
+        scopes: [
+          "read",
+          "attachments",
+          "execute",
+          "cancel_own",
+          ...(role === "admin" ? ["evidence"] : []),
+        ],
         evidence_grant: role === "admin",
       };
     else if (path === "/setup") value = { initialized: true };
