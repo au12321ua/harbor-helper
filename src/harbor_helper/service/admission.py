@@ -35,6 +35,11 @@ def maintenance(data):
 def set_maintenance(data, body):
     if not isinstance(body, dict) or set(body) - {"paused", "reason", "retry_at"}:
         raise ServiceError("maintenance_options", "Unknown maintenance field")
+    if body.get("paused") is False:
+        from harbor_helper.service.shutdown import intent
+
+        if intent(data.store)["phase"] == "draining":
+            raise ServiceError("scheduler_stopping", "Exit the stop workflow before reopening", 409)
     value = {**maintenance(data), **body}
     if type(value["paused"]) is not bool or not isinstance(value["reason"], str):
         raise ServiceError("maintenance_options", "paused boolean and reason text required")
@@ -113,6 +118,8 @@ def readiness(app, user_id=None):
         if state["paused"]
         else "ready"
         if allowed
+        else "scheduler_stopping"
+        if activity["state"] == "stopping"
         else "scheduler_unready",
         "observed": time.time(),
         "scheduler": activity,
@@ -133,6 +140,8 @@ def check(app, actor):
             code,
             "New admissions paused"
             if code == "maintenance_paused"
+            else "Scheduler stopping; retry later"
+            if code == "scheduler_stopping"
             else "Scheduler activity not confirmed",
             503,
         )

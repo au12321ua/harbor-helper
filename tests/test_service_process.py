@@ -512,7 +512,7 @@ def test_duplicate_supervisor_keeps_canonical_identity(processes):
         stderr=p.log,
     )
     duplicate.wait(timeout=4)
-    assert duplicate.returncode == 0
+    assert duplicate.returncode != 0
     assert read_json(p.data.root / "scheduler.json")["pid"] == identity["pid"]
 
 

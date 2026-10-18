@@ -140,7 +140,7 @@ class Readiness(BaseModel):
 
 
 class SchedulerInfo(BaseModel):
-    state: Literal["ready", "unavailable", "unknown"]
+    state: Literal["ready", "unavailable", "unknown", "stopped", "stopping", "initializing"]
     reason: str
     observed: float
     activity_observed: float | None = None
@@ -283,3 +283,19 @@ class Comparison(BaseModel):
 
 class EvidenceGrant(Input):
     enabled: bool
+
+
+class ShutdownInput(Input):
+    mode: Literal["wait", "cancel", "abort"]
+
+
+class ShutdownIntent(BaseModel):
+    mode: Literal["none", "wait", "cancel", "abort"]
+    phase: Literal["idle", "draining", "complete"]
+    updated: float | None
+
+
+class ShutdownStatus(BaseModel):
+    maintenance: MaintenanceInfo
+    intent: ShutdownIntent
+    counts: dict[str, int]

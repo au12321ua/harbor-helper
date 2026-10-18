@@ -139,11 +139,11 @@ class Controller:
 
     def decide(self, *, changed=True):
         self.completions()
-        if self.stopping:
-            return
         store = self.store
         master_error = None
         with store.quiet_control():
+            if not (store.root / "service.json").exists():
+                return
             if changed:
                 rows = store.work()
             else:
@@ -154,6 +154,16 @@ class Controller:
                             "SELECT * FROM runs WHERE status IN ('starting','running','cancelling','cleanup_blocked') ORDER BY created"
                         )
                     ]
+            if self.stopping:
+                for row in rows:
+                    if row["status"] in ACTIVE and not row["finish_status"]:
+                        store.update(
+                            row["id"],
+                            finish_status=status.CANCELLED,
+                            finish_reason="Service stop interrupted execution; use rerun",
+                            status=status.CANCELLING,
+                        )
+                rows = store.work()
             active = [r for r in rows if r["status"] in ACTIVE]
             for row in active:
                 if time.monotonic() < self.invalid_until.get(row["id"], 0):
@@ -164,7 +174,7 @@ class Controller:
                     # A damaged record must not prevent other cancellations/heartbeats.
                     print("Scheduler record unavailable", flush=True)
                     self.invalid_until[row["id"]] = time.monotonic() + RETRY_SECONDS
-            if changed:
+            if changed and not self.stopping:
                 team = load_team(store)
                 slots = sum(r["concurrency"] for r in active)
                 for row in rows:
@@ -387,13 +397,15 @@ def supervise(root):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            return
+            raise RuntimeError("Scheduler already running for this state") from None
         mailbox = Mailbox(root)
         identity = {"pid": os.getpid(), "birth": process_birth(os.getpid())}
         write_json(root / "scheduler.json", identity)
         stopping = threading.Event()
 
         def stop(*_):
+            if not stopping.is_set():
+                write_json(root / "scheduler-stop.json", identity)
             stopping.set()
             notify(root)
 
@@ -401,14 +413,29 @@ def supervise(root):
         controller = None
         try:
             store = Store(root)
+            from harbor_helper.service.shutdown import intent
+
+            with store.control():
+                if intent(store)["phase"] == "complete":
+                    write_json(
+                        root / "shutdown.json",
+                        {"mode": "none", "phase": "idle", "updated": time.time()},
+                    )
             controller = Controller(store)
             with selectors.DefaultSelector() as selector:
                 selector.register(mailbox.reader, selectors.EVENT_READ)
                 heartbeat = active_check = reconcile = maintenance = retry_check = 0
                 changed = True
+                stop_deadline = None
                 while True:
                     now = time.monotonic()
                     controller.stopping = stopping.is_set()
+                    if controller.stopping and stop_deadline is None:
+                        stop_deadline = now + 240
+                    if stop_deadline is not None and now >= stop_deadline:
+                        # Preserve durable finish/cleanup records. systemd owns the
+                        # cgroup and kills remaining processes after this failure.
+                        os._exit(1)
                     try:
                         controller.decide(changed=changed or now >= reconcile or now >= retry_check)
                         if now >= reconcile:
@@ -424,9 +451,26 @@ def supervise(root):
                             if (root / "service.json").exists():
                                 controller.maintenance.submit("maintenance", maintain, store)
                             maintenance = now + MAINTENANCE_SECONDS
+                        from harbor_helper.service.shutdown import complete, intent, unfinished
+
+                        shutdown = intent(store)
+                        if not controller.stopping and shutdown["phase"] == "draining":
+                            with store.control():
+                                if not unfinished(store) and not controller.busy():
+                                    complete(store)
+                                    break
                         if now >= heartbeat:
                             write_json(
-                                root / "scheduler.json", {**identity, "observed": time.time()}
+                                root / "scheduler.json",
+                                {
+                                    **identity,
+                                    "observed": time.time(),
+                                    "state": "stopping"
+                                    if controller.stopping
+                                    else "ready"
+                                    if (root / "service.json").exists()
+                                    else "initializing",
+                                },
                             )
                             heartbeat = now + HEARTBEAT_SECONDS
                     except Exception as error:  # noqa: BLE001 - no third party exception text
@@ -449,3 +493,6 @@ def supervise(root):
                 controller.close()
             signal.signal(signal.SIGTERM, previous)
             mailbox.close()
+            write_json(
+                root / "scheduler.json", {**identity, "state": "stopped", "observed": time.time()}
+            )

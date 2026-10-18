@@ -24,6 +24,10 @@ def add_parsers(sub):
     serve.add_argument("--master-key-file", type=Path, help="External persistent master key")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    scheduler = operations.add_parser(
+        "scheduler", help="Run the independent scheduler in foreground"
+    )
+    scheduler.add_argument("--root", type=Path, required=True)
     member_login = operations.add_parser(
         "login", help="Invited member login (no personal model key)"
     )
@@ -87,7 +91,21 @@ def service_root(args):
 
 
 def dispatch(args):
+    if args.service_command in {"serve", "scheduler"}:
+        from harbor_helper.service.writers import writer
+
+        with writer(service_root(args)):
+            return _dispatch(args)
+    return _dispatch(args)
+
+
+def _dispatch(args):
     cmd = args.service_command
+    if cmd == "scheduler":
+        from harbor_helper.execution.scheduler import supervise
+
+        supervise(service_root(args))
+        return {"scheduler": "stopped"}
     if cmd == "serve":
         import uvicorn
 
@@ -96,7 +114,7 @@ def dispatch(args):
         if not 1 <= args.port <= 65535:
             raise RemoteError("Port must be between 1 and 65535")
         root = service_root(args)
-        # The API lifespan starts/reconciles the single existing supervisor.
+        # HTTP observes the independently managed scheduler.
         from harbor_helper.security.credentials import KEY_ENV
 
         inherited = {KEY_ENV: os.environ.pop(KEY_ENV, None)}

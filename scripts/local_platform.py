@@ -298,7 +298,9 @@ def start(base, record, env, port):
         ["git", "-C", str(REPO), "rev-parse", "HEAD^{commit}"], text=True
     ).strip()
     if record and Path(record["code"]).name != commit:
-        stop(base, record, env)
+        fail(
+            "Code changed: use explicit lifecycle upgrade with verified backup; start never upgrades."
+        )
     elif not record and (base / "state/service.json").exists():
         fail("Initialized state has no release record; inspect it, do not reset.")
     check_master(base)

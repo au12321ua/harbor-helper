@@ -2,28 +2,34 @@
 
 服务使用一个独立的共享 state。CLI 与 Web 都访问同一个 HTTP API、持久队列和容量限制；成员登录只保存访问 token，模型密钥由管理员在服务端配置。旧本地团队 state 与会话不迁入此目录。
 
-## 一条命令启动本机空实例
+## Linux 服务安装与管理
 
-在干净的 Git checkout 中运行（Linux、Python 3.12–3.13、uv）：
+需要 Linux、Python 3.12–3.13、uv 和可用的用户级 systemd。使用专用服务账号；由部署管理员配置该账号的开机 user manager（例如 `loginctl enable-linger`），HTTPS/代理/证书由部署环境处理。首次网页设置不需要 Docker、Hub 或模型请求；实际实验需要 Docker/Compose 和授权的数据集。
 
-```bash
-./scripts/start-local.sh
-```
-
-入口复用已提交的生产 static，不需要 Node 或前端构建。它从当前固定提交导出独立发布目录并锁定安装依赖；默认仅监听 `127.0.0.1` 的空闲端口。代码、独立 HOME、持久 state、外置 master/setup 和日志位于 `~/.local/share/harbor-helper-local/`，不使用仓库旧 state 或个人模型/Hub 登录。
-
-1. 打开输出的 URL，直接使用交互终端显示的引导凭证；输出被重定向时只显示本机凭证文件路径，不显示值。
-2. 网页首次设置创建管理员，然后登录，在“团队管理”配置业务。新空实例不迁入旧账户或实验；首次设置无需 Docker/Hub/key，真实实验仍需这些依赖和授权。
-3. 再运行显示已有实例；`./scripts/start-local.sh stop` 停止自己的 HTTP 和空闲调度器，重新运行后原账户与主密钥保留。
+从已验收的固定提交安装，选择全新私有目录和唯一实例名：
 
 ```bash
-./scripts/start-local.sh status
-./scripts/start-local.sh restart
-./scripts/start-local.sh --port 8780
-./scripts/start-local.sh --directory /absolute/private/local-instance
+python3 scripts/service.py install --directory /absolute/private/hh-team --instance team --port 8000
+python3 /absolute/private/hh-team/manager/service.py start --directory /absolute/private/hh-team
+python3 /absolute/private/hh-team/manager/service.py status --directory /absolute/private/hh-team
 ```
 
-`--port` 用于停止状态下选端口；多实例用不同 `--directory`，后续 status/stop 使用同一路径。日志路径随状态输出。stop 遇未终态任务会拒绝停止调度器，需重新启动网页取消/等待；它不会强杀执行任务。坏记录或主密钥缺失时按诊断检查原文件，不重新初始化。更换代码版本前先确认 stop 成功；旧发布目录不会自动删除。此入口用于同机本地使用，远程访问、HTTPS和生产迁移见下文。
+安装导出固定提交到 `releases/<SHA>` 并锁定安装依赖，运行时不依赖工程 worktree；`state/`、`private/`（主密钥及引导文件）、`home/` 和 `logs/` 分开。输出只给引导凭证文件位置，部署负责人在受保护终端读取并私下交给首管理员。管理员在网页首次设置，然后在“团队管理”邀请成员、配置数据集、模型/key与容量。不要把引导凭证贴入群聊、命令参数或 Git。
+
+HTTP 与 scheduler 为独立 unit；`--part http` 或 `--part scheduler` 可单独启停。HTTP 启动及首次设置不会派生 scheduler；未初始化的 scheduler 等待网页设置完成。`start` 始终使用已安装 release，不会因 Git HEAD 改变而升级。
+
+正常维护请在管理员网页“团队管理 → 容量与维护”走两阶段停止：先明确关闭新受理，再等待全部已受理任务结束，或明确取消全部未完成任务并清理资源。可退出等待，入口仍关闭。主机脚本入口：
+
+```bash
+python3 /absolute/private/hh-team/manager/service.py maintain --directory /absolute/private/hh-team --close-admissions --mode wait --wait-seconds 3600
+# 明确取消全部（准备、排队、执行），保留历史，可重跑
+python3 /absolute/private/hh-team/manager/service.py maintain --directory /absolute/private/hh-team --close-admissions --mode cancel
+python3 /absolute/private/hh-team/manager/service.py stop --directory /absolute/private/hh-team
+```
+
+不带 `--close-admissions` 时，开放的入口需要交互输入 `yes`；非交互调用拒绝并保持原开关。已关闭则跳过确认。等待超时只退出客户端等待，持久停止意图继续生效。直接 `stop`/SIGTERM 则中断执行并尝试清理，保留 queued 和未发布 preparing，维护开关保持原值；这不是断点续跑。
+
+升级、备份恢复、卸载及 systemd 限制见[Web 服务指南](#linux-生命周期与维护)。旧 `start-local.sh` 现在转发同一生命周期管理器，使用相同参数；不会隐式选择新发布。
 
 ## 管理员首次启动
 
@@ -47,6 +53,12 @@ uv run harbor-helper service serve \
   --setup-token-file /srv/harbor-helper-private/setup-token \
   --master-key-file /srv/harbor-helper-private/master.key \
   --host 127.0.0.1 --port 8000
+```
+
+另一个终端独立启动调度器（同一 state，不继承个人模型或 Hub 凭据）：
+
+```bash
+uv run harbor-helper service scheduler --root "$HOME/harbor-helper/service"
 ```
 
 引导凭证不存在时由服务自动生成 owner-only 文件；手动 `service serve` 只提示文件位置。一条命令入口仅在交互终端、实例尚未初始化时显示引导值，重定向输出只给本机路径。部署负责人通过受保护渠道交付该凭证与网址；管理员在网页填写首账户、密码和团队名称。首次设置完成后接口关闭，不允许再注册账户；重复与并发设置只能成功一次。引导文件和主密钥都必须在 state 外，属于部署持久材料；主密钥是 32 随机 bytes、0600，仅用于加密，不通过网站回显。未显式给路径时，它们位于 state 同级的 `.<state目录名>-deployment/`。备份时须同时保全 state 与外置主密钥；不得将密钥或引导凭证提交 Git。
@@ -126,7 +138,7 @@ logout 撤销成员会话并删除本机 token，已受理任务继续。远程�
 
 ## 队列、备份与审计
 
-API 启动时启动或协调同一个后台 supervisor。关闭浏览器、成员终端或 HTTP 进程不会停止已受理任务及后台队列；再次 serve 可恢复 API 观察。不要以 runs 为空判断空闲，还须检查 preparing 受理、queued/running、取消收尾及 cleanup_blocked 记录。当前没有 `service stop` 命令；需要停机或一致备份时先停止成员提交、处理全部未终态受理/run，并按实际后台进程的退出与资源清理状态确认无写者，再停止 HTTP/调度进程。不要直接杀进程后声称资源已释放。
+HTTP 不管理 scheduler 进程。关闭浏览器、成员终端或 HTTP 不停止独立调度器；再次 serve 只恢复 API 观察。正常停止与升级必须按下文生命周期流程处理 preparing、queued、执行、取消收尾和 cleanup_blocked，不能只看 PID 或终态标记。
 
 备份完整 service state（含 SQLite 一致快照、配置、冻结输入和所需日志/产物），主密钥另作受保护备份。在线复制单独 SQLite 文件而遗漏 WAL 不能保证一致性；有写者时使用 SQLite 备份机制，并协调其余文件的快照时点。恢复须保留 `service.json` 所指主密钥路径和权限，核对凭据版本、受理/队列归属及审计能力；不能用新生成主密钥冒称旧凭据已恢复。
 
@@ -136,7 +148,7 @@ API 启动时启动或协调同一个后台 supervisor。关闭浏览器、成�
 
 ## 完整停机
 
-关闭网页不停止任务；前台`serve`的Ctrl-C只停HTTP。重新启动同一state会协调已有调度器，不能重复init或生成新master。
+关闭网页不停止任务；前台`serve`的Ctrl-C只停HTTP。重新启动同一 state 的 HTTP 仅恢复观察，scheduler 由独立入口管理；不要重新初始化或生成新 master。
 
 部署负责人需要完整停机时：管理员先在“团队管理→容量与保留”暂停新受理并填写安全原因/可选建议重试时间；确认网页受理状态为暂停（重启保持），在网页确认所有受理与run终态，等待或取消自己的未终态；管理员可取消任何人的任务。准备中、queued/running、取消收尾和cleanup_blocked都要处理。先停止HTTP（前台Ctrl-C；后台部署按自己的进程管理器停止该HTTP），阻止继续提交；然后对**已存在的专用服务state**执行下面的空闲调度器停止检查。目录替换成该部署实际路径，维护已有部署须先核对进程归属，不按历史PID操作。
 
@@ -242,3 +254,48 @@ Docker 诊断页面点击“发现本机 Docker 与镜像”，只读取服务�
 对比成功后可下载当前响应的 JSON 或 CSV，不重新执行或评分。切换实验、重新请求或请求失败会清除可导出的旧结果。JSON 为 `{format_version:1, exported_at, comparison}`，原样保留服务端 Comparison；`comparable:false` 时即便存在 `tasks[].delta`，也不能据此给出改进结论。
 
 CSV 使用 UTF-8 BOM、CRLF 和标准双引号引用。固定列为 `format_version, exported_at, left_run, right_run, comparable, reasons_json, record, task, metric, left_type, left_value, right_type, right_value, delta_type, delta_value, metadata_json`。每行含左右身份与可比性；`record=metadata` 保存配置差异、附件身份及环境观察的 JSON，空任务列表也保留此行；`task` 行保存逐指标值，双方无指标的任务另有 `no_valid_metrics` 行。类型列区分 `number`、`null`、`missing`、字符串等，保留零、负数和原始数值精度。不可比时 `delta_type=incomparable`、差值留空，不输出均值；可比时仅输出服务端已有差值和 `mean_task_delta`，不在浏览器重新计算。不可信文本若以公式字符（含前置空白/控制字符）开头会加单引号，负数指标保持数值。
+
+## Linux 生命周期与维护
+
+`python3 scripts/service.py ACTION --directory /absolute/private/instance` 是统一主机入口。安装后使用输出的 `manager/service.py`，避免依赖工程目录。命令为 `install/start/stop/status/maintain/upgrade/uninstall`；实例名只含小写字母、数字和连字符，同名 unit 或内容/路径不符时拒绝操作。运行进程的内部 release 租约与 state 的 release 标识约束共用写者，外部 CLI 仍只按机器协议兼容性判断，不要求精确发布 SHA 相等。
+
+### 两阶段正常停止
+
+管理员网页的“正常停止调度器”先展示持久维护开关及准备、排队、启动、执行、取消收尾、资源未释放和审计异常计数。调度器故障的不可受理不代表维护开关已关闭；必须明确同意关闭新受理，拒绝不写入。维护开关已关闭则跳过。然后明确选择等待全部结束，或取消全部未完成任务。取消不是可恢复暂停，没有 run 级断点续跑，历史记录可重跑。
+
+停止意图在 `state/shutdown.json` 持久保存，由 scheduler 推进；浏览器断线、HTTP 重启不会丢失。A 继续准备与派发直到排空；B 阻止被取消的准备发布/队列启动，推进执行终止与 Docker 资源释放。实际准备/清理 lane 尚未结束时也不能完成。`cleanup_blocked` 保持未完成并重试；审计异常单独展示，不占执行容量。排空完成后 scheduler 正常退出，`Restart=on-failure` 不将它拉起；HTTP 继续观察。
+
+查询、取消、已受理请求的幂等回执保持可用。管理员可“退出等待，保持入口关闭”（主机 `maintain --mode abort`），或显式改为取消；不会自动恢复受理。再次启动 scheduler 后维护开关仍关闭，需管理员明确恢复新受理。
+
+### 非交互停止与异常恢复
+
+`stop` 或 `systemctl --user stop harbor-helper-<实例名>-scheduler.service` 先停派发，终止执行并尝试清理，保留 queued 和未发布 preparing；原维护开关不改写。重启会对账和重试未确认资源，已中断的执行需重跑。`--part http` 只停止 HTTP。
+
+unit 使用 `KillMode=mixed`、`Restart=on-failure`、270 秒停止预算；scheduler 自身停止预算 240 秒，超时保留持久清理记录后失败退出，systemd 收尾整个 cgroup。子进程的独立进程组用于精确终止，不是逃出 cgroup。不要将 unit 已退出等同于业务正常维护完成；必须看到停止意图 complete、无未完成任务且所有写者退出。
+
+当前安装器使用用户级 systemd。用户 manager 自启需要部署者配置 linger；`--runtime` 只用于隔离验证，重启后 unit 不保留。用户级 unit 无法对系统级 `docker.service` 建立有效的关机顺序依赖：主机部署须保证 Docker 可用至应用清理结束（例如系统级关机编排先调用本实例 stop）。不支持将用户 unit 的 `After=docker.service` 当成跨 manager 保证。Docker 先退出、硬掉电或外部强停时可能留下清理记录；下次启动继续对账，不能承诺关机前必然释放。
+
+### 明确升级、备份与回退
+
+```bash
+python3 /absolute/private/hh-team/manager/service.py upgrade \
+  --directory /absolute/private/hh-team --source /path/to/reviewed-checkout \
+  --close-admissions --mode wait --wait-seconds 3600 \
+  --backups /absolute/private/hh-team-backups
+```
+
+也可明确 `--mode cancel`。先完成正常维护，再停止 scheduler 和 HTTP，取得独占写者租约并核全部 state 写者，复用 `ops.py --kind offline` 完整备份。备份目录必须在实例与 Git 之外；默认是实例同级 `<实例目录名>-backups`。备份保存全部 state/配置/产物和源 release 信息，匹配主密钥受控保存在备份目录的独立 0600 `.master` 文件。通过独立新目标 `restore-check` 的摘要、数据库完整性、归属与凭据解密检查后，才安装并切换新 release；备份/依赖安装失败不切换，不丢旧 state 和 release。升级完成后显式 `start`，维护开关保持关闭。
+
+不支持开发期旧 schema 迁移。若目标版本不读旧 state，显式 `--fresh-state` 在可靠备份之后将旧 state 保留为 `state-retained-<唯一标识>`，另建空 state，重新网页设置；默认不隐式删除或重置。外置 private 文件仍保留。需要回退时，用备份中源 release 及其匹配主密钥恢复到**独立目标**，按[离线恢复检查](automation-ops-ci.md)校验与检查冻结绝对路径，再为恢复目标安排匹配版本。不能仅切换代码打开已经被新版本写过的 state，不能用旧备份覆盖后来业务数据。
+
+运维 timer 和其它外部写者必须由部署者先停用；本入口只管理它创建的两个服务 unit，不擅自修改其他工具。离线写者检测拒绝正在运行或身份不明的进程，管理员仍须防止其他账号/工具在维护窗口重新进入。备份保留和主密钥访问权限由部署者管理。
+
+### 卸载与删除范围
+
+```bash
+python3 /absolute/private/hh-team/manager/service.py uninstall --directory /absolute/private/hh-team
+```
+
+默认停服务并移除本实例 release 与 unit，保留 state、private、home、logs、备份和 retained-state。未完成任务或资源释放未确认时拒绝移除运行程序；先恢复 scheduler，完成正常维护。manager 与 ownership manifest 保留作审计及同版本重装入口，重复卸载不改变保留数据。
+
+`--purge` 首先展示准确的 `state/private/home/logs` 路径，并要求独立 `--confirm-delete /absolute/private/hh-team` 确认。只删除这些明确子目录，不删除同级备份、retained-state 或其它实例。服务名、unit 文件和目录归属不匹配则拒绝；不做全局 Docker/cache prune。卸载后重装保留数据须使用匹配旧 release；换版本走有备份的 upgrade。

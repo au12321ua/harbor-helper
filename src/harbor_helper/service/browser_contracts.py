@@ -651,6 +651,8 @@ BROWSER = {
     "cancel": CancelResult,
     "readiness": m.Readiness,
     "set_maintenance": m.MaintenanceInfo,
+    "shutdown_status": m.ShutdownStatus,
+    "shutdown_request": m.ShutdownStatus,
     "attachments": m.AttachmentCatalog,
     "attachment_lookup": AttachmentResult,
     "create_attachment": AttachmentResult,
@@ -690,6 +692,7 @@ BROWSER = {
 MACHINE = {"me": MachineUser, "catalog": m.Discovery}
 REQUESTS = {
     "set_maintenance": MaintenanceInput,
+    "shutdown_request": m.ShutdownInput,
     "update_user": UserUpdate,
     "inspect_author_inputs": AuthorCheck | None,
     "save_author_inputs": AuthorSave,

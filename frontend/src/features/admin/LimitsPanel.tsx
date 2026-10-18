@@ -1,4 +1,5 @@
 import { TabsContent } from "@/components/ui/tabs";
+import { ShutdownPanel } from "./ShutdownPanel";
 import { AdminForm } from "@/features/admin/AdminForm";
 import { MaintenancePanel } from "@/features/admission/ReadinessPanel";
 import type { AdminPanelProps } from "./types";
@@ -24,6 +25,7 @@ export function LimitsPanel({
 }: Pick<AdminPanelProps, "c" | "save"> & { reload: () => Promise<void> }) {
   return (
     <TabsContent value="limits">
+      <ShutdownPanel />
       <MaintenancePanel readiness={c.readiness} saved={reload} />
       <AdminForm
         key={JSON.stringify(c.limits)}

@@ -32,6 +32,10 @@ def prepare_one(store):
         return
     row = data.submission(ids[0])
     run_id = row["target_id"]
+    if row["cancel"]:
+        with store.control(), store.connect() as db:
+            db.execute("UPDATE submissions SET status='cancelled' WHERE id=?", (row["id"],))
+        return
     with store.connect() as db:
         published = db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone()
     if published:

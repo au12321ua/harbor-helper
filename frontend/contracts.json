@@ -4535,7 +4535,10 @@
           "enum": [
             "ready",
             "unavailable",
-            "unknown"
+            "unknown",
+            "stopped",
+            "stopping",
+            "initializing"
           ],
           "title": "State",
           "type": "string"
@@ -4644,6 +4647,92 @@
         "setup_token"
       ],
       "title": "Setup",
+      "type": "object"
+    },
+    "ShutdownInput": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "wait",
+            "cancel",
+            "abort"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "ShutdownInput",
+      "type": "object"
+    },
+    "ShutdownIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "wait",
+            "cancel",
+            "abort"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "idle",
+            "draining",
+            "complete"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "updated": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated"
+        }
+      },
+      "required": [
+        "mode",
+        "phase",
+        "updated"
+      ],
+      "title": "ShutdownIntent",
+      "type": "object"
+    },
+    "ShutdownStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        },
+        "intent": {
+          "$ref": "#/definitions/ShutdownIntent"
+        },
+        "maintenance": {
+          "$ref": "#/definitions/MaintenanceInfo"
+        }
+      },
+      "required": [
+        "maintenance",
+        "intent",
+        "counts"
+      ],
+      "title": "ShutdownStatus",
       "type": "object"
     },
     "StartupPolicy": {
@@ -5605,6 +5694,36 @@
       },
       "response": {
         "$ref": "#/definitions/Settings"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "shutdown_status",
+      "path": "/admin/shutdown",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/ShutdownStatus"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "shutdown_request",
+      "path": "/admin/shutdown",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/ShutdownInput"
+      },
+      "response": {
+        "$ref": "#/definitions/ShutdownStatus"
       },
       "status": 200
     },

@@ -302,7 +302,8 @@ def identity(path, state, http=False):
             )
         else:
             require(
-                "supervise" in argv and any("harbor_helper" in a for a in argv),
+                ("supervise" in argv or ("service" in argv and "scheduler" in argv))
+                and any("harbor_helper" in a for a in argv),
                 "scheduler argv mismatch",
             )
         result = {"state": "running", "pid": pid, "birth": actual}
@@ -566,6 +567,7 @@ def backup(args):
                     "queue.sqlite-shm",
                     "queue.sqlite-journal",
                     "control.lock",
+                    "writer.lock",
                     "scheduler.json",
                     "supervisor.lock",
                     "scheduler.wake",
@@ -701,6 +703,7 @@ def restore(args):
             "scheduler.json",
             "supervisor.lock",
             "control.lock",
+            "writer.lock",
             "scheduler.wake",
             "scheduler-stop.json",
         ):

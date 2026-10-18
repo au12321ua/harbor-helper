@@ -85,16 +85,6 @@ class Submissions:
         )
 
         def perform(db):
-            from harbor_helper.execution.runs import scheduler_identity
-
-            marker = self.store.root / "scheduler-stop.json"
-            identity = scheduler_identity(self.store)
-            if (
-                marker.exists()
-                and identity
-                and all(read_json(marker).get(k) == identity[k] for k in ("pid", "birth"))
-            ):
-                raise ServiceError("scheduler_stopping", "Scheduler stopping; retry later", 503)
             if not self.data.user(actor["id"])["enabled"]:
                 raise ServiceError("member_disabled", "Account disabled", 403)
             existing = self._existing_submission(actor, operation, idem, request_hash)

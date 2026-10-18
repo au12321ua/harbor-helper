@@ -40,3 +40,15 @@ def register(app, deps):
             result = update(deps.data, body)
             deps.data.event(user, "set_maintenance", "admission")
             return result
+
+    @app.get("/api/v1/admin/shutdown")
+    def shutdown_status(user: Annotated[dict, Depends(administrator)]):
+        from harbor_helper.service.shutdown import observe
+
+        return observe(deps.data)
+
+    @app.post("/api/v1/admin/shutdown")
+    def shutdown_request(body: dtos.ShutdownInput, user: Annotated[dict, Depends(administrator)]):
+        from harbor_helper.service.shutdown import request
+
+        return request(deps.data, body.mode, user)

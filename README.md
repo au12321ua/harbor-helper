@@ -10,28 +10,34 @@
 
 成员无需SSH、服务器state路径、个人模型key或安装CLI。管理员日常业务配置也在网页完成。
 
-## 一条命令启动本机空实例
+## Linux 服务安装与管理
 
-在干净的 Git checkout 中运行（Linux、Python 3.12–3.13、uv）：
+需要 Linux、Python 3.12–3.13、uv 和可用的用户级 systemd。使用专用服务账号；由部署管理员配置该账号的开机 user manager（例如 `loginctl enable-linger`），HTTPS/代理/证书由部署环境处理。首次网页设置不需要 Docker、Hub 或模型请求；实际实验需要 Docker/Compose 和授权的数据集。
 
-```bash
-./scripts/start-local.sh
-```
-
-入口复用已提交的生产 static，不需要 Node 或前端构建。它从当前固定提交导出独立发布目录并锁定安装依赖；默认仅监听 `127.0.0.1` 的空闲端口。代码、独立 HOME、持久 state、外置 master/setup 和日志位于 `~/.local/share/harbor-helper-local/`，不使用仓库旧 state 或个人模型/Hub 登录。
-
-1. 打开输出的 URL，直接使用交互终端显示的引导凭证；输出被重定向时只显示本机凭证文件路径，不显示值。
-2. 网页首次设置创建管理员，然后登录，在“团队管理”配置业务。新空实例不迁入旧账户或实验；首次设置无需 Docker/Hub/key，真实实验仍需这些依赖和授权。
-3. 再运行显示已有实例；`./scripts/start-local.sh stop` 停止自己的 HTTP 和空闲调度器，重新运行后原账户与主密钥保留。
+从已验收的固定提交安装，选择全新私有目录和唯一实例名：
 
 ```bash
-./scripts/start-local.sh status
-./scripts/start-local.sh restart
-./scripts/start-local.sh --port 8780
-./scripts/start-local.sh --directory /absolute/private/local-instance
+python3 scripts/service.py install --directory /absolute/private/hh-team --instance team --port 8000
+python3 /absolute/private/hh-team/manager/service.py start --directory /absolute/private/hh-team
+python3 /absolute/private/hh-team/manager/service.py status --directory /absolute/private/hh-team
 ```
 
-`--port` 用于停止状态下选端口；多实例用不同 `--directory`，后续 status/stop 使用同一路径。日志路径随状态输出。stop 遇未终态任务会拒绝停止调度器，需重新启动网页取消/等待；它不会强杀执行任务。坏记录或主密钥缺失时按诊断检查原文件，不重新初始化。更换代码版本前先确认 stop 成功；旧发布目录不会自动删除。此入口用于同机本地使用，远程访问、HTTPS和生产迁移见下文。
+安装导出固定提交到 `releases/<SHA>` 并锁定安装依赖，运行时不依赖工程 worktree；`state/`、`private/`（主密钥及引导文件）、`home/` 和 `logs/` 分开。输出只给引导凭证文件位置，部署负责人在受保护终端读取并私下交给首管理员。管理员在网页首次设置，然后在“团队管理”邀请成员、配置数据集、模型/key与容量。不要把引导凭证贴入群聊、命令参数或 Git。
+
+HTTP 与 scheduler 为独立 unit；`--part http` 或 `--part scheduler` 可单独启停。HTTP 启动及首次设置不会派生 scheduler；未初始化的 scheduler 等待网页设置完成。`start` 始终使用已安装 release，不会因 Git HEAD 改变而升级。
+
+正常维护请在管理员网页“团队管理 → 容量与维护”走两阶段停止：先明确关闭新受理，再等待全部已受理任务结束，或明确取消全部未完成任务并清理资源。可退出等待，入口仍关闭。主机脚本入口：
+
+```bash
+python3 /absolute/private/hh-team/manager/service.py maintain --directory /absolute/private/hh-team --close-admissions --mode wait --wait-seconds 3600
+# 明确取消全部（准备、排队、执行），保留历史，可重跑
+python3 /absolute/private/hh-team/manager/service.py maintain --directory /absolute/private/hh-team --close-admissions --mode cancel
+python3 /absolute/private/hh-team/manager/service.py stop --directory /absolute/private/hh-team
+```
+
+不带 `--close-admissions` 时，开放的入口需要交互输入 `yes`；非交互调用拒绝并保持原开关。已关闭则跳过确认。等待超时只退出客户端等待，持久停止意图继续生效。直接 `stop`/SIGTERM 则中断执行并尝试清理，保留 queued 和未发布 preparing，维护开关保持原值；这不是断点续跑。
+
+升级、备份恢复、卸载及 systemd 限制见[Web 服务指南](docs/guides/web-service.md#linux-生命周期与维护)。旧 `start-local.sh` 现在转发同一生命周期管理器，使用相同参数；不会隐式选择新发布。
 
 ## 从干净环境启动 Web
 
@@ -49,7 +55,7 @@ npm run build
 cd ..
 ```
 
-构建写入`src/harbor_helper/static/`。生产只运行下面一个HTTP服务，它同时提供网页和相对`/api/v1`接口；不需要启动Vite或单独部署前端。
+构建写入`src/harbor_helper/static/`。HTTP 进程提供网页与 API；另一个终端独立运行 scheduler。生产推荐上面的 systemd 安装入口。下面的手动HTTP服务，它同时提供网页和相对`/api/v1`接口；不需要启动Vite或单独部署前端。
 
 选择全新服务目录和**state之外**的私有部署目录。下面是当前账号可写的示例；不要用已有服务目录重新初始化：
 
@@ -64,6 +70,12 @@ uv run harbor-helper service serve \
   --host 127.0.0.1 --port 8000
 ```
 
+另一个终端独立启动调度器（同一 state，不继承个人模型或 Hub 凭据）：
+
+```bash
+uv run harbor-helper service scheduler --root "$HOME/harbor-helper/service"
+```
+
 保持此终端运行，在**部署机浏览器**打开 <http://127.0.0.1:8000/>。若8000被占用，换一个空闲端口并同步网址。供其他机器访问时，部署者须选择可达的`--host`和网址；`0.0.0.0`是监听地址，不是浏览器网址。HTTPS、代理、证书及域名由部署环境配置。
 
 ### 首次管理员设置
@@ -74,7 +86,7 @@ uv run harbor-helper service serve \
 cat "$HOME/harbor-helper-private/setup-token"
 ```
 
-管理员在首次网页填写引导凭证、团队名称、账户和密码（至少12位），完成后用新账户登录。首次设置只允许成功一次，随后关闭设置接口，不开放注册。无需先执行`service init`；该命令仅保留给兼容的终端初装方式。
+管理员在首次网页填写引导凭证、团队名称、账户和密码（至少12位），完成后用新账户登录。首次设置只允许成功一次，随后关闭设置接口，不开放注册。首次设置完全在网页完成；没有 `service init` 命令。
 
 主密钥在首次初始化时自动创建为32随机bytes，权限0600，存于上面的外置`master.key`；不要自己写一个短字符串代替。模型key和Hub PAT在服务端加密保存，原值不回传网页。备份和恢复必须保全**完整state及原外置主密钥**，不能换一个新master恢复旧密文。
 
@@ -88,7 +100,7 @@ cat "$HOME/harbor-helper-private/setup-token"
 
 ### 关闭与维护
 
-关闭浏览器不停止实验。上述前台终端`Ctrl-C`只停止HTTP，后台调度器及已受理任务继续；用同样的state和原主密钥重启`serve`可继续观察，**不要重新init**。
+关闭浏览器不停止实验。上述前台终端`Ctrl-C`只停止HTTP，独立调度器及已受理任务继续；用同样的state和原主密钥重启`serve`可继续观察，**不要重新初始化**。
 
 完整停机由部署负责人停止接收新提交、等待或取消全部未终态任务并确认资源释放，停止HTTP后再停止该服务调度器；没有`service stop`命令。准确停机与备份步骤见[维护说明](docs/guides/web-service.md#完整停机)。这不是成员每天必做操作。
 

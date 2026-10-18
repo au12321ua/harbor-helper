@@ -365,6 +365,10 @@ def submit(
                     "INSERT INTO runs(id,status,created,concurrency,parent) VALUES(?,?,?,?,?)",
                     (run_id, lifecycle_status.QUEUED, time.time(), cfg["concurrency"], parent),
                 )
+                db.execute(
+                    "UPDATE submissions SET status='ready',run_id=? WHERE id=?",
+                    (run_id, service["submission_id"]),
+                )
     except BaseException:
         shutil.rmtree(path)
         raise

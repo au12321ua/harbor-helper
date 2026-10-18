@@ -23,7 +23,7 @@ from harbor_helper.service.primitives import ServiceError
 from harbor_helper.service.setup import protected_file
 
 
-def create_app(root, *, start_scheduler=True, setup_token_file=None, master_key_file=None):
+def create_app(root, *, start_scheduler=False, setup_token_file=None, master_key_file=None):
     store = Store(root)
     private = store.root.parent / ("." + store.root.name + "-deployment")
     setup_token_file = Path(setup_token_file or private / "setup-token")
