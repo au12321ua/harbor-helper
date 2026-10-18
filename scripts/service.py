@@ -454,6 +454,7 @@ def main():
                 "Uninstalled; backups and retained-state directories preserved. Manager and ownership manifest retained for audit."
             )
             return
+        leases.close()  # Version switch is complete; observation opens a shared Store.
         for part in ("http", "scheduler"):
             print(
                 part

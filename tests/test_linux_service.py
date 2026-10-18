@@ -214,3 +214,37 @@ def test_offline_quiescence_refuses_work_resources_and_active_units(
             manager.ops.write_json(path / "projects.json", ["owned-project"])
     with pytest.raises(ValueError, match="unfinished|cleanup unconfirmed|not stopped"):
         manager.ops.execution_quiescence(base, {"runs": runs, "submissions": submissions})
+
+
+def test_successful_upgrade_releases_lease_before_observation(manager, installed, monkeypatch):
+    import shutil
+
+    from harbor_helper.persistence.store import Store
+
+    base, record, _, _ = installed
+    monkeypatch.setattr(manager, "maintenance", lambda *_: True)
+    candidate = "b" * 40
+    scripts = base / "releases" / candidate / "scripts"
+    scripts.mkdir(parents=True)
+    for name in ("service.py", "ops.py", "local_platform.py"):
+        source = Path(manager.__file__).with_name(name)
+        shutil.copyfile(source, scripts / name)
+        (base / "manager" / name).write_text("previous manager")
+    monkeypatch.setattr(manager, "release", lambda *_: candidate)
+
+    def observe(*_):
+        with manager.ops.writer_lease(base / "state"):
+            pass
+        store = Store(base / "state")
+        store.close()
+        return "{}"
+
+    monkeypatch.setattr(manager, "run_python", observe)
+    monkeypatch.setattr(
+        sys, "argv", ["service.py", "upgrade", "--directory", str(base), "--mode", "wait"]
+    )
+    manager.main()
+    assert json.loads((base / "instance.json").read_text())["release"] == candidate
+    assert json.loads((base / "state/release.json").read_text())["release"] == candidate
+    assert (base / "manager/service.py").read_bytes() == (scripts / "service.py").read_bytes()
+    assert (base / "releases" / record["release"]).exists()
