@@ -202,6 +202,15 @@ for (const width of [1440, 1024, 390])
           const box = await portal.boundingBox();
           expect(box!.x).toBeGreaterThanOrEqual(0);
           expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+          // A Portal may fit the viewport yet be hidden behind the fixed sidebar.
+          expect(
+            await portal.evaluate((el) => {
+              const r = el.getBoundingClientRect();
+              return [r.left + 16, r.left + r.width / 2, r.right - 16].every(
+                (x) => el.contains(document.elementFromPoint(x, r.top + 16)),
+              );
+            }),
+          ).toBe(true);
           await capture(`help-${name}`);
           await page.keyboard.press("Escape");
         }

@@ -1354,6 +1354,7 @@ html [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-descrip
   height: 28px;
 }
 .help-content {
+  z-index: 40;
   max-width: min(360px, calc(100vw - 24px));
   padding: 14px;
   border: 1px solid var(--border);
