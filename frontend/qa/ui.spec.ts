@@ -2637,3 +2637,160 @@ for (const width of [1440,1024,390]) test(`历史与资料长文、加载、错�
   await page.screenshot({path:test.info().outputPath(`materials-error-${width}.png`),fullPage:true});
   expect(errors).toEqual([]);
 });
+
+for (const change of ["filter", "page"] as const) {
+  test(`历史已有成功记录后${change}失败隐藏旧列表计数并可重试`, async ({
+    page,
+  }) => {
+    await fixture(page);
+    let fail = true;
+    await page.route("**/api/v1/operations?**", async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      const changed =
+        change === "filter"
+          ? query.get("status") === "rejected"
+          : query.get("offset") === "50";
+      if (changed && fail)
+        return route.fulfill({
+          status: 503,
+          json: {
+            message: "当前历史加载失败",
+            request_id: "history-filter-failure",
+          },
+        });
+      await route.fulfill({
+        json: {
+          operations: [
+            {
+              id: changed ? "op-current" : "op-old",
+              user_id: "u1",
+              username: changed ? "当前结果用户" : "旧条件用户",
+              operation: "submit",
+              status: changed && change === "filter" ? "rejected" : "accepted",
+              result: null,
+              error: null,
+              recent: [],
+              attempts: 1,
+              created: 1,
+              updated: 1,
+              summarized_attempts: 0,
+            },
+          ],
+          total: change === "page" ? 51 : 1,
+          offset: Number(query.get("offset")),
+          next_offset: !changed && change === "page" ? 50 : null,
+        },
+      });
+    });
+    await page.goto("/operations");
+    await expect(page.locator("article")).toContainText("旧条件用户");
+    await expect(page.locator(".history-pagination")).toContainText(
+      change === "page" ? "1–1 / 51 条" : "1–1 / 1 条",
+    );
+    if (change === "filter")
+      await page
+        .getByLabel("受理结果", { exact: true })
+        .selectOption("rejected");
+    else
+      await page.getByRole("button", { name: "下一页", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("当前历史加载失败");
+    await expect(page.locator("article")).toHaveCount(0);
+    await expect(page.locator(".history-pagination")).not.toContainText(
+      /\d+–\d+ \/|0 条记录/,
+    );
+    await expect(page.getByText("暂无请求记录", { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByRole("button", { name: "下一页", exact: true }),
+    ).toBeDisabled();
+    fail = false;
+    await page.getByRole("button", { name: "刷新", exact: true }).click();
+    await expect(page.locator("article")).toContainText("当前结果用户");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.locator(".history-pagination")).toContainText(
+      change === "page" ? "51–51 / 51 条" : "1–1 / 1 条",
+    );
+    if (change === "filter")
+      await expect(page.getByLabel("受理结果", { exact: true })).toHaveValue(
+        "rejected",
+      );
+  });
+}
+
+test("历史成功后快切失败与恢复不被迟到的旧条件成功覆盖", async ({ page }) => {
+  await fixture(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let oldStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    oldStarted = resolve;
+  });
+  let fail = true;
+  await page.route("**/api/v1/operations?**", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (query.get("operation") === "cancel") {
+      oldStarted();
+      await held;
+    }
+    if (query.get("status") === "rejected" && fail)
+      return route.fulfill({ status: 503, json: { message: "快切失败" } });
+    await route.fulfill({
+      json: {
+        operations: [
+          {
+            id: "op-" + query,
+            user_id: "u1",
+            username:
+              query.get("operation") === "cancel"
+                ? "迟到旧结果"
+                : query.get("status") === "rejected"
+                  ? "恢复当前结果"
+                  : "初始成功结果",
+            operation: query.get("operation") || "submit",
+            status: query.get("status") || "accepted",
+            result: null,
+            error: null,
+            recent: [],
+            attempts: 1,
+            created: 1,
+            updated: 1,
+            summarized_attempts: 0,
+          },
+        ],
+        total: query.get("operation") === "cancel" ? 99 : 1,
+        offset: 0,
+        next_offset: null,
+      },
+    });
+  });
+  await page.goto("/operations");
+  await expect(page.locator("article")).toContainText("初始成功结果");
+  await page.getByLabel("操作", { exact: true }).selectOption("cancel");
+  await started;
+  await page.getByLabel("受理结果", { exact: true }).selectOption("rejected");
+  await page.getByLabel("操作", { exact: true }).selectOption("submit");
+  await expect(page.getByRole("alert")).toContainText("快切失败");
+  await expect(page.locator("article")).toHaveCount(0);
+  fail = false;
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.locator("article")).toContainText("恢复当前结果");
+  const late = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).searchParams.get("operation") === "cancel" &&
+      response.status() === 200,
+  );
+  release();
+  await late;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(page.locator("article")).toContainText("恢复当前结果");
+  await expect(page.locator("article")).not.toContainText("迟到旧结果");
+  await expect(page.locator(".history-pagination")).toContainText("1–1 / 1 条");
+});

@@ -49,25 +49,33 @@ export function OperationHistory() {
     [mine, setMine] = useState(false),
     [operation, setOperation] = useState(""),
     [status, setStatus] = useState("");
+  const queryKey = `${offset}:${mine}:${operation}:${status}`;
   const {
-    data,
-    error,
+    data: outcome,
     loading: initialLoading,
     refreshing,
     reload,
-  } = useLoad(
-    () =>
-      api("/operations", {
+  } = useLoad(async () => {
+    // Keep history results (including failures) attached to their exact query.
+    // Other useLoad consumers intentionally retain data during refresh/editing.
+    try {
+      const data = await api("/operations", {
         query: {
           offset: String(offset),
           mine: String(mine),
           ...(operation ? { operation } : {}),
           ...(status ? { status } : {}),
         },
-      }),
-    `${offset}:${mine}:${operation}:${status}`,
-  );
-  const loading = initialLoading || refreshing;
+      });
+      return { key: queryKey, data, error: undefined };
+    } catch (error) {
+      return { key: queryKey, data: undefined, error };
+    }
+  }, queryKey);
+  const current = outcome?.key === queryKey ? outcome : undefined;
+  const loading = initialLoading || refreshing || !current;
+  const data = !loading ? current?.data : undefined;
+  const error = !loading ? current?.error : undefined;
   return (
     <>
       <Title
@@ -217,13 +225,17 @@ export function OperationHistory() {
         })}
       <div className="history-pagination">
         <span>
-          {data?.total
-            ? `${offset + 1}–${Math.min(offset + (data.operations.length || 0), data.total)} / ${data.total} 条`
-            : "0 条记录"}
+          {data
+            ? data.total
+              ? `${offset + 1}–${Math.min(offset + data.operations.length, data.total)} / ${data.total} 条`
+              : "0 条记录"
+            : loading
+              ? "正在加载当前结果"
+              : "当前结果加载失败，请刷新重试"}
         </span>
         <Button
           variant="outline"
-          disabled={loading || !offset}
+          disabled={!data || !offset}
           onClick={() => setOffset(Math.max(0, offset - 50))}
         >
           上一页
