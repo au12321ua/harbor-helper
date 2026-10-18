@@ -26,7 +26,7 @@ python3 /absolute/private/hh-team/manager/service.py status --directory /absolut
 
 HTTP 与 scheduler 为独立 unit；`--part http` 或 `--part scheduler` 可单独启停。HTTP 启动及首次设置不会派生 scheduler；未初始化的 scheduler 等待网页设置完成。`start` 始终使用已安装 release，不会因 Git HEAD 改变而升级。
 
-正常维护请在管理员网页“团队管理 → 容量与维护”走两阶段停止：先明确关闭新受理，再等待全部已受理任务结束，或明确取消全部未完成任务并清理资源。可退出等待，入口仍关闭。主机脚本入口：
+正常维护请在管理员网页“团队管理 → 容量与保留”走两阶段停止：先明确关闭新受理，再等待全部已受理任务结束，或明确取消全部未完成任务并清理资源。可退出等待，入口仍关闭。主机脚本入口：
 
 ```bash
 python3 /absolute/private/hh-team/manager/service.py maintain --directory /absolute/private/hh-team --close-admissions --mode wait --wait-seconds 3600

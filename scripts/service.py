@@ -412,6 +412,7 @@ def main():
                     "show", unit_name(record, part), "--property=ActiveState,SubState,MainPID"
                 )
             )
+        print(json.dumps({"observed": ops.inspect(base)}, ensure_ascii=False))
         if (base / "state/service.json").exists():
             print(run_python(base, record, OBSERVE))
         print(f"Browser: http://{record['host']}:{record['port']}")

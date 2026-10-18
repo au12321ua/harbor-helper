@@ -14,6 +14,7 @@ import re
 import shutil
 import sqlite3
 import stat
+import subprocess
 import sys
 import time
 import urllib.request
@@ -277,11 +278,75 @@ def birth(pid):
         return None
 
 
-def identity(path, state, http=False):
+def managed_http(base):
+    """Resolve only the exact unit owned by a recorded systemd installation."""
+    path = base / "instance.json"
     if not path.exists():
+        return None
+    record = read_json(path)
+    require(
+        record.get("format") == "harbor-helper-systemd-v1" and record.get("directory") == str(base),
+        "invalid systemd instance identity",
+    )
+    name = record["instance"]
+    require(re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}", name), "invalid systemd instance name")
+    unit = f"harbor-helper-{name}-http.service"
+    unit_file = plain(base / "units" / unit)
+    if not record.get("installed", True):
+        return None
+    require(
+        unit_file.read_text().startswith(f"# harbor-helper instance {record['owner']}\n"),
+        "foreign systemd unit",
+    )
+    environment = {
+        k: os.environ[k]
+        for k in ("PATH", "LANG", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+        if k in os.environ
+    }
+    environment.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    result = subprocess.run(
+        ["systemctl", "--user", "show", unit, "--property=MainPID,FragmentPath"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=5,
+    )
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    require(Path(values["FragmentPath"]).resolve() == unit_file, "foreign systemd fragment")
+    pid = int(values["MainPID"])
+    if not pid:
+        return None
+    code = base / "releases" / record["release"]
+    argv = Path(f"/proc/{pid}/cmdline").read_bytes().decode().rstrip("\0").split("\0")
+    require(
+        argv[:6]
+        == [
+            str(code / ".venv/bin/python"),
+            "-m",
+            "harbor_helper.commands.main",
+            "service",
+            "serve",
+            "--root",
+        ]
+        and len(argv) > 6
+        and argv[6] == str(base / "state"),
+        "managed HTTP argv mismatch",
+    )
+    return {
+        "pid": pid,
+        "birth": birth(pid),
+        "argv": argv,
+        "code": str(code),
+        "port": record["port"],
+    }
+
+
+def identity(path, state, http=False, *, record=None):
+    if record is None and not path.exists():
         return {"state": "absent"}
     try:
-        record = read_json(path)
+        record = record if record is not None else read_json(path)
         pid = record["pid"]
         require(
             type(pid) is int and pid > 0 and isinstance(record["birth"], str),
@@ -321,19 +386,28 @@ def identity(path, state, http=False):
 
 def inspect(base, backup_directory=None):
     state = plain(base / "state")
+    managed = None
+    managed_error = False
+    try:
+        managed = managed_http(base)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        managed_error = True
     result = {
-        "http": identity(base / "http.json", state, True),
+        "http": {"state": "unknown", "reason": "systemd_identity_unavailable"}
+        if managed_error
+        else identity(base / "http.json", state, True, record=managed),
         "scheduler": identity(state / "scheduler.json", state),
         "api": {"alive": "unknown", "ready": "unknown"},
         "disk_free_bytes": shutil.disk_usage(state).free,
     }
     if result["http"]["state"] == "running":
         try:
-            record = read_json(base / "http.json")
+            record = managed or read_json(base / "http.json")
             # Bind HTTP response to this exact process's loopback listening socket.
             sockets = {os.readlink(p) for p in Path(f"/proc/{record['pid']}/fd").iterdir()}
             listening = any(
-                line.split()[1] == f"0100007F:{record['port']:04X}"
+                line.split()[1]
+                in {f"0100007F:{record['port']:04X}", f"00000000:{record['port']:04X}"}
                 and line.split()[3] == "0A"
                 and f"socket:[{line.split()[9]}]" in sockets
                 for line in Path("/proc/net/tcp").read_text().splitlines()[1:]
@@ -492,6 +566,23 @@ def backup(args):
     }
     require(re.fullmatch("[a-f0-9]{40}", args.release), "source release must be full SHA")
     try:
+        if (base / "instance.json").exists():
+            deployment = read_json(base / "instance.json")
+            require(
+                deployment.get("format") == "harbor-helper-systemd-v1"
+                and deployment.get("directory") == str(base)
+                and deployment.get("release") == args.release,
+                "systemd instance/release mismatch",
+            )
+            copy_stable(base / "instance.json", target / "deployment.json")
+            metadata = target / "release-metadata"
+            metadata.mkdir(mode=0o700)
+            for name in ("pyproject.toml", "uv.lock"):
+                source = base / "releases" / args.release / name
+                if source.exists():
+                    copy_stable(source, metadata / name)
+            manifest["deployment_sha256"] = digest(target / "deployment.json")
+            manifest["release_metadata"] = inventory(metadata)
         record = read_json(base / "http.json") if (base / "http.json").exists() else None
         if record:
             require(Path(record["code"]).name == args.release, "release/process record mismatch")
@@ -674,6 +765,15 @@ def restore(args):
         "incomplete/unsupported snapshot",
     )
     require(manifest["source_release"] == args.release, "source release mismatch")
+    if "deployment_sha256" in manifest:
+        require(
+            digest(source / "deployment.json") == manifest["deployment_sha256"],
+            "deployment metadata digest mismatch",
+        )
+        require(
+            inventory(source / "release-metadata") == manifest["release_metadata"],
+            "release metadata digest mismatch",
+        )
     require(inventory(source / "state") == manifest["files"], "snapshot digest mismatch")
     master = key_bytes(args.master_file)
     require(
