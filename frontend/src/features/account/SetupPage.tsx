@@ -1,9 +1,11 @@
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { HarborMark } from "@/components/HarborMark";
 import { post } from "@/api";
 import { AdminForm } from "@/features/admin/AdminForm";
 export function SetupPage({ done }: { done: () => void }) {
   return (
     <div className="login-page">
+      <ThemeToggle />
       <div className="login-brand">
         <HarborMark />
         <span>Harbor Helper</span>

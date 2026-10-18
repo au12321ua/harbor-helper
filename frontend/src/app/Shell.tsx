@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { HarborMark } from "@/components/HarborMark";
 import { api, post, type User } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -212,8 +213,9 @@ export function Shell({
           >
             <Menu />
           </Button>
-          <span>{catalog?.settings?.team_name || "团队工作空间"}</span>
+          <span className="team-name">{catalog?.settings?.team_name || "团队工作空间"}</span>
           <span className="crumb">/　{crumb}</span>
+          <ThemeToggle />
         </header>
         <main>
           <AppRoutes user={user} onLogout={onLogout} />

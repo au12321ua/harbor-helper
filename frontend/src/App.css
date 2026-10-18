@@ -20,8 +20,9 @@ textarea,
 summary {
   outline-offset: 3px;
 }
-:focus-visible {
+:root :focus-visible {
   outline: 2px solid var(--ring);
+  transition-property: color, background-color, border-color;
 }
 button,
 input,
@@ -44,7 +45,7 @@ input:not([type="checkbox"]),
 select {
   height: 33px;
   border-radius: 4px;
-  background: #101419;
+  background: var(--muted);
   font-size: 12px;
   box-shadow: none;
 }
@@ -52,10 +53,10 @@ input[type="checkbox"] {
   min-height: 0;
   width: 13px;
   height: 13px;
-  accent-color: #80cbbd;
+  accent-color: var(--ring);
 }
 textarea {
-  background: #101419;
+  background: var(--muted);
   font-size: 12px;
 }
 .app-shell {
@@ -111,14 +112,14 @@ textarea {
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #a2acb8;
+  color: var(--nav-foreground);
   font-size: 12px;
   text-decoration: none;
 }
 .sidebar nav a.active {
-  background: #192322;
-  border-color: #2d3c38;
-  color: #c7e7de;
+  background: var(--sidebar-accent);
+  border-color: var(--selected-border);
+  color: var(--sidebar-accent-foreground);
 }
 .sidebar nav a:hover {
   background: var(--accent);
@@ -156,9 +157,9 @@ textarea {
   width: 27px;
   height: 27px;
   flex-shrink: 0;
-  border: 1px solid #3c454b;
+  border: 1px solid var(--avatar-border);
   border-radius: 4px;
-  background: #20272d;
+  background: var(--avatar-background);
   display: grid;
   place-items: center;
   font: 11px var(--mono);
@@ -243,7 +244,7 @@ pre,
   align-items: center;
   flex-wrap: wrap;
   border: 1px solid var(--border);
-  background: #101419;
+  background: var(--muted);
   padding: 10px 12px;
   font-size: 12px;
 }
@@ -258,22 +259,22 @@ pre,
   display: flex;
   gap: 6px;
   align-items: center;
-  color: #89c997;
+  color: var(--success);
 }
 .capacity-strip .admission-state svg {
   width: 12px;
   height: 12px;
 }
 .capacity-strip .admission-state.warning {
-  color: #d9b673;
+  color: var(--warning);
 }
 .capacity-strip .readiness-reason {
   flex-basis: 100%;
   white-space: normal;
-  color: #d9b673;
+  color: var(--warning);
 }
 .stale {
-  opacity: 0.6;
+  border-style: dashed;
 }
 .freshness {
   font-size: 11px;
@@ -307,7 +308,7 @@ pre,
   color: var(--muted-foreground);
 }
 .filter-tabs button[aria-pressed="true"] {
-  background: #191f26;
+  background: var(--secondary);
   border-color: var(--border);
   color: var(--foreground);
 }
@@ -336,7 +337,7 @@ table {
 }
 th {
   height: 34px;
-  background: #101419;
+  background: var(--muted);
   color: var(--muted-foreground);
   font-size: 11px;
 }
@@ -348,7 +349,7 @@ td {
   height: 53px;
 }
 tr[data-state="selected"] {
-  background: #111b1b;
+  background: var(--selected-row);
 }
 .run-link {
   font-size: 12px;
@@ -377,7 +378,7 @@ tr[data-state="selected"] {
   white-space: nowrap;
   padding: 0;
   background: transparent;
-  color: #929ca8;
+  color: var(--muted-foreground);
   border: 0;
   border-radius: 0;
   font-size: 12px;
@@ -390,21 +391,21 @@ tr[data-state="selected"] {
   stroke-width: 1.5;
 }
 .status-succeeded {
-  color: #89c997;
+  color: var(--success);
 }
 .status-queued,
 .status-preparing {
-  color: #d9b673;
+  color: var(--warning);
 }
 .status-running,
 .status-starting,
 .status-cancelling {
-  color: #8ab8ed;
+  color: var(--info);
 }
 .status-failed,
 .status-cleanup_blocked,
 .status-incomplete {
-  color: #ed9292;
+  color: var(--destructive);
 }
 .submission-section {
   display: flex;
@@ -467,7 +468,7 @@ tr[data-state="selected"] {
 [role="alert"] {
   border-radius: 4px;
   font-size: 12px;
-  background: #101419;
+  background: var(--muted);
   overflow-wrap: anywhere;
 }
 [role="tablist"] {
@@ -621,7 +622,7 @@ small {
   border-radius: 4px;
   padding: 12px;
   margin-bottom: 12px;
-  background: #101419;
+  background: var(--muted);
 }
 .diagnosis summary {
   cursor: pointer;
@@ -656,13 +657,13 @@ pre {
   margin-top: 12px;
   max-height: 480px;
   overflow: auto;
-  background: #101419;
+  background: var(--muted);
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 4px;
 }
 .log-view {
-  background: #101419;
+  background: var(--muted);
   color: var(--foreground);
   padding: 16px;
   min-height: 220px;
@@ -710,7 +711,7 @@ pre {
   gap: 16px;
 }
 .compare-selector {
-  background: #101419;
+  background: var(--muted);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 14px;
@@ -730,7 +731,7 @@ pre {
   font-family: var(--mono);
 }
 .result-view {
-  background: #101419;
+  background: var(--muted);
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -762,7 +763,7 @@ pre {
   border-radius: 4px;
 }
 .admin-workspace > [role="tablist"] button[data-state="active"] {
-  background: #191f26;
+  background: var(--secondary);
   border-color: var(--border);
 }
 .admin-workspace > [role="tabpanel"] {
@@ -795,7 +796,7 @@ pre {
 }
 .login-card {
   width: min(400px, 100%);
-  background: #101419 !important;
+  background: var(--muted) !important;
 }
 .login-footer {
   font-size: 11px;
@@ -845,7 +846,7 @@ pre {
     display: block;
     position: fixed;
     inset: 0;
-    background: #0009;
+    background: var(--drawer-overlay);
     width: 100%;
     height: 100%;
     border: 0;
@@ -1039,7 +1040,7 @@ pre {
   flex-wrap: wrap;
 }
 .enabled-state {
-  color: #89c997;
+  color: var(--success);
 }
 .models-workspace > form {
   margin-top: 8px;
@@ -1062,7 +1063,7 @@ pre {
 .submission-summary {
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #101419;
+  background: var(--muted);
 }
 .submission-summary h2 {
   padding: 10px 14px;
@@ -1155,10 +1156,10 @@ pre {
 }
 .budget-notes {
   padding: 10px 12px;
-  border: 1px solid #4b3d24;
-  background: #18160f;
+  border: 1px solid var(--warning-border);
+  background: var(--warning-background);
   border-radius: 4px;
-  color: #d9b673;
+  color: var(--warning);
 }
 .submission-actions {
   display: flex;
@@ -1298,4 +1299,46 @@ pre {
   .submission-actions {
     grid-template-columns: 1fr;
   }
+}
+
+/* Keep long team names from crowding the always available theme control. */
+.topbar .team-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar .crumb {
+  flex-shrink: 0;
+}
+.theme-toggle {
+  flex-shrink: 0;
+}
+.topbar .theme-toggle {
+  margin-left: auto;
+}
+.login-page > .theme-toggle {
+  align-self: flex-end;
+}
+/* Sonner rich colors use the same semantic colors as page status messages. */
+html [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--popover);
+  --normal-text: var(--popover-foreground);
+  --normal-border: var(--border);
+  --success-bg: var(--popover);
+  --success-text: var(--success);
+  --success-border: var(--border);
+  --error-bg: var(--popover);
+  --error-text: var(--destructive);
+  --error-border: var(--border);
+  --warning-bg: var(--warning-background);
+  --warning-text: var(--warning);
+  --warning-border: var(--border);
+  --info-bg: var(--popover);
+  --info-text: var(--info);
+  --info-border: var(--border);
+}
+
+html [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] {
+  color: inherit;
 }

@@ -36,6 +36,17 @@
 :root {
   color-scheme: dark;
   --radius: 0.3rem;
+  --nav-foreground: #a2acb8;
+  --selected-border: #80cbbd;
+  --avatar-background: #20272d;
+  --avatar-border: #3c454b;
+  --selected-row: #111b1b;
+  --success: #89c997;
+  --warning: #d9b673;
+  --info: #8ab8ed;
+  --warning-background: #18160f;
+  --warning-border: #4b3d24;
+  --drawer-overlay: #0009;
   --background: #0b0d10;
   --foreground: #e3e7ec;
   --card: #12161b;
@@ -63,6 +74,50 @@
   --sidebar-accent-foreground: #c7e7de;
   --sidebar-border: #252b33;
   --sidebar-ring: #80cbbd;
+}
+
+/* Browser preference lives on html so body portals inherit the same palette.
+   Use data-theme rather than .dark: existing shadcn dark variants stay unchanged. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: #f7f9fa;
+  --foreground: #202b35;
+  --card: #ffffff;
+  --card-foreground: #202b35;
+  --popover: #ffffff;
+  --popover-foreground: #202b35;
+  --primary: #285b50;
+  --primary-foreground: #ffffff;
+  --secondary: #e8edef;
+  --secondary-foreground: #202b35;
+  --muted: #eef2f4;
+  --muted-foreground: #52616e;
+  --accent: #e5edeb;
+  --accent-foreground: #202b35;
+  --destructive: #ad3038;
+  --destructive-foreground: #ffffff;
+  --border: #cbd4da;
+  --input: #bbc8cf;
+  --ring: #236859;
+  --sidebar: #edf2f2;
+  --sidebar-foreground: #202b35;
+  --sidebar-primary: #236859;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dceae5;
+  --sidebar-accent-foreground: #244f43;
+  --sidebar-border: #cbd4da;
+  --sidebar-ring: #236859;
+  --nav-foreground: #475a65;
+  --selected-border: #236859;
+  --avatar-background: #e0e8eb;
+  --avatar-border: #bbc8cf;
+  --selected-row: #e3eeea;
+  --success: #28613b;
+  --warning: #795514;
+  --info: #285f99;
+  --warning-background: #fbf2df;
+  --warning-border: #c1a464;
+  --drawer-overlay: #0009;
 }
 @layer base {
   * {

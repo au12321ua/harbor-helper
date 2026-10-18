@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { post, type User } from "@/api";
 import { ErrorNotice } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
     [busy, setBusy] = useState(false);
   return (
     <div className="login-page">
+      <ThemeToggle />
       <div className="login-brand">
         <HarborMark />
         <span>Harbor Helper</span>

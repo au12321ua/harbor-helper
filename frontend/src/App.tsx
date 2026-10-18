@@ -5,7 +5,7 @@ import { Login } from "@/features/account/Login";
 import { SetupPage } from "@/features/account/SetupPage";
 import { LoaderCircle } from "lucide-react";
 import { BrowserRouter } from "react-router-dom";
-import { Toaster } from "sonner";
+import { ThemeToaster } from "@/components/ThemeToaster";
 import "./App.css";
 export default function App() {
   const { user, setUser, loading, setup, setSetup, failure, setFailure } =
@@ -41,7 +41,7 @@ export default function App() {
           ) : null}
         </>
       )}
-      <Toaster theme="dark" position="bottom-right" richColors />
+      <ThemeToaster />
     </BrowserRouter>
   );
 }
