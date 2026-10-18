@@ -8,9 +8,39 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
+import httpx
 from harbor.models.task.id import PackageTaskId
 
 from harbor_helper.service.primitives import ServiceError
+
+
+def source_error(error):
+    chain = []
+    while error is not None and all(error is not item for item in chain):
+        chain.append(error)
+        error = error.__cause__ or error.__context__
+    names = {type(item).__name__ for item in chain}
+    if names & {
+        "NotAuthenticatedError",
+        "InvalidAPIKeyError",
+        "RevokedAPIKeyError",
+        "ApiKeyRejectedError",
+    }:
+        return {
+            "error": "source_auth",
+            "message": "Hub 认证失败；管理员检查团队来源凭据是否有效、过期或已撤销后重新验证",
+        }
+    if "AuthenticationError" in names or any(
+        isinstance(item, (httpx.RequestError, OSError, TimeoutError)) for item in chain
+    ):
+        return {
+            "error": "source_network",
+            "message": "无法连接 Hub 或认证服务；部署管理员检查服务的出网代理、DNS、证书与网络后重试。无需因此修改数据集版本",
+        }
+    return {
+        "error": "source_access",
+        "message": "Hub 版本或任务不可访问；管理员检查包版本与共享权限后重新验证",
+    }
 
 
 def source_call(reference, *, key=None, target=None, task=None, selected_tasks=None):
@@ -158,19 +188,7 @@ def _main(leases, writer):
                 )
             )
             sys.exit(1)
-        code = (
-            "source_auth"
-            if name in {"NotAuthenticatedError", "InvalidAPIKeyError", "RevokedAPIKeyError"}
-            else "source_access"
-        )
-        print(
-            json.dumps(
-                {
-                    "error": code,
-                    "message": "Hub 版本或任务不可访问；管理员检查团队来源凭据、包版本与共享权限后重新验证",
-                }
-            )
-        )
+        print(json.dumps(source_error(error)))
         sys.exit(1)
 
 

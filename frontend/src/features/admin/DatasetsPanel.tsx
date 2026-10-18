@@ -133,8 +133,10 @@ export function DatasetsPanel({
               },
               {
                 name: "reference",
-                label: "Hub 来源（owner/name@版本）",
+                label: "Hub 来源（owner/name，可指定版本）",
                 defaultValue: edit.dataset?.reference,
+                description:
+                  "例如 harbor/hello-world@1；网页 rev.1 对应 @1。支持 @latest、@标签或完整 @sha256:摘要，省略版本使用 latest。验证解析具体来源，提交实验时冻结。",
               },
               {
                 name: "enabled",

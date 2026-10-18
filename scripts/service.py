@@ -58,6 +58,11 @@ def unit_text(base, record, part):
             str(base / "private/master.key"),
         ]
 
+    launcher = code / "scripts/service_environment.py"
+    if launcher.is_file():
+        # Older fixed releases retain their exact unit template during validation.
+        argv = [argv[0], "-I", str(launcher), str(base), *argv[1:]]
+
     # systemd quoting, including literal specifiers and dollar signs.
     def quote(value):
         return (

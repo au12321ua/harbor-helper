@@ -8,6 +8,9 @@ import time
 import uuid
 from typing import cast
 
+from harbor.models.package.reference import PackageReference
+from harbor.models.package.version_ref import RefType, validate_tag
+
 from harbor_helper.execution.config import reject_secrets
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.persistence.wakeup import wake_after
@@ -130,10 +133,25 @@ class TeamConfiguration:
         value = {**value, "enabled": value.get("enabled", True), "status": "unverified"}
         if type(value["enabled"]) is not bool:
             raise ServiceError("catalog_options", "Enabled must be boolean")
-        if not isinstance(value.get("reference"), str) or not re.fullmatch(
-            r"[\w.-]+/[\w.-]+@(?:[1-9][0-9]*|sha256:[0-9a-f]{64})", value["reference"]
-        ):
-            raise ServiceError("dataset_reference", "数据集须指定 owner/name@版本")
+        try:
+            if not isinstance(value.get("reference"), str):
+                raise TypeError
+            reference = PackageReference.parse(value["reference"].strip())
+            parsed = reference.parsed_ref
+            if parsed.type == RefType.DIGEST:
+                if not re.fullmatch(r"sha256:[0-9a-f]{64}", parsed.value):
+                    raise ValueError
+            elif parsed.type == RefType.REVISION:
+                if parsed.revision < 1:
+                    raise ValueError
+            else:
+                validate_tag(parsed.value)
+            value["reference"] = str(reference)
+        except (ValueError, TypeError):
+            raise ServiceError(
+                "dataset_reference",
+                "填写 owner/name，可加 @修订号（rev.1 对应 @1）、@标签或完整 @sha256:摘要；省略版本使用 latest",
+            ) from None
         return self.persist(kind, value)
 
     def verify(self, kind, object_id):

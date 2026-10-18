@@ -564,7 +564,7 @@ for (const kind of ["provider", "dataset"] as const) {
       dataset: {
         tab: "数据集",
         button: "编辑",
-        label: "Hub 来源（owner/name@版本）",
+        label: "Hub 来源（owner/name，可指定版本）",
         value: "team/changed@2",
         path: "/admin/catalog/dataset",
         list: "datasets",

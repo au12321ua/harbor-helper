@@ -73,7 +73,7 @@ systemd 安装实例的引导文件位于 `<实例目录>/private/setup-token`�
 
 1. **就绪与来源**：命名团队；私有 Hub 包输入团队 PAT。只写入加密保存，明确选择团队来源，不继承维护者 HOME 登录。停用后按匿名来源访问公开包。保存凭据不等于认证成功。
 2. **Docker 诊断**：只读查看服务端 Docker 连接及镜像库存；不配置统一业务镜像，不建立镜像与数据集的适配关系。
-3. **数据集**：命名来源，填写 `owner/name@版本`，保存后验证权限与任务清单，选择默认。无需 `runtime_id`。提交下载并校验 digest、保留作者任务快照；轮到执行时由 Harbor 按原 Dockerfile、Compose 和镜像声明处理依赖。作者默认变量照原样解析，缺少作者依赖则如实失败，不注入替代镜像。来源验证不保证环境依赖可用。
+3. **数据集**：命名来源，填写 `owner/name`，可加 `@修订号`、`@标签` 或完整 `@sha256:摘要`；Hub 网页的 `rev.1` 对应 `@1`，`@0.1.0` 是标签且须已发布，省略版本使用 `latest`。保存后验证权限与任务清单、解析具体 digest，选择默认；提交实验时使用该已验证来源，标签后续移动不改变已有实验。无需 `runtime_id`。提交下载并校验 digest、保留作者任务快照；轮到执行时由 Harbor 按原 Dockerfile、Compose 和镜像声明处理依赖。作者默认变量照原样解析，缺少作者依赖则如实失败，不注入替代镜像。来源验证不保证环境依赖可用。
 4. **模型与 key**：按名称配置提供商、团队 key 与模型方案。内部 ID 自动生成，编辑载入现值；常用参数有控件，JSON 留高级区。多 key 明确绑定、轮换与停用仍保留；保存不发送真实模型请求，不声称认证或推理成功。
 5. **受邀账户**：创建成员、重置密码及启停；成员从账户页修改密码，改密会撤销现有会话。无公开注册。
 
@@ -268,6 +268,16 @@ unit 使用 `KillMode=mixed`、`Restart=on-failure`、270 秒停止预算；sche
 当前安装器使用用户级 systemd。用户 manager 自启需要部署者配置 linger；`--runtime` 只用于隔离验证，重启后 unit 不保留。用户级 unit 无法对系统级 `docker.service` 建立有效的关机顺序依赖：主机部署须保证 Docker 可用至应用清理结束（例如系统级关机编排先调用本实例 stop）。不支持将用户 unit 的 `After=docker.service` 当成跨 manager 保证。Docker 先退出、硬掉电或外部强停时可能留下清理记录；下次启动继续对账，不能承诺关机前必然释放。
 
 ### 明确升级、备份与回退
+
+服务不会继承登录终端的代理或凭据。需要代理时，由部署管理员创建实例的 `private/network.json`（所属用户、0600），例如：
+
+```json
+{"HTTPS_PROXY":"http://127.0.0.1:7890","HTTP_PROXY":"http://127.0.0.1:7890","NO_PROXY":"localhost,127.0.0.1,::1"}
+```
+
+只允许大小写代理变量 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY` 与 `SSL_CERT_FILE/SSL_CERT_DIR`。HTTP 和 scheduler 启动时从文件加载，代理值不写进 unit、命令参数或应用日志。修改后用实例管理器先 stop 再 start；有未完成实验时先正常维护排空。文件留在 release 之外，升级保留；主机备份需另外保全此网络配置。它只配置服务进程出网，不改变作者容器的网络、Docker daemon 或镜像构建代理。
+
+首次从没有网络启动器的旧安装升级时，使用目标源码的 `python3 /path/to/reviewed-checkout/scripts/service.py upgrade ...`，它会按旧 release 核对原 unit，并生成新启动器的 unit、更新安装管理器；后续继续用安装后的 `manager/service.py`。
 
 ```bash
 python3 /absolute/private/hh-team/manager/service.py upgrade \

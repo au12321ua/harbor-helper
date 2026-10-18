@@ -215,6 +215,39 @@ def test_verification_does_not_overwrite_concurrent_edits(web, monkeypatch):
     assert data.object("dataset", dataset["id"])["reference"] == "team/data@2"
 
 
+@pytest.mark.parametrize("ref", ["team/data", "team/data@latest", "team/data@0.1.0", "team/data@1"])
+def test_native_dataset_references_resolve_and_freeze_digest(web, ref):
+    data, app, client = web
+    response = client.post(
+        "/api/v1/admin/catalog/dataset", headers=WRITE, json={"name": "Native", "reference": ref}
+    )
+    assert response.status_code == 200
+    dataset = response.json()
+    assert dataset["reference"] == (ref if "@" in ref else ref + "@latest")
+    checked = client.post(
+        f"/api/v1/admin/catalog/dataset/{dataset['id']}/verify", headers=WRITE
+    ).json()
+    assert checked["status"] == "verified" and checked["resolved"] == SOURCE
+    submission = app.accept(
+        data.users()[1],
+        {"dataset_id": dataset["id"], "task": "answer", "agent": "oracle"},
+        "native-ref",
+    )
+    assert data.submission(submission["id"])["frozen"]["effective"]["dataset"] == SOURCE
+
+
+@pytest.mark.parametrize(
+    "ref", ["team", "team/data@0", "team/data@sha256:abc", "team/data@bad tag", "../data@1"]
+)
+def test_invalid_dataset_references_explain_supported_formats(web, ref):
+    _, _, client = web
+    response = client.post(
+        "/api/v1/admin/catalog/dataset", headers=WRITE, json={"name": "Invalid", "reference": ref}
+    )
+    assert response.status_code == 422
+    assert "rev.1" in response.text and "latest" in response.text
+
+
 def test_automatic_model_ids_binding_edit_and_no_key_echo(web):
     data, app, client = web
     provider = client.post(

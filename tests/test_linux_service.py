@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -155,6 +157,82 @@ def test_generated_working_directory_is_absolute_unquoted(manager, installed):
     assert "Restart=on-failure" in text and "KillMode=mixed" in text
 
 
+def test_network_launcher_passes_explicit_transport_without_credentials(
+    manager, installed, monkeypatch
+):
+    base, record, _, _ = installed
+    launcher = Path(manager.__file__).with_name("service_environment.py")
+    (base / "private/network.json").write_text(
+        json.dumps({"HTTPS_PROXY": "http://synthetic:proxy-secret@127.0.0.1:9"})
+    )
+    (base / "private/network.json").chmod(0o600)
+    release_launcher = base / "releases" / record["release"] / "scripts/service_environment.py"
+    release_launcher.parent.mkdir()
+    release_launcher.write_bytes(launcher.read_bytes())
+    text = manager.unit_text(base, record, "http")
+    assert str(release_launcher) in text and "proxy-secret" not in text
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(launcher),
+            str(base),
+            "-c",
+            "import os,json;print(json.dumps(dict(os.environ)))",
+        ],
+        env={
+            "PATH": os.defpath,
+            "HARBOR_API_KEY": "not-inherited",
+            "OPENAI_API_KEY": "not-inherited",
+        },
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    env = json.loads(result.stdout)
+    assert env["HTTPS_PROXY"] == "http://synthetic:proxy-secret@127.0.0.1:9"
+    assert env["HOME"] == str(base / "home")
+    assert "HARBOR_API_KEY" not in env and "OPENAI_API_KEY" not in env
+    # Malformed/unsafe configuration fails closed without printing its contents.
+    for value in ('{"HARBOR_API_KEY":"proxy-secret"}', '{"HTTPS_PROXY":"proxy-secret"'):
+        (base / "private/network.json").write_text(value)
+        result = subprocess.run(
+            [sys.executable, "-I", str(launcher), str(base), "-c", "print('must-not-start')"],
+            env={"PATH": os.defpath},
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 1 and "must-not-start" not in result.stdout
+        assert "proxy-secret" not in result.stderr
+
+
+def test_network_configuration_is_optional_and_rejects_public_or_symlink_files(manager, installed):
+    base, _, _, _ = installed
+    launcher = Path(manager.__file__).with_name("service_environment.py")
+    argv = [sys.executable, "-I", str(launcher), str(base), "-c", "print('started')"]
+    assert (
+        subprocess.run(argv, env={"PATH": os.defpath}, capture_output=True, check=False).returncode
+        == 0
+    )
+    path = base / "private/network.json"
+    path.write_text("{}")
+    path.chmod(0o644)
+    assert (
+        subprocess.run(argv, env={"PATH": os.defpath}, capture_output=True, check=False).returncode
+        == 1
+    )
+    path.unlink()
+    target = base / "private/other"
+    target.write_text("{}")
+    target.chmod(0o600)
+    path.symlink_to(target)
+    assert (
+        subprocess.run(argv, env={"PATH": os.defpath}, capture_output=True, check=False).returncode
+        == 1
+    )
+
+
 @pytest.mark.parametrize("failure", ["backup", "restore", "post-restore-write"])
 def test_upgrade_failure_before_switch_keeps_units_and_manifest(
     manager, installed, monkeypatch, failure
@@ -230,6 +308,13 @@ def test_successful_upgrade_releases_lease_before_observation(manager, installed
         source = Path(manager.__file__).with_name(name)
         shutil.copyfile(source, scripts / name)
         (base / "manager" / name).write_text("previous manager")
+    shutil.copyfile(
+        Path(manager.__file__).with_name("service_environment.py"),
+        scripts / "service_environment.py",
+    )
+    network = base / "private/network.json"
+    network.write_text("{}")
+    network.chmod(0o600)
     monkeypatch.setattr(manager, "release", lambda *_: candidate)
 
     def observe(*_):
@@ -248,6 +333,11 @@ def test_successful_upgrade_releases_lease_before_observation(manager, installed
     assert json.loads((base / "state/release.json").read_text())["release"] == candidate
     assert (base / "manager/service.py").read_bytes() == (scripts / "service.py").read_bytes()
     assert (base / "releases" / record["release"]).exists()
+    assert network.read_text() == "{}"
+    assert (
+        "service_environment.py" in (base / "units" / manager.unit_name(record, "http")).read_text()
+    )
+    manager.validate(base, json.loads((base / "instance.json").read_text()))
 
 
 def test_default_uninstall_then_same_release_reinstall_and_later_purge(
