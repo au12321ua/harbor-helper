@@ -79,7 +79,7 @@ Description=Harbor Helper {record["instance"]} {part}
 After=network.target
 [Service]
 Type=simple
-WorkingDirectory={quote(code)}
+WorkingDirectory={code}
 ExecStart={" ".join(quote(a) for a in environment)}
 Restart=on-failure
 RestartSec=5
