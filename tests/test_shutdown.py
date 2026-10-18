@@ -125,3 +125,24 @@ def test_http_admin_only_and_no_scheduler_spawn(instance, monkeypatch):
             ).status_code
             == 409
         )
+
+
+def test_sigterm_preserves_inflight_preparation_without_cancelling(instance):
+    p = instance
+    hold = p.data.root / "prepare-hold"
+    hold.touch()
+    submission = p.submit(oracle=True)
+    # Preparation has entered IO; it must be joined before normal scheduler exit.
+    import time
+
+    time.sleep(0.2)
+    p.child.send_signal(signal.SIGTERM)
+    time.sleep(0.2)
+    assert p.child.poll() is None
+    hold.unlink()
+    p.child.wait(timeout=15)
+    row = p.data.submission(submission["id"])
+    assert row["status"] == "ready" and row["cancel"] == 0
+    assert p.data.store.get(row["run_id"])["status"] == "queued"
+    p.start()
+    assert p.terminal(row["run_id"])["status"] == "succeeded"

@@ -156,7 +156,11 @@ class Controller:
                     ]
             if self.stopping:
                 for row in rows:
-                    if row["status"] in ACTIVE and not row["finish_status"]:
+                    if (
+                        row["status"] in ACTIVE
+                        and not row["finish_status"]
+                        and not (store.path(row["id"]) / "outcome.json").exists()
+                    ):
                         store.update(
                             row["id"],
                             finish_status=status.CANCELLED,
@@ -178,6 +182,8 @@ class Controller:
                 team = load_team(store)
                 slots = sum(r["concurrency"] for r in active)
                 for row in rows:
+                    if self.stopping:
+                        break
                     if row["status"] == status.QUEUED:
                         if row["cancel"]:
                             store.update(
@@ -218,7 +224,7 @@ class Controller:
                         if has_submissions
                         else None
                     )
-                if preparing and self.available(self.preparation, "prepare"):
+                if preparing and not self.stopping and self.available(self.preparation, "prepare"):
                     from harbor_helper.service.lifecycle import prepare_one
 
                     self.preparation.submit("prepare", prepare_one, store)
@@ -349,6 +355,8 @@ class Controller:
         with log:
             # Opening the per-run log can fail independently of authorization.
             # Reserve capacity only after all pre-spawn record reads have succeeded.
+            if self.stopping:
+                return False
             store.update(key, status=status.STARTING, started=time.time())
             child = subprocess.Popen(
                 [
@@ -407,10 +415,12 @@ def supervise(root):
             if not stopping.is_set():
                 write_json(root / "scheduler-stop.json", identity)
             stopping.set()
+            if controller is not None:
+                controller.stopping = True
             notify(root)
 
-        previous = signal.signal(signal.SIGTERM, stop)
         controller = None
+        previous = signal.signal(signal.SIGTERM, stop)
         try:
             store = Store(root)
             from harbor_helper.service.shutdown import intent
