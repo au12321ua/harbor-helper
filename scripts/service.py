@@ -20,8 +20,14 @@ import ops
 
 
 def systemctl(*arguments):
+    environment = dict(os.environ)
+    environment.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     return subprocess.run(
-        ["systemctl", "--user", *map(str, arguments)], check=True, text=True, capture_output=True
+        ["systemctl", "--user", *map(str, arguments)],
+        env=environment,
+        check=True,
+        text=True,
+        capture_output=True,
     ).stdout.strip()
 
 
