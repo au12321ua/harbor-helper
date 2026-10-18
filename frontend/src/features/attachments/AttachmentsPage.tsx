@@ -94,9 +94,9 @@ export function AttachmentsPage({ user }: { user: User }) {
       <ErrorNotice error={error || failure} />
       <Card>
         <CardHeader>
-          <CardTitle>发布与登记</CardTitle>
+          <CardTitle>发布附件版本</CardTitle>
           <CardDescription>
-            派生也须上传自己的 ZIP。历史上传创建者未知，登记只记录登记者。
+            新建、发布与派生均须上传 ZIP；已发布版本的内容保持不变。
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -220,9 +220,17 @@ export function AttachmentsPage({ user }: { user: User }) {
                   id="attachment-file"
                   type="file"
                   accept=".zip,application/zip"
+                  aria-describedby="attachment-layout"
                   required
                   onChange={(e) => setFile(e.target.files?.[0])}
                 />
+                <p
+                  id="attachment-layout"
+                  className="text-muted-foreground break-words"
+                >
+                  ZIP 根目录仅支持 skills/、sdk/、config/opencode.json 和
+                  bootstrap.sh，可按需包含。请直接压缩这些内容，不要再套附件名称等外层目录。
+                </p>
               </Field>
               <p className="text-muted-foreground break-all">
                 幂等键：{key}。通信失败保留原输入与原键重试，或查回。

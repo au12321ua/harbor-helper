@@ -56,9 +56,14 @@ class Bundles:
                         with z.open(entry) as source, target.open("xb") as output:
                             shutil.copyfileobj(source, output)
                         target.chmod(0o700 if mode & 0o111 else 0o600)
-            from harbor_helper.execution.bundles import check_bundle
+            from harbor_helper.execution.bundles import BundleLayoutError, check_bundle
 
-            check_bundle(path, access_value)
+            try:
+                check_bundle(path, access_value)
+            except BundleLayoutError as error:
+                # Only fixed layout messages are public; arbitrary validation
+                # errors may contain configuration values and stay redacted.
+                raise ServiceError("invalid_operation", str(error)) from None
             sha = tree_digest(path)
             # Publish durable bytes before committing the metadata pointing at them.
             for file in path.rglob("*"):

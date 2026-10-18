@@ -288,6 +288,34 @@ def test_http_member_shared_versions_lookup_and_exclusive_reference(data):
     assert leak.status_code == 422 and token not in leak.text
 
 
+def test_http_wrapped_zip_explains_layout_without_committing_and_can_retry(data):
+    signed_in = client(data)
+    headers = {"X-Requested-With": "harbor-helper", "Idempotency-Key": "layout-retry"}
+    metadata = {"metadata": json.dumps({"name": "SDK input"})}
+    failed = signed_in.post(
+        "/api/v1/attachments",
+        headers=headers,
+        data=metadata,
+        files={"file": ("input.zip", archive(name="attachments/sdk-v1/sdk/tool.py"))},
+    )
+    assert failed.status_code == 422
+    assert failed.json()["code"] == "invalid_operation"
+    assert "ZIP 根目录" in failed.json()["message"]
+    assert "去掉外层目录" in failed.json()["message"]
+    assert signed_in.get("/api/v1/attachments").json()["attachments"] == []
+    assert not list((data.root / "bundles").iterdir())
+    missing = signed_in.get("/api/v1/attachment-operations/attachment_create/layout-retry")
+    assert missing.status_code == 404
+    retried = signed_in.post(
+        "/api/v1/attachments",
+        headers=headers,
+        data=metadata,
+        files={"file": ("input.zip", archive(name="sdk/tool.py"))},
+    )
+    assert retried.status_code == 201, retried.text
+    assert retried.json()["version"]["availability"] == "available"
+
+
 @pytest.mark.parametrize("phase", ["before_commit", "after_commit"])
 def test_process_death_atomic_visibility_and_retry(data, tmp_path, phase):
     script = tmp_path / "crash.py"
