@@ -176,6 +176,10 @@ def maintenance(base, record, args):
     run_python(base, record, REQUEST, args.mode)
     if args.mode == "abort":
         return False
+    if json.loads(run_python(base, record, OBSERVE))["intent"]["phase"] != "complete":
+        # This explicit host operation may start its owned scheduler to advance
+        # the persisted decision; ordinary HTTP never supervises processes.
+        systemctl("start", unit_name(record, "scheduler"))
     deadline = time.monotonic() + args.wait_seconds
     while time.monotonic() < deadline:
         value = json.loads(run_python(base, record, OBSERVE))

@@ -558,8 +558,10 @@ def execution_quiescence(base, data):
     clean = []
     for row in data["runs"]:
         path = plain(base / "state/runs" / safe_id(row["id"]))
-        if (path / "projects.json").exists():
-            projects = read_json(path / "projects.json")
+        if (path / "projects.json").exists() or row.get("started") is not None:
+            projects = (
+                read_json(path / "projects.json") if (path / "projects.json").exists() else []
+            )
             cleanup = read_json(path / "cleanup.json") if (path / "cleanup.json").exists() else {}
             require(
                 cleanup.get("confirmed") is True
@@ -655,6 +657,7 @@ RUNTIME_ENTRIES = {
     "queue.sqlite-journal",
     "control.lock",
     "writer.lock",
+    "preparation.lock",
     "scheduler.json",
     "supervisor.lock",
     "scheduler.wake",
@@ -846,6 +849,7 @@ def backup(args, *, writer=None):
                     "queue.sqlite-journal",
                     "control.lock",
                     "writer.lock",
+                    "preparation.lock",
                     "scheduler.json",
                     "supervisor.lock",
                     "scheduler.wake",
@@ -1015,6 +1019,7 @@ def restore(args):
             "supervisor.lock",
             "control.lock",
             "writer.lock",
+            "preparation.lock",
             "scheduler.wake",
             "scheduler-stop.json",
         ):

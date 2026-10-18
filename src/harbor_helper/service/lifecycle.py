@@ -1,6 +1,9 @@
 """Persistent input preparation and evidence-retention maintenance."""
 
+import fcntl
+import os
 import shutil
+import stat
 import time
 
 from harbor_helper.execution.config import load_team
@@ -14,6 +17,29 @@ from harbor_helper.service.primitives import ServiceError
 
 
 def prepare_one(store):
+    """Only one preparer may touch unpublished input paths, including across processes."""
+    fd = os.open(
+        store.root / "preparation.lock",
+        os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK,
+        0o600,
+    )
+    with os.fdopen(fd, "r+b") as lock:
+        meta = os.fstat(fd)
+        if (
+            not stat.S_ISREG(meta.st_mode)
+            or meta.st_uid != os.getuid()
+            or meta.st_mode & 0o077
+            or meta.st_nlink != 1
+        ):
+            raise ValueError("Preparation lock requires an owned private regular file")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        _prepare_one(store)
+
+
+def _prepare_one(store):
     """Single scheduler prepares immutable inputs without holding global control lock.
 
     target_id is persisted before IO; restart reconciles a committed run or safely

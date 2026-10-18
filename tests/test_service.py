@@ -667,3 +667,42 @@ def test_run_observation_does_not_mask_global_storage_failures(
         response = c.get("/api/v1/" + route)
         assert response.status_code == 503
         assert "private-marker" not in response.text and str(path) not in response.text
+
+
+def test_concurrent_preparers_do_not_remove_published_or_inflight_input(
+    data, preparation, monkeypatch
+):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from harbor_helper.service import sources
+
+    accepted = accept_model(data)
+    original = sources.source_call
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def held(*args, **kwargs):
+        calls.append(1)
+        entered.set()
+        assert release.wait(10)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sources, "source_call", held)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(prepare_one, data.store)
+        try:
+            assert entered.wait(10)
+            rid = data.submission(accepted["id"])["target_id"]
+            sentinel = data.store.root / "runs" / rid / "preparation-sentinel"
+            sentinel.write_text("first preparer owns this path")
+            prepare_one(data.store)
+            assert sentinel.read_text() == "first preparer owns this path"
+            assert len(calls) == 1
+        finally:
+            release.set()
+        first.result(timeout=10)
+    assert data.submission(accepted["id"])["status"] == "ready"
+    manifest = (data.store.path(rid) / "manifest.json").read_bytes()
+    prepare_one(data.store)
+    assert (data.store.path(rid) / "manifest.json").read_bytes() == manifest
