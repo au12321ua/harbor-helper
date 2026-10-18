@@ -18,7 +18,7 @@ python3 /absolute/private/hh-team/manager/service.py status --directory /absolut
 
 HTTP 与 scheduler 为独立 unit；`--part http` 或 `--part scheduler` 可单独启停。HTTP 启动及首次设置不会派生 scheduler；未初始化的 scheduler 等待网页设置完成。`start` 始终使用已安装 release，不会因 Git HEAD 改变而升级。
 
-正常维护请在管理员网页“团队管理 → 容量与维护”走两阶段停止：先明确关闭新受理，再等待全部已受理任务结束，或明确取消全部未完成任务并清理资源。可退出等待，入口仍关闭。主机脚本入口：
+正常维护请在管理员网页“团队管理 → 容量与保留”走两阶段停止：先明确关闭新受理，再等待全部已受理任务结束，或明确取消全部未完成任务并清理资源。可退出等待，入口仍关闭。主机脚本入口：
 
 ```bash
 python3 /absolute/private/hh-team/manager/service.py maintain --directory /absolute/private/hh-team --close-admissions --mode wait --wait-seconds 3600
@@ -31,7 +31,9 @@ python3 /absolute/private/hh-team/manager/service.py stop --directory /absolute/
 
 升级、备份恢复、卸载及 systemd 限制见[Web 服务指南](#linux-生命周期与维护)。旧 `start-local.sh` 现在转发同一生命周期管理器，使用相同参数；不会隐式选择新发布。
 
-## 管理员首次启动
+## 开发与手动启动（非 systemd 安装）
+
+本节用于源码开发或临时手动验证，不安装 systemd 服务。正式安装实例按上面的 [Linux 服务安装与管理](#linux-服务安装与管理)启动，随后直接在网页完成[管理员首次设置](#管理员首次设置)；不要同时对该实例的 state 启动下列手动进程。
 
 在项目根目录安装 Python 依赖并构建页面：
 
@@ -45,13 +47,13 @@ cd ..
 
 构建产物进入 Python 包的 static 目录；生产使用同一 HTTP 服务提供页面与 API，不需要运行 Vite。构建详情见 [前端说明](../../frontend/README.md)。
 
-部署负责人用全新的独立 state 启动服务即可显示首次网站设置，无需先在终端创建管理员：
+手动验证使用全新的独立 state，启动 HTTP 即可显示首次网站设置，无需先在终端创建管理员：
 
 ```bash
 uv run harbor-helper service serve \
-  --root /srv/harbor-helper/service \
-  --setup-token-file /srv/harbor-helper-private/setup-token \
-  --master-key-file /srv/harbor-helper-private/master.key \
+  --root "$HOME/harbor-helper/service" \
+  --setup-token-file "$HOME/harbor-helper-private/setup-token" \
+  --master-key-file "$HOME/harbor-helper-private/master.key" \
   --host 127.0.0.1 --port 8000
 ```
 
@@ -61,7 +63,11 @@ uv run harbor-helper service serve \
 uv run harbor-helper service scheduler --root "$HOME/harbor-helper/service"
 ```
 
-引导凭证不存在时由服务自动生成 owner-only 文件；手动 `service serve` 只提示文件位置。一条命令入口仅在交互终端、实例尚未初始化时显示引导值，重定向输出只给本机路径。部署负责人通过受保护渠道交付该凭证与网址；管理员在网页填写首账户、密码和团队名称。首次设置完成后接口关闭，不允许再注册账户；重复与并发设置只能成功一次。引导文件和主密钥都必须在 state 外，属于部署持久材料；主密钥是 32 随机 bytes、0600，仅用于加密，不通过网站回显。未显式给路径时，它们位于 state 同级的 `.<state目录名>-deployment/`。备份时须同时保全 state 与外置主密钥；不得将密钥或引导凭证提交 Git。
+## 管理员首次设置
+
+systemd 安装实例的引导文件位于 `<实例目录>/private/setup-token`，主密钥位于 `<实例目录>/private/master.key`。开发/手动模式使用上节显式指定的外置路径；未指定时，默认位于 state 同级的 `.<state目录名>-deployment/`。引导凭证不存在时由 HTTP 自动生成 owner-only 文件，安装管理器与 `service serve` 只提示文件位置。部署负责人在受保护终端读取并通过私下渠道交付凭证与网址，勿贴入群聊、命令参数或 Git。
+
+管理员在网页填写首账户、密码和团队名称。首次设置完成后接口关闭，不允许再注册账户；重复与并发设置只能成功一次。引导文件和主密钥都必须在 state 外，属于部署持久材料；主密钥是 32 随机 bytes、0600，仅用于加密，不通过网站回显。备份时须同时保全 state 与外置主密钥；不得将密钥或引导凭证提交 Git。
 
 管理员随后在网页完成业务配置：
 
@@ -148,29 +154,15 @@ HTTP 不管理 scheduler 进程。关闭浏览器、成员终端或 HTTP 不停�
 
 ## 完整停机
 
-关闭网页不停止任务；前台`serve`的Ctrl-C只停HTTP。重新启动同一 state 的 HTTP 仅恢复观察，scheduler 由独立入口管理；不要重新初始化或生成新 master。
+systemd 安装实例按 [Linux 生命周期与维护](#linux-生命周期与维护)操作：管理员网页或 `manager/service.py maintain` 先关闭新受理，再明确等待或取消全部未完成任务；确认停止流程 complete、资源释放后，执行 `manager/service.py stop --directory /absolute/private/hh-team`。备份和升级使用同一管理器的 `upgrade` 流程，不能把服务退出当成已取得一致备份。
 
-部署负责人需要完整停机时：管理员先在“团队管理→容量与保留”暂停新受理并填写安全原因/可选建议重试时间；确认网页受理状态为暂停（重启保持），在网页确认所有受理与run终态，等待或取消自己的未终态；管理员可取消任何人的任务。准备中、queued/running、取消收尾和cleanup_blocked都要处理。先停止HTTP（前台Ctrl-C；后台部署按自己的进程管理器停止该HTTP），阻止继续提交；然后对**已存在的专用服务state**执行下面的空闲调度器停止检查。目录替换成该部署实际路径，维护已有部署须先核对进程归属，不按历史PID操作。
+### 开发与手动模式的停止
 
-```bash
-uv run python - /absolute/path/to/service-state <<'PY_STOP'
-import sys
-from pathlib import Path
-from harbor_helper.persistence.store import Store
-from harbor_helper.execution.runs import stop_supervisor
+以下仅适用于本指南的开发/手动启动模式。关闭网页不停止任务；前台 `serve` 的 Ctrl-C 只停 HTTP。需要正常排空时，保持 HTTP 和 scheduler 运行，在管理员网页“团队管理 → 容量与保留”关闭新受理，明确选择等待全部结束或取消全部。准备中、queued/running、取消收尾和 cleanup_blocked 都须处理；只有停止流程 complete、实际资源释放且 scheduler 正常退出后，再在 HTTP 终端按 Ctrl-C。
 
-root = Path(sys.argv[1]).expanduser().resolve()
-if not (root / "service.json").is_file():
-    raise SystemExit("Choose an existing service state; no initialization performed")
-store = Store(root)
-with store.control():
-    print(stop_supervisor(store))
-PY_STOP
-```
+在 scheduler 前台终端直接按 Ctrl-C 或发送 SIGTERM 使用[非交互停止语义](#非交互停止与异常恢复)：中断执行并尝试清理，保留 queued/未发布 preparing，不改维护开关。这不等于正常向导已完成。再次观察或继续处理时，使用同一 state 和原主密钥分别重启手动 HTTP/scheduler，不要重新初始化或生成新 master，不按历史 PID 操作。
 
-这是部署维护调用，不是成员登录或日常配置步骤。函数会拒绝未终态run或preparing受理，并按PID/birth确认空闲调度器退出；拒绝时不要强杀或宣布资源已释放，使用同state重启HTTP处理队列后再维护。停止结果不替代受理、资源及证据审计核对。操作不修改历史实验；不使用全机prune或删除公共缓存。
-
-确认没有HTTP、调度器、worker和准备/下载子进程写者后，再按上方“队列、备份与审计”协调state与外置原master的备份。恢复时保持原路径/权限和凭据版本；完整灾备演练须单独验证。
+手动备份仍须确认全部 HTTP、scheduler、worker 和准备/下载子进程写者退出，按[离线备份与恢复检查](automation-ops-ci.md)核验一致性与原外置主密钥。服务停止或 PID 消失不替代资源、写者和备份检查。
 
 ## 当前执行准备契约
 
@@ -230,7 +222,7 @@ Docker 诊断页面点击“发现本机 Docker 与镜像”，只读取服务�
 
 调度器以 SQLite 持久状态配合本机 `scheduler.wake` FIFO 唤醒，端点须为当前用户拥有的 0600 FIFO，不能以普通文件或 symlink 替代。通知失败不撤销已提交操作，低频对账会恢复推进。新增 runs.finish_status/finish_reason 由 Store 幂等初始化，保存取消/超时等最终决定；仍使用 SQLite rollback journal。`scheduler-stop.json` 只属于瞬态停止握手；正常启停按 PID/birth 判定，不能复制它到恢复实例。
 
-停止仅允许空闲队列，在途审计/维护尚未退出时可能超过等待期限；“stop not confirmed”表示仍需等待并核对身份，不能据此强杀或宣称已停止。证据维护竞争时，产物删除可返回 evidence_busy（409），在线备份返回 deferred；释放控制锁后重试。
+正常维护等待期间，在途准备、执行或清理尚未结束时可能超过客户端等待期限；此时持久停止意图继续生效，不能据此强杀或宣称已停止。直接 stop 的中断语义见[非交互停止与异常恢复](#非交互停止与异常恢复)。证据维护竞争时，产物删除可返回 evidence_busy（409），在线备份返回 deferred；释放控制锁后重试。
 
 
 ## 外置主密钥升级与泄露轮换

@@ -39,9 +39,9 @@ python3 /absolute/private/hh-team/manager/service.py stop --directory /absolute/
 
 升级、备份恢复、卸载及 systemd 限制见[Web 服务指南](docs/guides/web-service.md#linux-生命周期与维护)。旧 `start-local.sh` 现在转发同一生命周期管理器，使用相同参数；不会隐式选择新发布。
 
-## 从干净环境启动 Web
+## 开发与手动启动 Web
 
-以下由部署负责人一次完成，在已取得源码的项目根目录执行。需要：
+以下用于源码开发或临时手动验证，不安装 systemd 服务。安装实例请使用上面的 [Linux 服务安装与管理](#linux-服务安装与管理)，不要对同一 state 再启动手动进程。在已取得源码的项目根目录执行，需要：
 
 - Linux、Python **3.12–3.13**、[uv](https://docs.astral.sh/uv/getting-started/installation/)。Harbor由锁文件安装为0.23.0。
 - Node.js **20.19及以上的20.x，或22.12及以上**、npm，用于构建网页。
@@ -55,7 +55,7 @@ npm run build
 cd ..
 ```
 
-构建写入`src/harbor_helper/static/`。HTTP 进程提供网页与 API；另一个终端独立运行 scheduler。生产推荐上面的 systemd 安装入口。下面的手动HTTP服务，它同时提供网页和相对`/api/v1`接口；不需要启动Vite或单独部署前端。
+构建写入`src/harbor_helper/static/`。手动 HTTP 进程提供网页与相对 `/api/v1` 接口；另一个终端独立运行 scheduler，不需要启动 Vite 或单独部署前端。
 
 选择全新服务目录和**state之外**的私有部署目录。下面是当前账号可写的示例；不要用已有服务目录重新初始化：
 
@@ -80,7 +80,7 @@ uv run harbor-helper service scheduler --root "$HOME/harbor-helper/service"
 
 ### 首次管理员设置
 
-上面的手动 `service serve` 会自动生成权限0600的引导凭证文件，只提示文件位置；一条命令入口在交互终端直接显示，重定向时只给路径。部署负责人在自己的受保护终端读取它，通过私下渠道交付管理员，勿贴到群聊、命令参数或Git：
+上面的手动 `service serve` 会自动生成权限0600的引导凭证文件，只提示文件位置。部署负责人在自己的受保护终端读取它，通过私下渠道交付管理员，勿贴到群聊、命令参数或Git：
 
 ```bash
 cat "$HOME/harbor-helper-private/setup-token"
@@ -100,9 +100,9 @@ cat "$HOME/harbor-helper-private/setup-token"
 
 ### 关闭与维护
 
-关闭浏览器不停止实验。上述前台终端`Ctrl-C`只停止HTTP，独立调度器及已受理任务继续；用同样的state和原主密钥重启`serve`可继续观察，**不要重新初始化**。
+关闭浏览器不停止实验。systemd 安装实例使用管理员网页的两阶段停止，或安装后 `manager/service.py maintain` 等待/取消全部已受理任务；确认资源释放、停止流程完成后，用 `manager/service.py stop --directory /absolute/private/hh-team` 停止本实例服务。准确命令、直接 stop 的中断语义及升级备份步骤见[Linux 生命周期与维护](docs/guides/web-service.md#linux-生命周期与维护)。
 
-完整停机由部署负责人停止接收新提交、等待或取消全部未终态任务并确认资源释放，停止HTTP后再停止该服务调度器；没有`service stop`命令。准确停机与备份步骤见[维护说明](docs/guides/web-service.md#完整停机)。这不是成员每天必做操作。
+仅在上述开发/手动模式中，前台 HTTP 终端的 `Ctrl-C` 只停止 HTTP，独立 scheduler 及已受理任务继续；使用同一 state 和原主密钥重启 `serve` 可继续观察，**不要重新初始化**。手动模式的停机步骤见[完整停机](docs/guides/web-service.md#完整停机)。维护由部署负责人执行，不是成员每天必做操作。
 
 ## 其他入口
 
