@@ -253,7 +253,13 @@ def test_successful_upgrade_releases_lease_before_observation(manager, installed
 def test_default_uninstall_then_same_release_reinstall_and_later_purge(
     manager, installed, monkeypatch
 ):
+    import shutil
+
     base, record, _, _ = installed
+    sources = Path(manager.__file__).parent
+    for name in ("service.py", "ops.py", "local_platform.py"):
+        shutil.copyfile(sources / name, base / "manager" / name)
+    monkeypatch.setattr(manager, "__file__", str(base / "manager/service.py"))
     state = (base / "state/queue.sqlite").read_bytes()
     master = (base / "private/master.key").read_bytes()
     monkeypatch.setattr(manager, "run_python", lambda *_: "{}")
@@ -266,7 +272,10 @@ def test_default_uninstall_then_same_release_reinstall_and_later_purge(
 
     def install(*_):
         # The real exporter stages below releases; uninstall removed that directory.
-        (base / "releases" / record["release"]).mkdir()
+        scripts = base / "releases" / record["release"] / "scripts"
+        scripts.mkdir(parents=True)
+        for name in ("service.py", "ops.py", "local_platform.py"):
+            shutil.copyfile(sources / name, scripts / name)
         return record["release"]
 
     monkeypatch.setattr(manager, "release", install)

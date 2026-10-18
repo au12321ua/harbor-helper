@@ -303,7 +303,10 @@ def main():
             )
             ops.write_json(base / "state/release.json", {"release": record["release"]})
             for filename in ("service.py", "local_platform.py", "ops.py"):
-                shutil.copyfile(Path(__file__).with_name(filename), base / "manager" / filename)
+                shutil.copyfile(
+                    base / "releases" / record["release"] / "scripts" / filename,
+                    base / "manager" / filename,
+                )
             units(base, record)
             for part in ("http", "scheduler"):
                 options = ["--runtime"] if record["runtime"] else []
