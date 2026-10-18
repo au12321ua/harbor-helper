@@ -142,7 +142,7 @@ class Controller:
         store = self.store
         master_error = None
         with store.quiet_control():
-            if not (store.root / "service.json").exists():
+            if not (store.root / "team.json").exists():
                 return
             if changed:
                 rows = store.work()
