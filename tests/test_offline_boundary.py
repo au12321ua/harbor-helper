@@ -89,7 +89,18 @@ def test_preexisting_protected_process_is_recorded(offline):
     _base, args = offline
     child = protected()
     try:
-        result = ops.backup(args)
+        # Host process churn legitimately defers a snapshot; retry the whole
+        # production operation without bypassing any observation or content gate.
+        import time
+
+        for attempt in range(20):
+            try:
+                result = ops.backup(args)
+                break
+            except ValueError as error:
+                if str(error) != "deferred: uninspectable process set changed" or attempt == 19:
+                    raise
+                time.sleep(0.05)
         manifest = json.loads((Path(result["snapshot"]) / "manifest.json").read_text())
         assert manifest["claim"] == "product_writers_stopped_and_content_stable"
         assert manifest["host_observation"]["other_uids"] == "not_observed"
