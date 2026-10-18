@@ -694,12 +694,14 @@ test("Hub status survives reload and distinguishes storage from access validatio
       page.getByText("凭据：已设置（启用）", { exact: true }),
     ).toBeVisible();
   }
+  await page.getByRole("button", {name:"Hub 凭据状态帮助"}).click();
   await expect(
     page.getByText(
       "保存仅代表加密持久化，未验证Hub身份或数据集访问权限。访问验证结果请查看数据集条目的验证状态。",
       { exact: true },
     ),
   ).toBeVisible();
+  await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "停用 Hub 凭据，改为匿名来源" })
     .click();
@@ -1325,6 +1327,7 @@ test("shared attachment versions, maintenance, explicit selection and write reco
   await page.goto("/attachments");
   await expect(page.getByRole("heading", { name: "团队附件" })).toBeVisible();
   await expect(page.getByRole("button", { name: "停用附件" })).toHaveCount(0);
+  await page.locator("details").filter({hasText:"sha256:v1"}).getByText("版本标识与摘要", {exact:true}).click();
   await expect(page.getByText("sha256:v1", { exact: false })).toBeVisible();
   await page.screenshot({
     path: test.info().outputPath("attachments-desktop.png"),
@@ -1346,7 +1349,7 @@ test("shared attachment versions, maintenance, explicit selection and write reco
   expect(accepted?.body).not.toHaveProperty("bundle_id");
   await page.goto("/attachments");
   await page.getByLabel("显示名称").fill("My shared input");
-  await page.getByLabel("附件 ZIP").setInputFiles({
+  await page.getByLabel("附件 ZIP",{exact:true}).setInputFiles({
     name: "input.zip",
     mimeType: "application/zip",
     buffer: Buffer.from("fixture"),
@@ -1453,8 +1456,8 @@ test("comparison displays baseline without attachment and fixed candidate versio
     }),
   );
   await page.goto("/compare");
-  await page.getByLabel("实验 A").selectOption("hh-test-zero");
-  await page.getByLabel("实验 B").selectOption("hh-candidate");
+  await page.getByLabel("实验 A", {exact:true}).selectOption("hh-test-zero");
+  await page.getByLabel("实验 B", {exact:true}).selectOption("hh-candidate");
   await page.getByRole("button", { name: "开始对比" }).click();
   await expect(
     page.getByRole("row").filter({
@@ -2408,7 +2411,7 @@ test("管理员授信、动态凭证能力、拒绝历史及完整资料", async
   page.on("pageerror", error => errors.push(error.message));
   await fixture(page);
   let granted = false;
-  await page.route("**/api/v1/admin/users", route => route.fulfill({json:[{id:"u1",username:"test-admin",role:"admin",enabled:true,evidence_grant:granted}]}));
+  await page.route("**/api/v1/admin/users", route => route.fulfill({json:[{id:"u1",username:"test-member",role:"member",enabled:true,evidence_grant:granted}]}));
   await page.route("**/api/v1/admin/users/u1/evidence-grant", async route => {
     granted = route.request().postDataJSON().enabled;
     await route.fulfill({json:{user_id:"u1",evidence_grant:granted}});
@@ -2425,14 +2428,16 @@ test("管理员授信、动态凭证能力、拒绝历史及完整资料", async
   await expect(page.getByLabel("完整实验资料（须同时选择读取）")).toBeVisible();
   await page.route("**/api/v1/operations?**", route => route.fulfill({json:{operations:[{id:"op-denied",user_id:"u1",operation:"submit",idem:"stable-key",request:{agent:"oracle"},created:1,updated:2,attempts:2,status:"rejected",result:null,error:{code:"queue_full",action:"retry_same_request"},recent:[{time:2,error:{code:"queue_full"}}],summarized_attempts:0}],offset:0,total:1,next_offset:null,attempt_limit:32}}));
   await page.goto("/operations");
-  await page.getByText("submit · rejected · op-denied · 尝试 2 次").click();
-  await expect(page.getByText("键：stable-key",{exact:false})).toBeVisible();
+  await expect(page.locator("article").getByText("已拒绝", {exact:true})).toBeVisible();
+  await page.getByText("请求详情 · op-denied").click();
+  await expect(page.getByText("幂等键：stable-key",{exact:false})).toBeVisible();
   await expect(page.getByText('"action": "retry_same_request"',{exact:false})).toBeVisible();
   await page.route("**/api/v1/runs/hh-test-zero/evidence", route => route.fulfill({json:{run_id:"hh-test-zero",state:"available",files:[{id:"opaque",name:"part.step",category:"artifact",bytes:10,sha256:"a".repeat(64),status:"original",processing:null,source:"run_local"}],limitations:["原生鉴权目录不采集"],session_coverage:[],legacy:false}}));
   await page.goto("/runs/hh-test-zero");
   await page.getByRole("tab",{name:"完整资料"}).click();
-  await expect(page.getByRole("link",{name:"下载文件",exact:true})).toHaveAttribute("href","/api/v1/runs/hh-test-zero/evidence/files/opaque");
-  await expect(page.getByText("SHA256:",{exact:false})).toBeVisible();
+  await expect(page.getByRole("button",{name:"下载完整资料包",exact:true})).toBeEnabled();
+  await expect(page.getByRole("link",{name:"下载文件",exact:true})).toHaveCount(0);
+  await expect(page.getByText("可打包 1 个文件",{exact:false})).toBeVisible();
   await page.screenshot({path:process.env.HH_UI_OUTPUT + "/materials.png"});
   expect(errors).toEqual([]);
 });
@@ -2460,4 +2465,175 @@ test("两阶段停止拒绝无写入、确认关闭后可显式取消并在刷�
   await page.getByRole("button", { name: "退出等待，保持入口关闭", exact: true }).click();
   await expect(page.getByText("停止意图：未请求停止", { exact: true })).toBeVisible();
   await expect(page.getByText("持久维护开关：已关闭新受理（跳过关闭确认）", { exact: true })).toBeVisible();
+});
+
+for (const width of [1440, 1024, 390]) {
+  test(`网页体验：对齐、问号与跨页巡检 ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors: string[] = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await fixture(page);
+    await page.route("**/api/v1/runs", route => route.fulfill({json:{runs:[{...run,id:"long-a",name:"非常长的实验名称".repeat(12),dataset:"team/"+"long".repeat(80)},{...run,id:"long-b",name:"实验B"}],total:2}}));
+    await page.goto("/compare");
+    for (const pair of [["", ""], ["long-a", ""], ["", "long-b"], ["long-a", "long-b"]]) {
+      await page.getByLabel("实验 A",{exact:true}).selectOption(pair[0]);
+      await page.getByLabel("实验 B",{exact:true}).selectOption(pair[1]);
+      const a = await page.getByLabel("实验 A",{exact:true}).boundingBox(), b = await page.getByLabel("实验 B",{exact:true}).boundingBox();
+      if (width > 600) expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);
+      expect(a!.width).toBeLessThan(width);
+    }
+    await page.screenshot({path:test.info().outputPath(`compare-${width}.png`),fullPage:true});
+    const help = page.getByRole("button",{name:"实验 A帮助",exact:true});
+    await help.hover();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.locator("h1").click();
+    await help.focus();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await help.click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const box = await page.getByRole("dialog").boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x+box!.width).toBeLessThanOrEqual(width);
+    await page.screenshot({path:test.info().outputPath(`help-${width}.png`)});
+    await page.locator("h1").click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    for (const url of ["/new", "/runs/hh-test-zero", "/attachments", "/admin?section=models", "/admin?section=readiness", "/admin?section=limits", "/admin?section=users", "/access-credentials"]) {
+      await page.route("**/api/v1/access-credentials", route => route.fulfill({json:[]}));
+      await page.goto(url);
+      await expect(page.locator("main h1")).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width+1);
+      const triggers = page.getByRole("button",{name:/帮助$/});
+      if (await triggers.count()) {
+        await triggers.first().click(); await expect(page.getByRole("dialog")).toBeVisible();
+        await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
+      }
+      await page.screenshot({path:test.info().outputPath(`${url.replace(/[^a-z]/g,"-")}-${width}.png`),fullPage:true});
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+test("历史分离受理准备重试，服务端筛选分页与降级", async ({page}) => {
+  await fixture(page);
+  const queries: string[] = [];
+  await page.route("**/api/v1/operations?**", async route => {
+    const url = new URL(route.request().url()); queries.push(url.search);
+    await route.fulfill({json:{operations:[{id:"op-accepted",user_id:"u1",username:"真实用户名",operation:"submit",idem:"same",request:{},created:1700000000,updated:1700000010,attempts:3,status:"accepted",result:{id:"sub-1",status:"failed",error:{message:"准备输入不可用"}},error:null,recent:[{error:{code:"idempotency_conflict"}}],summarized_attempts:2},{id:"op-deleted-user",user_id:"deleted-account-123",username:null,operation:"attachment_create",idem:"other",request:{},created:1,updated:1,attempts:1,status:"rejected",result:null,error:{code:"queue_full"},recent:[],summarized_attempts:0}],total:52,offset:Number(url.searchParams.get("offset")),next_offset:url.searchParams.get("offset")==="0"?50:null,attempt_limit:32}});
+  });
+  await page.goto("/operations");
+  await expect(page.locator("article").getByText("已受理",{exact:true})).toBeVisible();
+  await expect(page.getByText("提交准备：准备失败",{exact:false})).toBeVisible();
+  await expect(page.getByText("最近一次重试被拒",{exact:false})).toBeVisible();
+  await expect(page.getByText("真实用户名",{exact:false})).toBeVisible();
+  await expect(page.getByText("用户 deleted-",{exact:false})).toBeVisible();
+  await expect(page.locator("pre").first()).not.toBeVisible();
+  await page.getByRole("button",{name:"下一页"}).click();
+  await expect.poll(() => queries.at(-1)).toContain("offset=50");
+  await page.getByLabel("受理结果",{exact:true}).selectOption("accepted");
+  await expect.poll(() => queries.at(-1)).toContain("status=accepted");
+  expect(queries.at(-1)).toContain("offset=0");
+  await page.getByLabel("操作",{exact:true}).selectOption("submit");
+  await expect.poll(() => queries.at(-1)).toContain("operation=submit");
+  await page.getByLabel("仅本人").check();
+  await expect.poll(() => queries.at(-1)).toContain("mine=true");
+  await page.screenshot({path:test.info().outputPath("history.png"),fullPage:true});
+});
+
+test("资料只查询清单，单击单次打包、禁用与保存", async ({page}) => {
+  await fixture(page);
+  let packages = 0;
+  await page.route("**/api/v1/runs/hh-test-zero/evidence", route => route.fulfill({json:{state:"available",files:[{id:"a",name:"hidden-file",status:"original"},{id:"b",name:"missing-file",status:"missing"}]}}));
+  await page.route("**/api/v1/runs/hh-test-zero/evidence/package", async route => { packages++; await new Promise(r=>setTimeout(r,300)); await route.fulfill({contentType:"application/zip",body:Buffer.from("UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==","base64")}); });
+  await page.goto("/runs/hh-test-zero"); await page.getByRole("tab",{name:"完整资料"}).click();
+  await expect(page.getByText("可打包 1 个文件；1 个已删除",{exact:false})).toBeVisible();
+  expect(packages).toBe(0); await expect(page.getByText("hidden-file")).toHaveCount(0);
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button",{name:"下载完整资料包",exact:true}).click();
+  await expect(page.getByRole("button",{name:"正在准备并下载…"})).toBeDisabled();
+  expect((await downloaded).suggestedFilename()).toBe("hh-test-zero-materials.zip");
+  expect(packages).toBe(1); await expect(page.getByText("资料包已交给浏览器保存。")).toBeVisible();
+  await page.screenshot({path:test.info().outputPath("materials-download.png")});
+});
+
+for (const [code, status, text] of [["evidence_snapshot_busy",503,"资料包准备超时"],["audit_incomplete",409,"证据审计未完成或异常"],["evidence_changed",409,"资料已变化"],["evidence_grant_required",403,"未获得完整资料权限"],["login_required",401,"登录已过期"],["unknown_failure",500,"fixture failure"]] as const) {
+  test(`资料下载错误留在页面 ${code}`, async ({page}) => {
+    await fixture(page);
+    await page.route("**/api/v1/runs/hh-test-zero/evidence",route=>route.fulfill({json:{state:"available",files:[]}}));
+    await page.route("**/api/v1/runs/hh-test-zero/evidence/package",route=>route.fulfill({status,json:{code,message:"fixture failure",request_id:"request-proof"}}));
+    await page.goto("/runs/hh-test-zero"); await page.getByRole("tab",{name:"完整资料"}).click();
+    await page.getByRole("button",{name:"下载完整资料包",exact:true}).click();
+    await expect(page.getByText(text,{exact:false})).toBeVisible();
+    await expect(page.getByText("请求编号：request-proof")).toBeVisible();
+    await expect(page.getByRole("button",{name:"下载完整资料包",exact:true})).toBeEnabled();
+    await expect(page).toHaveURL(/runs\/hh-test-zero$/);
+  });
+}
+for (const state of ["in_progress","expired"]) test(`资料状态 ${state}`,async ({page}) => {
+  await fixture(page); await page.route("**/api/v1/runs/hh-test-zero/evidence",route=>route.fulfill({json:{state,files:[]}}));
+  await page.goto("/runs/hh-test-zero"); await page.getByRole("tab",{name:"完整资料"}).click();
+  await expect(page.getByRole("button",{name:"下载完整资料包",exact:true})).toBeDisabled();
+  await expect(page.getByText(state==="expired"?"已过期，无法恢复":"运行中，结束且审计完成后提供",{exact:false})).toBeVisible();
+});
+
+test("历史加载、空、失败与筛选旧响应隔离", async ({page}) => {
+  await fixture(page);
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let first = true;
+  await page.route("**/api/v1/operations?**", async route => {
+    if (first) { first = false; await held; await route.fulfill({json:{operations:[{id:"stale",user_id:"old",operation:"submit",status:"accepted",result:null,error:null,recent:[],attempts:1,created:1,updated:1,summarized_attempts:0}],total:1,next_offset:null}}); }
+    else await route.fulfill({json:{operations:[],offset:0,total:0,next_offset:null}});
+  });
+  await page.goto("/operations"); await expect(page.locator("article")).toHaveCount(0);
+  await page.getByLabel("受理结果",{exact:true}).selectOption("rejected");
+  await expect(page.getByText("暂无请求记录",{exact:true})).toBeVisible();
+  release(); await page.waitForTimeout(100);
+  await expect(page.locator("article")).toHaveCount(0);
+  await page.route("**/api/v1/operations?**",route=>route.fulfill({status:503,json:{message:"历史暂不可用",request_id:"history-request"}}));
+  await page.getByRole("button",{name:"刷新",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("历史暂不可用");
+});
+
+test("资料 pending 仅刷新清单；触屏帮助无表单副作用", async ({page,browser}) => {
+  await fixture(page);
+  let manifests = 0, packages = 0;
+  await page.route("**/api/v1/runs/hh-test-zero/evidence",route=>{ manifests++; return route.fulfill({json:{state:manifests>1?"expired":"available",files:[]}}); });
+  await page.route("**/api/v1/runs/hh-test-zero/evidence/package",route=>{ packages++; return route.fulfill({status:409,json:{code:"evidence_pending"}}); });
+  await page.goto("/runs/hh-test-zero"); await page.getByRole("tab",{name:"完整资料"}).click();
+  await page.getByRole("button",{name:"下载完整资料包",exact:true}).click();
+  await expect(page.getByText("资料状态：已过期，无法恢复",{exact:true})).toBeVisible();
+  expect(packages).toBe(1); expect(manifests).toBe(2);
+  const context = await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});
+  const mobile = await context.newPage();
+  const calls = await fixture(mobile);
+  await mobile.goto(new URL("/attachments",page.url()).href);
+  const input = mobile.getByLabel("显示名称",{exact:true}); await input.fill("保留输入");
+  const help = mobile.getByRole("button",{name:"附件 ZIP帮助"});
+  await help.tap(); await expect(mobile.getByRole("dialog")).toBeVisible();
+  await help.tap(); await expect(mobile.getByRole("dialog")).toHaveCount(0);
+  await expect(input).toHaveValue("保留输入");
+  expect(calls.filter(c=>c.path==="/attachments" && c.body)).toHaveLength(0);
+  await context.close();
+});
+
+for (const width of [1440,1024,390]) test(`历史与资料长文、加载、错误截图 ${width}`,async ({page}) => {
+  await page.setViewportSize({width,height:900}); await fixture(page);
+  const errors: string[] = []; page.on("pageerror", e=>errors.push(e.message));
+  await page.route("**/api/v1/operations?**",route=>route.fulfill({json:{operations:[{id:"op-long-record-12345",user_id:"user1",username:"可识别的团队成员",operation:"submit",status:"accepted",attempts:4,created:1700000000,updated:1700000001,result:{id:"sub-real-reference",status:"ready",run_id:"hh-test-zero"},recent:[{error:{code:"idempotency_conflict"}}],request:{},error:null,idem:"long".repeat(50),summarized_attempts:2}],total:1,offset:0,next_offset:null}}));
+  await page.goto("/operations"); await expect(page.locator("article")).toHaveCount(1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.screenshot({path:test.info().outputPath(`history-${width}.png`),fullPage:true});
+  let release!: () => void; const held = new Promise<void>(resolve=>{release=resolve;});
+  await page.route("**/api/v1/runs/hh-test-zero/evidence",async route=>{await held; await route.fulfill({json:{state:"available",files:[{id:"good",name:"never-shown",status:"original"},{id:"missing",status:"deleted"}]}});});
+  await page.goto("/runs/hh-test-zero"); await page.getByRole("tab",{name:"完整资料"}).click();
+  await expect(page.getByRole("button",{name:"刷新资料状态"})).toBeDisabled();
+  await page.screenshot({path:test.info().outputPath(`materials-loading-${width}.png`)});
+  release(); await expect(page.getByText("可打包 1 个文件",{exact:false})).toBeVisible();
+  await page.route("**/api/v1/runs/hh-test-zero/evidence/package",route=>route.fulfill({status:503,json:{code:"evidence_snapshot_busy",request_id:"synthetic-snapshot-request"}}));
+  await page.getByRole("button",{name:"下载完整资料包",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("资料包准备超时");
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.screenshot({path:test.info().outputPath(`materials-error-${width}.png`),fullPage:true});
+  expect(errors).toEqual([]);
 });

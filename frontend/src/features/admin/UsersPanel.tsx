@@ -31,7 +31,7 @@ export function UsersPanel({
                   {u.enabled ? "启用" : "停用"}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex gap-2">
+              <CardContent className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   onClick={() =>
@@ -44,25 +44,29 @@ export function UsersPanel({
                 >
                   {u.enabled ? "停用" : "启用"}
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    if (
-                      u.evidence_grant &&
-                      !window.confirm(
-                        "撤销将同时吊销该账户所有含 evidence 的自动化凭证；再次授信不会恢复旧凭证。继续？",
+                {u.role === "admin" ? (
+                  <p>管理员默认拥有完整资料权限</p>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (
+                        u.evidence_grant &&
+                        !window.confirm(
+                          "撤销将同时吊销该账户所有含 evidence 的自动化凭证；再次授信不会恢复旧凭证。继续？",
+                        )
                       )
-                    )
-                      return;
-                    void action(
-                      `/admin/users/${u.id}/evidence-grant`,
-                      { enabled: !u.evidence_grant },
-                      "POST",
-                    );
-                  }}
-                >
-                  {u.evidence_grant ? "撤销完整资料授信" : "授予完整资料权限"}
-                </Button>
+                        return;
+                      void action(
+                        `/admin/users/${u.id}/evidence-grant`,
+                        { enabled: !u.evidence_grant },
+                        "POST",
+                      );
+                    }}
+                  >
+                    {u.evidence_grant ? "撤销完整资料授信" : "授予完整资料权限"}
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => setReset(u)}>
                   重置密码
                 </Button>

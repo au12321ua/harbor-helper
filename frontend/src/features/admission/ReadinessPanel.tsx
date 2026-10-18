@@ -1,14 +1,8 @@
 import { api, type Limits, type Usage, type Readiness } from "@/api";
-import { ErrorNotice } from "@/components/shared";
+import { ErrorNotice, Help } from "@/components/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -186,10 +180,12 @@ export function MaintenancePanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>新受理维护开关</CardTitle>
-        <CardDescription>
-          暂停持久保存，重启保持。已受理任务继续执行；暂停不能代替停写与一致备份。
-        </CardDescription>
+        <div className="field-heading">
+          <CardTitle>新受理维护开关</CardTitle>
+          <Help label="新受理维护开关">
+            暂停持久保存，重启保持。已受理任务继续执行；暂停不能代替停写与一致备份。
+          </Help>
+        </div>
       </CardHeader>
       <CardContent>
         <ErrorNotice error={error || loadError} />

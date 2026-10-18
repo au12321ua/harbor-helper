@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { api, post } from "@/api";
 import { useLoad } from "@/hooks/useLoad";
-import { ErrorNotice } from "@/components/shared";
+import { ErrorNotice, Help } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardContent,
   CardFooter,
 } from "@/components/ui/card";
@@ -69,11 +68,13 @@ export function ShutdownPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>正常停止调度器</CardTitle>
-        <CardDescription>
-          先关闭新受理，再处理全部已受理任务。HTTP
-          继续提供观察；完整停机、升级和卸载由主机管理入口完成。
-        </CardDescription>
+        <div className="field-heading">
+          <CardTitle>正常停止调度器</CardTitle>
+          <Help label="正常停止调度器">
+            先关闭新受理，再处理全部已受理任务。HTTP
+            继续提供观察；完整停机、升级和卸载由主机管理入口完成。
+          </Help>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <ErrorNotice error={error || loadError} />

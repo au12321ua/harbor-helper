@@ -1,4 +1,4 @@
-import { ErrorNotice } from "@/components/shared";
+import { ErrorNotice, Help } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -84,9 +84,9 @@ export function SourcesPanel({ c, save }: Pick<AdminPanelProps, "c" | "save">) {
                     ? "旧版本未记录"
                     : "无"}
               </p>
-              <p>
+              <Help label="Hub 凭据状态">
                 保存仅代表加密持久化，未验证Hub身份或数据集访问权限。访问验证结果请查看数据集条目的验证状态。
-              </p>
+              </Help>
               {hubNotice ? <p role="status">{hubNotice}</p> : null}
               <ErrorNotice error={hubError} />
             </CardContent>

@@ -48,14 +48,14 @@ class Accounts:
                 "INSERT INTO users VALUES(?,?,?,?,1)",
                 (user["id"], username, PASSWORDS.hash(password), role),
             )
-        return user
+        return self.user(user["id"])
 
     def users(self):
         with self.store.connect() as db:
             return [
                 public_user(r)
                 for r in db.execute(
-                    "SELECT u.id,u.username,u.role,u.enabled,COALESCE(g.granted,0) evidence_grant FROM users u LEFT JOIN evidence_grants g ON g.user_id=u.id ORDER BY u.username"
+                    "SELECT u.id,u.username,u.role,u.enabled,(u.role='admin' OR COALESCE(g.granted,0)) evidence_grant FROM users u LEFT JOIN evidence_grants g ON g.user_id=u.id ORDER BY u.username"
                 )
             ]
 

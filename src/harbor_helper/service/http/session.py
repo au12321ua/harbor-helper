@@ -65,4 +65,6 @@ def register(app, deps, *, setup_token_file, master_key_file, start_scheduler):
 
     @app.get("/api/v1/me")
     def me(user: Annotated[dict, Depends(actor)]):
-        return user
+        from harbor_helper.service.access import granted
+
+        return {**user, "evidence_grant": granted(deps.data, user["id"])}

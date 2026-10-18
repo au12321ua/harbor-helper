@@ -207,7 +207,7 @@ def test_sdk_stdio_and_web_share_operation_and_evidence(http_service):
     assert web.get(f"/runs/{rid}/evidence").status_code == 403
     admin = httpx.Client(base_url=url + "/api/v1", headers=WRITE, trust_env=False)
     admin.post("/auth/login", json={"username": "admin", "password": PASSWORD})
-    assert admin.get(f"/runs/{rid}/evidence").status_code == 403
+    assert admin.get(f"/runs/{rid}/evidence").status_code == 200
     assert (
         admin.post(
             f"/admin/users/{p.actor['id']}/evidence-grant", json={"enabled": True}
@@ -458,7 +458,6 @@ def test_snapshot_releases_lock_and_survives_retention(tmp_path):
 
     from test_service import data as data_fixture
 
-    from harbor_helper.service.access import grant
     from harbor_helper.service.application import Application
     from harbor_helper.service.lifecycle import maintenance
     from harbor_helper.service.materials import inventory, manifest, snapshot
@@ -466,7 +465,6 @@ def test_snapshot_releases_lock_and_survives_retention(tmp_path):
 
     data = data_fixture._get_wrapped_function()(tmp_path)
     admin = next(u for u in data.users() if u["role"] == "admin")
-    grant(data, admin, admin["id"], True)
     # Oracle fixture: explicit CLEAN terminal run with valid fixed metadata.
     app = Application(data.root)
     accepted = app.accept(admin, {"agent": "oracle"}, "snapshot")
@@ -641,7 +639,14 @@ def test_evidence_authorization_matrix(tmp_path, username, account_grant, scopes
     rid = data.submission(submission["id"])["run_id"]
     data.store.update(rid, status="succeeded")
     assert audit_finished(data.store, data.store.get(rid))
-    grant(data, admin, target["id"], account_grant)
+    if username == "admin":
+        from harbor_helper.service.primitives import ServiceError
+
+        with pytest.raises(ServiceError, match="管理员默认"):
+            grant(data, admin, target["id"], account_grant)
+    else:
+        grant(data, admin, target["id"], account_grant)
+    qualified = username == "admin" or account_grant
     web = client(data, username)
     caller = web
     if scopes is not None:
@@ -650,7 +655,7 @@ def test_evidence_authorization_matrix(tmp_path, username, account_grant, scopes
             headers=WRITE,
             json={"name": "matrix", "current_password": PASSWORD, "scopes": scopes},
         )
-        if "evidence" in scopes and (not account_grant or "read" not in scopes):
+        if "evidence" in scopes and (not qualified or "read" not in scopes):
             assert issuance.status_code == 403
             return
         assert issuance.status_code == 201, issuance.text
@@ -661,7 +666,7 @@ def test_evidence_authorization_matrix(tmp_path, username, account_grant, scopes
         caller = TestClient(create_app(data.root, start_scheduler=False))
         caller.headers.update({"Authorization": "Bearer " + issuance.json()["token"]})
     response = caller.get(f"/api/v1/runs/{rid}/evidence")
-    permitted = account_grant and (scopes is None or "evidence" in scopes)
+    permitted = qualified and (scopes is None or "evidence" in scopes)
     assert response.status_code == (200 if permitted else 403), response.text
     discovery = caller.get("/api/v1/machine/discovery").json()
     assert ("evidence_manifest" in discovery["allowed_operations"]) == permitted
@@ -688,13 +693,6 @@ def test_real_http_slow_download_and_disconnect_do_not_hold_maintenance(http_ser
         rid = p.run_id(accepted)
         p.terminal(rid)
         wait(lambda: p.data.store.get(rid)["audit_status"] == "clean")
-        admin = next(u for u in p.data.users() if u["role"] == "admin")
-        assert (
-            web.post(
-                f"/admin/users/{admin['id']}/evidence-grant", json={"enabled": True}
-            ).status_code
-            == 200
-        )
         folder = p.data.store.path(rid) / "harbor" / rid / "fixture" / "artifacts"
         folder.mkdir(parents=True)
         payload = bytes(range(256)) * 32768
@@ -715,3 +713,54 @@ def test_real_http_slow_download_and_disconnect_do_not_hold_maintenance(http_ser
             assert time.monotonic() - started < 3
             assert b"".join([first, *iterator]) == payload
         assert web.get(f"/runs/{rid}/evidence/files/{file['id']}").status_code == 410
+
+
+def test_admin_real_http_zip_contents_and_authorization_failures(http_service):
+    import io
+    import zipfile
+
+    p, url, _root = http_service
+    with httpx.Client(base_url=url + "/api/v1", headers=WRITE, trust_env=False) as web:
+        assert (
+            web.post("/auth/login", json={"username": "admin", "password": PASSWORD}).status_code
+            == 200
+        )
+        accepted = web.post(
+            "/submissions", json={"agent": "oracle"}, headers={"Idempotency-Key": "admin-zip"}
+        ).json()
+        rid = p.run_id(accepted)
+        p.terminal(rid)
+        wait(lambda: p.data.store.get(rid)["audit_status"] == "clean")
+        folder = p.data.store.path(rid) / "harbor" / rid / "fixture" / "artifacts"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "proof.txt").write_text("synthetic-content-proof")
+        from harbor_helper.service.materials import inventory
+
+        inventory(p.data.store, rid)
+        manifest = web.get(f"/runs/{rid}/evidence")
+        assert manifest.status_code == 200
+        response = web.get(f"/runs/{rid}/evidence/package")
+        assert response.status_code == 200
+        assert ".zip" in response.headers["content-disposition"]
+        assert zipfile.is_zipfile(io.BytesIO(response.content))
+        (_root / "verified-materials.zip").write_bytes(response.content)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            packed = json.loads(archive.read("materials.json"))
+            assert packed["run_id"] == rid
+            file = next(f for f in packed["files"] if f["name"].endswith("proof.txt"))
+            content = archive.read(file["name"])
+            assert content == b"synthetic-content-proof"
+            for name in archive.namelist():
+                assert all(key.encode() not in archive.read(name) for key in p.keys)
+            assert hashlib.sha256(content).hexdigest() == file["sha256"]
+            assert all(
+                not name.startswith("/") and ".." not in Path(name).parts
+                for name in archive.namelist()
+            )
+        assert (
+            web.post("/auth/login", json={"username": "alice", "password": PASSWORD}).status_code
+            == 200
+        )
+        assert web.get(f"/runs/{rid}/evidence/package").status_code == 403
+        web.cookies.clear()
+        assert web.get(f"/runs/{rid}/evidence/package").status_code == 401

@@ -9,15 +9,9 @@ type FormField = {
   description?: string;
 };
 
-import { ErrorNotice } from "@/components/shared";
+import { ErrorNotice, Help } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,8 +37,10 @@ export function AdminForm<const F extends readonly FormField[]>({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <div className="field-heading">
+          <CardTitle>{title}</CardTitle>
+          <Help label={title}>{description}</Help>
+        </div>
       </CardHeader>
       <CardContent>
         <form
@@ -82,9 +78,14 @@ export function AdminForm<const F extends readonly FormField[]>({
             <FieldGroup>
               {fields.map((f) => (
                 <Field key={f.name}>
-                  <FieldLabel htmlFor={`${title}-${f.name}`}>
-                    {f.label}
-                  </FieldLabel>
+                  <div className="field-heading">
+                    <FieldLabel htmlFor={`${title}-${f.name}`}>
+                      {f.label}
+                    </FieldLabel>
+                    {f.description ? (
+                      <Help label={f.label}>{f.description}</Help>
+                    ) : null}
+                  </div>
                   {f.options ? (
                     <select
                       id={`${title}-${f.name}`}
@@ -136,11 +137,6 @@ export function AdminForm<const F extends readonly FormField[]>({
                       }
                     />
                   )}
-                  {f.description ? (
-                    <p className="text-sm text-muted-foreground">
-                      {f.description}
-                    </p>
-                  ) : null}
                 </Field>
               ))}
               <ErrorNotice error={error} />

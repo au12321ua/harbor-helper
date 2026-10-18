@@ -8,7 +8,13 @@ import {
   type User,
   type ValidPath,
 } from "@/api";
-import { ErrorNotice, Loading, SelectField, Title } from "@/components/shared";
+import {
+  ErrorNotice,
+  Help,
+  Loading,
+  SelectField,
+  Title,
+} from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -215,26 +221,27 @@ export function AttachmentsPage({ user }: { user: User }) {
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="attachment-file">附件 ZIP</FieldLabel>
+                <div className="field-heading">
+                  <FieldLabel htmlFor="attachment-file">附件 ZIP</FieldLabel>
+                  <Help label="附件 ZIP">
+                    ZIP 根目录仅支持 skills/、sdk/、config/opencode.json 和
+                    bootstrap.sh，可按需包含。请直接压缩这些内容，不要再套附件名称等外层目录。
+                  </Help>
+                </div>
                 <Input
                   id="attachment-file"
                   type="file"
                   accept=".zip,application/zip"
-                  aria-describedby="attachment-layout"
                   required
                   onChange={(e) => setFile(e.target.files?.[0])}
                 />
-                <p
-                  id="attachment-layout"
-                  className="text-muted-foreground break-words"
-                >
-                  ZIP 根目录仅支持 skills/、sdk/、config/opencode.json 和
-                  bootstrap.sh，可按需包含。请直接压缩这些内容，不要再套附件名称等外层目录。
-                </p>
               </Field>
-              <p className="text-muted-foreground break-all">
-                幂等键：{key}。通信失败保留原输入与原键重试，或查回。
-              </p>
+              <details className="raw-details">
+                <summary>请求重试与幂等键</summary>
+                <p className="break-all">
+                  幂等键：{key}。通信失败保留原输入与原键重试，或查回。
+                </p>
+              </details>
               <div className="flex flex-wrap gap-2">
                 <Button disabled={busy || (action !== "create" && !target)}>
                   提交附件操作
@@ -322,7 +329,7 @@ export function AttachmentsPage({ user }: { user: User }) {
                       />
                     </Field>
                   </FieldGroup>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button disabled={busy} variant="outline">
                       保存名称与说明
                     </Button>
@@ -353,9 +360,12 @@ export function AttachmentsPage({ user }: { user: User }) {
                         ? ` · 派生自 ${v.source_version_id}`
                         : ""}
                     </p>
-                    <p className="text-muted-foreground break-all">
-                      {v.id} · {v.bundle_id} · SHA256 {v.digest}
-                    </p>
+                    <details className="raw-details">
+                      <summary>版本标识与摘要</summary>
+                      <p className="text-muted-foreground break-all">
+                        {v.id} · {v.bundle_id} · SHA256 {v.digest}
+                      </p>
+                    </details>
                     <div className="flex flex-wrap gap-2">
                       {a.enabled &&
                       v.enabled &&
