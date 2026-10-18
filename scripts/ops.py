@@ -480,28 +480,204 @@ def writers(base, db_data):
                 result.append({"kind": "worker", "run": row["id"]})
             elif actual and not row.get("birth"):
                 result.append({"kind": "unknown_worker_identity", "run": row["id"]})
-    # Catch preparation threads/subprocesses and unrecorded HTTP/SQLite users.
+    result.extend(host_processes(state)["conflicts"])
+    return result
+
+
+def host_processes(state):
+    """Detect readable references; unavailable metadata is an explicit scope limit."""
+    conflicts, uninspectable = [], []
     for proc in Path("/proc").iterdir():
         if not proc.name.isdigit() or int(proc.name) == os.getpid():
             continue
         try:
             if proc.stat().st_uid != os.getuid():
                 continue
-            if birth(int(proc.name)) is None:
+            pid = int(proc.name)
+            identity = birth(pid)
+            if identity is None:
                 continue
-            argv = (proc / "cmdline").read_bytes()
-            cwd = (proc / "cwd").resolve()
-            has_fd = any(
-                Path(os.readlink(fd).removesuffix(" (deleted)")).is_relative_to(state)
-                for fd in (proc / "fd").iterdir()
-            )
-            if str(state).encode() in argv or cwd.is_relative_to(state) or has_fd:
-                result.append({"kind": "state_reference", "pid": int(proc.name)})
+            unreadable, referenced = False, False
+            try:
+                referenced = str(state).encode() in (proc / "cmdline").read_bytes()
+            except (PermissionError, FileNotFoundError):
+                unreadable = True
+            try:
+                referenced |= (proc / "cwd").resolve(strict=True).is_relative_to(state)
+            except (PermissionError, FileNotFoundError):
+                unreadable = True
+            try:
+                for fd in (proc / "fd").iterdir():
+                    try:
+                        referenced |= Path(
+                            os.readlink(fd).removesuffix(" (deleted)")
+                        ).is_relative_to(state)
+                    except FileNotFoundError:
+                        continue
+                    except (PermissionError, FileNotFoundError):
+                        unreadable = True
+            except (PermissionError, FileNotFoundError):
+                unreadable = True
+            if birth(pid) != identity:
+                continue
+            if referenced:
+                conflicts.append({"kind": "state_reference", "pid": pid, "birth": identity})
+            if unreadable:
+                detail = {"pid": pid, "birth": identity}
+                for name in ("comm", "cgroup"):
+                    try:
+                        detail[name] = (proc / name).read_text()[:4096].strip()
+                    except (PermissionError, FileNotFoundError):
+                        detail[name] = "unavailable"
+                try:
+                    detail["status"] = {
+                        line.split(":", 1)[0]: line.split(":", 1)[1].strip()
+                        for line in (proc / "status").read_text().splitlines()
+                        if line.split(":", 1)[0] in {"Uid", "Gid", "CapPrm"}
+                    }
+                except (PermissionError, FileNotFoundError):
+                    detail["status"] = {}
+                uninspectable.append(detail)
         except FileNotFoundError:
             continue
         except (PermissionError, OSError):
-            result.append({"kind": "unknown", "pid": int(proc.name)})
+            conflicts.append({"kind": "unknown", "pid": int(proc.name)})
+    return {"conflicts": conflicts, "uninspectable": uninspectable}
+
+
+def uninspectable_ids(observation):
+    return {(row["pid"], row["birth"]) for row in observation["uninspectable"]}
+
+
+def execution_quiescence(base, data):
+    require(
+        all(row["status"] in TERMINAL for row in data["runs"])
+        and all(row["status"] != "preparing" for row in data["submissions"]),
+        "unfinished work/resources; offline snapshot refused",
+    )
+    clean = []
+    for row in data["runs"]:
+        path = plain(base / "state/runs" / safe_id(row["id"]))
+        if (path / "projects.json").exists():
+            projects = read_json(path / "projects.json")
+            cleanup = read_json(path / "cleanup.json") if (path / "cleanup.json").exists() else {}
+            require(
+                cleanup.get("confirmed") is True
+                and set(projects) <= set(cleanup.get("projects", [])),
+                "execution cleanup unconfirmed",
+            )
+            clean.append(row["id"])
+    units = {}
+    if (base / "instance.json").exists() and read_json(base / "instance.json").get(
+        "installed", True
+    ):
+        record = read_json(base / "instance.json")
+        require(
+            record.get("format") == "harbor-helper-systemd-v1"
+            and record.get("directory") == str(base),
+            "instance ownership mismatch",
+        )
+        require(
+            re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}", record["instance"]), "invalid unit identity"
+        )
+        for part in ("http", "scheduler"):
+            unit = f"harbor-helper-{record['instance']}-{part}.service"
+            environment = {
+                **os.environ,
+                "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+            }
+            result = subprocess.run(
+                [
+                    "systemctl",
+                    "--user",
+                    "show",
+                    unit,
+                    "--property=ActiveState,MainPID,FragmentPath",
+                ],
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            value = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+            require(
+                value.get("ActiveState") in {"inactive", "failed"} and value.get("MainPID") == "0",
+                "instance units not stopped",
+            )
+            require(
+                Path(value["FragmentPath"]).resolve() == base / "units" / unit,
+                "foreign unit identity",
+            )
+            units[part] = value
+    return {
+        "product_writer_lease": "exclusive",
+        "units": units,
+        "runs_terminal": len(data["runs"]),
+        "resource_cleanup_confirmed": clean,
+        "preparing_submissions": 0,
+    }
+
+
+@contextmanager
+def writer_lease(state, existing=None, *, shared=False):
+    """Coordinate all product Store users; an inherited manager lease stays held."""
+    path = plain(state / "writer.lock")
+    fd = (
+        os.dup(existing.fileno())
+        if existing is not None
+        else os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    )
+    with os.fdopen(fd, "rb") as file:
+        meta = os.fstat(fd)
+        require(
+            stat.S_ISREG(meta.st_mode)
+            and meta.st_uid == os.getuid()
+            and not meta.st_mode & 0o077
+            and meta.st_nlink == 1,
+            "writer lease requires owned private regular file",
+        )
+        current = path.stat()
+        require(
+            (meta.st_dev, meta.st_ino) == (current.st_dev, current.st_ino),
+            "writer lease identity mismatch",
+        )
+        try:
+            fcntl.flock(fd, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("busy: product writers lease unavailable") from None
+        yield file
+
+
+RUNTIME_ENTRIES = {
+    "queue.sqlite-wal",
+    "queue.sqlite-shm",
+    "queue.sqlite-journal",
+    "control.lock",
+    "writer.lock",
+    "scheduler.json",
+    "supervisor.lock",
+    "scheduler.wake",
+    "scheduler-stop.json",
+    "evidence-locks",
+}
+
+
+def state_inventory(state):
+    require(not (state / "queue.sqlite-journal").exists(), "busy: database journal present")
+    result = {}
+    for path in state.iterdir():
+        if path.name in RUNTIME_ENTRIES:
+            continue
+        if path.is_dir():
+            result.update({path.name + "/" + key: value for key, value in inventory(path).items()})
+        else:
+            result[path.name] = digest(path)
     return result
+
+
+def content_digest(files):
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
 
 
 def safe_id(value):
@@ -525,7 +701,7 @@ def copy_stable(source, destination):
     require(before == after == copied, "source changed during snapshot")
 
 
-def backup(args):
+def backup(args, *, writer=None):
     base = plain(args.directory)
     state = base / "state"
     require(
@@ -587,10 +763,17 @@ def backup(args):
         if record:
             require(Path(record["code"]).name == args.release, "release/process record mismatch")
         read_json(state / "service.json")  # Validate nonregular input before opening the DB.
-        with control(state, args.lock_timeout), ExitStack() as evidence_locks:
+        with (
+            writer_lease(state, writer, shared=args.kind == "online"),
+            control(state, args.lock_timeout),
+            ExitStack() as evidence_locks,
+        ):
+            before_state = state_inventory(state) if args.kind == "offline" else None
             with ro_db(state) as db:
                 data = {"runs": rows(db, "runs"), "submissions": rows(db, "submissions")}
             if args.kind == "offline":
+                quiescence = execution_quiescence(base, data)
+                before_host = host_processes(state)
                 observed_writers = writers(base, data)
                 require(
                     not observed_writers,
@@ -614,14 +797,18 @@ def backup(args):
                             raise ValueError("deferred: run evidence busy") from None
             snapshot = target / "state"
             snapshot.mkdir(mode=0o700)
-            with ro_db(state) as source, sqlite3.connect(snapshot / "queue.sqlite") as dest:
-                # Bound backup retries; sqlite backup otherwise waits indefinitely on a busy DB.
-                deadline = time.monotonic() + 10
+            if args.kind == "offline":
+                # No journal and no product writer: preserve exact database bytes
+                # so whole-state/source/snapshot inventories can be compared.
+                copy_stable(state / "queue.sqlite", snapshot / "queue.sqlite")
+            else:
+                with ro_db(state) as source, sqlite3.connect(snapshot / "queue.sqlite") as dest:
+                    deadline = time.monotonic() + 10
 
-                def progress(status, remaining, total):
-                    require(time.monotonic() < deadline, "database snapshot timeout")
+                    def progress(status, remaining, total):
+                        require(time.monotonic() < deadline, "database snapshot timeout")
 
-                source.backup(dest, pages=256, progress=progress, sleep=0.05)
+                    source.backup(dest, pages=256, progress=progress, sleep=0.05)
             manifest["db_snapshot_time"] = time.time()
             with ro_db(snapshot) as db:
                 ref = active_reference(db)
@@ -705,10 +892,34 @@ def backup(args):
                     not observed_writers,
                     "busy/unknown: writer appeared during snapshot " + json.dumps(observed_writers),
                 )
+                after_host = host_processes(state)
+                require(
+                    uninspectable_ids(before_host) == uninspectable_ids(after_host),
+                    "deferred: uninspectable process set changed",
+                )
+                manifest["host_observation"] = {
+                    "scope": "same_uid_readable",
+                    "other_uids": "not_observed",
+                    "uninspectable": after_host["uninspectable"],
+                }
+                manifest["quiescence"] = quiescence
+                manifest["claim"] = "product_writers_stopped_and_content_stable"
                 manifest["included_runs"] = [r["id"] for r in frozen["runs"]]
                 require(not manifest["missing"], "offline evidence missing")
                 manifest["full_state"] = True
             validate_evidence(snapshot, frozen, manifest["included_runs"])
+            if args.kind == "offline":
+                after_state = state_inventory(state)
+                copied_state = state_inventory(snapshot)
+                require(
+                    before_state == after_state == copied_state,
+                    "state changed during offline snapshot",
+                )
+                manifest["content_stability"] = {
+                    "files": after_state,
+                    "inventory_sha256": content_digest(after_state),
+                    "database_sha256": after_state["queue.sqlite"],
+                }
             write_key(master_target, master)
             manifest["excluded_root_entries"] = sorted(
                 p.name for p in state.iterdir() if not (snapshot / p.name).exists()

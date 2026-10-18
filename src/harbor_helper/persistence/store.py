@@ -4,6 +4,7 @@ import re
 import sqlite3
 import stat
 import threading
+import weakref
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -17,6 +18,9 @@ class Store:
     def __init__(self, root):
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        from harbor_helper.persistence.writers import acquire, release
+
+        self._writer_finalizer = weakref.finalize(self, release, acquire(self.root))
         (self.root / "runs").mkdir(exist_ok=True)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -38,6 +42,10 @@ class Store:
                     db.execute(f"ALTER TABLE runs ADD COLUMN {name} {definition}")
             db.execute("CREATE INDEX IF NOT EXISTS runs_work ON runs(status,audit_status,created)")
 
+    def close(self):
+        """Release this Store; no further operations may use the closed object."""
+        self._writer_finalizer()
+
     @contextmanager
     def control(self, *, notify=True):
         try:
@@ -57,6 +65,8 @@ class Store:
 
     @contextmanager
     def connect(self):
+        if not self._writer_finalizer.alive:
+            raise ValueError("Store is closed")
         db = sqlite3.connect(self.root / "queue.sqlite", timeout=30)
         db.row_factory = sqlite3.Row
         try:

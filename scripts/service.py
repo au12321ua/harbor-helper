@@ -197,6 +197,7 @@ def safe_offline(base):
     with ops.ro_db(base / "state") as db:
         data = {"runs": ops.rows(db, "runs"), "submissions": ops.rows(db, "submissions")}
     ops.require(not ops.writers(base, data), "state writers/identities not confirmed stopped")
+    ops.execution_quiescence(base, data)
     ops.require(
         all(r["status"] in ops.TERMINAL for r in data["runs"])
         and all(r["status"] != "preparing" for r in data["submissions"]),
@@ -299,7 +300,25 @@ def main():
             ops.write_json(manifest, record)
             record["installed"] = True
             ops.write_json(manifest, record)
+        ops.require(
+            record.get("format") == "harbor-helper-systemd-v1"
+            and record.get("directory") == str(base),
+            "instance ownership mismatch",
+        )
+        purge_paths = [base / name for name in ("state", "private", "home", "logs")]
+        if args.action == "uninstall" and args.purge:
+            print("PURGE exact paths: " + json.dumps(list(map(str, purge_paths))), flush=True)
+            ops.require(
+                args.confirm_delete == str(base),
+                "purge requires independent --confirm-delete with the exact displayed instance directory",
+            )
         if not record.get("installed", True):
+            if args.action == "uninstall" and args.purge and (base / "state").exists():
+                leases.enter_context(ops.writer_lease(base / "state"))
+                safe_offline(base)
+                for path in purge_paths:
+                    if path.exists():
+                        shutil.rmtree(ops.plain(path))
             ops.require(
                 args.action == "uninstall", "instance uninstalled; install matching release first"
             )
@@ -318,8 +337,7 @@ def main():
             ops.require(args.mode in {"wait", "cancel"}, "upgrade requires --mode wait|cancel")
             maintenance(base, record, args)
             stop(base, record)
-            lease = leases.enter_context((base / "state/writer.lock").open("a"))
-            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lease = leases.enter_context(ops.writer_lease(base / "state"))
             safe_offline(base)
             output = args.backups or base.parent / (base.name + "-backups")
             saved = ops.backup(
@@ -329,7 +347,8 @@ def main():
                     release=record["release"],
                     kind="offline",
                     lock_timeout=5,
-                )
+                ),
+                writer=lease,
             )
             snapshot = Path(saved["snapshot"])
             ops.restore(
@@ -341,8 +360,30 @@ def main():
                 )
             )
             next_release = release(base, args.source)
+            snapshot_manifest = ops.read_json(snapshot / "manifest.json")
+            ops.require(
+                ops.state_inventory(base / "state")
+                == snapshot_manifest["content_stability"]["files"],
+                "state changed after backup; version not switched",
+            )
+            ops.require(
+                ops.uninspectable_ids(ops.host_processes(base / "state"))
+                == ops.uninspectable_ids(
+                    {"uninspectable": snapshot_manifest["host_observation"]["uninspectable"]}
+                ),
+                "deferred: uninspectable process set changed before switch",
+            )
+            safe_offline(base)
             # All fallible backup/installation work precedes the version switch.
             previous = record.copy()
+            manager_previous = {}
+            manager_staged = {}
+            for name in ("service.py", "local_platform.py", "ops.py"):
+                destination = base / "manager" / name
+                manager_previous[destination] = destination.read_bytes()
+                staged = destination.with_suffix(".next")
+                shutil.copyfile(base / "releases" / next_release / "scripts" / name, staged)
+                manager_staged[destination] = staged
             old_state = None
             if args.fresh_state:
                 old_state = base / ("state-retained-" + uuid.uuid4().hex)
@@ -352,8 +393,12 @@ def main():
             try:
                 ops.write_json(base / "state/release.json", {"release": next_release})
                 units(base, record)
+                for destination, staged in manager_staged.items():
+                    os.replace(staged, destination)
                 ops.write_json(manifest, record)
             except Exception:
+                for destination, content in manager_previous.items():
+                    destination.write_bytes(content)
                 units(base, previous)
                 if not old_state:
                     ops.write_json(base / "state/release.json", {"release": previous["release"]})
@@ -374,12 +419,11 @@ def main():
             )
         elif args.action == "uninstall":
             stop(base, record)
-            lease = leases.enter_context((base / "state/writer.lock").open("a"))
-            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lease = leases.enter_context(ops.writer_lease(base / "state"))
             if (base / "state/service.json").exists():
                 safe_offline(base)
             if args.purge:
-                paths = [base / name for name in ("state", "private", "home", "logs")]
+                paths = purge_paths
                 print("PURGE exact paths: " + json.dumps(list(map(str, paths))), flush=True)
                 ops.require(
                     args.confirm_delete == str(base),

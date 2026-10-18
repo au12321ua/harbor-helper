@@ -77,6 +77,17 @@ def source_call(reference, *, key=None, target=None, task=None, selected_tasks=N
 
 
 def main():
+    from contextlib import ExitStack
+
+    from harbor_helper.persistence.writers import writer
+
+    # The source helper can outlive a abruptly killed parent. Acquire its own
+    # lease before any target IO, independent of inherited process descriptors.
+    with ExitStack() as leases:
+        _main(leases, writer)
+
+
+def _main(leases, writer):
     import asyncio
 
     from harbor.registry.client.package import PackageDatasetClient
@@ -84,6 +95,12 @@ def main():
     from harbor_helper.execution.sources import UnsupportedDatasetError, resolve_dataset
 
     request = json.load(sys.stdin)
+    if request.get("target"):
+        target = Path(request["target"]).resolve()
+        for parent in target.parents:
+            if (parent / "queue.sqlite").exists():
+                leases.enter_context(writer(parent))
+                break
 
     async def execute():
         if request["target"]:

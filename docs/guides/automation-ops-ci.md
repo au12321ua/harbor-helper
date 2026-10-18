@@ -46,7 +46,10 @@ UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏�
 
 快照 master 是包目录旁独立的 `snapshot-ID.master`，保持 0600，不在 state、manifest 或报告中输出密钥。该文件与快照一并留在受保护的私有存储；不能上传 CI artifact。没有自动保留清理，所有备份和未知文件均保留，容量由管理员监控。
 
-完整快照只用于人工维护窗口：先在网页暂停新受理、等待/取消活动工作，再由**对应源 release** 的控制器安排停写。工具本身不启停服务。显式 `--kind offline` 才执行全写者门：HTTP/scheduler 身份、run PID、同 UID 进程 state argv/cwd/fd；无法观察即 busy/unknown。门在 control 锁内复制前后重查；scheduler.wake、scheduler-stop.json 和 evidence-locks 等瞬态控制记录不入离线快照，恢复也清除运行身份。持 FIFO fd 的进程同样属于 state 写者。禁止把 timer 变成自动停机工具。该观察要求同 UID 私有实例及可读 `/proc`；有跨用户写者、容器外不可见写者或外部进程能在观察后重新进入的环境，管理员必须在维护窗口另行隔离这些写者，不能仅凭此工具宣称全局无写入。
+完整快照只用于人工维护窗口：先在网页关闭新增受理、等待/取消全部已受理工作，再由对应实例控制器停止 HTTP/scheduler。工具本身不启停服务。`--kind offline` 持有产品写者独占租约；所有 Store（含构造时数据库迁移）和来源准备子进程持有共享租约。只有 unit 已停、进程身份已退出、全部任务终态且已确认执行资源清理，才复制整个 state。复制前、复制后和快照的文件清单及原始数据库摘要必须一致，不允许 journal；升级在独立恢复检查和新 release 安装后、切换前再次核对 live state。
+
+同 UID 可读取进程的 state argv/cwd/fd 引用仍阻止备份。不可读取进程记录 comm/cgroup/Uid/Gid/CapPrm，仅作为观察限制；窗口前后 `(pid,birth)` 集合变化则延期。manifest 的 `claim=product_writers_stopped_and_content_stable` 只证明产品停写、资源清理和复制内容稳定，不证明宿主没有其他写者；其他 UID 不在进程扫描范围。维护窗口必须禁止外部工具进入 state。既有不可读取的外部进程可能在窗口后写入，这是部署者需要隔离的边界。scheduler.wake、scheduler-stop.json、evidence-locks 等瞬态记录不入快照；持 FIFO 的可读进程同样阻止备份。禁止把 timer 变成自动停机工具。
+
 
 ## 新目标离线恢复检查
 

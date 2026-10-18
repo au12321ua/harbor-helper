@@ -69,13 +69,30 @@ def installed(tmp_path, manager, monkeypatch):
     monkeypatch.setattr(manager, "systemctl", control)
     # Unit-level offline filesystem coverage; actual /proc/systemd is integration-tested.
     monkeypatch.setattr(manager.ops, "writers", lambda *_: [])
+    original = manager.ops.subprocess.run
+
+    def observe(argv, **kwargs):
+        if argv[:3] == ["systemctl", "--user", "show"]:
+            from subprocess import CompletedProcess
+
+            return CompletedProcess(
+                argv,
+                0,
+                "ActiveState=inactive\nMainPID=0\nFragmentPath="
+                + str(base / "units" / argv[3])
+                + "\n",
+            )
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(manager.ops.subprocess, "run", observe)
+    data.store.close()
     return base, record, data, calls
 
 
 def test_upgrade_install_failure_retains_release_and_verified_backup(
     manager, installed, monkeypatch
 ):
-    base, record, data, calls = installed
+    base, record, _data, calls = installed
     monkeypatch.setattr(manager, "maintenance", lambda *_: True)
 
     def fail(*_):
@@ -100,7 +117,7 @@ def test_upgrade_install_failure_retains_release_and_verified_backup(
     with pytest.raises(RuntimeError, match="synthetic install failure"):
         manager.main()
     assert json.loads((base / "instance.json").read_text()) == record
-    assert data.key("local", 1, "local", True) == "synthetic-never-sent"
+    assert ServiceData(base / "state").key("local", 1, "local", True) == "synthetic-never-sent"
     checks = list(backup.glob("snapshot-*-restore-check/restore-check.json"))
     assert len(checks) == 1
     result = json.loads(checks[0].read_text())
@@ -136,3 +153,64 @@ def test_generated_working_directory_is_absolute_unquoted(manager, installed):
     line = next(line for line in text.splitlines() if line.startswith("WorkingDirectory="))
     assert line == f"WorkingDirectory={base}/releases/{record['release']}"
     assert "Restart=on-failure" in text and "KillMode=mixed" in text
+
+
+@pytest.mark.parametrize("failure", ["backup", "restore", "post-restore-write"])
+def test_upgrade_failure_before_switch_keeps_units_and_manifest(
+    manager, installed, monkeypatch, failure
+):
+    base, record, _, calls = installed
+    monkeypatch.setattr(manager, "maintenance", lambda *_: True)
+    before = {path: path.read_bytes() for path in (base / "units").iterdir()}
+    marker = base / "state/release.json"
+    manager.ops.write_json(marker, {"release": record["release"]})
+    before[marker] = marker.read_bytes()
+
+    def fail(*_, **__):
+        raise ValueError("synthetic failure")
+
+    if failure in {"backup", "restore"}:
+        monkeypatch.setattr(manager.ops, failure, fail)
+    else:
+
+        def install(*_):
+            (base / "state/extra").write_text("external change after restore")
+            return "b" * 40
+
+        monkeypatch.setattr(manager, "release", install)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["service.py", "upgrade", "--directory", str(base), "--mode", "wait"],
+    )
+    with pytest.raises(ValueError, match="synthetic failure|changed after backup"):
+        manager.main()
+    assert json.loads((base / "instance.json").read_text()) == record
+    assert all(path.read_bytes() == content for path, content in before.items())
+    assert not any(call[0] == "start" for call in calls)
+
+
+@pytest.mark.parametrize("status", ["queued", "preparing", "cleanup_blocked", "unclean", "unit"])
+def test_offline_quiescence_refuses_work_resources_and_active_units(
+    manager, installed, monkeypatch, status
+):
+    base, _, _, _ = installed
+    runs, submissions = [], []
+    if status == "preparing":
+        submissions = [{"status": "preparing"}]
+    elif status == "unit":
+        from subprocess import CompletedProcess
+
+        monkeypatch.setattr(
+            manager.ops.subprocess,
+            "run",
+            lambda *a, **k: CompletedProcess(a, 0, "ActiveState=active\nMainPID=42\n"),
+        )
+    else:
+        runs = [{"id": "synthetic", "status": "succeeded" if status == "unclean" else status}]
+        if status == "unclean":
+            path = base / "state/runs/synthetic"
+            path.mkdir()
+            manager.ops.write_json(path / "projects.json", ["owned-project"])
+    with pytest.raises(ValueError, match="unfinished|cleanup unconfirmed|not stopped"):
+        manager.ops.execution_quiescence(base, {"runs": runs, "submissions": submissions})

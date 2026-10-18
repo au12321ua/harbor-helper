@@ -20,15 +20,7 @@ def test_rotated_empty_snapshot_restores_without_source_key_directory(tmp_path, 
     )
     data.master_keys.rotate(data.users()[0], 1)
     if kind == "offline":
-        observed = ops.writers(base, {"runs": []})
-        if observed:
-            # Some host processes hide /proc details even from the same uid.
-            # Production must refuse; isolate only writer discovery for this
-            # fixture's subsequent snapshot/restore content validation.
-            assert all(r["kind"] == "unknown" for r in observed)
-            with pytest.raises(ValueError, match="writers"):
-                ops.backup(backup_args(base, tmp_path / "refused", kind))
-            monkeypatch.setattr(ops, "writers", lambda *args: [])
+        data.store.close()
     result = ops.backup(backup_args(base, tmp_path / "backups", kind))
     with ops.ro_db(data.root) as db:
         ref = ops.active_reference(db)

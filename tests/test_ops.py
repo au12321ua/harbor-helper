@@ -29,6 +29,17 @@ verify = module("verify")
 SHA = "a" * 40
 
 
+def close_stores(p):
+    p.data.store.close()
+    p.app.store.close()
+
+
+def reopen_store(p):
+    from harbor_helper.persistence.store import Store
+
+    p.data.store = Store(p.data.root)
+
+
 def backup_args(base, out, kind="online"):
     return argparse.Namespace(directory=base, output=out, kind=kind, release=SHA, lock_timeout=0.1)
 
@@ -158,19 +169,11 @@ def test_offline_full_nonempty_and_rejection_paths(tmp_path):
             base / "http.json",
             {"pid": unrelated.pid, "birth": "old-birth", "code": str(base / "releases" / SHA)},
         )
+        close_stores(p)
         try:
             result = ops.backup(backup_args(base, tmp_path / "backups", "offline"))
             assert result["full_state"] is True
             assert unrelated.poll() is None
-            print("offline_writers_path=full_snapshot_verified")
-        except ValueError as error:
-            # On a desktop, nondumpable same-UID processes make a complete
-            # writer proof unavailable. Refusal is REQUIRED, never bypass it.
-            assert '"kind": "unknown"' in str(error)
-            assert not list((tmp_path / "backups").glob("snapshot-*/manifest.json"))
-            print("offline_writers_path=host_unknown_refused")
-            result = ops.backup(backup_args(base, tmp_path / "online-backups"))
-            assert result["full_state"] is False
         finally:
             unrelated.terminate()
             unrelated.wait(timeout=5)
@@ -201,11 +204,13 @@ def test_offline_full_nonempty_and_rejection_paths(tmp_path):
         (source / "state/team.json").symlink_to(base / "state/team.json")
         with pytest.raises(ValueError, match="symlink"):
             ops.restore(args)
+        reopen_store(p)
         with p.data.store.connect() as db:
             db.execute("UPDATE submissions SET submitter='another-person'")
         with pytest.raises(ValueError, match="frozen ownership"):
             ops.backup(backup_args(base, tmp_path / "wrong-owner"))
     finally:
+        reopen_store(p)
         p.close()
 
 
@@ -216,6 +221,7 @@ def test_control_lock_timeout_and_unrecorded_writer(tmp_path):
     try:
         with p.data.store.control(), pytest.raises(ValueError, match="lock timeout"):
             ops.backup(backup_args(base, tmp_path / "busy"))
+        close_stores(p)
         # Even with no HTTP/scheduler record an open state descriptor blocks full backup.
         child = subprocess.Popen(
             [
@@ -236,6 +242,7 @@ def test_control_lock_timeout_and_unrecorded_writer(tmp_path):
             child.terminate()
             child.wait(timeout=5)
     finally:
+        reopen_store(p)
         p.close()
 
 
@@ -370,7 +377,7 @@ def test_snapshot_evidence_lock_defers_without_holding_control(processes, tmp_pa
         thread.join()
 
 
-def test_offline_fifo_excluded_and_holder_detected(tmp_path, monkeypatch):
+def test_offline_fifo_excluded_and_holder_detected(tmp_path):
     from harbor_helper.persistence.wakeup import Mailbox
 
     (tmp_path / "instance").mkdir()
@@ -385,6 +392,7 @@ def test_offline_fifo_excluded_and_holder_detected(tmp_path, monkeypatch):
             str(p.data.root / "scheduler.wake"),
         ]
     )
+    close_stores(p)
     try:
         wait(
             lambda: any(
@@ -396,17 +404,7 @@ def test_offline_fifo_excluded_and_holder_detected(tmp_path, monkeypatch):
         reader.terminate()
         reader.wait(timeout=3)
         mailbox.close()
-        remaining = ops.writers(p.data.root.parent, {"runs": []})
-        if remaining:
-            assert all(row["kind"] == "unknown" for row in remaining)
-            with pytest.raises(ValueError, match="unknown"):
-                ops.backup(backup_args(p.data.root.parent, tmp_path / "unknown-refused", "offline"))
-        # File-copy/restore subcase uses a synthetic empty writer gate because the
-        # desktop has nondumpable unrelated same-UID processes. Real FIFO holder
-        # detection and fail-closed unknown handling were asserted above.
-        with monkeypatch.context() as patch:
-            patch.setattr(ops, "writers", lambda *args: [])
-            result = ops.backup(backup_args(p.data.root.parent, tmp_path / "offline", "offline"))
+        result = ops.backup(backup_args(p.data.root.parent, tmp_path / "offline", "offline"))
         snapshot = Path(result["snapshot"])
         assert not (snapshot / "state/scheduler.wake").exists()
         restored = tmp_path / "restored"
@@ -416,4 +414,5 @@ def test_offline_fifo_excluded_and_holder_detected(tmp_path, monkeypatch):
         if reader.poll() is None:
             reader.kill()
             reader.wait()
+        reopen_store(p)
         p.close()
