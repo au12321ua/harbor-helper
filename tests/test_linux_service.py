@@ -248,3 +248,51 @@ def test_successful_upgrade_releases_lease_before_observation(manager, installed
     assert json.loads((base / "state/release.json").read_text())["release"] == candidate
     assert (base / "manager/service.py").read_bytes() == (scripts / "service.py").read_bytes()
     assert (base / "releases" / record["release"]).exists()
+
+
+def test_default_uninstall_then_same_release_reinstall_and_later_purge(
+    manager, installed, monkeypatch
+):
+    base, record, _, _ = installed
+    state = (base / "state/queue.sqlite").read_bytes()
+    master = (base / "private/master.key").read_bytes()
+    monkeypatch.setattr(manager, "run_python", lambda *_: "{}")
+    for _ in range(2):
+        monkeypatch.setattr(sys, "argv", ["service.py", "uninstall", "--directory", str(base)])
+        manager.main()
+        assert (base / "state/queue.sqlite").read_bytes() == state
+        assert (base / "private/master.key").read_bytes() == master
+    assert not (base / "releases").exists()
+
+    def install(*_):
+        # The real exporter stages below releases; uninstall removed that directory.
+        (base / "releases" / record["release"]).mkdir()
+        return record["release"]
+
+    monkeypatch.setattr(manager, "release", install)
+    monkeypatch.setattr(sys, "argv", ["service.py", "install", "--directory", str(base)])
+    manager.main()
+    assert json.loads((base / "instance.json").read_text())["installed"]
+    assert (base / "private/master.key").read_bytes() == master
+    monkeypatch.setattr(sys, "argv", ["service.py", "uninstall", "--directory", str(base)])
+    manager.main()
+    sibling = base.parent / "unrelated"
+    sibling.mkdir()
+    (sibling / "sentinel").write_text("preserve")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "service.py",
+            "uninstall",
+            "--directory",
+            str(base),
+            "--purge",
+            "--confirm-delete",
+            str(base),
+        ],
+    )
+    manager.main()
+    assert not (base / "state").exists() and not (base / "private").exists()
+    assert (sibling / "sentinel").read_text() == "preserve"
+    assert (base / "instance.json").exists()

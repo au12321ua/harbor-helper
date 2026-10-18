@@ -290,6 +290,13 @@ def main():
         else:
             record = ops.read_json(manifest)
         if args.action == "install" and not record.get("installed", True):
+            for name in ("home", "state", "private", "logs", "releases", "units", "manager"):
+                directory = ops.plain(base / name)
+                directory.mkdir(mode=0o700, exist_ok=True)
+                ops.require(
+                    directory.stat().st_uid == os.getuid() and not directory.stat().st_mode & 0o077,
+                    "instance subdirectories require owner-only ownership",
+                )
             ops.require(
                 release(base, args.source) == record["release"],
                 "reinstall requires the matching old release; use upgrade to change versions",
