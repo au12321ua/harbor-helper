@@ -514,7 +514,7 @@ def host_processes(state):
                         ).is_relative_to(state)
                     except FileNotFoundError:
                         continue
-                    except (PermissionError, FileNotFoundError):
+                    except PermissionError:
                         unreadable = True
             except (PermissionError, FileNotFoundError):
                 unreadable = True

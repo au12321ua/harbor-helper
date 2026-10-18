@@ -165,6 +165,7 @@ def test_source_subprocess_has_independent_lease_before_target_io(offline):
     with ops.writer_lease(state):
         child = subprocess.run(
             [sys.executable, "-m", "harbor_helper.service.sources"],
+            check=False,
             input=request,
             capture_output=True,
             text=True,
