@@ -42,6 +42,14 @@ export function ShutdownPanel() {
           body: { paused: true, reason: "服务维护" },
         });
         setConfirmClose(false);
+        const status = await api("/admin/shutdown");
+        if (
+          Object.entries(status.counts).every(
+            ([key, count]) => key === "audit_incomplete" || count === 0,
+          )
+        ) {
+          await post("/admin/shutdown", { mode: "wait" });
+        }
       } else {
         await post("/admin/shutdown", { mode });
         setConfirmCancel(false);
@@ -53,6 +61,11 @@ export function ShutdownPanel() {
       setBusy(false);
     }
   }
+  const unfinished = data
+    ? Object.entries(data.counts).some(
+        ([key, count]) => key !== "audit_incomplete" && count > 0,
+      )
+    : false;
   return (
     <Card>
       <CardHeader>
@@ -162,7 +175,7 @@ export function ShutdownPanel() {
                 }
                 onClick={() => void act("wait")}
               >
-                等待全部结束后停止
+                {unfinished ? "等待全部结束后停止" : "停止空闲调度器"}
               </Button>
               <Button
                 variant="destructive"

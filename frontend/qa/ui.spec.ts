@@ -77,6 +77,7 @@ async function fixture(page: Page, role = "admin", logged = true) {
   const currentCatalog = structuredClone(catalog);
   let paused = false;
   let maintenanceReason = "";
+  let stopMode = "none";
   const calls: { path: string; body: any; headers: Record<string, string> }[] =
     [];
   await page.route("**/api/v1/**", async (route) => {
@@ -121,6 +122,14 @@ async function fixture(page: Page, role = "admin", logged = true) {
           global_limit: currentCatalog.limits.max_queue,
         },
       };
+    else if (path === "/admin/shutdown") {
+      if (request.method() === "POST") stopMode = body.mode;
+      value = {
+        maintenance: { paused, reason: maintenanceReason, retry_at: null, updated: null },
+        intent: { mode: stopMode, phase: stopMode === "none" || stopMode === "abort" ? "idle" : "draining", updated: null },
+        counts: { preparing: 1, queued: 1, starting: 0, running: 1, cancelling: 0, cleanup_blocked: 0, audit_incomplete: 0 },
+      };
+    }
     else if (path === "/admin/maintenance") {
       paused = body.paused;
       maintenanceReason = body.reason;
@@ -2426,4 +2435,29 @@ test("管理员授信、动态凭证能力、拒绝历史及完整资料", async
   await expect(page.getByText("SHA256:",{exact:false})).toBeVisible();
   await page.screenshot({path:process.env.HH_UI_OUTPUT + "/materials.png"});
   expect(errors).toEqual([]);
+});
+
+
+test("两阶段停止拒绝无写入、确认关闭后可显式取消并在刷新后保留", async ({ page }) => {
+  const calls = await fixture(page);
+  await page.goto("/admin");
+  await page.getByRole("tab", { name: "容量与保留" }).click();
+  await page.getByRole("button", { name: "开始停止流程", exact: true }).click();
+  await page.getByRole("button", { name: "拒绝并返回", exact: true }).click();
+  expect(calls.filter(c => c.path === "/admin/maintenance" && c.body)).toHaveLength(0);
+  await page.getByRole("button", { name: "开始停止流程", exact: true }).click();
+  await page.getByRole("button", { name: "同意关闭新受理", exact: true }).click();
+  await page.getByRole("button", { name: "等待全部结束后停止", exact: true }).click();
+  await expect(page.getByText("停止意图：等待全部已受理任务结束", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "取消全部未完成任务后停止", exact: true }).click();
+  await page.getByRole("button", { name: "返回，不取消", exact: true }).click();
+  expect(calls.filter(c => c.path === "/admin/shutdown" && c.body?.mode === "cancel")).toHaveLength(0);
+  await page.getByRole("button", { name: "取消全部未完成任务后停止", exact: true }).click();
+  await page.getByRole("button", { name: "确认取消全部并停止", exact: true }).click();
+  await page.reload();
+  await page.getByRole("tab", { name: "容量与保留" }).click();
+  await expect(page.getByText("停止意图：取消全部未完成任务并清理资源", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "退出等待，保持入口关闭", exact: true }).click();
+  await expect(page.getByText("停止意图：未请求停止", { exact: true })).toBeVisible();
+  await expect(page.getByText("持久维护开关：已关闭新受理（跳过关闭确认）", { exact: true })).toBeVisible();
 });

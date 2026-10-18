@@ -163,6 +163,8 @@ def maintenance(base, record, args):
                 "Declined: no maintenance change made; use --close-admissions explicitly"
             )
         run_python(base, record, REQUEST, "close")
+    if not args.mode and not sum(v for k, v in value["counts"].items() if k != "audit_incomplete"):
+        args.mode = "wait"
     if not args.mode:
         raise ValueError("Choose --mode wait|cancel|abort explicitly; admissions remain closed")
     run_python(base, record, REQUEST, args.mode)
