@@ -43,6 +43,9 @@ export function DatasetsPanel({
     void runDatasetOperation(v.id, v.name, kind, tasks);
   }
   const [edit, setEdit] = useState<{ dataset?: Dataset }>({});
+  const selectedDataset = c.datasets.find(
+    (dataset) => dataset.id === edit.dataset?.id,
+  );
   const { docker, dockerBusy, dockerError, discoverDocker } = diagnostics;
   function catalogList(kind: "dataset", values: CatalogDataset[]) {
     return (
@@ -157,7 +160,6 @@ export function DatasetsPanel({
                   variant="outline"
                   disabled={active?.datasetId === v.id}
                   onClick={() => {
-                    setSourceDirty(false);
                     setEdit({ ...edit, [kind]: v });
                   }}
                 >
@@ -210,7 +212,7 @@ export function DatasetsPanel({
         {catalogList("dataset", c.datasets || [])}
         <div className="flex flex-col gap-4">
           <AdminForm
-            key={JSON.stringify(edit.dataset || {})}
+            key={edit.dataset?.id || "new"}
             title={`${edit.dataset ? "编辑" : "添加"}数据集`}
             onDirty={setSourceDirty}
             disabled={!!edit.dataset && active?.datasetId === edit.dataset.id}
@@ -219,19 +221,19 @@ export function DatasetsPanel({
               {
                 name: "name",
                 label: "数据集名称",
-                defaultValue: edit.dataset?.name,
+                defaultValue: selectedDataset?.name,
               },
               {
                 name: "reference",
                 label: "Hub 来源（owner/name，可指定版本）",
-                defaultValue: edit.dataset?.reference,
+                defaultValue: selectedDataset?.reference,
                 description:
                   "例如 harbor/hello-world@1；网页 rev.1 对应 @1。支持 @latest、@标签或完整 @sha256:摘要，省略版本使用 latest。验证解析具体来源，提交实验时冻结。",
               },
               {
                 name: "enabled",
                 label: "状态",
-                defaultValue: String(edit.dataset?.enabled ?? true),
+                defaultValue: String(selectedDataset?.enabled ?? true),
                 options: [
                   { value: "true", label: "启用" },
                   { value: "false", label: "停用" },

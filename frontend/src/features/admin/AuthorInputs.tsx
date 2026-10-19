@@ -116,7 +116,6 @@ export function AuthorInputs({
               onDirty={onDirty}
               title="作者运行参数"
               description="字段来自已校验作者Compose。留空沿作者默认，必需项留空将阻止受理准备。两侧镜像分别消费各自字段；Oracle可检查作者环境与评分。"
-              resetOnSave={false}
               fields={Object.entries(variables).flatMap(([name, raw]) => {
                 const uses = raw;
                 const imageOptions = (docker?.images || []).flatMap((image) =>

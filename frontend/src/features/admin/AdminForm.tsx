@@ -16,14 +16,13 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LoaderCircle } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 export function AdminForm<const F extends readonly FormField[]>({
   title,
   description,
   fields,
   onSave,
-  resetOnSave = true,
   onDirty,
   disabled = false,
 }: {
@@ -31,11 +30,56 @@ export function AdminForm<const F extends readonly FormField[]>({
   description: string;
   fields: F;
   onSave: (value: Record<F[number]["name"], string>) => Promise<unknown>;
-  resetOnSave?: boolean;
   onDirty?: (dirty: boolean) => void;
   disabled?: boolean;
 }) {
   const formId = useId();
+  // Untouched fields always read the current saved catalog. Only actual local
+  // edits belong to this mounted form; refreshes must not turn them into defaults.
+  const defaults = Object.fromEntries(
+    fields.map((f) => [f.name, f.defaultValue ?? ""]),
+  );
+  const defaultsKey = JSON.stringify(defaults);
+  const [edits, setEdits] = useState<{
+    defaultsKey: string;
+    draft: Record<string, string>;
+  }>({ defaultsKey, draft: {} });
+  let draft = edits.draft;
+  if (edits.defaultsKey !== defaultsKey) {
+    // Removed fields cannot be submitted or resurrected on a later refresh.
+    // New fields use the saved value; a draft matching the saved value is clean.
+    draft = Object.fromEntries(
+      Object.entries(draft).filter(
+        ([name, value]) =>
+          Object.hasOwn(defaults, name) && value !== defaults[name],
+      ),
+    );
+    setEdits({ defaultsKey, draft });
+  }
+  const fieldValue = (name: string) =>
+    Object.hasOwn(draft, name) ? draft[name] : defaults[name];
+  const dirty = Object.keys(draft).length > 0;
+  const dirtyCallback = useRef(onDirty);
+  useLayoutEffect(() => {
+    dirtyCallback.current = onDirty;
+  }, [onDirty]);
+  useLayoutEffect(() => {
+    dirtyCallback.current?.(dirty);
+  }, [dirty]);
+  useLayoutEffect(
+    () => () => {
+      dirtyCallback.current?.(false);
+    },
+    [],
+  );
+  function change(name: string, value: string, copyTo?: string) {
+    const next = { ...draft, [name]: value };
+    if (copyTo && value) next[copyTo] = value;
+    for (const key of Object.keys(next))
+      if (next[key] === defaults[key]) delete next[key];
+    setEdits({ defaultsKey, draft: next });
+    setSaved(false);
+  }
   const [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false),
     [saved, setSaved] = useState(false);
@@ -49,10 +93,6 @@ export function AdminForm<const F extends readonly FormField[]>({
       </CardHeader>
       <CardContent>
         <form
-          onChange={() => {
-            onDirty?.(true);
-            setSaved(false);
-          }}
           onSubmit={async (e) => {
             e.preventDefault();
             const form = e.currentTarget;
@@ -67,19 +107,25 @@ export function AdminForm<const F extends readonly FormField[]>({
             ) as Record<F[number]["name"], string>;
             try {
               await onSave(value);
-              if (resetOnSave) form.reset();
-              onDirty?.(false);
+              // This save acknowledged this form. Adopt its refreshed, possibly
+              // normalized saved values without resetting any unrelated editor.
+              setEdits((current) => ({ ...current, draft: {} }));
               toast.success("配置已保存");
               setSaved(true);
             } catch (err) {
               setError(err);
             } finally {
-              const secrets = form.querySelectorAll<HTMLInputElement>(
-                'input[type="password"]',
-              );
-              secrets.forEach((input) => {
-                input.value = "";
-              });
+              setEdits((current) => ({
+                ...current,
+                draft: Object.fromEntries(
+                  Object.entries(current.draft).filter(
+                    ([name]) =>
+                      !fields.some(
+                        (f) => f.name === name && f.type === "password",
+                      ),
+                  ),
+                ),
+              }));
               setBusy(false);
             }
           }}
@@ -105,24 +151,8 @@ export function AdminForm<const F extends readonly FormField[]>({
                       id={`${formId}-${f.name}`}
                       name={f.name}
                       required={f.required !== false}
-                      defaultValue={f.defaultValue || ""}
-                      onChange={
-                        f.copyTo
-                          ? (e) => {
-                              const target =
-                                e.currentTarget.form?.elements.namedItem(
-                                  f.copyTo!,
-                                );
-                              if (
-                                target instanceof HTMLInputElement &&
-                                e.currentTarget.value
-                              ) {
-                                target.value = e.currentTarget.value;
-                                onDirty?.(true);
-                              }
-                            }
-                          : undefined
-                      }
+                      value={fieldValue(f.name)}
+                      onChange={(e) => change(f.name, e.target.value, f.copyTo)}
                     >
                       {!f.defaultValue ? (
                         <option value="">请选择</option>
@@ -138,7 +168,8 @@ export function AdminForm<const F extends readonly FormField[]>({
                       id={`${formId}-${f.name}`}
                       name={f.name}
                       required={f.required !== false}
-                      defaultValue={f.defaultValue}
+                      value={fieldValue(f.name)}
+                      onChange={(e) => change(f.name, e.target.value)}
                     />
                   ) : (
                     <Input
@@ -147,7 +178,8 @@ export function AdminForm<const F extends readonly FormField[]>({
                       type={f.type || "text"}
                       step={f.type === "number" ? "any" : undefined}
                       required={f.required !== false}
-                      defaultValue={f.defaultValue}
+                      value={fieldValue(f.name)}
+                      onChange={(e) => change(f.name, e.target.value)}
                       autoComplete={
                         f.type === "password" ? "new-password" : "off"
                       }

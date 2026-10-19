@@ -63,7 +63,6 @@ export function ModelForm({
         ) : null}
         <AdminForm
           key={`${selected?.id || "new"}-${provider}-${savedRevision}`}
-          resetOnSave={!selected}
           title="模型配置"
           description={
             native
