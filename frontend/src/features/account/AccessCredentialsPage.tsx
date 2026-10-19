@@ -7,13 +7,7 @@ import {
 } from "@/api";
 import { ErrorNotice, Help, Loading, Title } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Field,
   FieldGroup,
@@ -23,9 +17,66 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { useLoad } from "@/hooks/useLoad";
 import { date } from "@/presentation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+function IssuedCredentialDialog({
+  value,
+  onClose,
+}: {
+  value: string;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  function close() {
+    dialog.current?.close();
+    onClose();
+  }
+  return (
+    <dialog
+      ref={dialog}
+      aria-labelledby="issued-credential-title"
+      aria-describedby="issued-credential-description"
+      onClose={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl overflow-auto rounded-lg border bg-card p-0 text-card-foreground shadow-lg backdrop:bg-black/50"
+    >
+      <CardHeader>
+        <CardTitle id="issued-credential-title">原值仅显示这一次</CardTitle>
+        <p
+          id="issued-credential-description"
+          className="text-sm text-muted-foreground"
+        >
+          请保存到安全凭证文件，勿写入附件、命令参数或日志。关闭后无法找回。
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Field>
+          <FieldLabel htmlFor="issued-credential">新签发凭证</FieldLabel>
+          <Textarea
+            id="issued-credential"
+            readOnly
+            value={value}
+            rows={3}
+            className="resize-none font-mono"
+            onFocus={(event) => event.currentTarget.select()}
+          />
+        </Field>
+        <Button type="button" onClick={close}>
+          已安全保存，关闭原值
+        </Button>
+      </CardContent>
+    </dialog>
+  );
+}
 
 const scopes = [
   ["read", "发现与读取共享实验"],
@@ -45,6 +96,7 @@ export function AccessCredentialsPage({ user }: { user: User }) {
   const [failure, setFailure] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const [issued, setIssued] = useState<string>();
+  const issueButton = useRef<HTMLButtonElement>(null);
   return (
     <>
       <Title
@@ -53,20 +105,13 @@ export function AccessCredentialsPage({ user }: { user: User }) {
       />
       <ErrorNotice error={failure || error} />
       {issued && (
-        <Card>
-          <CardHeader>
-            <CardTitle>原值仅显示这一次</CardTitle>
-            <CardDescription>
-              请保存到安全凭证文件，勿写入附件、命令参数或日志。关闭后无法找回。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Input aria-label="新签发凭证" readOnly value={issued} />
-            <Button type="button" onClick={() => setIssued(undefined)}>
-              已安全保存，关闭原值
-            </Button>
-          </CardContent>
-        </Card>
+        <IssuedCredentialDialog
+          value={issued}
+          onClose={() => {
+            setIssued(undefined);
+            issueButton.current?.focus();
+          }}
+        />
       )}
       <Card>
         <CardHeader>
@@ -168,7 +213,9 @@ export function AccessCredentialsPage({ user }: { user: User }) {
                   required
                 />
               </Field>
-              <Button disabled={busy}>签发凭证</Button>
+              <Button ref={issueButton} disabled={busy}>
+                签发凭证
+              </Button>
             </FieldGroup>
           </form>
         </CardContent>
