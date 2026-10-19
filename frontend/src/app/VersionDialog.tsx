@@ -56,6 +56,10 @@ export function VersionFooter({ user }: { user: User }) {
   const [version, setVersion] = useState<Version>();
   const [open, setOpen] = useState(false);
   const [updates, setUpdates] = useState<Updates>();
+  const [updatesStatus, setUpdatesStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [publicPhase, setPublicPhase] = useState<string>();
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState<string>();
   const [sending, setSending] = useState(false);
@@ -78,7 +82,10 @@ export function VersionFooter({ user }: { user: User }) {
     if (!open) return;
     dialog.current?.showModal();
     let live = true;
+    let refreshing = false;
     const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
       try {
         const value = await loadVersion();
         if (!live) return;
@@ -89,6 +96,8 @@ export function VersionFooter({ user }: { user: User }) {
           const status = await loadUpdates();
           if (!live) return;
           setUpdates(status);
+          setUpdatesStatus("ready");
+          setPublicPhase(undefined);
           setPending((previous) =>
             status.results.some((item) => item.request_id === previous)
               ? undefined
@@ -99,20 +108,18 @@ export function VersionFooter({ user }: { user: User }) {
       } catch (failure) {
         if (!live) return;
         setError(failure);
+        setUpdatesStatus("error");
         // Public projection remains available while authenticated APIs are stopped.
-        const response = await fetch("/api/v1/upgrade-phase", {
-          cache: "no-store",
-        }).catch(() => undefined);
-        if (response?.ok) {
-          const value: { upgrading: boolean; phase: string | null } =
-            await response.json();
-          if (live && value.upgrading && value.phase)
-            setUpdates((previous) =>
-              previous
-                ? { ...previous, job: { ...previous.job, phase: value.phase } }
-                : previous,
-            );
-        }
+        const value: { upgrading: boolean; phase: string | null } | undefined =
+          await fetch("/api/v1/upgrade-phase", { cache: "no-store" })
+            .then((response) => (response.ok ? response.json() : undefined))
+            .catch(() => undefined);
+        if (live)
+          setPublicPhase(
+            value?.upgrading ? (value.phase ?? undefined) : undefined,
+          );
+      } finally {
+        refreshing = false;
       }
     };
     void refresh();
@@ -127,7 +134,8 @@ export function VersionFooter({ user }: { user: User }) {
   const last = updates?.results[0];
   const check = checked(last?.result);
   const job = updates?.job;
-  const phase = typeof job?.phase === "string" ? job.phase : undefined;
+  const phase =
+    publicPhase ?? (typeof job?.phase === "string" ? job.phase : undefined);
   const active = phase && !["succeeded", "failed", "cancelled"].includes(phase);
   async function send(
     action: "check" | "upgrade" | "cancel" | "cancel-all",
@@ -156,7 +164,13 @@ export function VersionFooter({ user }: { user: User }) {
     <>
       <Button
         variant="link"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setUpdates(undefined);
+          setUpdatesStatus("loading");
+          setPublicPhase(undefined);
+          setError(undefined);
+          setOpen(true);
+        }}
         aria-label="查看运行版本与更新"
       >
         Harbor Helper {version?.version || "版本信息"}
@@ -203,95 +217,108 @@ export function VersionFooter({ user }: { user: User }) {
             ) : null}
             {user.role === "admin" ? (
               <>
-                <p>
-                  下一次更新源：
-                  {updates?.source
-                    ? `${updates.source.repository} · ${updates.source.branch === "dev" ? "测试" : "稳定"}`
-                    : "未配置"}
-                </p>
-                {!updates?.enabled ? (
-                  <p>本安装尚未启用网页更新，请由部署者完成一次性接入。</p>
-                ) : (
+                {updatesStatus === "loading" ? (
+                  <p role="status">正在加载更新配置与启用状态…</p>
+                ) : updatesStatus === "error" ? (
+                  <p role="alert">更新状态读取失败，将自动重试。</p>
+                ) : null}
+                {updatesStatus === "ready" && updates ? (
                   <>
-                    <p>默认关闭新受理并等待实验自然结束，不自动取消任务。</p>
-                    <Button
-                      disabled={sending || !!pending || !!active}
-                      onClick={() => void send("check")}
-                    >
-                      检查更新
-                    </Button>
-                    {pending ? (
-                      <p role="status">
-                        请求已持久提交，等待执行器处理；关闭页面不影响执行。
-                      </p>
-                    ) : null}
-                    {check ? (
-                      <div>
+                    <p>
+                      下一次更新源：
+                      {updates?.source
+                        ? `${updates.source.repository} · ${updates.source.branch === "dev" ? "测试" : "稳定"}`
+                        : "未配置"}
+                    </p>
+                    {!updates?.enabled ? (
+                      <p>本安装尚未启用网页更新，请由部署者完成一次性接入。</p>
+                    ) : (
+                      <>
                         <p>
-                          {relations[check.relation] || "检查失败"} ·{" "}
-                          {check.target_sha.slice(0, 12)}
+                          默认关闭新受理并等待实验自然结束，不自动取消任务。
                         </p>
-                        <p>{check.message}</p>
-                        {check.metadata === "passed" ? (
-                          <p>元数据检查通过；完整适配将在离线备份后执行。</p>
-                        ) : null}
-                        {check.relation === "update" ? (
-                          <Button
-                            disabled={sending || !!pending || !!active}
-                            onClick={() =>
-                              void send("upgrade", {
-                                check_id: check.check_id,
-                                target_sha: check.target_sha,
-                                config_digest: check.config_digest,
-                              })
-                            }
-                          >
-                            更新到此固定提交
-                          </Button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {updates.results[0]?.error ? (
-                      <p role="alert">
-                        检查或请求失败，请检查宿主更新配置；当前版本状态未知。
-                      </p>
-                    ) : null}
-                    {phase ? (
-                      <p role="status">
-                        {phases[phase] || phase}。刷新页面可继续查看。
-                      </p>
-                    ) : null}
-                    {phase === "waiting" && typeof job?.id === "string" ? (
-                      <div className="flex flex-wrap gap-2">
                         <Button
-                          variant="outline"
-                          disabled={sending}
-                          onClick={() =>
-                            void send("cancel", { job: job.id as string })
-                          }
+                          disabled={sending || !!pending || !!active}
+                          onClick={() => void send("check")}
                         >
-                          取消升级，保留实验
+                          检查更新
                         </Button>
-                        <Button
-                          variant="destructive"
-                          disabled={sending}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                "取消所有未完成任务不可撤销，之后继续升级。确认？",
-                              )
-                            )
-                              void send("cancel-all", {
-                                job: job.id as string,
-                              });
-                          }}
-                        >
-                          改为取消全部任务
-                        </Button>
-                      </div>
-                    ) : null}
+                        {pending ? (
+                          <p role="status">
+                            请求已持久提交，等待执行器处理；关闭页面不影响执行。
+                          </p>
+                        ) : null}
+                        {check ? (
+                          <div>
+                            <p>
+                              {relations[check.relation] || "检查失败"} ·{" "}
+                              {check.target_sha.slice(0, 12)}
+                            </p>
+                            <p>{check.message}</p>
+                            {check.metadata === "passed" ? (
+                              <p>
+                                元数据检查通过；完整适配将在离线备份后执行。
+                              </p>
+                            ) : null}
+                            {check.relation === "update" ? (
+                              <Button
+                                disabled={sending || !!pending || !!active}
+                                onClick={() =>
+                                  void send("upgrade", {
+                                    check_id: check.check_id,
+                                    target_sha: check.target_sha,
+                                    config_digest: check.config_digest,
+                                  })
+                                }
+                              >
+                                更新到此固定提交
+                              </Button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {updates.results[0]?.error ? (
+                          <p role="alert">
+                            检查或请求失败，请检查宿主更新配置；当前版本状态未知。
+                          </p>
+                        ) : null}
+                        {phase === "waiting" && typeof job?.id === "string" ? (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              disabled={sending}
+                              onClick={() =>
+                                void send("cancel", { job: job.id as string })
+                              }
+                            >
+                              取消升级，保留实验
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              disabled={sending}
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    "取消所有未完成任务不可撤销，之后继续升级。确认？",
+                                  )
+                                )
+                                  void send("cancel-all", {
+                                    job: job.id as string,
+                                  });
+                              }}
+                            >
+                              改为取消全部任务
+                            </Button>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </>
-                )}
+                ) : null}
+                {phase ? (
+                  <p role="status">
+                    {phases[phase] || phase}。刷新页面可继续查看。
+                  </p>
+                ) : null}
               </>
             ) : null}
             {error ? <ErrorNotice error={error} /> : null}
