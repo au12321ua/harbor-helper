@@ -951,6 +951,7 @@ def enable(base, record, repository, branch):
     service = f"""# harbor-helper instance {record["owner"]}
 [Unit]
 Description=Harbor Helper update executor {record["instance"]}
+StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 UMask=0077
