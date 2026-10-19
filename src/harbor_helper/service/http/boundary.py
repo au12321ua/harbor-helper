@@ -4,6 +4,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
+from harbor_helper.persistence.store import Store
+from harbor_helper.persistence.upgrades import blocked
 from harbor_helper.security.credentials import redact_value
 from harbor_helper.service import machine
 from harbor_helper.service.application import Application
@@ -39,12 +41,24 @@ def register(app, deps):
         from harbor_helper.service.history import REQUEST_ID
 
         REQUEST_ID.set(request.state.request_id)
-        if deps.application is None and (deps.store.root / "service.json").exists():
+        if (
+            blocked(deps.store.root)
+            and request.url.path.startswith("/api/")
+            and request.url.path not in {"/api/v1/health", "/api/v1/build", "/api/v1/upgrade-phase"}
+        ):
+            return failure(request, "upgrade_in_progress", "更新中，请稍后重连", 503)
+        if (
+            not blocked(deps.store.root)
+            and deps.application is None
+            and (deps.store.root / "service.json").exists()
+        ):
+            deps.store = Store(deps.store.root)
             deps.application = Application(deps.store)
         if (
             request.url.path.startswith("/api/")
             and deps.application is None
-            and request.url.path not in {"/api/v1/setup", "/api/v1/health"}
+            and request.url.path
+            not in {"/api/v1/setup", "/api/v1/health", "/api/v1/build", "/api/v1/upgrade-phase"}
         ):
             return failure(
                 request, "service_not_initialized", "Complete protected website setup", 503

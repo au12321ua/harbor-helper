@@ -396,6 +396,10 @@ def supervise(root):
 
     # Publish identity before Store's migrations or any control/SQLite writer wait.
     root = Path(root).expanduser().resolve()
+    from harbor_helper.persistence.upgrades import blocked
+
+    while blocked(root):
+        time.sleep(1)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.environ.pop(credentials.KEY_ENV, None)
     secrets = runtime_secrets()
@@ -438,6 +442,11 @@ def supervise(root):
                 changed = True
                 stop_deadline = None
                 while True:
+                    if blocked(root):
+                        if stopping.is_set():
+                            break
+                        time.sleep(0.2)
+                        continue
                     now = time.monotonic()
                     controller.stopping = stopping.is_set()
                     if controller.stopping and stop_deadline is None:

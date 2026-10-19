@@ -91,11 +91,6 @@ def service_root(args):
 
 
 def dispatch(args):
-    if args.service_command in {"serve", "scheduler"}:
-        from harbor_helper.persistence.writers import writer
-
-        with writer(service_root(args)):
-            return _dispatch(args)
     return _dispatch(args)
 
 

@@ -61,6 +61,9 @@ def request(data, mode, actor):
         raise ServiceError("shutdown_mode", "Choose wait, cancel or abort")
     store = data.store
     with store.control():
+        from harbor_helper.persistence.upgrades import ownership
+
+        ownership(store.root)
         if not maintenance(data)["paused"]:
             raise ServiceError("maintenance_required", "Explicitly close new admissions first", 409)
         old = intent(store)

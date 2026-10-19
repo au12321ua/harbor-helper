@@ -705,6 +705,14 @@ def copy_stable(source, destination):
 
 
 def backup(args, *, writer=None):
+    journal = Path(args.directory) / "updates/journal.json"
+    if journal.exists():
+        task = read_json(journal)
+        require(
+            task.get("phase") in {"succeeded", "failed", "cancelled"}
+            or getattr(args, "upgrade_job", None) == task.get("id"),
+            "upgrade_in_progress: backup deferred",
+        )
     base = plain(args.directory)
     state = base / "state"
     require(
@@ -999,6 +1007,10 @@ def restore(args):
     require(validated["schema"] == manifest["schema"], "schema mismatch")
     validate_evidence(source / "state", validated, manifest["included_runs"])
     target = plain(args.target)
+    require(
+        not (target.parent / "updates/journal.json").exists(),
+        "upgrade-owned restore target refused",
+    )
     require(not target.exists(), "target already exists")
     # Stage next to the new target; failures never leave a seemingly valid target.
     target.parent.mkdir(parents=True, exist_ok=True)

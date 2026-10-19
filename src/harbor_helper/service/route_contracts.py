@@ -31,6 +31,12 @@ def exception(path: str, handler: str, reason: str, methods: str = "GET") -> Exe
 
 EXEMPTIONS = (
     exception(
+        "/api/v1/build", "updates.register.<locals>.build_identity", "Minimal cache identity"
+    ),
+    exception(
+        "/api/v1/upgrade-phase", "updates.register.<locals>.upgrade_phase", "Minimal upgrade status"
+    ),
+    exception(
         "/api/v1/runs/{run_id}/evidence/package",
         "experiments.register.<locals>.evidence_package",
         "Verified snapshot streaming",

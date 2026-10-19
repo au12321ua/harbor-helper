@@ -623,7 +623,34 @@ class Materials(DTO):
     legacy: bool = False
 
 
+class RunningVersion(DTO):
+    version: str
+    release: str | None
+    build: str
+    source: dict[str, str] | None
+
+
+class UpdateStatus(DTO):
+    enabled: bool
+    source: dict[str, str] | None
+    job: dict[str, JsonValue] | None
+    results: list[dict[str, JsonValue]]
+
+
+class UpdateInput(DTO):
+    action: Literal["check", "upgrade", "cancel", "cancel-all"]
+    request_id: str
+    payload: dict[str, str]
+
+
+class UpdateQueued(DTO):
+    request_id: str
+
+
 BROWSER = {
+    "running_version": RunningVersion,
+    "update_status": UpdateStatus,
+    "update_request": UpdateQueued,
     "access_capabilities": AccessCapabilities,
     "evidence_grant": GrantResult,
     "operation_history": OperationHistory,
@@ -692,6 +719,7 @@ BROWSER = {
 }
 MACHINE = {"me": MachineUser, "catalog": m.Discovery}
 REQUESTS = {
+    "update_request": UpdateInput,
     "set_maintenance": MaintenanceInput,
     "shutdown_request": m.ShutdownInput,
     "update_user": UserUpdate,

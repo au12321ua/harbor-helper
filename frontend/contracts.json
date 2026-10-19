@@ -4495,6 +4495,52 @@
       "title": "RunSummary",
       "type": "object"
     },
+    "RunningVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "build": {
+          "title": "Build",
+          "type": "string"
+        },
+        "release": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Release"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "release",
+        "build",
+        "source"
+      ],
+      "title": "RunningVersion",
+      "type": "object"
+    },
     "Runs": {
       "additionalProperties": false,
       "properties": {
@@ -5082,6 +5128,108 @@
         "attempts"
       ],
       "title": "TaskReport",
+      "type": "object"
+    },
+    "UpdateInput": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "check",
+            "upgrade",
+            "cancel",
+            "cancel-all"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Payload",
+          "type": "object"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "request_id",
+        "payload"
+      ],
+      "title": "UpdateInput",
+      "type": "object"
+    },
+    "UpdateQueued": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id"
+      ],
+      "title": "UpdateQueued",
+      "type": "object"
+    },
+    "UpdateStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "job": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Job"
+        },
+        "results": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/definitions/JsonValue"
+            },
+            "type": "object"
+          },
+          "title": "Results",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        }
+      },
+      "required": [
+        "enabled",
+        "source",
+        "job",
+        "results"
+      ],
+      "title": "UpdateStatus",
       "type": "object"
     },
     "Updated": {
@@ -5744,6 +5892,36 @@
       "metadata": null,
       "method": "GET",
       "navigation": false,
+      "operation": "update_status",
+      "path": "/admin/updates",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/UpdateStatus"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "update_request",
+      "path": "/admin/updates",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/UpdateInput"
+      },
+      "response": {
+        "$ref": "#/definitions/UpdateQueued"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
       "operation": "users",
       "path": "/admin/users",
       "projection": "shared/session",
@@ -6328,6 +6506,20 @@
       "request": null,
       "response": {
         "$ref": "#/definitions/Usage"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "running_version",
+      "path": "/version",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/RunningVersion"
       },
       "status": 200
     }

@@ -15,14 +15,22 @@ _mutex = threading.RLock()  # GC may finalize another Store during acquire().
 
 
 def acquire(root):
+    from harbor_helper.persistence.upgrades import authorized, require_writable
+
+    require_writable(root)
     key = (os.getpid(), str(root))
     with _mutex:
         if key in _leases:
             _leases[key][1] += 1
             return key
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(
-            root / "writer.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600
+        inherited = authorized(root)
+        fd = (
+            os.dup(inherited)
+            if inherited is not None
+            else os.open(
+                root / "writer.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600
+            )
         )
         try:
             meta = os.fstat(fd)
@@ -33,7 +41,8 @@ def acquire(root):
                 or meta.st_nlink != 1
             ):
                 raise ValueError("Writer lease requires an owned private regular file")
-            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            if inherited is None:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
             code = Path(__file__).resolve().parents[3]
             if re.fullmatch("[a-f0-9]{40}", code.name) and (code / ".installed").exists():
                 path = root / "release.json"

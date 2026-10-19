@@ -17,7 +17,13 @@ def register(app, deps):
         from harbor_helper.service.admission import readiness as observe
 
         try:
-            ready = deps.application is not None and observe(deps.application)["accepting"]
+            from harbor_helper.persistence.upgrades import blocked
+
+            ready = (
+                not blocked(deps.store.root)
+                and deps.application is not None
+                and observe(deps.application)["accepting"]
+            )
         except (ValueError, OSError, TypeError):
             ready = False
         return {"alive": True, "ready": ready}
@@ -37,6 +43,9 @@ def register(app, deps):
         if token(request) in json.dumps(body):
             raise ServiceError("maintenance_reason", "Notice must not contain credentials")
         with deps.application.store.control():
+            from harbor_helper.persistence.upgrades import ownership
+
+            ownership(deps.store.root)
             result = update(deps.data, body)
             deps.data.event(user, "set_maintenance", "admission")
             return result

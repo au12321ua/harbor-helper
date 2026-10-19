@@ -12,6 +12,17 @@ import pytest
 from harbor_helper.service.data import ServiceData
 
 
+def stage_protocol(scripts):
+    import shutil
+
+    repo = Path(__file__).resolve().parents[1]
+    target = scripts.parent / "src/harbor_helper/persistence"
+    target.mkdir(parents=True)
+    shutil.copyfile(repo / "src/harbor_helper/persistence/upgrades.py", target / "upgrades.py")
+    for name in ("update_manager.py", "update_probe.py", "ops_timer.py", "install_ops.py"):
+        shutil.copyfile(repo / "scripts" / name, scripts / name)
+
+
 @pytest.fixture
 def manager(monkeypatch):
     scripts = Path(__file__).resolve().parents[1] / "scripts"
@@ -304,6 +315,7 @@ def test_successful_upgrade_releases_lease_before_observation(manager, installed
     candidate = "b" * 40
     scripts = base / "releases" / candidate / "scripts"
     scripts.mkdir(parents=True)
+    stage_protocol(scripts)
     for name in ("service.py", "ops.py", "local_platform.py"):
         source = Path(manager.__file__).with_name(name)
         shutil.copyfile(source, scripts / name)
@@ -331,7 +343,12 @@ def test_successful_upgrade_releases_lease_before_observation(manager, installed
     manager.main()
     assert json.loads((base / "instance.json").read_text())["release"] == candidate
     assert json.loads((base / "state/release.json").read_text())["release"] == candidate
-    assert (base / "manager/service.py").read_bytes() == (scripts / "service.py").read_bytes()
+    assert json.loads((base / "manager/current.json").read_text())["release"] == candidate
+    collection = base / "manager/sets" / candidate
+    assert (collection / "service.py").read_bytes() == (scripts / "service.py").read_bytes()
+    assert (collection / "upgrade_protocol.py").read_bytes() == (
+        scripts.parent / "src/harbor_helper/persistence/upgrades.py"
+    ).read_bytes()
     assert (base / "releases" / record["release"]).exists()
     assert network.read_text() == "{}"
     assert (
@@ -364,6 +381,7 @@ def test_default_uninstall_then_same_release_reinstall_and_later_purge(
         # The real exporter stages below releases; uninstall removed that directory.
         scripts = base / "releases" / record["release"] / "scripts"
         scripts.mkdir(parents=True)
+        stage_protocol(scripts)
         for name in ("service.py", "ops.py", "local_platform.py"):
             shutil.copyfile(sources / name, scripts / name)
         return record["release"]

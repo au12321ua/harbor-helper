@@ -218,10 +218,26 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "action", choices=["install", "start", "stop", "status", "maintain", "upgrade", "uninstall"]
+        "action",
+        choices=[
+            "install",
+            "start",
+            "stop",
+            "status",
+            "maintain",
+            "upgrade",
+            "uninstall",
+            "enable-updates",
+            "upgrade-status",
+            "update-run",
+            "upgrade-resolve",
+        ],
     )
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--instance")
+    parser.add_argument("--repository")
+    parser.add_argument("--branch", choices=["master", "dev"], default="master")
+    parser.add_argument("--resolution", choices=["stop", "restore", "accept"])
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -255,6 +271,24 @@ def main():
         base.stat().st_uid == os.getuid() and not base.stat().st_mode & 0o077,
         "instance requires owner-only directory",
     )
+    import update_manager as updater
+
+    if args.action == "upgrade-status":
+        print(json.dumps(updater.protocol.journal(base / "state")))
+        return
+    if args.action == "update-run":
+        updater.run(base)
+        return
+    if args.action == "upgrade-resolve":
+        updater.resolve(base, args.resolution)
+        return
+    current_job = updater.protocol.busy(base / "state")
+    if current_job and args.action != "status":
+        raise ValueError("Upgrade owns this instance: " + current_job["id"])
+    if args.action == "status" and updater.protocol.journal(base / "state"):
+        print(json.dumps(updater.protocol.journal(base / "state")))
+        if updater.protocol.blocked(base / "state"):
+            return
     with (base / ".manager.lock").open("a") as lock, ExitStack() as leases:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         manifest = base / "instance.json"
@@ -307,11 +341,7 @@ def main():
                 "reinstall requires the matching old release; use upgrade to change versions",
             )
             ops.write_json(base / "state/release.json", {"release": record["release"]})
-            for filename in ("service.py", "local_platform.py", "ops.py"):
-                shutil.copyfile(
-                    base / "releases" / record["release"] / "scripts" / filename,
-                    base / "manager" / filename,
-                )
+            updater.activate(base, record["release"])
             units(base, record)
             for part in ("http", "scheduler"):
                 options = ["--runtime"] if record["runtime"] else []
@@ -344,6 +374,9 @@ def main():
             print("Already uninstalled; retained data unchanged")
             return
         validate(base, record)
+        if args.action == "enable-updates":
+            updater.enable(base, record, args.repository, args.branch)
+            return
         if args.action == "start":
             for part in ("http", "scheduler") if args.part == "all" else (args.part,):
                 systemctl("start", unit_name(record, part))
@@ -395,14 +428,6 @@ def main():
             safe_offline(base)
             # All fallible backup/installation work precedes the version switch.
             previous = record.copy()
-            manager_previous = {}
-            manager_staged = {}
-            for name in ("service.py", "local_platform.py", "ops.py"):
-                destination = base / "manager" / name
-                manager_previous[destination] = destination.read_bytes()
-                staged = destination.with_suffix(".next")
-                shutil.copyfile(base / "releases" / next_release / "scripts" / name, staged)
-                manager_staged[destination] = staged
             old_state = None
             if args.fresh_state:
                 old_state = base / ("state-retained-" + uuid.uuid4().hex)
@@ -412,12 +437,8 @@ def main():
             try:
                 ops.write_json(base / "state/release.json", {"release": next_release})
                 units(base, record)
-                for destination, staged in manager_staged.items():
-                    os.replace(staged, destination)
                 ops.write_json(manifest, record)
             except Exception:
-                for destination, content in manager_previous.items():
-                    destination.write_bytes(content)
                 units(base, previous)
                 if not old_state:
                     ops.write_json(base / "state/release.json", {"release": previous["release"]})
@@ -426,6 +447,7 @@ def main():
                     (base / "state").rmdir()
                     old_state.rename(base / "state")
                 raise
+            updater.activate(base, next_release)
             print(
                 json.dumps(
                     {
@@ -437,6 +459,27 @@ def main():
                 )
             )
         elif args.action == "uninstall":
+            enabled = base / "updates/enabled.json"
+            if enabled.exists():
+                updater.protocol.private_json(enabled)
+                name = f"harbor-helper-{record['instance']}-updates"
+                for suffix in (".path", ".service"):
+                    path = base / "units" / (name + suffix)
+                    ops.require(
+                        path.is_file()
+                        and path.read_text().startswith(
+                            f"# harbor-helper instance {record['owner']}\n"
+                        ),
+                        "Update unit ownership mismatch",
+                    )
+                    systemctl(
+                        "disable",
+                        "--now",
+                        *(["--runtime"] if record["runtime"] else []),
+                        name + suffix,
+                    )
+                    path.unlink()
+                enabled.unlink()
             stop(base, record)
             lease = leases.enter_context(ops.writer_lease(base / "state"))
             if (base / "state/service.json").exists():

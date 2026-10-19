@@ -103,9 +103,14 @@ def main():
     if not code.exists():
         shutil.copyfile(source, code)
         code.chmod(0o600)
+    # A private immutable set keeps the timer code and its ops dependency together.
+    timer_set = dest / ("timer-" + code_hash)
+    timer_set.mkdir(mode=0o700, exist_ok=True)
+    shutil.copyfile(source, timer_set / "ops.py")
+    shutil.copyfile(Path(__file__).with_name("ops_timer.py"), timer_set / "ops_timer.py")
     units.mkdir(parents=True, exist_ok=True)
     for kind, calendar in (("check", args.check_calendar), ("backup", args.backup_calendar)):
-        command = [python, code, kind, "--directory", base]
+        command = [python, timer_set / "ops_timer.py", kind, "--directory", base]
         command += (
             ["--backups", args.backups.absolute()]
             if kind == "check"

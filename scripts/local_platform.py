@@ -383,6 +383,13 @@ def main():
     base = args.directory.expanduser().absolute()
     if base.is_symlink():
         fail("Instance directory must not be a symlink.")
+    if args.action != "status":
+        import update_manager
+
+        if update_manager.protocol.busy(base / "state") or update_manager.protocol.blocked(
+            base / "state"
+        ):
+            fail("Upgrade owns this state; use installed manager upgrade-status/upgrade-resolve")
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     info = base.stat()
     if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:

@@ -1,3 +1,4 @@
+import { VersionFooter } from "./VersionDialog";
 import { TimezoneSettings } from "@/components/TimezoneSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { HarborMark } from "@/components/HarborMark";
@@ -226,7 +227,7 @@ export function Shell({
           <AppRoutes user={user} onLogout={onLogout} />
         </main>
         <footer>
-          Harbor Helper <span>全部实验团队共享</span>
+          <VersionFooter user={user} /> <span>全部实验团队共享</span>
         </footer>
       </div>
     </div>

@@ -17,6 +17,9 @@ _held_evidence = threading.local()
 class Store:
     def __init__(self, root):
         self.root = Path(root).expanduser().resolve()
+        from harbor_helper.persistence.upgrades import require_writable
+
+        require_writable(self.root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         from harbor_helper.persistence.writers import acquire, release
 
@@ -67,6 +70,9 @@ class Store:
     def connect(self):
         if not self._writer_finalizer.alive:
             raise ValueError("Store is closed")
+        from harbor_helper.persistence.upgrades import require_writable
+
+        require_writable(self.root)
         db = sqlite3.connect(self.root / "queue.sqlite", timeout=30)
         db.row_factory = sqlite3.Row
         try:

@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 
@@ -16,6 +17,7 @@ from harbor_helper.service.http import (
     session,
     spa,
     status,
+    updates,
 )
 from harbor_helper.service.http import machine as machine_routes
 from harbor_helper.service.http.dependencies import Dependencies
@@ -24,16 +26,25 @@ from harbor_helper.service.setup import protected_file
 
 
 def create_app(root, *, start_scheduler=False, setup_token_file=None, master_key_file=None):
-    store = Store(root)
+    from harbor_helper.persistence.upgrades import authorized, blocked
+
+    root = Path(root).expanduser().resolve()
+    store = (
+        SimpleNamespace(root=root) if blocked(root) and authorized(root) is None else Store(root)
+    )
     private = store.root.parent / ("." + store.root.name + "-deployment")
     setup_token_file = Path(setup_token_file or private / "setup-token")
     master_key_file = Path(master_key_file or private / "master-key")
-    with store.control():
-        application = Application(store) if (store.root / "service.json").exists() else None
-        if application is None:
-            if setup_token_file.resolve().is_relative_to(store.root):
-                raise ServiceError("setup_protection", "Bootstrap token must be outside state", 503)
-            protected_file(setup_token_file, create=True)
+    application = None
+    if isinstance(store, Store):
+        with store.control():
+            application = Application(store) if (store.root / "service.json").exists() else None
+            if application is None:
+                if setup_token_file.resolve().is_relative_to(store.root):
+                    raise ServiceError(
+                        "setup_protection", "Bootstrap token must be outside state", 503
+                    )
+                protected_file(setup_token_file, create=True)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -72,6 +83,7 @@ def create_app(root, *, start_scheduler=False, setup_token_file=None, master_key
     experiments.register(app, deps)
     attachments.register(app, deps)
     configuration.register(app, deps)
+    updates.register(app, deps)
     spa.register(app)
     from harbor_helper.service.route_contracts import browser_routes
 
