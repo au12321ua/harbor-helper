@@ -1050,9 +1050,8 @@ def enable(base, record, repository, branch):
     runtime_release = enabled.get("runtime_release", record["release"])
     ops.require(re.fullmatch("[a-f0-9]{40}", runtime_release), "Invalid executor runtime release")
     uv = enabled.get("uv") or shutil.which("uv")
-    ops.require(
-        isinstance(uv, str) and Path(uv).is_absolute(), "Install uv before enabling updates"
-    )
+    if not isinstance(uv, str) or not Path(uv).is_absolute():
+        raise ValueError("Install uv before enabling updates")
     uv_path = ops.plain(Path(uv).resolve())
     with ops.regular_reader(uv_path) as binary:
         metadata = os.fstat(binary.fileno())
