@@ -1,3 +1,4 @@
+import { TimezoneSettings } from "@/components/TimezoneSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { HarborMark } from "@/components/HarborMark";
 import { api, post, type User } from "@/api";
@@ -213,8 +214,12 @@ export function Shell({
           >
             <Menu />
           </Button>
-          <span className="team-name">{catalog?.settings?.team_name || "团队工作空间"}</span>
+          <span className="team-name">
+            {catalog?.settings?.team_name || "团队工作空间"}
+          </span>
           <span className="crumb">/　{crumb}</span>
+          <span className="text-sm text-muted-foreground">时区</span>
+          <TimezoneSettings />
           <ThemeToggle />
         </header>
         <main>

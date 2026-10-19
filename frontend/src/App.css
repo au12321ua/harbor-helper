@@ -1339,7 +1339,10 @@ html [data-sonner-toaster][data-sonner-theme] {
   --info-border: var(--border);
 }
 
-html [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] {
+html
+  [data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  [data-description] {
   color: inherit;
 }
 .field-heading {
@@ -1411,5 +1414,29 @@ html [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-descrip
   .compare-actions {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+.task-budget-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.task-budget-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+.task-budget-row input {
+  margin-right: 0.5rem;
+}
+@media (max-width: 900px) {
+  .task-budget-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
   }
 }

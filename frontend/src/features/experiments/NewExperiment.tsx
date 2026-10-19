@@ -115,11 +115,11 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
           <AlertTitle>从 {entry.source} 复制新建</AlertTitle>
           <AlertDescription>
             按当前目录、模型和附件重新校验并冻结；“按原条件重跑”仍保留原冻结条件。
-            {entry.datasetVersion != null &&
-            selected &&
-            entry.datasetVersion !== selected.version
-              ? `来源数据集版本 ${entry.datasetVersion}，当前版本 ${selected.version}。`
-              : ""}
+            {!entry.datasetIdentity || !selected?.resolved
+              ? "历史或当前冻结来源身份未知，请确认所选来源。"
+              : entry.datasetIdentity !== selected.resolved
+                ? "来源身份已变化，请确认当前 Harbor 来源。"
+                : ""}
           </AlertDescription>
         </Alert>
       )}
@@ -204,7 +204,7 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
                     }}
                     description={
                       selected
-                        ? `${selected.reference} · 已验证版本 ${selected.version}`
+                        ? `${selected.reference} · 来源已验证`
                         : "选择管理员验证的数据集"
                     }
                   >

@@ -18,6 +18,7 @@ export function ModelForm({
   save: typeof mutation;
   onSaved: (value: Profile) => void;
 }) {
+  const [savedRevision, setSavedRevision] = useState(0);
   const [provider, setProvider] = useState(String(selected?.provider_id || ""));
   const native =
     catalog.providers.find((p) => p.id === provider)?.protocol !==
@@ -61,7 +62,7 @@ export function ModelForm({
           </Alert>
         ) : null}
         <AdminForm
-          key={`${selected?.id || "new"}-${provider}`}
+          key={`${selected?.id || "new"}-${provider}-${savedRevision}`}
           resetOnSave={!selected}
           title="模型配置"
           description={
@@ -150,6 +151,9 @@ export function ModelForm({
               enabled: selected?.enabled ?? true,
             });
             onSaved(saved);
+            // Normalize only this successfully saved form; unrelated catalog refreshes
+            // must preserve any mounted draft.
+            setSavedRevision((revision) => revision + 1);
           }}
         />
       </CardContent>

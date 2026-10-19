@@ -16,7 +16,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 export function AdminForm<const F extends readonly FormField[]>({
   title,
@@ -24,13 +24,18 @@ export function AdminForm<const F extends readonly FormField[]>({
   fields,
   onSave,
   resetOnSave = true,
+  onDirty,
+  disabled = false,
 }: {
   title: string;
   description: string;
   fields: F;
   onSave: (value: Record<F[number]["name"], string>) => Promise<unknown>;
   resetOnSave?: boolean;
+  onDirty?: (dirty: boolean) => void;
+  disabled?: boolean;
 }) {
+  const formId = useId();
   const [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false),
     [saved, setSaved] = useState(false);
@@ -44,6 +49,10 @@ export function AdminForm<const F extends readonly FormField[]>({
       </CardHeader>
       <CardContent>
         <form
+          onChange={() => {
+            onDirty?.(true);
+            setSaved(false);
+          }}
           onSubmit={async (e) => {
             e.preventDefault();
             const form = e.currentTarget;
@@ -59,6 +68,7 @@ export function AdminForm<const F extends readonly FormField[]>({
             try {
               await onSave(value);
               if (resetOnSave) form.reset();
+              onDirty?.(false);
               toast.success("配置已保存");
               setSaved(true);
             } catch (err) {
@@ -74,12 +84,16 @@ export function AdminForm<const F extends readonly FormField[]>({
             }
           }}
         >
-          <fieldset disabled={busy} aria-busy={busy} className="min-w-0">
+          <fieldset
+            disabled={busy || disabled}
+            aria-busy={busy}
+            className="min-w-0"
+          >
             <FieldGroup>
               {fields.map((f) => (
                 <Field key={f.name}>
                   <div className="field-heading">
-                    <FieldLabel htmlFor={`${title}-${f.name}`}>
+                    <FieldLabel htmlFor={`${formId}-${f.name}`}>
                       {f.label}
                     </FieldLabel>
                     {f.description ? (
@@ -88,7 +102,7 @@ export function AdminForm<const F extends readonly FormField[]>({
                   </div>
                   {f.options ? (
                     <select
-                      id={`${title}-${f.name}`}
+                      id={`${formId}-${f.name}`}
                       name={f.name}
                       required={f.required !== false}
                       defaultValue={f.defaultValue || ""}
@@ -102,8 +116,10 @@ export function AdminForm<const F extends readonly FormField[]>({
                               if (
                                 target instanceof HTMLInputElement &&
                                 e.currentTarget.value
-                              )
+                              ) {
                                 target.value = e.currentTarget.value;
+                                onDirty?.(true);
+                              }
                             }
                           : undefined
                       }
@@ -119,14 +135,14 @@ export function AdminForm<const F extends readonly FormField[]>({
                     </select>
                   ) : f.type === "textarea" ? (
                     <Textarea
-                      id={`${title}-${f.name}`}
+                      id={`${formId}-${f.name}`}
                       name={f.name}
                       required={f.required !== false}
                       defaultValue={f.defaultValue}
                     />
                   ) : (
                     <Input
-                      id={`${title}-${f.name}`}
+                      id={`${formId}-${f.name}`}
                       name={f.name}
                       type={f.type || "text"}
                       step={f.type === "number" ? "any" : undefined}
@@ -143,7 +159,7 @@ export function AdminForm<const F extends readonly FormField[]>({
               {saved ? (
                 <p role="status">保存完成；下方状态以当前配置为准。</p>
               ) : null}
-              <Button disabled={busy} type="submit">
+              <Button disabled={busy || disabled} type="submit">
                 {busy ? (
                   <LoaderCircle
                     data-icon="inline-start"

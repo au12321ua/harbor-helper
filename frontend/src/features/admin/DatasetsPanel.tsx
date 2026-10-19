@@ -1,3 +1,5 @@
+import { Badge } from "@/components/ui/badge";
+import { runDatasetOperation, useDatasetOperations } from "./datasetOperations";
 import { type CatalogDataset, type Dataset } from "@/api";
 import { ErrorNotice } from "@/components/shared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,7 +24,24 @@ export function DatasetsPanel({
   save,
   action,
   diagnostics,
-}: AdminPanelProps & { diagnostics: ReturnType<typeof useDockerDiagnostics> }) {
+  refresh,
+}: AdminPanelProps & {
+  diagnostics: ReturnType<typeof useDockerDiagnostics>;
+  refresh: () => Promise<void>;
+}) {
+  const operations = useDatasetOperations();
+  const active = Object.values(operations).find((op) => op.running);
+  const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const [resets, setResets] = useState<Record<string, number>>({});
+  const [sourceDirty, setSourceDirty] = useState(false);
+  function start(
+    v: CatalogDataset,
+    kind: "verify" | "check",
+    tasks?: string[],
+  ) {
+    if (dirty[v.id] || (edit.dataset?.id === v.id && sourceDirty)) return;
+    void runDatasetOperation(v.id, v.name, kind, tasks);
+  }
   const [edit, setEdit] = useState<{ dataset?: Dataset }>({});
   const { docker, dockerBusy, dockerError, discoverDocker } = diagnostics;
   function catalogList(kind: "dataset", values: CatalogDataset[]) {
@@ -31,12 +50,28 @@ export function DatasetsPanel({
         {values.map((v) => (
           <Card key={v.id}>
             <CardHeader>
-              <CardTitle>
-                {v.name} · v{v.version}
-              </CardTitle>
+              <CardTitle>{v.name}</CardTitle>
               <CardDescription>
                 {kind === "dataset" ? v.reference : ""}
               </CardDescription>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">
+                  {v.status === "verified"
+                    ? "来源已验证"
+                    : v.status === "blocked"
+                      ? "存在阻碍"
+                      : "尚未验证"}
+                </Badge>
+                <Badge variant="outline">{v.enabled ? "启用" : "停用"}</Badge>
+                {c.settings.default_dataset_id === v.id && (
+                  <Badge variant="outline">默认数据集</Badge>
+                )}
+              </div>
+              {v.checked != null && (
+                <p className="text-sm text-muted-foreground">
+                  来源验证：{date(v.checked)}
+                </p>
+              )}
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               {kind === "dataset" ? (
@@ -44,23 +79,61 @@ export function DatasetsPanel({
                   <p>
                     来源验证与运行输入分别检查；环境由Harbor按作者定义运行。
                   </p>
+                  <p role="status">{operations[v.id]?.message}</p>
+                  {active && (
+                    <p className="text-sm text-muted-foreground">
+                      当前网页正在进行 {active.label}
+                      ；其它检查/验证暂不可启动，同数据集冲突编辑暂不可提交。
+                    </p>
+                  )}
+                  {dirty[v.id] || (edit.dataset?.id === v.id && sourceDirty) ? (
+                    <div role="status" className="flex flex-col gap-2">
+                      <p>
+                        本数据集有未保存草稿。请先保存，或明确放弃后再检查/验证。
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              "放弃本数据集未保存的作者参数和来源草稿？",
+                            )
+                          )
+                            return;
+                          setResets((r) => ({
+                            ...r,
+                            [v.id]: (r[v.id] || 0) + 1,
+                          }));
+                          setDirty((d) => ({ ...d, [v.id]: false }));
+                          if (edit.dataset?.id === v.id) {
+                            setEdit({});
+                            setSourceDirty(false);
+                          }
+                        }}
+                      >
+                        放弃此数据集草稿
+                      </Button>
+                    </div>
+                  ) : null}
                   <AuthorInputs
+                    key={`${v.id}-${resets[v.id] || 0}`}
                     dataset={v}
                     save={save}
-                    check={(path, value) => void action(path, value ?? {})}
+                    onDirty={(value) =>
+                      setDirty((d) => ({ ...d, [v.id]: value }))
+                    }
+                    locked={active?.datasetId === v.id}
+                    cannotCheck={
+                      !!active ||
+                      !!dirty[v.id] ||
+                      (edit.dataset?.id === v.id && sourceDirty)
+                    }
+                    check={(tasks) => start(v, "check", tasks)}
                     docker={docker}
                   />
                 </>
               ) : null}
-              <p>
-                {v.status === "verified"
-                  ? "来源已验证"
-                  : v.status === "blocked"
-                    ? "存在阻碍"
-                    : "尚未验证"}
-                {v.checked ? ` · ${date(v.checked)}` : ""} ·{" "}
-                {v.enabled ? "启用" : "停用"}
-              </p>
+
               {v.error || v.readiness_error ? (
                 <Alert variant="destructive">
                   <AlertDescription>
@@ -68,20 +141,35 @@ export function DatasetsPanel({
                   </AlertDescription>
                 </Alert>
               ) : null}
-              {v.tasks ? (
-                <p>任务：{v.tasks.map((t) => t.name).join("、")}</p>
-              ) : null}
+              <details className="raw-details">
+                <summary>来源详情与内部配置修订</summary>
+                <p className="break-all">{v.resolved || "不可变来源未知"}</p>
+                <p>
+                  配置修订：{v.version} · 参数修订：
+                  {v.author_parameters.version}
+                </p>
+              </details>
+              <Button variant="ghost" onClick={() => void refresh()}>
+                刷新最近已保存结果
+              </Button>
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => setEdit({ ...edit, [kind]: v })}
+                  disabled={active?.datasetId === v.id}
+                  onClick={() => {
+                    setSourceDirty(false);
+                    setEdit({ ...edit, [kind]: v });
+                  }}
                 >
                   编辑
                 </Button>
                 <Button
-                  onClick={() =>
-                    void action(`/admin/catalog/${kind}/${v.id}/verify`, {})
+                  disabled={
+                    !!active ||
+                    !!dirty[v.id] ||
+                    (edit.dataset?.id === v.id && sourceDirty)
                   }
+                  onClick={() => start(v, "verify")}
                 >
                   验证
                 </Button>
@@ -124,6 +212,8 @@ export function DatasetsPanel({
           <AdminForm
             key={JSON.stringify(edit.dataset || {})}
             title={`${edit.dataset ? "编辑" : "添加"}数据集`}
+            onDirty={setSourceDirty}
+            disabled={!!edit.dataset && active?.datasetId === edit.dataset.id}
             description="保存来源，再验证访问和任务清单。无需统一运行镜像；缺少作者依赖时执行会如实失败。"
             fields={[
               {

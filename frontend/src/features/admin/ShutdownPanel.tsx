@@ -1,3 +1,4 @@
+import { date } from "@/presentation";
 import { useState } from "react";
 import { api, post } from "@/api";
 import { useLoad } from "@/hooks/useLoad";
@@ -26,6 +27,8 @@ export function ShutdownPanel() {
     data,
     error: loadError,
     reload,
+    updatedAt,
+    refreshing,
   } = useLoad(() => api("/admin/shutdown"), "", 2000);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -86,9 +89,20 @@ export function ShutdownPanel() {
                 ? "已关闭新受理（跳过关闭确认）"
                 : "仍开放新受理"}
             </p>
-            <dl>
+            <p className="text-sm text-muted-foreground">
+              {loadError
+                ? "刷新失败，显示上次观察"
+                : refreshing
+                  ? "正在刷新"
+                  : "最近观察"}
+              ：{updatedAt ? date(updatedAt / 1000) : "未知"} · 每 2 秒更新
+            </p>
+            <dl className="grid gap-3 sm:grid-cols-2">
               {Object.entries(data.counts).map(([key, count]) => (
-                <div key={key} className="flex justify-between gap-4">
+                <div
+                  key={key}
+                  className="flex justify-between gap-4 rounded-md border p-3"
+                >
                   <dt>{labels[key] || key}</dt>
                   <dd>{count}</dd>
                 </div>
@@ -104,6 +118,9 @@ export function ShutdownPanel() {
                     : "取消全部未完成任务并清理资源"
                   : "未请求停止"}
             </p>
+            {data.counts.audit_incomplete > 0 && (
+              <p>证据审计异常单独限制相关证据展示，不占执行容量。</p>
+            )}
             {data.counts.cleanup_blocked > 0 && (
               <Alert>
                 <AlertTitle>停止尚未完成</AlertTitle>

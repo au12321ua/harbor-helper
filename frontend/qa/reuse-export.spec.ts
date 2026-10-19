@@ -335,7 +335,7 @@ test("browser copy uses manifest, same-key communication retry, edit changes key
   await copy(page);
   expect(writes).toHaveLength(0);
   await expect(page.getByLabel("实验名称（可选）")).toHaveValue("原名 · 副本");
-  await expect(page.getByText(/来源数据集版本 1，当前版本 2/)).toBeVisible();
+  await expect(page.getByText(/冻结来源身份未知/)).toBeVisible();
   await page.getByLabel("每任务尝试次数").fill("3");
   const submit = page.getByRole("button", { name: "提交实验", exact: true });
   await submit.click();
@@ -610,5 +610,46 @@ for (const source of ["ordinary", "history"] as const) {
       ),
       contentType: "application/json",
     });
+  });
+}
+
+for (const identity of ["same", "different", "unknown"] as const) {
+  test(`copy compares frozen Harbor identity: ${identity}`, async ({
+    page,
+  }) => {
+    const frozen = "team/data@sha256:fixed";
+    await fixture(page, {
+      ...manifest,
+      effective: { ...manifest.effective, dataset: frozen },
+    });
+    await page.route("**/api/v1/catalog", (route) =>
+      route.fulfill({
+        json: {
+          ...catalog,
+          datasets: catalog.datasets.map((dataset) => ({
+            ...dataset,
+            version: 99,
+            resolved:
+              identity === "unknown"
+                ? null
+                : identity === "same"
+                  ? frozen
+                  : "team/data@sha256:changed",
+          })),
+        },
+      }),
+    );
+    await copy(page);
+    await expect(page.getByText(/来源数据集版本/)).toHaveCount(0);
+    if (identity === "same")
+      await expect(
+        page.getByText(/来源身份已变化|冻结来源身份未知/),
+      ).toHaveCount(0);
+    else
+      await expect(
+        page.getByText(
+          identity === "different" ? /来源身份已变化/ : /冻结来源身份未知/,
+        ),
+      ).toBeVisible();
   });
 }

@@ -1,3 +1,4 @@
+import { TaskCatalog } from "./TaskCatalog";
 import { Help } from "@/components/shared";
 import { date } from "@/presentation";
 import { AdminForm } from "./AdminForm";
@@ -5,20 +6,22 @@ import { AdminForm } from "./AdminForm";
 import { mutation, type CatalogDataset, type Docker } from "@/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { useState } from "react";
 export function AuthorInputs({
   dataset,
   save,
   check,
   docker,
+  locked,
+  cannotCheck,
+  onDirty,
 }: {
   dataset: CatalogDataset;
   save: typeof mutation;
-  check: (
-    path: `/admin/datasets/${string}/author-inputs/check`,
-    value?: { task_names: string[] },
-  ) => void;
+  check: (taskNames?: string[]) => void;
+  locked?: boolean;
+  cannotCheck?: boolean;
+  onDirty: (value: boolean) => void;
   docker?: Docker;
 }) {
   const [taskNames, setTaskNames] = useState<string[]>([]);
@@ -27,7 +30,7 @@ export function AuthorInputs({
   return (
     <div className="flex flex-col gap-3">
       <p>
-        作者运行参数 · v{parameters.version || 0} ·{" "}
+        作者运行参数 · 最近已保存结果 ·{" "}
         {parameters.status === "checked"
           ? "运行参数已检查"
           : parameters.status?.startsWith("partial_")
@@ -53,45 +56,20 @@ export function AuthorInputs({
       ) : null}
       <Button
         variant="outline"
-        disabled={!dataset.ready}
-        onClick={() =>
-          check(`/admin/datasets/${dataset.id}/author-inputs/check`)
-        }
+        disabled={!dataset.ready || cannotCheck}
+        onClick={() => check()}
       >
         检查作者参数
       </Button>
-      <Field>
-        <FieldLabel htmlFor={`check-tasks-${dataset.id}`}>
-          检查任务（可多选）
-        </FieldLabel>
-        <select
-          id={`check-tasks-${dataset.id}`}
-          multiple
-          value={taskNames}
-          onChange={(e) =>
-            setTaskNames(
-              Array.from(e.target.selectedOptions, (option) => option.value),
-            )
-          }
-        >
-          {(dataset.tasks || []).map((task) => (
-            <option key={task.name} value={task.name}>
-              {task.name}
-            </option>
-          ))}
-        </select>
-        <FieldDescription>
-          选定检查只下载所选任务；未选任务仍未知。上方按钮保留全部任务检查。
-        </FieldDescription>
-      </Field>
+      <TaskCatalog
+        dataset={dataset}
+        selected={taskNames}
+        onSelect={setTaskNames}
+      />
       <Button
         variant="outline"
-        disabled={!dataset.ready || !taskNames.length}
-        onClick={() =>
-          check(`/admin/datasets/${dataset.id}/author-inputs/check`, {
-            task_names: taskNames,
-          })
-        }
+        disabled={!dataset.ready || !taskNames.length || cannotCheck}
+        onClick={() => check(taskNames)}
       >
         检查选定任务
       </Button>
@@ -102,32 +80,40 @@ export function AuthorInputs({
           {parameters.scope.unknown} 个任务未扫描
         </p>
       ) : null}
-      {parameters.issues?.map((issue, index: number) => (
-        <Alert key={index} variant="destructive">
-          <AlertDescription>
-            {issue.task}：{(issue.variables || []).join("、")} ·{" "}
-            {issue.reason === "host_template_unsupported"
-              ? "宿主模板暂不支持网页赋值"
-              : issue.reason}
-          </AlertDescription>
-        </Alert>
-      ))}
-      {parameters.discovery?.images?.map((image, index: number) => (
-        <p key={index}>
-          {image.task} / {image.role}：作者预构建镜像 {image.reference} ·{" "}
-          {image.cached === true
-            ? "本机已缓存（不证明兼容）"
-            : image.cached === false
-              ? "本机未缓存；Harbor会向registry获取，检查部署出网与启动阶段"
-              : "本机缓存状态未知"}
-          。该提示不阻止提交，不修改作者网络。
-        </p>
-      ))}
+      <details className="raw-details">
+        <summary>
+          检查问题与镜像观察（{parameters.issues?.length || 0} 项问题 /{" "}
+          {parameters.discovery?.images?.length || 0} 个镜像）
+        </summary>
+        {parameters.issues?.map((issue, index: number) => (
+          <Alert key={index} variant="destructive">
+            <AlertDescription>
+              {issue.task}：{(issue.variables || []).join("、")} ·{" "}
+              {issue.reason === "host_template_unsupported"
+                ? "宿主模板暂不支持网页赋值"
+                : issue.reason}
+            </AlertDescription>
+          </Alert>
+        ))}
+        {parameters.discovery?.images?.map((image, index: number) => (
+          <p key={index}>
+            {image.task} / {image.role}：作者预构建镜像 {image.reference} ·{" "}
+            {image.cached === true
+              ? "本机已缓存（不证明兼容）"
+              : image.cached === false
+                ? "本机未缓存；Harbor会向registry获取，检查部署出网与启动阶段"
+                : "本机缓存状态未知"}
+            。该提示不阻止提交，不修改作者网络。
+          </p>
+        ))}
+      </details>
       {parameters.discovery ? (
         <>
           {Object.keys(variables).length ? (
             <AdminForm
-              key={`${dataset.id}-${parameters.version}`}
+              key={dataset.id}
+              disabled={locked}
+              onDirty={onDirty}
               title="作者运行参数"
               description="字段来自已校验作者Compose。留空沿作者默认，必需项留空将阻止受理准备。两侧镜像分别消费各自字段；Oracle可检查作者环境与评分。"
               resetOnSave={false}
@@ -182,16 +168,6 @@ export function AuthorInputs({
               已扫描任务没有可网页配置的外部Compose变量；其余任务仍需执行前完整校验。
             </p>
           )}
-          <p>
-            作者预算：
-            {parameters.discovery.budgets
-              ?.map(
-                (budget) =>
-                  `${budget.task}：agent ${budget.agent_seconds}秒 + verifier ${budget.verifier_seconds}秒`,
-              )
-              .join("；")}
-            。预算估算仅单task，重复尝试/多任务另需余量；总时长还需包含环境与工具准备。
-          </p>
         </>
       ) : null}
     </div>

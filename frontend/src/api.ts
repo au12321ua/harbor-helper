@@ -14,10 +14,12 @@ import type {
 } from "./generated/contracts";
 export type * from "./generated/contracts";
 export class ApiError extends Error {
+  status: number;
   code: string;
   requestId?: string;
   constructor(body: Partial<ApiFailure>, status: number) {
     super(body.message || `请求失败 (${status})`);
+    this.status = status;
     this.code = body.code || "request_failed";
     this.requestId = body.request_id;
   }

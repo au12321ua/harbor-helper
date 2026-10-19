@@ -18,7 +18,7 @@ export type Reuse = {
   kind: "history";
   source: string;
   values: Draft;
-  datasetVersion?: number | null;
+  datasetIdentity?: string | null;
 };
 export type NewEntry = Reuse | { kind: "attachment"; version: string };
 export function fromManifest(
@@ -32,7 +32,7 @@ export function fromManifest(
   return {
     kind: "history",
     source,
-    datasetVersion: s?.dataset_version,
+    datasetIdentity: e.dataset,
     values: {
       name: copyName ? `${name.slice(0, 123)} · 副本` : name,
       dataset_id:

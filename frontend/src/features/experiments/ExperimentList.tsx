@@ -133,11 +133,8 @@ export function ExperimentList() {
       />
       {error && (
         <p className="freshness" role="status">
-          上次成功更新{" "}
-          {updatedAt
-            ? new Date(updatedAt).toLocaleTimeString("zh-CN", { hour12: false })
-            : "未知"}{" "}
-          · 刷新失败，当前为旧数据
+          上次成功更新 {updatedAt ? date(updatedAt / 1000) : "未知"} ·
+          刷新失败，当前为旧数据
         </p>
       )}
       <div className="list-toolbar">
@@ -383,13 +380,10 @@ export function ExperimentList() {
   );
 }
 function shortDate(value: number) {
-  return value
-    ? new Date(value * 1000).toLocaleString("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      })
-    : "—";
+  return date(value, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

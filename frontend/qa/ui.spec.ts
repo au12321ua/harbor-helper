@@ -984,7 +984,8 @@ test("administrator checks exact selected tasks and exposes partial scope", asyn
   );
   await page.goto("/admin");
   await page.getByRole("tab", { name: "数据集", exact: true }).click();
-  await page.getByLabel("检查任务（可多选）").selectOption(["answer"]);
+  await page.getByRole("button", { name: /展开任务与作者预算/ }).click();
+  await page.getByRole("checkbox", { name: "选择任务 answer", exact: true }).check();
   await page.getByRole("button", { name: "检查选定任务", exact: true }).click();
   await expect(page.getByText(/不代表全集就绪/)).toBeVisible();
   expect(body).toEqual({ task_names: ["answer"] });
@@ -1018,9 +1019,12 @@ test("administrator can check more than fifty legitimate task names", async ({
   );
   await page.goto("/admin");
   await page.getByRole("tab", { name: "数据集", exact: true }).click();
-  await page
-    .getByLabel("检查任务（可多选）", { exact: true })
-    .selectOption(names.slice(0, 51));
+  await page.getByRole("button", { name: /展开任务与作者预算/ }).click();
+  await page.getByRole("button", { name: "再显示 20 个" }).click();
+  await page.getByRole("button", { name: "再显示 20 个" }).click();
+  for (const name of names.slice(0, 51)) {
+    await page.getByRole("checkbox", { name: `选择任务 ${name}`, exact: true }).check();
+  }
   const button = page.getByRole("button", {
     name: "检查选定任务",
     exact: true,
@@ -2163,13 +2167,13 @@ test("administrator rotates master with password and expected generation", async
     });
   });
   await page.goto("/admin?section=security");
-  await expect(page.getByText(/当前代次：1/)).toBeVisible();
+  await expect(page.locator("dl > div").filter({ has: page.getByText("当前代次", { exact: true }) }).locator("dd")).toHaveText("1");
   await page.getByLabel("当前管理员密码").fill("fake-revalidation-password");
   await page.getByRole("button", { name: "轮换主密钥", exact: true }).click();
   await expect(page.getByText(/已轮换至代次 2/)).toBeVisible();
   await expect(page.getByLabel("当前管理员密码")).toHaveValue("");
   await page.reload();
-  await expect(page.getByText(/当前代次：2/)).toBeVisible();
+  await expect(page.locator("dl > div").filter({ has: page.getByText("当前代次", { exact: true }) }).locator("dd")).toHaveText("2");
   expect(rotations).toBe(1);
 });
 

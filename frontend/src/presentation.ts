@@ -1,10 +1,5 @@
 import type { Accepted, RunSummary } from "./generated/contracts";
-export const date = (value: unknown) =>
-  value
-    ? new Date(
-        typeof value === "number" ? value * 1000 : String(value),
-      ).toLocaleString("zh-CN", { hour12: false })
-    : "—";
+export { formatTime as date } from "./app/timezone";
 const statusLabels = {
   preparing: "准备中",
   ready: "准备完成",

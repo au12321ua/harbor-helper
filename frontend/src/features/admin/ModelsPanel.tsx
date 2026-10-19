@@ -179,7 +179,7 @@ export function ModelsPanel({ c, save, action }: AdminPanelProps) {
           )}
         </div>
         <ModelForm
-          key={JSON.stringify(selectedProfile || {})}
+          key={selectedProfile?.id || "new"}
           catalog={c}
           selected={selectedProfile}
           save={save}

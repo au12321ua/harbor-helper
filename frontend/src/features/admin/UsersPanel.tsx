@@ -1,3 +1,4 @@
+import { Help } from "@/components/shared";
 import { type User } from "@/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,8 +28,17 @@ export function UsersPanel({
               <CardHeader>
                 <CardTitle>{u.username}</CardTitle>
                 <CardDescription>
-                  {u.role === "admin" ? "管理员" : "成员"} ·{" "}
-                  {u.enabled ? "启用" : "停用"}
+                  {u.role === "admin" ? (
+                    <>
+                      管理员{" "}
+                      <Help label="管理员角色">
+                        管理员默认拥有完整资料权限。
+                      </Help>
+                    </>
+                  ) : (
+                    "成员"
+                  )}{" "}
+                  · {u.enabled ? "启用" : "停用"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-2">
@@ -44,9 +54,7 @@ export function UsersPanel({
                 >
                   {u.enabled ? "停用" : "启用"}
                 </Button>
-                {u.role === "admin" ? (
-                  <p>管理员默认拥有完整资料权限</p>
-                ) : (
+                {u.role !== "admin" ? (
                   <Button
                     variant="outline"
                     onClick={() => {
@@ -66,7 +74,7 @@ export function UsersPanel({
                   >
                     {u.evidence_grant ? "撤销完整资料授信" : "授予完整资料权限"}
                   </Button>
-                )}
+                ) : null}
                 <Button variant="outline" onClick={() => setReset(u)}>
                   重置密码
                 </Button>

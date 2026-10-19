@@ -14,7 +14,7 @@ export function useLoad<T>(
   useEffect(() => {
     loaderRef.current = loader;
   }, [loader]);
-  const load = useCallback(async (quiet = false) => {
+  const load = useCallback(async (quiet = false, propagate = false) => {
     const token = ++generation.current;
     if (!quiet) setRefreshing(true);
     try {
@@ -25,6 +25,7 @@ export function useLoad<T>(
       setUpdatedAt(Date.now());
     } catch (e) {
       if (token === generation.current) setError(e);
+      if (propagate) throw e;
     } finally {
       if (token === generation.current) {
         setLoading(false);
@@ -54,5 +55,6 @@ export function useLoad<T>(
       requests.current++;
     };
   }, [load, dependency, poll]);
-  return { data, error, loading, refreshing, reload, updatedAt };
+  const reloadStrict = useCallback(() => load(false, true), [load]);
+  return { data, error, loading, refreshing, reload, reloadStrict, updatedAt };
 }

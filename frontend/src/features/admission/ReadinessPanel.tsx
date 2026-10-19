@@ -1,3 +1,10 @@
+import {
+  localCandidates,
+  localTime,
+  offsetLabel,
+  timezone,
+  useTimezone,
+} from "@/app/timezone";
 import { api, type Limits, type Usage, type Readiness } from "@/api";
 import { ErrorNotice, Help } from "@/components/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -131,9 +138,7 @@ export function ReadinessNotice() {
       {data && <ReadinessSummary value={data} stale={!!error} />}
       {error && (
         <p className="freshness">
-          上次成功更新{" "}
-          {updatedAt ? new Date(updatedAt).toLocaleTimeString("zh-CN") : "未知"}{" "}
-          · 刷新失败
+          上次成功更新 {updatedAt ? date(updatedAt / 1000) : "未知"} · 刷新失败
         </p>
       )}
     </>
@@ -154,10 +159,41 @@ export function MaintenancePanel({
   } = useLoad(() => api("/readiness"), "", 4000);
   const value = data || readiness;
   const [reason, setReason] = useState("");
-  const [retry, setRetry] = useState("");
+  useTimezone();
+  const zone = timezone();
+  const [retryInput, setRetryInput] = useState({
+    text: "",
+    zone,
+    epoch: null as number | null,
+  });
+  const [offset, setOffset] = useState("");
+  const retry =
+    retryInput.epoch !== null
+      ? localTime(retryInput.epoch, zone)
+      : retryInput.text;
+  const candidates = localCandidates(retry, zone);
+  const chosen =
+    retryInput.epoch ??
+    (candidates.length === 1
+      ? candidates[0]
+      : offset && candidates.includes(Number(offset))
+        ? Number(offset)
+        : null);
+  const needsConfirmation =
+    retryInput.epoch === null && retryInput.zone !== zone && !!retry;
+  const timeError = !retry
+    ? ""
+    : needsConfirmation
+      ? "时区已变更；尚未解析的输入须在新时区重新确认。"
+      : !candidates.length
+        ? "此时区中该本地时刻不存在，请修改。"
+        : chosen === null
+          ? "此时刻重复，请选择明确偏移。"
+          : "";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   async function update(paused: boolean) {
+    if (paused && timeError) return;
     setBusy(true);
     setError(undefined);
     try {
@@ -166,7 +202,7 @@ export function MaintenancePanel({
         body: {
           paused,
           reason: paused ? reason : "",
-          retry_at: paused && retry ? new Date(retry).getTime() / 1000 : null,
+          retry_at: paused && retry ? chosen : null,
         },
       });
       reload();
@@ -187,7 +223,7 @@ export function MaintenancePanel({
           </Help>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
         <ErrorNotice error={error || loadError} />
         {value ? <Status value={value} /> : null}
         <Field>
@@ -204,17 +240,79 @@ export function MaintenancePanel({
         </Field>
         <Field>
           <FieldLabel htmlFor="maintenance-retry">
-            建议重试时间（可选）
+            建议重试时间（可选，{zone}）
           </FieldLabel>
           <Input
             id="maintenance-retry"
             type="datetime-local"
             value={retry}
-            onChange={(e) => setRetry(e.target.value)}
+            onChange={(e) => {
+              const text = e.target.value,
+                matches = localCandidates(text, zone);
+              setOffset("");
+              setRetryInput({
+                text,
+                zone,
+                epoch: matches.length === 1 ? matches[0] : null,
+              });
+            }}
           />
         </Field>
+        {needsConfirmation && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              setOffset("");
+              setRetryInput({
+                text: retry,
+                zone,
+                epoch: candidates.length === 1 ? candidates[0] : null,
+              });
+            }}
+          >
+            在当前时区重新确认输入
+          </Button>
+        )}
+        {candidates.length > 1 && (
+          <Field>
+            <FieldLabel htmlFor="maintenance-offset">
+              选择重复时刻的明确偏移
+            </FieldLabel>
+            <select
+              id="maintenance-offset"
+              value={chosen === null ? "" : String(chosen)}
+              onChange={(e) => {
+                setOffset(e.target.value);
+                if (e.target.value)
+                  setRetryInput({
+                    text: retry,
+                    zone,
+                    epoch: Number(e.target.value),
+                  });
+              }}
+            >
+              <option value="">请选择</option>
+              {candidates.map((epoch) => (
+                <option key={epoch} value={epoch}>
+                  {offsetLabel(epoch, zone)} ·{" "}
+                  {new Date(epoch * 1000).toISOString()}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {chosen !== null && retry && (
+          <p>
+            将提交绝对时刻：{new Date(chosen * 1000).toISOString()}（
+            {offsetLabel(chosen, zone)}）
+          </p>
+        )}
+        {timeError && <p role="alert">{timeError}</p>}
         <div className="button-row">
-          <Button disabled={busy} onClick={() => void update(true)}>
+          <Button
+            disabled={busy || !!timeError}
+            onClick={() => void update(true)}
+          >
             暂停新受理
           </Button>
           <Button

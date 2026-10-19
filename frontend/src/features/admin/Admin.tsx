@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/api";
 import { ErrorNotice, Loading, Title } from "@/components/shared";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,9 +14,33 @@ import { useAdminActions } from "./useAdminActions";
 import { useDockerDiagnostics } from "./useDockerDiagnostics";
 import { UsersPanel } from "./UsersPanel";
 export function Admin() {
-  const { data, error, loading, reload } = useLoad(() =>
+  const { data, error, loading, reload, reloadStrict } = useLoad(() =>
     Promise.all([api("/admin/users"), api("/catalog")]),
   );
+  const [refreshFailure, setRefreshFailure] = useState("");
+  const refreshResults = useCallback(
+    async (completed = false) => {
+      try {
+        await reloadStrict();
+        setRefreshFailure("");
+      } catch {
+        setRefreshFailure(
+          completed
+            ? "操作已完成，结果刷新失败。下方保留最近已保存结果；可手动刷新。"
+            : "最近已保存结果刷新失败；操作结果仍以收到的回执为准。",
+        );
+      }
+    },
+    [reloadStrict],
+  );
+  useEffect(() => {
+    const refresh = () => {
+      void refreshResults(true);
+    };
+    window.addEventListener("dataset-operation-completed", refresh);
+    return () =>
+      window.removeEventListener("dataset-operation-completed", refresh);
+  }, [refreshResults]);
   const [params, setParams] = useSearchParams();
   const requested = params.get("section") || "readiness";
   const tab = [
@@ -43,6 +68,7 @@ export function Admin() {
         description="验证 benchmark 来源，再配置模型和受邀成员。环境按作者定义执行。"
       />
       <ErrorNotice error={error} />
+      {refreshFailure && <p role="alert">{refreshFailure}</p>}
       {saving ? (
         <p role="status">正在保存并刷新配置，完成后可继续编辑。</p>
       ) : null}
@@ -65,6 +91,7 @@ export function Admin() {
             save={save}
             action={action}
             diagnostics={diagnostics}
+            refresh={refreshResults}
           />
           <ModelsPanel c={c} save={save} action={action} />
           <UsersPanel users={users} save={save} action={action} />

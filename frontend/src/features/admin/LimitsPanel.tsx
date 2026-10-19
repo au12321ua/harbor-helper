@@ -24,11 +24,10 @@ export function LimitsPanel({
   reload,
 }: Pick<AdminPanelProps, "c" | "save"> & { reload: () => Promise<void> }) {
   return (
-    <TabsContent value="limits">
+    <TabsContent value="limits" className="flex flex-col gap-4">
       <ShutdownPanel />
       <MaintenancePanel readiness={c.readiness} saved={reload} />
       <AdminForm
-        key={JSON.stringify(c.limits)}
         title="容量与保留"
         description="CLI/Web 共用；运行时长与并发不保证金额预算。降低额度不取消存量；每成员所有凭证与网页共用额度，管理员也计入本人额度。"
         fields={Object.entries(c.limits || {})

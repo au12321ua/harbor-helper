@@ -7,7 +7,9 @@ import { LoaderCircle } from "lucide-react";
 import { BrowserRouter } from "react-router-dom";
 import { ThemeToaster } from "@/components/ThemeToaster";
 import "./App.css";
+import { useTimezone } from "@/app/timezone";
 export default function App() {
+  useTimezone();
   const { user, setUser, loading, setup, setSetup, failure, setFailure } =
     useSession();
   return (
