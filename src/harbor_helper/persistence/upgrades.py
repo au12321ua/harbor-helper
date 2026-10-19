@@ -71,7 +71,7 @@ def sync_directory(path):
 
 def journal(root):
     path = Path(root).parent / "updates/journal.json"
-    return private_json(path) if path.exists() else None
+    return private_json(path) if os.path.lexists(path) else None
 
 
 def busy(root):
@@ -86,7 +86,7 @@ def blocked(root):
         value = journal(root)
         if value and (value.get("protocol") != PROTOCOL or value.get("barrier")):
             return True
-        if (root / ".upgrade.json").exists():
+        if os.path.lexists(root / ".upgrade.json"):
             return True
     except (OSError, ValueError, TypeError, KeyError):
         return True

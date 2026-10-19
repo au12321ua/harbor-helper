@@ -47,7 +47,7 @@ try {
   assert.equal((await (await limitsResponse).json()).max_pending_per_member, 3);
   await page.getByLabel("维护原因").fill("browser maintenance");
   await page
-    .getByLabel("建议重试时间（可选）")
+    .getByLabel(/^建议重试时间（可选，/)
     .fill(new Date(Date.now() + 86400000).toISOString().slice(0, 16));
   const pause = page.waitForResponse(
     (r) =>

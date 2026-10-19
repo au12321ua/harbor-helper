@@ -19,6 +19,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import ops
+
+# Executor owns the only live migration capability.
 import service as host
 import service_environment
 
@@ -31,10 +33,15 @@ except ImportError:
 
 
 def save(base, value, **fields):
-    value.update(fields)
-    value["sequence"] = value.get("sequence", 0) + 1
-    value["updated"] = time.time()
-    protocol.durable(base / "updates/journal.json", value)
+    following = {
+        **value,
+        **fields,
+        "sequence": value.get("sequence", 0) + 1,
+        "updated": time.time(),
+    }
+    protocol.durable(base / "updates/journal.json", following)
+    value.clear()
+    value.update(following)
 
 
 def command(argv, *, env, cwd=None, timeout=120, pass_fds=()):
@@ -285,7 +292,7 @@ def snapshot(base, record, value, kind, lease=None):
             snapshot=str(path),
             private_inventory=ops.inventory(base / "private"),
             baseline=ops.state_inventory(base / "state"),
-            host_uninspectable=ops.uninspectable_ids(ops.host_processes(base / "state")),
+            host_uninspectable=sorted(ops.uninspectable_ids(ops.host_processes(base / "state"))),
         )
     return path
 
@@ -403,6 +410,45 @@ def ready(base, value):
     raise ValueError("Post-release HTTP/scheduler readiness failed")
 
 
+def _barrier_ready_once(base, value):
+    record = ops.read_json(base / "instance.json")
+    for part, original in value["original_units"].items():
+        if original in {"active", "activating"}:
+            ops.require(
+                host.systemctl(
+                    "show", host.unit_name(record, part), "--property=ActiveState", "--value"
+                )
+                == "active",
+                "Target unit not active under barrier",
+            )
+    if value["original_units"]["http"] in {"active", "activating"}:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(
+            f"http://{record['host']}:{record['port']}/api/v1/build", timeout=3
+        ) as response:
+            expected = hashlib.sha256()
+            static = base / "releases" / record["release"] / "src/harbor_helper/static"
+            for path in sorted(static.rglob("*")):
+                if path.is_file() and path.name != "index.html":
+                    expected.update(str(path.relative_to(static)).encode())
+                    expected.update(path.read_bytes())
+            ops.require(
+                json.load(response) == {"build": expected.hexdigest()},
+                "Target HTTP build identity mismatch",
+            )
+
+
+def barrier_ready(base, value):
+    deadline = time.monotonic() + 20
+    while True:
+        try:
+            return _barrier_ready_once(base, value)
+        except (OSError, ValueError):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
+
+
 def clear_barrier(base, value):
     marker = base / "state/.upgrade.json"
     if marker.exists():
@@ -430,6 +476,7 @@ def activate(base, release):
         shutil.copyfile(
             code / "src/harbor_helper/persistence/upgrades.py", stage / "upgrade_protocol.py"
         )
+        (stage / "collection.json").unlink(missing_ok=True)
         manifest = ops.inventory(stage)
         protocol.durable(stage / "collection.json", manifest)
         protocol.sync_directory(stage)
@@ -437,13 +484,19 @@ def activate(base, release):
         protocol.sync_directory(sets)
     manifest = protocol.private_json(target / "collection.json")
     ops.require(
-        {k: v for k, v in ops.inventory(target).items() if k != "collection.json"} == manifest,
+        {
+            k: v
+            for k, v in ops.inventory(target).items()
+            if k != "collection.json" and not ("__pycache__/" in k and k.endswith(".pyc"))
+        }
+        == manifest,
         "Manager collection modified",
     )
     # Bootstrap never changes when a later collection is activated.
     bootstrap = manager / "service.py"
     text = """#!/usr/bin/env python3
 import json, os, runpy, sys
+sys.dont_write_bytecode = True
 from pathlib import Path
 base = Path(__file__).resolve().parent
 with (base / "current.json").open() as file:
@@ -656,8 +709,8 @@ def upgrade(base, record, request, identifier):
                 "External configuration/key drift",
             )
             ops.require(
-                ops.uninspectable_ids(ops.host_processes(base / "state"))
-                == value["host_uninspectable"],
+                sorted(ops.uninspectable_ids(ops.host_processes(base / "state")))
+                == [tuple(item) for item in value["host_uninspectable"]],
                 "Host process set changed",
             )
             host.safe_offline(base)
@@ -680,6 +733,7 @@ def upgrade(base, record, request, identifier):
         save(base, value, phase="verifying")
         start_original(base, value)
         time.sleep(0.5)
+        barrier_ready(base, value)
         # Barrier units cannot construct Application: target_validate above was authoritative.
         ops.require(
             ops.state_inventory(base / "state") == value["live_baseline"],
@@ -842,6 +896,11 @@ WantedBy=default.target
 """
     for suffix, content in ((".service", service), (".path", path)):
         destination = base / "units" / (name + suffix)
+        actual = host.systemctl("show", name + suffix, "--property=FragmentPath", "--value")
+        ops.require(
+            not actual or Path(actual).resolve() == destination,
+            "Update unit belongs to another instance",
+        )
         if destination.exists():
             ops.require(destination.read_text() == content, "Update unit content mismatch")
         destination.write_text(content)
