@@ -271,7 +271,8 @@ def install_target(base, value):
         "Production page build metadata mismatch",
     )
     save(base, value, build_manifest=static)
-    uv = shutil.which("uv")
+    installed = protocol.private_json(base / "updates/enabled.json")
+    uv = installed.get("uv") or shutil.which("uv")
     ops.require(uv, "uv unavailable")
     command(
         [uv, "sync", "--locked", "--no-dev", "--python", sys.executable],
@@ -1048,6 +1049,20 @@ def enable(base, record, repository, branch):
     )
     runtime_release = enabled.get("runtime_release", record["release"])
     ops.require(re.fullmatch("[a-f0-9]{40}", runtime_release), "Invalid executor runtime release")
+    uv = enabled.get("uv") or shutil.which("uv")
+    ops.require(
+        isinstance(uv, str) and Path(uv).is_absolute(), "Install uv before enabling updates"
+    )
+    uv_path = ops.plain(Path(uv).resolve())
+    with ops.regular_reader(uv_path) as binary:
+        metadata = os.fstat(binary.fileno())
+        ops.require(
+            metadata.st_uid in {0, os.getuid()}
+            and not metadata.st_mode & 0o022
+            and os.access(uv_path, os.X_OK),
+            "uv must be a protected executable",
+        )
+    enabled["uv"] = str(uv_path)
     texts = validate_activation_units(base, record, runtime_release, installing=True)
     migrate_timers(base, record)
     activate(base, record["release"])

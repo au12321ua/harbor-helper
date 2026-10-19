@@ -31,6 +31,8 @@ branch = "master"
 
 文件需为当前服务账号所有、0600，位于 release 之外。仅支持 master（稳定）和 dev（测试），加入 dev 即选择测试通道。同一安装器支持两者。不要求分支尖端带 tag。本地绝对路径/file URL 仅适合离线合成验证；生产配置 HTTPS 或显式 `ssh://git@host/path.git`。
 
+启用时把主机 PATH 中可执行、归属受保护的 uv 绝对路径固定在 owner-only 启用元数据中，运行时无需个人 PATH；uv 搬迁后应由部署者核验并更新该受保护路径。
+
 执行器使用私有 HOME、清理后的环境和超时，不继承用户模型 key、Hub token、Git 配置或远程 CLI profile。HTTPS Git/uv 仅从 `private/network.json` 接收现有代理/TLS白名单。HTTPS 可由部署者提供 owner-only 可执行 `private/git-askpass`，凭据留在主机保护机制内；拒绝 URL 内嵌用户名/密码。SSH 使用 `private/deploy-key` 与固定 `private/known_hosts`（均 owner-only），BatchMode、严格 host key、单一身份，不交互接受未知主机。SSH 不把 HTTP 代理解释成跳板。真实 SSH 信任和凭据需要部署者预配置；不在网页输入 PAT。
 
 配置仓库即信任其完整构建与运行代码，它以服务账号权限访问数据和主密钥。契约和探测用于兼容性检查，不能防护恶意仓库；同 UID 不是操作系统沙箱。升级健康不运行 Docker、Compose、Hub 或模型实验。
