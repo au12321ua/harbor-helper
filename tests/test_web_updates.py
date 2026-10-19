@@ -558,3 +558,86 @@ def test_restart_never_reexecutes_journalled_upgrade(
             json.loads((base / "updates/journal.json").read_text())["interrupted_phase"]
             == "migrating"
         )
+
+
+@pytest.mark.parametrize(
+    "phase,committed,activation,wakes",
+    [
+        ("waiting", False, False, True),
+        ("migrating", False, False, True),
+        ("commit_decided", True, False, True),
+        ("succeeded", True, True, True),
+        ("succeeded", True, False, False),
+        ("failed", True, False, False),
+        ("needs_manual", True, True, False),
+    ],
+)
+def test_wakeup_condition_recovers_only_actionable_journals(
+    instance, monkeypatch, phase, committed, activation, wakes
+):
+    base, _data = instance
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    manager = importlib.import_module("update_manager")
+    durable(
+        base / "updates/journal.json",
+        {
+            "protocol": 1,
+            "id": "owned-job",
+            "phase": phase,
+            "commit_decided": committed,
+            "manager_activation_pending": activation,
+        },
+    )
+    before = manager.ops.inventory(base)
+    assert manager.pending(base) is wakes
+    assert manager.ops.inventory(base) == before
+
+
+def test_wakeup_condition_idle_spool_and_unknown_protocol(instance, monkeypatch):
+    base, _data = instance
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    manager = importlib.import_module("update_manager")
+    before = manager.ops.inventory(base)
+    assert not manager.pending(base)
+    assert manager.ops.inventory(base) == before
+    enqueue(base / "state", "check", "actor", "synthetic-timer-request", {})
+    assert manager.pending(base)
+    durable(base / "updates/journal.json", {"protocol": 999, "id": "unknown", "phase": "backup"})
+    assert not manager.pending(base)
+    (base / "updates/journal.json").write_text("{")
+    assert not manager.pending(base)
+
+
+def test_activation_set_strict_validation_and_legacy_migration(instance, monkeypatch):
+    base, _data = instance
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    manager = importlib.import_module("update_manager")
+    record = {"instance": "synthetic", "owner": "synthetic-owner"}
+    runtime = "a" * 40
+    units = base / "units"
+    units.mkdir(mode=0o700)
+    texts = manager.activation_units(base, record, runtime)
+    monkeypatch.setattr(manager.host, "systemctl", lambda *_: "")
+    # Only the exact preceding service template may migrate without its ExecCondition.
+    for suffix, content in texts.items():
+        if suffix == ".timer":
+            continue
+        old = "\n".join(
+            line for line in content.split("\n") if not line.startswith("ExecCondition=")
+        )
+        (units / ("harbor-helper-synthetic-updates" + suffix)).write_text(old)
+    assert manager.validate_activation_units(base, record, runtime, installing=True) == texts
+    timer = units / "harbor-helper-synthetic-updates.timer"
+    timer.write_text(
+        texts[".timer"].replace(
+            "Unit=harbor-helper-synthetic-updates.service", "Unit=foreign.service"
+        )
+    )
+    before = manager.ops.inventory(units)
+    with pytest.raises(ValueError, match="content mismatch"):
+        manager.validate_activation_units(base, record, runtime, installing=True)
+    assert manager.ops.inventory(units) == before
+    timer.unlink()
+    monkeypatch.setattr(manager.host, "systemctl", lambda *_: "/foreign/timer")
+    with pytest.raises(ValueError, match="another instance"):
+        manager.validate_activation_units(base, record, runtime, installing=True)

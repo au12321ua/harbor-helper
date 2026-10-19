@@ -913,6 +913,101 @@ def run(base):
         protocol.sync_directory(base / "updates/spool")
 
 
+def pending(base):
+    """Read-only ExecCondition: idle/manual instances do not run the executor."""
+    try:
+        previous = protocol.journal(base / "state")
+        if previous and (
+            previous.get("protocol") != 1
+            or previous.get("phase") not in protocol.PUBLIC_PHASES
+            or previous.get("phase") == "needs_manual"
+            or not previous.get("id")
+        ):
+            return False
+        if any((base / "updates/spool").glob("*.json")):
+            return True
+        return bool(
+            previous
+            and (
+                previous.get("phase") not in protocol.TERMINAL
+                or (
+                    previous.get("phase") == "succeeded"
+                    and previous.get("manager_activation_pending")
+                )
+            )
+        )
+    except (OSError, ValueError, TypeError):
+        # Corrupt ownership metadata needs host intervention, never a busy loop.
+        return False
+
+
+def activation_units(base, record, runtime_release):
+    name = f"harbor-helper-{record['instance']}-updates"
+    command = f"{base}/releases/{runtime_release}/.venv/bin/python {base}/manager/service.py"
+    service = f"""# harbor-helper instance {record["owner"]}
+[Unit]
+Description=Harbor Helper update executor {record["instance"]}
+StartLimitIntervalSec=0
+[Service]
+Type=oneshot
+UMask=0077
+ExecCondition={command} update-pending --directory {base}
+ExecStart={command} update-run --directory {base}
+TimeoutStartSec=infinity
+KillMode=mixed
+[Install]
+WantedBy=default.target
+"""
+    path = f"""# harbor-helper instance {record["owner"]}
+[Unit]
+Description=Harbor Helper update spool {record["instance"]}
+[Path]
+DirectoryNotEmpty={base}/updates/spool
+Unit={name}.service
+[Install]
+WantedBy=default.target
+"""
+    timer = f"""# harbor-helper instance {record["owner"]}
+[Unit]
+Description=Harbor Helper update recovery polling {record["instance"]}
+[Timer]
+OnCalendar=*-*-* *:*:00/10
+AccuracySec=1s
+Persistent=false
+Unit={name}.service
+[Install]
+WantedBy=timers.target
+"""
+    return {".service": service, ".path": path, ".timer": timer}
+
+
+def validate_activation_units(base, record, runtime_release, *, installing):
+    """Validate the entire owned set before changing any unit, including legacy v1."""
+    texts = activation_units(base, record, runtime_release)
+    name = f"harbor-helper-{record['instance']}-updates"
+    for suffix, content in texts.items():
+        destination = base / "units" / (name + suffix)
+        actual = host.systemctl("show", name + suffix, "--property=FragmentPath", "--value")
+        ops.require(
+            not actual or Path(actual).resolve() == destination,
+            "Update unit belongs to another instance",
+        )
+        if destination.exists():
+            legacy = "\n".join(
+                line for line in content.split("\n") if not line.startswith("ExecCondition=")
+            )
+            ops.require(
+                not destination.is_symlink() and destination.read_text() in {content, legacy},
+                "Update unit content mismatch",
+            )
+        else:
+            ops.require(
+                installing or (suffix == ".timer" and not actual),
+                "Missing owned update unit",
+            )
+    return texts
+
+
 def enable(base, record, repository, branch):
     ops.require(not protocol.busy(base / "state"), "Upgrade busy")
     contract_path = base / "releases" / record["release"] / "update-contract.json"
@@ -932,8 +1027,6 @@ def enable(base, record, repository, branch):
             + "\n"
         )
     source(base)
-    migrate_timers(base, record)
-    activate(base, record["release"])
     enabled_path = base / "updates/enabled.json"
     enabled = (
         protocol.private_json(enabled_path)
@@ -946,43 +1039,29 @@ def enable(base, record, repository, branch):
     )
     runtime_release = enabled.get("runtime_release", record["release"])
     ops.require(re.fullmatch("[a-f0-9]{40}", runtime_release), "Invalid executor runtime release")
+    texts = validate_activation_units(base, record, runtime_release, installing=True)
+    migrate_timers(base, record)
+    activate(base, record["release"])
     protocol.durable(enabled_path, enabled)
     name = f"harbor-helper-{record['instance']}-updates"
-    service = f"""# harbor-helper instance {record["owner"]}
-[Unit]
-Description=Harbor Helper update executor {record["instance"]}
-StartLimitIntervalSec=0
-[Service]
-Type=oneshot
-UMask=0077
-ExecStart={base}/releases/{runtime_release}/.venv/bin/python {base}/manager/service.py update-run --directory {base}
-TimeoutStartSec=infinity
-KillMode=mixed
-[Install]
-WantedBy=default.target
-"""
-    path = f"""# harbor-helper instance {record["owner"]}
-[Unit]
-Description=Harbor Helper update spool {record["instance"]}
-[Path]
-DirectoryNotEmpty={base}/updates/spool
-Unit={name}.service
-[Install]
-WantedBy=default.target
-"""
-    for suffix, content in ((".service", service), (".path", path)):
+    for suffix, content in texts.items():
         destination = base / "units" / (name + suffix)
-        actual = host.systemctl("show", name + suffix, "--property=FragmentPath", "--value")
-        ops.require(
-            not actual or Path(actual).resolve() == destination,
-            "Update unit belongs to another instance",
-        )
-        if destination.exists():
-            ops.require(destination.read_text() == content, "Update unit content mismatch")
         destination.write_text(content)
         host.systemctl("enable", *(["--runtime"] if record["runtime"] else []), destination)
     host.systemctl("daemon-reload")
-    host.systemctl("start", name + ".path")
+    host.systemctl("start", name + ".timer")
+    ops.require(
+        host.systemctl("show", name + ".timer", "--property=ActiveState", "--value") == "active",
+        "Update fallback timer is not active",
+    )
+    try:
+        host.systemctl("start", name + ".path")
+        path_state = host.systemctl("show", name + ".path", "--property=ActiveState", "--value")
+    except subprocess.CalledProcessError:
+        path_state = "failed"
+    print(
+        json.dumps({"activation": {"path": path_state, "timer": "active", "interval_seconds": 10}})
+    )
 
 
 def migrate_timers(base, record):

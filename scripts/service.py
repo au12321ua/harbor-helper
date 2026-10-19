@@ -239,6 +239,7 @@ def main():
             "enable-updates",
             "upgrade-status",
             "update-run",
+            "update-pending",
             "upgrade-resolve",
         ],
     )
@@ -276,6 +277,8 @@ def main():
         str(base) not in {"/", str(Path.home())} and not any(c in str(base) for c in '\n\r%$"\\ '),
         "unsafe instance directory",
     )
+    if args.action == "update-pending" and not base.exists():
+        sys.exit(1)
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
     ops.require(
         base.stat().st_uid == os.getuid() and not base.stat().st_mode & 0o077,
@@ -283,6 +286,8 @@ def main():
     )
     import update_manager as updater
 
+    if args.action == "update-pending":
+        sys.exit(0 if updater.pending(base) else 1)
     if args.action == "upgrade-status":
         result = {"journal": updater.protocol.journal(base / "state")}
         if (base / "state").exists() and updater.protocol.blocked(base / "state"):
@@ -481,10 +486,18 @@ def main():
         elif args.action == "uninstall":
             enabled = base / "updates/enabled.json"
             if enabled.exists():
-                updater.protocol.private_json(enabled)
+                update_installation = updater.protocol.private_json(enabled)
+                updater.validate_activation_units(
+                    base,
+                    record,
+                    update_installation.get("runtime_release", record["release"]),
+                    installing=False,
+                )
                 name = f"harbor-helper-{record['instance']}-updates"
-                for suffix in (".path", ".service"):
+                for suffix in (".timer", ".path", ".service"):
                     path = base / "units" / (name + suffix)
+                    if suffix == ".timer" and not path.exists():
+                        continue
                     ops.require(
                         path.is_file()
                         and path.read_text().startswith(

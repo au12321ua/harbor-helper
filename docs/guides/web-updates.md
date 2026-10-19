@@ -19,6 +19,8 @@ python3 /private/instance/manager/service.py start --directory /private/instance
 
 从 bc64cd8 接入 X 的第一次主机升级仍使用旧升级流程，源版本不支持升级屏障，**这个一次性窗口不受重启保护**。先关闭受理、等任务自然结束，按旧安装的备份/恢复说明操作；不要在该窗口重新启动旧进程。初次主机升级保留关闭受理状态，管理员确认服务正常后在网页恢复受理。无需、也不能用 fresh-state 绕过数据不兼容。
 
+`enable-updates` 严格核验整套 service/path/timer 的路径、完整内容与归属，再安装并启用 timer 和 path。仅允许精确识别的上一版自有 service 模板迁移；同名外部 timer 或未知内容拒绝接管。若 path 启动因 watch 资源失败，命令明确输出 path=failed、timer=active，保留事件主路径并依靠 timer 自动执行，不把失败的 path 报为通过。旧的已接入实例在固定新管理器主机升级后再次运行 enable-updates，才能安装这套兜底 unit；配置不会被覆盖。卸载先核验全套归属，再停用 timer/path/service。
+
 `enable-updates` 不覆盖已存在的 `private/update.toml`：
 
 ```toml
@@ -35,7 +37,7 @@ branch = "master"
 
 ## 持久协议与数据窗口
 
-`updates/spool` 接收有界动作，独立的本实例 systemd `.path` 激活 oneshot 执行器。HTTP 不运行 Git/systemctl。`updates/journal.json` 位于 state 外，协议为 1；非终态一直占有实例，进程退出或锁释放不代表任务结束。宿主变更动作与网页维护/shutdown 操作不能抢占升级。重复 request_id 返回原任务；同一 request_id 不能改动作或目标。
+`updates/spool` 接收有界动作，独立的本实例 systemd `.path` 激活 oneshot 执行器；本实例 `.timer` 每 10 秒检查同一执行器，作为 watch 配额耗尽和重启后的持久恢复兜底。两个触发源共用同一个 service，systemd 合并正在执行的激活，实例锁与请求幂等仍生效。timer 设置 1 秒调度精度，实际延迟受宿主调度影响；空闲 ExecCondition 仅读取受保护的 spool/journal，不构造 Store，不调用 Git/systemctl、不写业务或 journal。HTTP 不运行 Git/systemctl。`updates/journal.json` 位于 state 外，协议为 1；非终态一直占有实例，进程退出或锁释放不代表任务结束。宿主变更动作与网页维护/shutdown 操作不能抢占升级。重复 request_id 返回原任务；同一 request_id 不能改动作或目标。
 
 正常顺序为固定目标准备、在线一致快照预探测、关闭新受理并等待、持久屏障、停写者与独占租约、完整离线备份及 restore-check、离线副本权威适配、显式迁移、版本与 unit 切换、屏障内验证、恢复原维护字段与原 unit 语义、持久 commit_decided、撤屏障、正常就绪检查、成功与 manager 集合激活。等待默认不取消实验；“取消升级”保留实验，“改为取消全部任务”不可撤销。屏障后的切换不能由浏览器强行中断。
 
@@ -62,6 +64,8 @@ python3 /private/instance/manager/service.py upgrade-resolve --directory /privat
 python3 /private/instance/manager/service.py upgrade-resolve --directory /private/instance --resolution restore
 python3 /private/instance/manager/service.py upgrade-resolve --directory /private/instance --resolution accept
 ```
+
+timer 发现中断的非终态任务会自动唤醒恢复执行器；提交点后的收尾、manager 激活待办不依赖 spool 仍存在。已进入 needs_manual、未知协议或损坏 journal 时不反复自动推进，保留人工处理边界；宿主排除故障后可显式运行 `update-run` 或下面的 resolve 操作。
 
 stop 保持安全停止；restore 仅在未 commit_decided 且屏障/指纹可证明时重试本任务的原位恢复；accept 用当前固定 release 实际验证数据库、配置、密钥及 HTTP 共用构造路径后才决定放行。验证失败不会自动接受。迁移崩溃时，先用 upgrade-status 取得屏障内 state_digest，检查任务与快照、没有外部写者且外置 key/config 指纹一致，再用 `upgrade-resolve --resolution restore --expected-state-digest <刚核对的摘要>` 明确接受本任务中断迁移的当前指纹并恢复原快照。此参数仅适用于 journal 记录的中断迁移，不能绕过 commit_decided。外部指纹不符时仍拒绝恢复，不能删屏障、重新初始化或随手覆盖快照。
 
