@@ -63,7 +63,7 @@ python3 /private/instance/manager/service.py upgrade-resolve --directory /privat
 python3 /private/instance/manager/service.py upgrade-resolve --directory /private/instance --resolution accept
 ```
 
-stop 保持安全停止；restore 仅在未 commit_decided 且屏障/指纹可证明时重试本任务的原位恢复；accept 用当前固定 release 实际验证数据库、配置、密钥及 HTTP 共用构造路径后才决定放行。验证失败不会自动接受。迁移崩溃或外部指纹不符时，应先保留现场并由管理员分析，不能删屏障、重新初始化或随手覆盖快照。
+stop 保持安全停止；restore 仅在未 commit_decided 且屏障/指纹可证明时重试本任务的原位恢复；accept 用当前固定 release 实际验证数据库、配置、密钥及 HTTP 共用构造路径后才决定放行。验证失败不会自动接受。迁移崩溃时，先用 upgrade-status 取得屏障内 state_digest，检查任务与快照、没有外部写者且外置 key/config 指纹一致，再用 `upgrade-resolve --resolution restore --expected-state-digest <刚核对的摘要>` 明确接受本任务中断迁移的当前指纹并恢复原快照。此参数仅适用于 journal 记录的中断迁移，不能绕过 commit_decided。外部指纹不符时仍拒绝恢复，不能删屏障、重新初始化或随手覆盖快照。
 
 含屏障快照人工恢复后，即使原任务已终态，残留标记也拒绝普通业务。保留原外部 journal 与实例归属，通过本任务 `upgrade-resolve --resolution accept` 在完整验证后受控清除；缺少原 journal 时不能自动清除，需按离线恢复流程重建可审计的任务关联并人工验核。提交点后的任务只能接受/完成当前固定版本或安全停止，不能 restore。
 

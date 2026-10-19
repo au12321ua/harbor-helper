@@ -847,10 +847,26 @@ def run(base):
             try:
                 finish(base, previous)
             except Exception:  # noqa: BLE001 - commit forbids snapshot rollback
-                save(base, previous, phase="needs_manual")
+                save(
+                    base,
+                    previous,
+                    interrupted_phase=previous.get("interrupted_phase", previous["phase"]),
+                    phase="needs_manual",
+                )
         elif previous and previous["phase"] not in protocol.TERMINAL:
-            # Explicit policy: migration and ambiguous crash windows require host resolve.
-            save(base, previous, phase="needs_manual")
+            if not previous.get("barrier"):
+                if previous.get("original_files"):
+                    restore_semantics(base, previous)
+                    start_original(base, previous)
+                save(base, previous, phase="failed", error="executor_interrupted_before_barrier")
+            else:
+                # Explicit policy: migration and ambiguous crash windows require host resolve.
+                save(
+                    base,
+                    previous,
+                    interrupted_phase=previous.get("interrupted_phase", previous["phase"]),
+                    phase="needs_manual",
+                )
         for path in sorted((base / "updates/spool").glob("*.json")):
             request = protocol.private_json(path)
             identifier = path.stem
@@ -860,6 +876,19 @@ def run(base):
                 continue
             try:
                 protocol.validate_request(request, record["owner"], identifier)
+                remembered = protocol.journal(base / "state")
+                if remembered and remembered.get("id") == identifier:
+                    protocol.durable(
+                        result_path,
+                        {
+                            "request": request,
+                            "request_id": identifier,
+                            "result": {"job": identifier, "phase": remembered["phase"]},
+                        },
+                    )
+                    path.unlink()
+                    continue
+                record = ops.read_json(base / "instance.json")
                 ops.require(
                     not protocol.busy(base / "state"), "Upgrade task still owns this instance"
                 )
@@ -905,7 +934,19 @@ def enable(base, record, repository, branch):
     source(base)
     migrate_timers(base, record)
     activate(base, record["release"])
-    protocol.durable(base / "updates/enabled.json", {"protocol": 1, "owner": record["owner"]})
+    enabled_path = base / "updates/enabled.json"
+    enabled = (
+        protocol.private_json(enabled_path)
+        if enabled_path.exists()
+        else {"protocol": 1, "owner": record["owner"], "runtime_release": record["release"]}
+    )
+    ops.require(
+        enabled.get("protocol") == 1 and enabled.get("owner") == record["owner"],
+        "Update installation ownership mismatch",
+    )
+    runtime_release = enabled.get("runtime_release", record["release"])
+    ops.require(re.fullmatch("[a-f0-9]{40}", runtime_release), "Invalid executor runtime release")
+    protocol.durable(enabled_path, enabled)
     name = f"harbor-helper-{record['instance']}-updates"
     service = f"""# harbor-helper instance {record["owner"]}
 [Unit]
@@ -913,7 +954,7 @@ Description=Harbor Helper update executor {record["instance"]}
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart={base}/releases/{record["release"]}/.venv/bin/python {base}/manager/service.py update-run --directory {base}
+ExecStart={base}/releases/{runtime_release}/.venv/bin/python {base}/manager/service.py update-run --directory {base}
 TimeoutStartSec=infinity
 KillMode=mixed
 [Install]
@@ -1005,7 +1046,7 @@ def migrate_timers(base, record):
         host.systemctl("daemon-reload")
 
 
-def resolve(base, mode):
+def resolve(base, mode, *, expected_state_digest=None):
     with (base / ".manager.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         value = protocol.journal(base / "state")
@@ -1019,11 +1060,32 @@ def resolve(base, mode):
                 value.get("barrier") and not value.get("commit_decided"),
                 "Rollback unavailable after commit",
             )
+            if expected_state_digest is not None:
+                ops.require(
+                    value.get("interrupted_phase") == "migrating",
+                    "Explicit fingerprint only applies to interrupted migration",
+                )
+                marker = protocol.private_json(base / "state/.upgrade.json")
+                ops.require(marker["job"] == value["id"], "Barrier mismatch")
+                host.stop(base, ops.read_json(base / "instance.json"))
+                with ops.writer_lease(base / "state"):
+                    host.safe_offline(base)
+                    observed = ops.state_inventory(base / "state")
+                    ops.require(
+                        ops.content_digest(observed) == expected_state_digest,
+                        "Observed migration fingerprint changed",
+                    )
+                    ops.require(
+                        ops.inventory(base / "private") == value["private_inventory"],
+                        "External key/config changed",
+                    )
+                    save(base, value, live_baseline=observed, explicit_migration_recovery=True)
             rollback(base, value)
         elif mode == "accept":
             host.stop(base, ops.read_json(base / "instance.json"))
-            marker = protocol.private_json(base / "state/.upgrade.json")
-            ops.require(marker["job"] == value["id"], "Barrier mismatch")
+            marker = ops.read_json(base / "state/.upgrade.json")
+            ops.require(marker == {"protocol": 1, "job": value["id"]}, "Barrier mismatch")
+            protocol.durable(base / "state/.upgrade.json", marker)
             with ops.writer_lease(base / "state") as lease:
                 current = ops.read_json(base / "instance.json")["release"]
                 target_validate(base, value, lease, current)

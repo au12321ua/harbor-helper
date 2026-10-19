@@ -247,6 +247,7 @@ def main():
     parser.add_argument("--repository")
     parser.add_argument("--branch", choices=["master", "dev"], default="master")
     parser.add_argument("--resolution", choices=["stop", "restore", "accept"])
+    parser.add_argument("--expected-state-digest")
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -283,13 +284,16 @@ def main():
     import update_manager as updater
 
     if args.action == "upgrade-status":
-        print(json.dumps(updater.protocol.journal(base / "state")))
+        result = {"journal": updater.protocol.journal(base / "state")}
+        if (base / "state").exists() and updater.protocol.blocked(base / "state"):
+            result["state_digest"] = ops.content_digest(ops.state_inventory(base / "state"))
+        print(json.dumps(result))
         return
     if args.action == "update-run":
         updater.run(base)
         return
     if args.action == "upgrade-resolve":
-        updater.resolve(base, args.resolution)
+        updater.resolve(base, args.resolution, expected_state_digest=args.expected_state_digest)
         return
     current_job = updater.protocol.busy(base / "state")
     if args.action == "status":

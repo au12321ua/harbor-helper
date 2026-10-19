@@ -476,3 +476,74 @@ runpy.run_path(PROBE_PATH,run_name='__main__')
     assert result.returncode == 1
     assert json.loads(result.stderr) == {"failed": "PermissionError"}
     assert manager.ops.state_inventory(base / "state") == before
+
+
+def test_automation_credential_cannot_check_upgrade_or_read_admin_journal(instance):
+    from harbor_helper.service.access import issue
+
+    base, data = instance
+    actor = next(user for user in data.users() if user["username"] == "admin")
+    credential = issue(data, actor, "synthetic automation", PASSWORD, ["read", "execute"], None)
+    client = TestClient(create_app(base / "state"))
+    headers = {**WRITE, "Authorization": "Bearer " + credential["token"]}
+    response = client.post(
+        "/api/v1/admin/updates",
+        headers=headers,
+        json={"action": "check", "request_id": "synthetic-pat-check-0001", "payload": {}},
+    )
+    assert response.status_code == 403 and response.json()["code"] == "session_required"
+    assert client.get("/api/v1/admin/updates", headers=headers).status_code == 403
+    assert not list((base / "updates/spool").iterdir())
+
+
+@pytest.mark.parametrize(
+    "phase,barrier,committed",
+    [("preparing", False, False), ("migrating", True, False), ("succeeded", False, True)],
+)
+def test_restart_never_reexecutes_journalled_upgrade(
+    instance, monkeypatch, phase, barrier, committed
+):
+    base, _data = instance
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    manager = importlib.import_module("update_manager")
+    record = {"owner": "synthetic-owner", "release": "a" * 40}
+    durable(base / "instance.json", record)
+    queued = enqueue(
+        base / "state",
+        "upgrade",
+        "actor",
+        "synthetic-restart-request",
+        {"check_id": "c" * 64, "target_sha": "b" * 40, "config_digest": "d" * 64},
+    )
+    value = {
+        "protocol": 1,
+        "id": queued["request_id"],
+        "phase": phase,
+        "barrier": barrier,
+        "commit_decided": committed,
+        "manager_activation_pending": False,
+    }
+    durable(base / "updates/journal.json", value)
+    monkeypatch.setattr(manager.host, "validate", lambda *_: None)
+
+    def forbidden(*_):
+        raise AssertionError("Journalled upgrade was executed twice")
+
+    monkeypatch.setattr(manager, "upgrade", forbidden)
+    manager.run(base)
+    result = json.loads((base / "updates/results" / (queued["request_id"] + ".json")).read_text())
+    assert result["result"]["job"] == queued["request_id"]
+    assert result["result"]["phase"] == (
+        "succeeded" if committed else "needs_manual" if barrier else "failed"
+    )
+    assert not list((base / "updates/spool").iterdir())
+    restored = json.loads((base / "updates/journal.json").read_text())
+    assert restored["commit_decided"] == committed
+    if phase == "migrating":
+        assert restored["interrupted_phase"] == "migrating"
+        manager.run(base)
+        assert (
+            json.loads((base / "updates/journal.json").read_text())["interrupted_phase"]
+            == "migrating"
+        )
