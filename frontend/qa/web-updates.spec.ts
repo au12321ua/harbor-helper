@@ -295,3 +295,191 @@ test("closing an outstanding read prevents its response replacing the reopened s
   await expect(dialog).not.toContainText("https://next.invalid");
   await expect(dialog.getByRole("button", { name: "检查更新" })).toHaveCount(0);
 });
+
+for (const projection of ["none", "failed", "invalid", "unknown"] as const) {
+  test(`failed administrator read never reuses its cached phase when public state is ${projection}`, async ({
+    page,
+  }) => {
+    await fixture(page);
+    await page.route("**/api/v1/version", (route) =>
+      route.fulfill({ json: version }),
+    );
+    let fail = false;
+    await page.route("**/api/v1/admin/updates", (route) =>
+      fail
+        ? route.fulfill({
+            status: 503,
+            json: { message: "Synthetic admin read failed" },
+          })
+        : route.fulfill({
+            json: { ...configuredUpdates, job: { id: "j1", phase: "waiting" } },
+          }),
+    );
+    let publicReads = 0;
+    await page.route("**/api/v1/upgrade-phase", (route) => {
+      if (!fail)
+        return route.fulfill({ json: { upgrading: false, phase: null } });
+      publicReads++;
+      return projection === "failed"
+        ? route.fulfill({
+            status: 503,
+            json: { message: "Synthetic public read failed" },
+          })
+        : route.fulfill({
+            json:
+              projection === "none"
+                ? { upgrading: false, phase: null }
+                : {
+                    upgrading: true,
+                    phase: projection === "unknown" ? "toString" : 123,
+                  },
+          });
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "查看运行版本与更新" }).click();
+    const dialog = page.getByRole("dialog", { name: "运行版本与更新" });
+    await expect(dialog).toContainText(
+      "等待实验自然结束。刷新页面可继续查看。",
+    );
+    fail = true;
+    await expect(dialog).toContainText("更新状态读取失败，将自动重试。");
+    await expect.poll(() => publicReads).toBeGreaterThan(0);
+    await expect(dialog).not.toContainText(
+      "等待实验自然结束。刷新页面可继续查看。",
+    );
+    await expect(dialog).not.toContainText("未配置");
+    await expect(dialog).not.toContainText("尚未启用");
+    await expect(
+      dialog.getByRole("button", { name: "取消升级，保留实验" }),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: test.info().outputPath(`public-${projection}-no-cached-phase.png`),
+    });
+  });
+}
+
+test("current phase switches between administrator, public, absent, unknown and recovered administrator state", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.route("**/api/v1/version", (route) =>
+    route.fulfill({ json: version }),
+  );
+  let adminFails = false;
+  let job: { id: string; phase: string } | null = {
+    id: "j1",
+    phase: "waiting",
+  };
+  let projection: "preparing" | "none" | "failed" | "waiting" = "preparing";
+  await page.route("**/api/v1/admin/updates", (route) =>
+    adminFails
+      ? route.fulfill({
+          status: 503,
+          json: { message: "Synthetic admin read failed" },
+        })
+      : route.fulfill({ json: { ...configuredUpdates, job } }),
+  );
+  await page.route("**/api/v1/upgrade-phase", (route) =>
+    !adminFails || projection === "none"
+      ? route.fulfill({ json: { upgrading: false, phase: null } })
+      : projection === "failed"
+        ? route.fulfill({
+            status: 503,
+            json: { message: "Synthetic public read failed" },
+          })
+        : route.fulfill({ json: { upgrading: true, phase: projection } }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "查看运行版本与更新" }).click();
+  const dialog = page.getByRole("dialog", { name: "运行版本与更新" });
+  await expect(dialog).toContainText("等待实验自然结束。刷新页面可继续查看。");
+  adminFails = true;
+  await expect(dialog).toContainText("准备与在线预探测。刷新页面可继续查看。");
+  await expect(dialog).not.toContainText(
+    "等待实验自然结束。刷新页面可继续查看。",
+  );
+  projection = "none";
+  await expect(dialog).not.toContainText(
+    "准备与在线预探测。刷新页面可继续查看。",
+  );
+  projection = "waiting";
+  await expect(dialog).toContainText("等待实验自然结束。刷新页面可继续查看。");
+  projection = "failed";
+  await expect(dialog).not.toContainText(
+    "等待实验自然结束。刷新页面可继续查看。",
+  );
+  await expect(dialog).toContainText("更新状态读取失败，将自动重试。");
+  projection = "preparing";
+  await expect(dialog).toContainText("准备与在线预探测。刷新页面可继续查看。");
+  job = null;
+  adminFails = false;
+  await expect(dialog.getByRole("button", { name: "检查更新" })).toBeEnabled();
+  await expect(dialog).not.toContainText(
+    "准备与在线预探测。刷新页面可继续查看。",
+  );
+  await expect(dialog).not.toContainText(
+    "等待实验自然结束。刷新页面可继续查看。",
+  );
+  adminFails = true;
+  await expect(dialog).toContainText("准备与在线预探测。刷新页面可继续查看。");
+  job = { id: "j2", phase: "succeeded" };
+  adminFails = false;
+  await expect(dialog).toContainText("升级成功。刷新页面可继续查看。");
+  await expect(dialog).not.toContainText(
+    "准备与在线预探测。刷新页面可继续查看。",
+  );
+  await expect(dialog.getByRole("button", { name: "检查更新" })).toBeEnabled();
+  await page.screenshot({
+    path: test.info().outputPath("administrator-new-phase.png"),
+  });
+});
+
+test("a late public projection cannot replace the reopened administrator phase", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.route("**/api/v1/version", (route) =>
+    route.fulfill({ json: version }),
+  );
+  let adminFails = true;
+  await page.route("**/api/v1/admin/updates", (route) =>
+    adminFails
+      ? route.fulfill({
+          status: 503,
+          json: { message: "Synthetic admin read failed" },
+        })
+      : route.fulfill({
+          json: { ...configuredUpdates, job: { id: "j2", phase: "cancelled" } },
+        }),
+  );
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let publicReads = 0;
+  await page.route("**/api/v1/upgrade-phase", async (route) => {
+    publicReads++;
+    await gate;
+    await route.fulfill({ json: { upgrading: true, phase: "preparing" } });
+  });
+  await page.goto("/");
+  const footer = page.getByRole("button", { name: "查看运行版本与更新" });
+  await footer.click();
+  const dialog = page.getByRole("dialog", { name: "运行版本与更新" });
+  await expect(dialog).toContainText("更新状态读取失败，将自动重试。");
+  await expect.poll(() => publicReads).toBeGreaterThanOrEqual(2);
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  adminFails = false;
+  await footer.click();
+  await expect(dialog).toContainText("已取消升级。刷新页面可继续查看。");
+  const response = page.waitForResponse((r) =>
+    r.url().endsWith("/upgrade-phase"),
+  );
+  release();
+  await response;
+  await expect(dialog).toContainText("已取消升级。刷新页面可继续查看。");
+  await expect(dialog).not.toContainText(
+    "准备与在线预探测。刷新页面可继续查看。",
+  );
+  await expect(dialog.getByRole("button", { name: "检查更新" })).toBeEnabled();
+});

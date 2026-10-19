@@ -109,14 +109,24 @@ export function VersionFooter({ user }: { user: User }) {
         if (!live) return;
         setError(failure);
         setUpdatesStatus("error");
+        setPublicPhase(undefined);
         // Public projection remains available while authenticated APIs are stopped.
-        const value: { upgrading: boolean; phase: string | null } | undefined =
-          await fetch("/api/v1/upgrade-phase", { cache: "no-store" })
-            .then((response) => (response.ok ? response.json() : undefined))
-            .catch(() => undefined);
+        const value: unknown = await fetch("/api/v1/upgrade-phase", {
+          cache: "no-store",
+        })
+          .then((response) => (response.ok ? response.json() : undefined))
+          .catch(() => undefined);
         if (live)
           setPublicPhase(
-            value?.upgrading ? (value.phase ?? undefined) : undefined,
+            value !== null &&
+              typeof value === "object" &&
+              "upgrading" in value &&
+              value.upgrading === true &&
+              "phase" in value &&
+              typeof value.phase === "string" &&
+              Object.hasOwn(phases, value.phase)
+              ? value.phase
+              : undefined,
           );
       } finally {
         refreshing = false;
@@ -134,8 +144,13 @@ export function VersionFooter({ user }: { user: User }) {
   const last = updates?.results[0];
   const check = checked(last?.result);
   const job = updates?.job;
+  // A failed administrator read cannot make its cached job a current phase.
   const phase =
-    publicPhase ?? (typeof job?.phase === "string" ? job.phase : undefined);
+    updatesStatus === "ready"
+      ? typeof job?.phase === "string"
+        ? job.phase
+        : undefined
+      : publicPhase;
   const active = phase && !["succeeded", "failed", "cancelled"].includes(phase);
   async function send(
     action: "check" | "upgrade" | "cancel" | "cancel-all",
