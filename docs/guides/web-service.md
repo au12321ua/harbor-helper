@@ -106,7 +106,7 @@ harbor-helper list
 harbor-helper submit --model-profile PROFILE_ID \
   --dataset DATASET_NAME@VERSION \
   --attachment-version-id av-EXAMPLE --idempotency-key experiment-001
-harbor-helper service retry
+harbor-helper service lookup submit experiment-001 --json
 harbor-helper list --json
 ```
 
@@ -137,13 +137,13 @@ harbor-helper usage
 
 ## 重试与退出
 
-一次提交或重跑复用同一个幂等键和相同内容。客户端在请求前把最近一次操作保存为私有 receipt，`service retry` 重发同一路径、内容及键；发生超时先重试该操作，不换新键。主动新实验或 rerun 使用新键。同键不同内容会冲突。每个 profile 只保留最近一次 receipt；再次登录或退出会清除 receipt，需继续重试的操作应自行保留原参数和幂等键。
+一次提交或重跑的通信重试复用原幂等键与相同内容。超时后先用 `service lookup 操作类别 原键` 查询，或以原命令、原参数和原键重发；`service retry PATH --body JSON --idempotency-key KEY` 需要显式提供原路径与正文。客户端不保存 last receipt，应保留原参数及幂等键，可用 `service history` 查看服务端历史。主动新实验或 rerun 使用新键，同键不同内容会冲突。完整示例见 [SDK 与 CLI 指南](sdk-mcp.md)。
 
 ```bash
 harbor-helper service logout
 ```
 
-logout 撤销成员会话并删除本机 token，已受理任务继续。远程选择标记保留，下一次普通命令会要求重新登录。CLI只访问团队服务，没有直接读写state的本地模式。
+logout 对登录会话撤会话并删除本机 profile；对自动化 profile 只删除本机副本，PAT 须在网页撤销。已受理任务继续。远程选择标记保留，下一次普通命令会要求重新登录。CLI只访问团队服务，没有直接读写state的本地模式。
 
 ## 队列、备份与审计
 
