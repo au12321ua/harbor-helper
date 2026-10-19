@@ -941,9 +941,14 @@ def pending(base):
         return False
 
 
-def activation_units(base, record, runtime_release):
+def activation_units(base, record, runtime_release, *, clean_environment=True):
     name = f"harbor-helper-{record['instance']}-updates"
     command = f"{base}/releases/{runtime_release}/.venv/bin/python {base}/manager/service.py"
+    if clean_environment:
+        command = (
+            f"/usr/bin/env -i HOME={base}/home PATH={os.defpath}:/usr/local/bin "
+            f"LANG=C.UTF-8 PYTHONUNBUFFERED=1 {command}"
+        )
     service = f"""# harbor-helper instance {record["owner"]}
 [Unit]
 Description=Harbor Helper update executor {record["instance"]}
@@ -984,6 +989,7 @@ WantedBy=timers.target
 def validate_activation_units(base, record, runtime_release, *, installing):
     """Validate the entire owned set before changing any unit, including legacy v1."""
     texts = activation_units(base, record, runtime_release)
+    preceding = activation_units(base, record, runtime_release, clean_environment=False)
     name = f"harbor-helper-{record['instance']}-updates"
     for suffix, content in texts.items():
         destination = base / "units" / (name + suffix)
@@ -994,10 +1000,13 @@ def validate_activation_units(base, record, runtime_release, *, installing):
         )
         if destination.exists():
             legacy = "\n".join(
-                line for line in content.split("\n") if not line.startswith("ExecCondition=")
+                line
+                for line in preceding[suffix].split("\n")
+                if not line.startswith("ExecCondition=")
             )
             ops.require(
-                not destination.is_symlink() and destination.read_text() in {content, legacy},
+                not destination.is_symlink()
+                and destination.read_text() in {content, preceding[suffix], legacy},
                 "Update unit content mismatch",
             )
         else:

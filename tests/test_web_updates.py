@@ -619,7 +619,8 @@ def test_activation_set_strict_validation_and_legacy_migration(instance, monkeyp
     texts = manager.activation_units(base, record, runtime)
     monkeypatch.setattr(manager.host, "systemctl", lambda *_: "")
     # Only the exact preceding service template may migrate without its ExecCondition.
-    for suffix, content in texts.items():
+    preceding = manager.activation_units(base, record, runtime, clean_environment=False)
+    for suffix, content in preceding.items():
         if suffix == ".timer":
             continue
         old = "\n".join(
