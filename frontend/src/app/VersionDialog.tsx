@@ -179,6 +179,7 @@ export function VersionFooter({ user }: { user: User }) {
     <>
       <Button
         variant="link"
+        className="version-trigger"
         onClick={() => {
           setUpdates(undefined);
           setUpdatesStatus("loading");

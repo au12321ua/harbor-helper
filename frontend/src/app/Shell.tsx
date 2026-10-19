@@ -219,9 +219,13 @@ export function Shell({
             {catalog?.settings?.team_name || "团队工作空间"}
           </span>
           <span className="crumb">/　{crumb}</span>
-          <span className="text-sm text-muted-foreground">时区</span>
-          <TimezoneSettings />
-          <ThemeToggle />
+          <div className="topbar-tools">
+            <div className="timezone-control">
+              <span>时区</span>
+              <TimezoneSettings />
+            </div>
+            <ThemeToggle />
+          </div>
         </header>
         <main>
           <AppRoutes user={user} onLogout={onLogout} />
