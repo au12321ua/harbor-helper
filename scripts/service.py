@@ -28,6 +28,7 @@ def systemctl(*arguments):
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     ).stdout.strip()
 
 
@@ -140,6 +141,7 @@ def run_python(base, record, script, *arguments):
     return subprocess.check_output(
         [str(python), "-c", script, str(base / "state"), *arguments],
         env=local_platform.environment(base),
+        timeout=120,
         text=True,
     ).strip()
 

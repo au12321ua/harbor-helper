@@ -825,7 +825,7 @@ Description=Harbor Helper update executor {record["instance"]}
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=/usr/bin/python3 {base}/manager/service.py update-run --directory {base}
+ExecStart={base}/releases/{record["release"]}/.venv/bin/python {base}/manager/service.py update-run --directory {base}
 TimeoutStartSec=infinity
 KillMode=mixed
 [Install]
