@@ -104,10 +104,16 @@ def main():
         shutil.copyfile(source, code)
         code.chmod(0o600)
     # A private immutable set keeps the timer code and its ops dependency together.
-    timer_set = dest / ("timer-" + code_hash)
+    timer_source = Path(__file__).with_name("ops_timer.py")
+    timer_hash = hashlib.sha256(source.read_bytes() + timer_source.read_bytes()).hexdigest()
+    timer_set = dest / ("timer-" + timer_hash)
     timer_set.mkdir(mode=0o700, exist_ok=True)
-    shutil.copyfile(source, timer_set / "ops.py")
-    shutil.copyfile(Path(__file__).with_name("ops_timer.py"), timer_set / "ops_timer.py")
+    for origin, name in ((source, "ops.py"), (timer_source, "ops_timer.py")):
+        target = timer_set / name
+        if target.exists() and target.read_bytes() != origin.read_bytes():
+            parser.error("immutable timer set mismatch")
+        if not target.exists():
+            shutil.copyfile(origin, target)
     units.mkdir(parents=True, exist_ok=True)
     for kind, calendar in (("check", args.check_calendar), ("backup", args.backup_calendar)):
         command = [python, timer_set / "ops_timer.py", kind, "--directory", base]

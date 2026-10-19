@@ -272,6 +272,7 @@ def release(base, env):
             env=env,
             stdout=log,
             stderr=log,
+            timeout=600,
             check=False,
         )
     if result.returncode:

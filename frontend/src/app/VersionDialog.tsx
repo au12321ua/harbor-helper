@@ -124,7 +124,7 @@ export function VersionFooter({ user }: { user: User }) {
       window.clearInterval(timer);
     };
   }, [open, user.role]);
-  const last = updates?.results.find((item) => checked(item.result));
+  const last = updates?.results[0];
   const check = checked(last?.result);
   const job = updates?.job;
   const phase = typeof job?.phase === "string" ? job.phase : undefined;

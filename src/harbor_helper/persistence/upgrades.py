@@ -124,6 +124,8 @@ def enqueue(root, action, actor, request_id, payload):
     if not config.exists():
         raise ValueError("Updates are not enabled for this installation")
     enabled = private_json(config)
+    if enabled.get("protocol") != PROTOCOL:
+        raise ValueError("Unsupported update installation protocol")
     if not re.fullmatch(r"[A-Za-z0-9_-]{16,80}", request_id):
         raise ValueError("A stable bounded request_id is required")
     allowed = {
@@ -167,6 +169,42 @@ def enqueue(root, action, actor, request_id, payload):
                 raise ValueError("Upgrade request spool full")
             durable(path, value)
     return {"request_id": identifier}
+
+
+def validate_request(value, owner, identifier):
+    if set(value) != {"protocol", "instance", "action", "actor", "request_id", "payload"}:
+        raise ValueError("Invalid spool request fields")
+    if value["protocol"] != PROTOCOL or value["instance"] != owner:
+        raise ValueError("Spool ownership/protocol mismatch")
+    if not isinstance(value["actor"], str) or not re.fullmatch(
+        r"[A-Za-z0-9_-]{1,80}", value["actor"]
+    ):
+        raise ValueError("Invalid spool actor")
+    if not isinstance(value["request_id"], str) or not re.fullmatch(
+        r"[A-Za-z0-9_-]{16,80}", value["request_id"]
+    ):
+        raise ValueError("Invalid spool request identity")
+    if (
+        hashlib.sha256((value["actor"] + "/" + value["request_id"]).encode()).hexdigest()
+        != identifier
+    ):
+        raise ValueError("Spool filename/identity mismatch")
+    allowed = {
+        "check": set(),
+        "upgrade": {"check_id", "target_sha", "config_digest"},
+        "cancel": {"job"},
+        "cancel-all": {"job"},
+    }
+    if (
+        value["action"] not in allowed
+        or not isinstance(value["payload"], dict)
+        or set(value["payload"]) != allowed[value["action"]]
+    ):
+        raise ValueError("Invalid spool action")
+    for key, item in value["payload"].items():
+        length = 40 if key == "target_sha" else 64
+        if not isinstance(item, str) or not re.fullmatch("[a-f0-9]{" + str(length) + "}", item):
+            raise ValueError("Invalid spool reference")
 
 
 # Only a holder of the manager's inherited exclusive writer lease can migrate live state.

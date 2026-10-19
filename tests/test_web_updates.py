@@ -191,6 +191,7 @@ def test_git_relations_and_metadata_drift(tmp_path, monkeypatch):
         "python": ">=3.12,<3.14",
     }
     (source / "update-contract.json").write_text(json.dumps(contract))
+    (source / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.12,<3.14"\n')
     git("add", ".")
     git("commit", "-m", "A")
     first = git("rev-parse", "HEAD")
@@ -217,3 +218,261 @@ def test_git_relations_and_metadata_drift(tmp_path, monkeypatch):
     assert manager.relation(base, clean, first, unrelated) == "diverged"
     assert not manager.ancestor(base, clean, second, unrelated)
     assert "OPENAI_API_KEY" not in clean and clean["HOME"] == str(base / "home")
+
+
+def test_journal_write_failure_does_not_poison_recovery(instance, monkeypatch):
+    base, _data = instance
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    manager = importlib.import_module("update_manager")
+    value = {"protocol": 1, "id": "job", "phase": "backup"}
+    manager.save(base, value)
+    before = value.copy()
+    with pytest.raises(TypeError):
+        manager.save(base, value, unserializable={("synthetic", "identity")})
+    assert value == before
+    assert json.loads((base / "updates/journal.json").read_text()) == before
+    manager.save(base, value, phase="needs_manual")
+    assert json.loads((base / "updates/journal.json").read_text())["phase"] == "needs_manual"
+
+
+def test_dangling_barrier_is_not_treated_as_absence(tmp_path):
+    root = tmp_path / "state"
+    root.mkdir(mode=0o700)
+    (root / ".upgrade.json").symlink_to(tmp_path / "missing-marker")
+    assert blocked(root)
+    with pytest.raises(ValueError, match="upgrade_in_progress"):
+        Store(root)
+    assert not (root / "queue.sqlite").exists()
+
+
+@pytest.mark.parametrize("window", ["rename_old_pending", "rename_new_pending"])
+def test_journalled_rename_recovery_preserves_original_paths(instance, monkeypatch, window):
+    import shutil
+    from types import SimpleNamespace
+
+    base, data = instance
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    manager = importlib.import_module("update_manager")
+    data.store.close()
+    release = "a" * 40
+    manager.protocol.durable(base / "state/release.json", {"release": release})
+    record = {
+        "release": release,
+        "instance": "fixture",
+        "owner": "fixture",
+        "directory": str(base),
+        "format": "harbor-helper-systemd-v1",
+    }
+    manager.protocol.durable(base / "instance.json", record)
+    value = {
+        "protocol": 1,
+        "id": "synthetic-restore",
+        "phase": "backup",
+        "barrier": True,
+        "commit_decided": False,
+        "original_record": record,
+        "source_release": release,
+        "target": "b" * 40,
+        "original_units": {"http": "inactive", "scheduler": "inactive"},
+        "original_files": {"admission.json": None, "shutdown.json": None},
+    }
+    durable(base / "state/.upgrade.json", {"protocol": 1, "job": value["id"]})
+    monkeypatch.setattr(manager.ops, "writers", lambda *_: [])
+    monkeypatch.setattr(manager.ops, "execution_quiescence", lambda *_: {})
+    monkeypatch.setattr(manager.ops, "host_processes", lambda *_: {"uninspectable": []})
+    output = base.parent / "snapshots"
+    saved = manager.ops.backup(
+        SimpleNamespace(
+            directory=base, output=output, release=release, kind="offline", lock_timeout=1
+        )
+    )
+    snap = Path(saved["snapshot"])
+    value.update(
+        snapshot=str(snap),
+        private_inventory=manager.ops.inventory(base / "private"),
+        live_baseline=manager.ops.state_inventory(base / "state"),
+    )
+    original_db = (base / "state/queue.sqlite").read_bytes()
+    with manager.ops.ro_db(base / "state") as db:
+        original_rows = {
+            table: [dict(row) for row in db.execute(f'SELECT * FROM "{table}"')]
+            for table in manager.ops.schema(db)
+        }
+    original_config = (base / "state/service.json").read_bytes()
+    stage = base / ("state-restore-" + value["id"])
+    shutil.copytree(snap / "state", stage)
+    durable(stage / ".upgrade.json", {"protocol": 1, "job": value["id"]})
+    value["restore_baseline"] = manager.ops.state_inventory(stage)
+    value["restore_step"] = window
+    manager.save(base, value)
+    if window == "rename_new_pending":
+        (base / "state").rename(base / ("state-failed-" + value["id"]))
+        assert blocked(base / "state")
+    manager.save(base, value)
+    monkeypatch.setattr(manager.host, "stop", lambda *_: None)
+    monkeypatch.setattr(manager.host, "units", lambda *_: None)
+    monkeypatch.setattr(manager, "start_original", lambda *_: None)
+
+    def actual_application(_base, _value, lease, _release):
+        assert (base / "state/queue.sqlite").read_bytes() == original_db
+        with manager.protocol.migration_lease(base / "state", lease.fileno()):
+            app = create_app(base / "state")
+            app.state.application.store.close()
+
+    monkeypatch.setattr(manager, "target_validate", actual_application)
+    monkeypatch.setattr(manager, "ready", lambda *_: None)
+    manager.rollback(base, value)
+    with manager.ops.ro_db(base / "state") as db:
+        assert {
+            table: [dict(row) for row in db.execute(f'SELECT * FROM "{table}"')]
+            for table in original_rows
+        } == original_rows
+    assert (base / "state/service.json").read_bytes() == original_config
+    assert (base / ("state-failed-" + value["id"]) / "queue.sqlite").read_bytes() == original_db
+    assert not blocked(base / "state")
+    assert value["recovered"] and value["commit_decided"]
+    with pytest.raises(ValueError, match="must never be rolled back"):
+        manager.rollback(base, value)
+
+
+def test_offline_copy_probe_and_exclusive_live_application_validation(instance, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    base, data = instance
+    data.models.save_object(
+        "provider",
+        {"id": "p1", "protocol": "openai-compatible", "endpoint": "http://never.invalid/v1"},
+    )
+    data.add_credential("k1", "p1", "synthetic", "never-transmitted")
+    data.store.close()
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    manager = importlib.import_module("update_manager")
+    monkeypatch.setattr(manager.ops, "writers", lambda *_: [])
+    monkeypatch.setattr(manager.ops, "execution_quiescence", lambda *_: {})
+    monkeypatch.setattr(manager.ops, "host_processes", lambda *_: {"uninspectable": []})
+    saved = manager.ops.backup(
+        SimpleNamespace(
+            directory=base,
+            output=base.parent / "backups",
+            release="a" * 40,
+            kind="offline",
+            lock_timeout=1,
+        )
+    )
+    snapshot = Path(saved["snapshot"])
+    folder = base / "updates/probe-test"
+    manager.ops.copy_stable(snapshot / "state", folder / "state")
+    (folder / "private").mkdir(mode=0o700)
+    with manager.ops.ro_db(folder / "state") as db:
+        basename = manager.ops.active_reference(db)["basename"]
+    manager.ops.write_key(
+        folder / "private" / basename,
+        manager.ops.key_bytes(snapshot.parent / (snapshot.name + ".master")),
+    )
+    before = manager.ops.state_inventory(base / "state")
+    output = manager.command(
+        [
+            sys.executable,
+            str(scripts / "update_probe.py"),
+            "--root",
+            str(folder / "state"),
+            "--release",
+            "b" * 40,
+            "--original",
+            str(base / "state"),
+            "--master-directory",
+            str(folder / "private"),
+            "--complete",
+        ],
+        env=manager.environment(base),
+    )
+    assert json.loads(output)["counts"]["credentials"] == 1
+    assert manager.ops.state_inventory(base / "state") == before
+    durable(
+        base / "updates/journal.json",
+        {"protocol": 1, "id": "live-job", "phase": "migrating", "barrier": True},
+    )
+    durable(base / "state/.upgrade.json", {"protocol": 1, "job": "live-job"})
+    with manager.ops.writer_lease(base / "state") as lease:
+        output = manager.command(
+            [
+                sys.executable,
+                str(scripts / "update_probe.py"),
+                "--root",
+                str(base / "state"),
+                "--release",
+                "a" * 40,
+                "--lease-fd",
+                str(lease.fileno()),
+                "--complete",
+            ],
+            env=manager.environment(base),
+            pass_fds=(lease.fileno(),),
+        )
+    assert json.loads(output)["complete"] is True
+    assert blocked(base / "state")
+
+
+@pytest.mark.parametrize("operation", ["socket", "subprocess", "original-read"])
+def test_probe_audit_guard_rejects_external_effects(instance, monkeypatch, operation):
+    import sys
+
+    base, data = instance
+    data.store.close()
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    manager = importlib.import_module("update_manager")
+    before = manager.ops.state_inventory(base / "state")
+    operations = {
+        "socket": "import socket; socket.create_connection(('127.0.0.1', 9), timeout=1)",
+        "subprocess": "import subprocess; subprocess.run(['/bin/true'], check=True)",
+        "original-read": "open(" + repr(str(base / "state/service.json")) + ").read()",
+    }
+    code = (
+        """import runpy,sys
+sys.path.insert(0, SCRIPT_DIRECTORY)
+import harbor_helper.service.application as module
+operation_code, root, master, kind = sys.argv[1:]
+original=module.Application
+class Injected(original):
+    def __init__(self,*args,**kwargs):
+        exec(operation_code)
+        super().__init__(*args,**kwargs)
+module.Application=Injected
+sys.argv=['update_probe.py','--root',root,'--release','a'*40]
+if kind=='original-read':
+    sys.argv += ['--original',ORIGINAL_STATE,'--master-directory',master]
+runpy.run_path(PROBE_PATH,run_name='__main__')
+""".replace("SCRIPT_DIRECTORY", repr(str(scripts)))
+        .replace("ORIGINAL_STATE", repr(str(base / "state")))
+        .replace("PROBE_PATH", repr(str(scripts / "update_probe.py")))
+    )
+    root = base / "state"
+    if operation == "original-read":
+        import shutil
+
+        root = base / "updates/guard-state"
+        shutil.copytree(base / "state", root)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            code,
+            operations[operation],
+            str(root),
+            str(base / "private"),
+            operation,
+        ],
+        env=manager.environment(base),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert json.loads(result.stderr) == {"failed": "PermissionError"}
+    assert manager.ops.state_inventory(base / "state") == before

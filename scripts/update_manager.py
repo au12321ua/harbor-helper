@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -94,6 +95,11 @@ def source(base):
     path = base / "private/update.toml"
     with ops.regular_reader(path) as file:
         raw = file.read(16385)
+        metadata = os.fstat(file.fileno())
+        ops.require(
+            metadata.st_uid == os.getuid() and metadata.st_nlink == 1,
+            "Update config ownership invalid",
+        )
     ops.require(
         len(raw) <= 16384 and not path.stat().st_mode & 0o077,
         "Update config must be private and bounded",
@@ -112,7 +118,10 @@ def source(base):
     )
     parsed = urllib.parse.urlsplit(repository)
     ops.require(
-        parsed.password is None and (parsed.username is None or parsed.scheme == "ssh"),
+        parsed.password is None
+        and (parsed.username is None or parsed.scheme == "ssh")
+        and not parsed.query
+        and not parsed.fragment,
         "Credentials in repository URL forbidden",
     )
     ops.require(
@@ -198,6 +207,11 @@ def contract(base, env, target):
         },
         "Target update contract unsupported",
     )
+    project = tomllib.loads(git(base, env, "show", target + ":pyproject.toml"))["project"]
+    ops.require(
+        project.get("requires-python", "").replace(" ", "") == value["python"],
+        "Target Python requirements unsupported",
+    )
     return value
 
 
@@ -243,6 +257,19 @@ def install_target(base, value):
         for p in (code / "src/harbor_helper/static").rglob("*")
         if p.is_file()
     }
+    build = hashlib.sha256()
+    static_root = code / "src/harbor_helper/static"
+    for path in sorted(static_root.rglob("*")):
+        if path.is_file() and path.name != "index.html":
+            build.update(str(path.relative_to(static_root)).encode())
+            build.update(path.read_bytes())
+    embedded = re.search(
+        r'<meta name="hh-build" content="([a-f0-9]{64})"', (static_root / "index.html").read_text()
+    )
+    ops.require(
+        embedded and embedded.group(1) == build.hexdigest(),
+        "Production page build metadata mismatch",
+    )
     save(base, value, build_manifest=static)
     uv = shutil.which("uv")
     ops.require(uv, "uv unavailable")
@@ -516,8 +543,8 @@ runpy.run_path(str(code / "service.py"), run_name="__main__")
 
 def finish(base, value):
     ops.require(value.get("commit_decided"), "No durable commit decision")
+    start_original(base, value)
     if value.get("barrier"):
-        start_original(base, value)
         clear_barrier(base, value)
     ready(base, value)
     save(base, value, phase="succeeded", manager_activation_pending=True)
@@ -769,15 +796,25 @@ def controls(base, value):
         request = protocol.private_json(path)
         if request.get("action") not in {"cancel", "cancel-all"}:
             continue
-        ops.require(
-            request["instance"] == value["original_record"]["owner"]
-            and request["payload"] == {"job": value["id"]},
-            "Control ownership mismatch",
-        )
-        ops.require(
-            value["phase"] == "waiting" and not value["barrier"],
-            "Cancellation unavailable after barrier",
-        )
+        try:
+            protocol.validate_request(request, value["original_record"]["owner"], path.stem)
+            ops.require(request["payload"] == {"job": value["id"]}, "Control ownership mismatch")
+            ops.require(
+                value["phase"] == "waiting" and not value["barrier"],
+                "Cancellation unavailable after barrier",
+            )
+        except ValueError:
+            protocol.durable(
+                base / "updates/results" / path.name,
+                {
+                    "request": request,
+                    "request_id": path.stem,
+                    "error": "invalid_control",
+                    "result": {},
+                },
+            )
+            path.unlink()
+            continue
         if request["action"] == "cancel":
             restore_semantics(base, value)
             start_original(base, value)
@@ -822,10 +859,7 @@ def run(base):
                 path.unlink()
                 continue
             try:
-                ops.require(
-                    request["protocol"] == 1 and request["instance"] == record["owner"],
-                    "Spool protocol/owner mismatch",
-                )
+                protocol.validate_request(request, record["owner"], identifier)
                 ops.require(
                     not protocol.busy(base / "state"), "Upgrade task still owns this instance"
                 )
@@ -977,8 +1011,9 @@ def resolve(base, mode):
         value = protocol.journal(base / "state")
         ops.require(value and value.get("protocol") == 1, "Known journal required")
         if mode == "stop":
+            save(base, value, phase="needs_manual", barrier=True)
+            protocol.durable(base / "state/.upgrade.json", {"protocol": 1, "job": value["id"]})
             host.stop(base, ops.read_json(base / "instance.json"))
-            save(base, value, phase="needs_manual")
         elif mode == "restore":
             ops.require(
                 value.get("barrier") and not value.get("commit_decided"),

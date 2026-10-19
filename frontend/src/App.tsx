@@ -1,3 +1,4 @@
+import { UpgradeStatus } from "@/app/UpgradeStatus";
 import { Shell } from "@/app/Shell";
 import { useSession } from "@/app/useSession";
 import { ErrorNotice } from "@/components/shared";
@@ -14,6 +15,7 @@ export default function App() {
     useSession();
   return (
     <BrowserRouter>
+      <UpgradeStatus />
       {loading ? (
         <div className="initial-loading">
           <LoaderCircle className="animate-spin" />

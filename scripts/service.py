@@ -133,7 +133,14 @@ def units(base, record):
 
 def release(base, source):
     local_platform.REPO = ops.plain(source)
-    return local_platform.release(base, local_platform.environment(base)).name
+    import service_environment
+
+    environment = local_platform.environment(base)
+    configured = service_environment.environment(base)
+    environment.update(
+        {key: configured[key] for key in service_environment.TRANSPORT if key in configured}
+    )
+    return local_platform.release(base, environment).name
 
 
 def run_python(base, record, script, *arguments):
@@ -285,12 +292,19 @@ def main():
         updater.resolve(base, args.resolution)
         return
     current_job = updater.protocol.busy(base / "state")
-    if current_job and args.action != "status":
-        raise ValueError("Upgrade owns this instance: " + current_job["id"])
-    if args.action == "status" and updater.protocol.journal(base / "state"):
-        print(json.dumps(updater.protocol.journal(base / "state")))
+    if args.action == "status":
+        upgrade = updater.protocol.journal(base / "state")
         if updater.protocol.blocked(base / "state"):
-            return
+            print(json.dumps({"upgrade": upgrade, "barrier": True}))
+        else:
+            record = ops.read_json(base / "instance.json")
+            validate(base, record)
+            print(json.dumps({"upgrade": upgrade, "observed": ops.inspect(base)}))
+        return
+    if current_job:
+        raise ValueError("Upgrade owns this instance: " + current_job["id"])
+    if updater.protocol.blocked(base / "state"):
+        raise ValueError("Upgrade barrier requires upgrade-resolve")
     with (base / ".manager.lock").open("a") as lock, ExitStack() as leases:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         manifest = base / "instance.json"

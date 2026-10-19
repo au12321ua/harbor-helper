@@ -4,6 +4,7 @@ import hashlib
 from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import Depends
 
@@ -57,7 +58,8 @@ def identity(root):
 
 def register(app, deps):
     actor, administrator = deps.actor, deps.administrator
-    digest = build_digest()
+    running = identity(deps.store.root)
+    digest = running["build"]
 
     @app.get("/api/v1/build")
     def build_identity():
@@ -69,7 +71,7 @@ def register(app, deps):
 
     @app.get("/api/v1/version")
     def running_version(user: Annotated[dict, Depends(actor)]):
-        return identity(deps.store.root)
+        return running
 
     @app.get("/api/v1/admin/updates")
     def update_status(user: Annotated[dict, Depends(administrator)]):
@@ -90,6 +92,15 @@ def register(app, deps):
             import tomllib
 
             source = tomllib.loads(path.read_text())["updates"]
+            parsed = urlsplit(source["repository"])
+            if (
+                source.get("branch") not in {"master", "dev"}
+                or parsed.password
+                or (parsed.username and parsed.scheme != "ssh")
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("Invalid protected source configuration")
         return {
             "enabled": configured,
             "source": source,
