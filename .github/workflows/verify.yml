@@ -1,0 +1,77 @@
+name: isolated-verification
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full:
+    # Public PRs run only on GitHub-hosted runners, without repository secrets.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare bootstrap tools
+        run: python -m pip install uv==0.11.31
+      - name: Prepare browser system dependencies
+        run: |
+          cd frontend
+          npm ci
+          npx playwright install-deps chromium
+      - name: Full isolated verification
+        run: python scripts/verify.py --prepare --browsers "$RUNNER_TEMP/hh-browsers" --output "$RUNNER_TEMP/hh-report"
+      - name: Selected diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-diagnostics
+          path: |
+            ${{ runner.temp }}/hh-report/report.json
+            ${{ runner.temp }}/hh-report/command-*.log
+            ${{ runner.temp }}/hh-report/pytest.xml
+          if-no-files-found: warn
+
+  compatibility:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install uv==0.11.31
+      - name: Python 3.13 backend verification
+        run: python scripts/verify.py --prepare --mode backend --python 3.13 --browsers "$RUNNER_TEMP/hh-browsers" --output "$RUNNER_TEMP/hh-backend-report"
+      - name: Selected diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-diagnostics
+          path: |
+            ${{ runner.temp }}/hh-backend-report/report.json
+            ${{ runner.temp }}/hh-backend-report/command-*.log
+            ${{ runner.temp }}/hh-backend-report/pytest.xml
+          if-no-files-found: warn

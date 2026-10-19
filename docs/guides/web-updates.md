@@ -6,18 +6,18 @@
 
 ## 一次性接入
 
-先选定并验收支持本协议的固定 X 提交，从其独立源码目录运行以下命令。实例必须由 `scripts/service.py` 安装，原有 HTTP/scheduler unit 内容必须严格匹配；不接管外部 unit 或任意源码服务。
+先选定并验收支持本协议的固定提交，从其独立源码目录运行以下命令。实例必须由 `scripts/service.py` 安装，原有 HTTP/scheduler unit 内容必须严格匹配；不接管外部 unit 或任意源码服务。
 
 ```bash
-python3 /fixed-X/scripts/service.py upgrade --directory /private/instance \
-  --source /fixed-X --close-admissions --mode wait
+python3 /path/to/reviewed-checkout/scripts/service.py upgrade --directory /private/instance \
+  --source /path/to/reviewed-checkout --close-admissions --mode wait
 python3 /private/instance/manager/service.py enable-updates \
   --directory /private/instance \
   --repository https://git.example.org/team/harbor-helper.git --branch master
 python3 /private/instance/manager/service.py start --directory /private/instance
 ```
 
-从 bc64cd8 接入 X 的第一次主机升级仍使用旧升级流程，源版本不支持升级屏障，**这个一次性窗口不受重启保护**。先关闭受理、等任务自然结束，按旧安装的备份/恢复说明操作；不要在该窗口重新启动旧进程。初次主机升级保留关闭受理状态，管理员确认服务正常后在网页恢复受理。无需、也不能用 fresh-state 绕过数据不兼容。
+从不支持本协议的旧版首次接入时，主机升级仍使用旧升级流程，**该一次性窗口不受升级屏障的重启保护**。先关闭受理、等任务自然结束，按旧安装的备份/恢复说明操作；不要在该窗口重新启动旧进程。初次主机升级保留关闭受理状态，管理员确认服务正常后在网页恢复受理，不能用 fresh-state 绕过数据不兼容。
 
 `enable-updates` 严格核验整套 service/path/timer 的路径、完整内容与归属，再安装并启用 timer 和 path。仅允许精确识别的上一版自有 service 模板迁移；同名外部 timer 或未知内容拒绝接管。若 path 启动因 watch 资源失败，命令明确输出 path=failed、timer=active，保留事件主路径并依靠 timer 自动执行，不把失败的 path 报为通过。旧的已接入实例在固定新管理器主机升级后再次运行 enable-updates，才能安装这套兜底 unit；配置不会被覆盖。卸载先核验全套归属，再停用 timer/path/service。
 
@@ -76,3 +76,7 @@ stop 保持安全停止；restore 仅在未 commit_decided 且屏障/指纹可�
 manager 以 `manager/sets/<sha>` 保留完整集合，用普通 `current.json` 原子激活，稳定 `manager/service.py` 入口不逐文件更新。业务成功后才切换 manager；pending 激活在恢复执行器中幂等完成，未知协议停止自动推进。旧集合和唯一备份不自动回收。
 
 本实例自有备份 timer 通过 instance.json 解析当前 release，升级 busy 时跳过。一次性启用更新时只迁移能严格识别归属与命令的旧 timer，保留原 calendar；未知命令拒绝接管，应由部署者先处理外部写者。升级不管理无归属服务或 Docker 资源。
+
+## 固定版本验证边界
+
+更新至 `a407712` 的一次已有实例验证在离线备份阶段出现 `ValueError`，任务进入 `needs_manual`，未自动切版；经受控恢复后使用主机升级完成。该场景尚未闭合，手工升级成功不能作为自动更新通过的证据。

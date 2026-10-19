@@ -64,6 +64,7 @@ HTTP 依赖只保存 app、store 和认证依赖；业务数据每次从 `app.st
 | 责任 | 实现（相对 `frontend/src/`） |
 | --- | --- |
 | 会话入口、会话状态、外壳与路由 | `App.tsx`、`app/useSession.ts`、`app/Shell.tsx`、`app/AppRoutes.tsx` |
+| 网页版本与升级状态、主题与时区 | `app/VersionDialog.tsx`、`app/UpgradeStatus.tsx`、`app/theme.ts`、`app/timezone.ts` |
 | 登录、setup、改密、PAT | `features/account/` |
 | 实验列表、新建、提交状态、详情、评分、比较 | `features/experiments/` |
 | 详情快照、评分报告与产物部件 | `features/experiments/{Overview,Report,Artifacts}Panel.tsx`、`Rewards.tsx` |
@@ -71,10 +72,11 @@ HTTP 依赖只保存 app、store 和认证依赖；业务数据每次从 `app.st
 | 管理导航、共享刷新与全局编辑锁 | `features/admin/Admin.tsx`、`useAdminActions.ts` |
 | 来源、Docker、数据集/作者参数、模型/key、账户、容量面板 | `features/admin/{Sources,Runtime,Datasets,Models,Users,Limits}Panel.tsx` |
 | 管理表单、模型表单、作者参数、共享 Docker 观察 | `features/admin/{AdminForm,ModelForm,AuthorInputs}.tsx`、`useDockerDiagnostics.ts` |
+| 数据集验证/自检、主密钥与停止流程 | `features/admin/datasetOperations.ts`、`SecurityPanel.tsx`、`ShutdownPanel.tsx` |
 | 公共 UI、加载、HTTP、展示 | `components/shared.tsx`、`components/ui/`、`hooks/useLoad.ts`、`api.ts`、`presentation.ts` |
 | 生成类型及其导出来源 | `generated/contracts.ts`、仓库 `tools/browser_contract.py` |
 
-管理面板自身位于 TabsContent 外，切换标签不丢失所选对象和筛选状态；内容由现有 Tabs 决定显示。共享保存包装在写入和目录刷新完成前锁定所有编辑器，表单自身继续清除秘密输入。前端调用者不能自行声明响应类型，方法、路径和 DTO 关系仍由生成契约约束。展示模块独立于 HTTP 传输。
+管理面板自身位于 TabsContent 外，切换标签不丢失所选对象和筛选状态；内容由现有 Tabs 决定显示。共享保存包装在写入和目录刷新完成前锁定编辑器；数据集验证/自检使用独立操作状态，不在等待期间锁住其他管理页。表单自身清除秘密输入。前端调用者不能自行声明响应类型，方法、路径和 DTO 关系仍由生成契约约束。展示模块独立于 HTTP 传输。
 
 ## 进程与验证边界
 

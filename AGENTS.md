@@ -23,17 +23,17 @@
 ## 按任务查阅
 
 - 维护入口与验证边界：[开发交接](docs/HANDOFF.md)。部署现场以存在时的 `.local/LOCAL_ENVIRONMENT.md` 为准；操作前实时核对身份与引用。
-- 服务设计/验收/运行：[service-design](docs/archive/team-service/service-design.md)、[service-acceptance](docs/reference/service-acceptance.md)、[service-operations](docs/guides/web-service.md)。技术细节的来源分类以交接为准。
-- 远程 CLI：[Web服务指南](docs/guides/web-service.md)；已移除的旧本地 CLI 历史验收：[acceptance](docs/archive/local-cli/acceptance.md)。
+- 产品边界/验收/运行：[开发交接](docs/HANDOFF.md)、[验收标准](docs/reference/service-acceptance.md)、[Web服务指南](docs/guides/web-service.md)。
+- 远程 CLI：[Web服务指南](docs/guides/web-service.md)；机器 API、SDK/MCP 从[文档导航](docs/README.md)进入。
 - 职责：[源码结构](docs/architecture/source-layout.md)。应用/HTTP装配/初始化：`src/harbor_helper/service/{application,api,data}.py`，领域职责入口见源码结构；CLI：`commands/{main,service,remote}.py`。
 - 执行/调度：`execution/{runs,worker,scheduler,runner,resources,audit,processes,agents,environments,agent_tools}.py`；持久层：`persistence/`；安全：`security/`；报告：`results/`。这些短路径均相对`src/harbor_helper/`。Web：`frontend/src/App.tsx`、`frontend/src/app/`、`frontend/src/features/`、`frontend/src/api.ts`。
-- 当前使用和历史设计从[文档导航](docs/README.md)进入；旧设计与报告不成为新增约束。
+- 当前使用从[文档导航](docs/README.md)进入；废弃方案可查 Git 历史，不成为新增约束。
 
 ## 运行与验证入口
 
 当前实现需要 Linux、Python 3.12–3.13、uv；实际执行另需 Docker/Compose、可用镜像及 Hub 数据集权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
-- Python：`uv sync --locked --group dev`；`uv run pytest -q`；`uv run ruff check src tests scripts tools`、`uv run ruff format --check src tests scripts tools`、`uv run ty check --python .venv --error-on-warning src tests scripts tools`。测试隔离前提与覆盖边界见交接，不能默认这些命令无副作用。
+- Python：`uv sync --locked --group dev --extra mcp`；`uv run pytest -q`；`uv run ruff check src tests scripts tools`、`uv run ruff format --check src tests scripts tools`、`uv run ty check --python .venv --error-on-warning src tests scripts tools`。测试隔离前提与覆盖边界见交接，统一入口及 GitHub/Gitea CI 见[自动化验证](docs/guides/automation-ops-ci.md)。
 - Web：在 `frontend/` 运行 `npm ci`、`npm run build`、`npm run lint`；构建会写入 `src/harbor_helper/static/`。`npm run test:ui` 另需 Playwright Chromium，使用拦截 API 的 UI fixture。
 - 服务：按操作说明用全新独立 state 执行 `service serve --root … --setup-token-file … --master-key-file … --host … --port …`，引导凭证和主密钥在 state 外；首管理员及业务设置在网页完成。成员用浏览器，远程 CLI 用 `service login`。
 

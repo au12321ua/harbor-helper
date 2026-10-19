@@ -1,4 +1,4 @@
-# 团队附件版本（HTTP v1 / 远程 CLI）
+# 团队附件版本
 
 附件与任务、评分器分别维护。成员可固定任务、基础 agent/model、作者参数、尝试次数和资源/时长等条件，主动新建无附件基线与明确 v1/v2 候选；普通重跑保留父输入，不切换附件。附件差异仍可比较，其他条件沿现有可比性门槛。fixture 中的分数差不证明模型效果或通用能力提高。
 
@@ -8,9 +8,9 @@ ZIP 根目录仅支持 `skills/`、`sdk/`、`config/opencode.json` 和 `bootstra
 
 ## 认证、类型与权限
 
-沿用受邀成员的登录会话：浏览器同源 cookie，HTTP/CLI 可使用 `Authorization: Bearer <会话值>`。写操作须 `X-Requested-With: harbor-helper`；服务拒绝跨源写入。访问值不应出现在命令行、附件或日志中。自动化凭证签发、scope、客户端 skill/SDK/MCP 不属于本交付。
+浏览器使用同源登录 cookie；HTTP/CLI 也可使用受邀账户会话或有相应能力的自动化凭证。写操作须 `X-Requested-With: harbor-helper`，服务拒绝跨源写入。访问值不应出现在命令行、附件或日志中；PAT 能力与机器 schema 见[自动化 API](../reference/automation-api.md)，SDK/MCP 见[客户端指南](sdk-mcp.md)。
 
-类型定义在 `service/attachment_contracts.py`，HTTP 不接受未知 metadata 字段或将字符串当作 boolean。ZIP 校验、权限、事务、队列受理都由应用统一执行；Web 与远程 CLI 没有独立业务规则。现有全局 OpenAPI 入口保持关闭，本页描述新增附件 HTTP v1 契约，不声明后续机器发现/schema 已完成。
+类型定义在 `service/attachment_contracts.py`，HTTP 不接受未知 metadata 字段或将字符串当作 boolean。ZIP 校验、权限、事务、队列受理都由应用统一执行；Web 与远程 CLI 没有独立业务规则。内部管理员 OpenAPI 保持关闭；机器可用操作由 `/api/v1/machine/schema` 发现。下表列出会话接口，PAT 另按机器 API 能力授权。
 
 | 操作 | 方法与路径（相对 `/api/v1`） | 当前会话权限 | 请求 |
 | --- | --- | --- | --- |
@@ -24,9 +24,9 @@ ZIP 根目录仅支持 `skills/`、`sdk/`、`config/opencode.json` 和 `bootstra
 
 名称1–128字符，说明/发布说明最多4096字符，可重名；调用选择 ID。创建者账户被停用不会隐式停用附件，团队仍可复用，管理员仍可维护。版本字节、序号、摘要、发布者/时间及来源不可变；版本只允许变更启用状态。没有下载、覆盖或物理删除版本库接口。
 
-目录返回 `{attachments}`。每个附件含 `id,name,description,creator_id,creator,created,enabled,versions`；versions 按序号倒序排列，含 `id,attachment_id,number,bundle_id,digest,publisher_id,publisher,created,notes,source_version_id,enabled,availability`。时间为 Unix 秒，`availability` 为 `available/unavailable`，与启用状态分别表示。当前目录沿已有全量发现方式返回，不宣称分页机器发现已交付。
+目录返回 `{attachments}`。每个附件含 `id,name,description,creator_id,creator,created,enabled,versions`；versions 按序号倒序排列，含 `id,attachment_id,number,bundle_id,digest,publisher_id,publisher,created,notes,source_version_id,enabled,availability`。时间为 Unix 秒，`availability` 为 `available/unavailable`，与启用状态分别表示。附件目录全量返回；机器实验历史与任务目录的分页见自动化 API。
 
-所有附件写入返回 `{attachment,version}`，创建/发布/派生 HTTP201。三种写操作须1–128字符 `Idempotency-Key`，按成员+固定操作类别+键查找：`attachment_create`、`attachment_publish`、`attachment_derive`。目标和来源属于请求摘要，不属于操作类别。摘要包括规范语义字段、默认空说明及实际解包树摘要（含文件名、内容及可执行位）；不同 ZIP 压缩字节不影响相同内容的查回。同键不同输入/目标 HTTP409 `idempotency_conflict`。校验失败不登记键；相同内容的不同键仍发布独立版本。
+创建/发布/派生成功返回 HTTP201，含 `attachment`、`version`、`operation_id` 与 `idempotency_key`。三种写操作须1–128字符 `Idempotency-Key`，按成员+固定操作类别+键查找：`attachment_create`、`attachment_publish`、`attachment_derive`。目标和来源属于请求摘要，不属于操作类别。摘要包括规范语义字段、默认空说明及实际解包树摘要（含文件名、内容及可执行位）；不同 ZIP 压缩字节不影响相同内容的查回。同键不同输入/目标 HTTP409 `idempotency_conflict`。非法 metadata/ZIP 不登记成功版本；业务拒绝与重试历史见自动化 API。相同内容的不同键仍发布独立版本。
 
 通信失败保存原输入与原键重试，或按键查询；未知键404只表示尚未观察到已提交操作。键不能跨成员查回。停用后仍可查回已成写入；损坏/缺失字节返回 `availability=unavailable`，不能生成替代内容。
 
@@ -57,10 +57,8 @@ harbor-helper --remote-profile team --json submit --agent oracle --attachment-ve
 
 附件写操作要求显式原键；超时后使用 lookup 或原参数重发。`service retry PATH --body JSON --idempotency-key KEY` 显式重发 JSON 实验请求；附件通过原文件/元信息/原键重发，历史由服务端保存。`submit` 只接受 `--attachment-version-id`，不直接上传附件文件。HTTP 与 CLI 不自动换键、批量提交或执行付费模型。Oracle/fixture 只验证流程，不是实际研究 agent/模型效果。
 
-## 迁移与回退边界
+## 持久化与维护边界
 
-启动 `ServiceData` 时在既有 queue.sqlite 附加 `attachments`、`attachment_versions`、`attachment_operations` 三表，不重新 init、不改主密钥，不重写旧 manifest/评分。`attachment_versions.legacy` 列为已废弃的登记标记，新写入恒为0。迁移报错则初始化失败，不能继续以该实例写入。正式升级前须按现场保护说明核所有写者、停服务、保全一致SQLite备份及外 master；本次开发没有操作正式 state。
+发布先校验并 fsync 私有 bundle 字节/目录，再用单一 SQLite 事务公开 bundle 行、身份、版本及幂等键；control 锁串行化序号与停用/受理。进程退出可能遗留无引用字节，但目录和任务选择只读已提交行。本版不自动回收这些孤立字节；日志/产物保留策略也不删除附件版本库。
 
-发布先校验并 fsync 私有 bundle 字节/目录，再用单一 SQLite 事务公开 bundle 行、身份、版本及幂等键；control锁串行化序号和停用/受理。进程退出可能遗留无引用字节，但目录/任务选择只读已提交行，不会出现可选半成品或空身份。本版不自动回收此类孤立字节，不清理历史或已有引用对象。
-
-旧代码能忽略附加表，但不能保障新版本停用/谱系语义，不能将“表可读”视为安全业务回退。已有版本数据的state应优先向前修复；如确需回退，先停止全部写者、保全最新业务数据并单独评审兼容策略。不得删除新表或回放旧WAL，不得用过期备份覆盖新业务；代码回退不代表 state 回退。日志/产物保留不删除附件版本库。
+升级与恢复按 [Web 维护指南](web-service.md#明确升级备份与回退)先停写，保全一致 state 与配对主密钥。旧代码可读表不代表兼容当前权限、停用和谱系；不能删除表或回放旧 WAL 来回退，也不能用过期备份覆盖新业务。

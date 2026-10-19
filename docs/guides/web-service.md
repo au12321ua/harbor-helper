@@ -35,7 +35,7 @@ python3 /absolute/private/hh-team/manager/service.py stop --directory /absolute/
 
 本节用于源码开发或临时手动验证，不安装 systemd 服务。正式安装实例按上面的 [Linux 服务安装与管理](#linux-服务安装与管理)启动，随后直接在网页完成[管理员首次设置](#管理员首次设置)；不要同时对该实例的 state 启动下列手动进程。
 
-在项目根目录安装 Python 依赖并构建页面：
+需要 Linux、Python 3.12–3.13、uv，以及 Node.js 20.19+ 的 20.x 或 22.12+（CI 使用 Node 22）。在项目根目录安装 Python 依赖并构建页面：
 
 ```bash
 uv sync --locked
@@ -47,9 +47,12 @@ cd ..
 
 构建产物进入 Python 包的 static 目录；生产使用同一 HTTP 服务提供页面与 API，不需要运行 Vite。构建详情见 [前端说明](../../frontend/README.md)。
 
-手动验证使用全新的独立 state，启动 HTTP 即可显示首次网站设置，无需先在终端创建管理员：
+手动验证使用全新的独立 state，先创建私有目录；启动 HTTP 后在部署机浏览器打开 <http://127.0.0.1:8000/> 完成首次设置：
 
 ```bash
+mkdir -p "$HOME/harbor-helper/service" "$HOME/harbor-helper-private"
+chmod 700 "$HOME/harbor-helper" "$HOME/harbor-helper/service" "$HOME/harbor-helper-private"
+
 uv run harbor-helper service serve \
   --root "$HOME/harbor-helper/service" \
   --setup-token-file "$HOME/harbor-helper-private/setup-token" \
@@ -65,9 +68,9 @@ uv run harbor-helper service scheduler --root "$HOME/harbor-helper/service"
 
 ## 管理员首次设置
 
-systemd 安装实例的引导文件位于 `<实例目录>/private/setup-token`，主密钥位于 `<实例目录>/private/master.key`。开发/手动模式使用上节显式指定的外置路径；未指定时，默认位于 state 同级的 `.<state目录名>-deployment/`。引导凭证不存在时由 HTTP 自动生成 owner-only 文件，安装管理器与 `service serve` 只提示文件位置。部署负责人在受保护终端读取并通过私下渠道交付凭证与网址，勿贴入群聊、命令参数或 Git。
+systemd 安装实例的引导文件位于 `<实例目录>/private/setup-token`，初始主密钥位于 `<实例目录>/private/master.key`；轮换后的 active 文件以数据库代次记录为准，见[主密钥管理](#外置主密钥升级与泄露轮换)。开发/手动模式使用上节显式指定的外置路径；未指定时，默认位于 state 同级的 `.<state目录名>-deployment/`。引导凭证不存在时由 HTTP 自动生成 owner-only 文件，安装管理器与 `service serve` 只提示文件位置。部署负责人在受保护终端读取并通过私下渠道交付凭证与网址，勿贴入群聊、命令参数或 Git。
 
-管理员在网页填写首账户、密码和团队名称。首次设置完成后接口关闭，不允许再注册账户；重复与并发设置只能成功一次。引导文件和主密钥都必须在 state 外，属于部署持久材料；主密钥是 32 随机 bytes、0600，仅用于加密，不通过网站回显。备份时须同时保全 state 与外置主密钥；不得将密钥或引导凭证提交 Git。
+管理员在网页填写首账户、密码和团队名称。首次设置完成后接口关闭，不允许再注册账户；重复与并发设置只能成功一次。引导文件和主密钥都必须在 state 外，属于部署持久材料；主密钥是 32 随机 bytes、0600，仅用于加密，不通过网站回显。备份时须同时保全 state 与配对的 active 主密钥；不得将密钥或引导凭证提交 Git。
 
 管理员随后在网页完成业务配置：
 
@@ -146,7 +149,7 @@ logout 撤销成员会话并删除本机 token，已受理任务继续。远程�
 
 HTTP 不管理 scheduler 进程。关闭浏览器、成员终端或 HTTP 不停止独立调度器；再次 serve 只恢复 API 观察。正常停止与升级必须按下文生命周期流程处理 preparing、queued、执行、取消收尾和 cleanup_blocked，不能只看 PID 或终态标记。
 
-备份完整 service state（含 SQLite 一致快照、配置、冻结输入和所需日志/产物），主密钥另作受保护备份。在线复制单独 SQLite 文件而遗漏 WAL 不能保证一致性；有写者时使用 SQLite 备份机制，并协调其余文件的快照时点。恢复须保留 `service.json` 所指主密钥路径和权限，核对凭据版本、受理/队列归属及审计能力；不能用新生成主密钥冒称旧凭据已恢复。
+备份完整 service state（含 SQLite 一致快照、配置、冻结输入和所需日志/产物），配对主密钥另作受保护备份。在线复制单独 SQLite 文件而遗漏 WAL 不能保证一致性；有写者时使用 SQLite 备份机制，并协调其余文件的快照时点。恢复须核对 `service.json.master_directory`、数据库 active 代次及配对文件的路径、权限和 KCV，核对凭据版本、受理/队列归属及审计能力；不能用新生成主密钥冒称旧凭据已恢复。
 
 资源已确认释放但历史审计来源缺失时，任务进入终态并释放容量，安全摘要标明 audit incomplete，相关原始日志、报告和产物限制访问。只有资源未确认释放才是 cleanup_blocked 并占容量。主密钥整体丢失会影响所有相应加密凭据，不能称其余模型方案仍可用。被历史运行/日志引用的凭据版本不能随意删除；保留与删除按管理员配置及实际依赖处理。
 
@@ -207,9 +210,7 @@ Docker 诊断页面点击“发现本机 Docker 与镜像”，只读取服务�
 
 模型配置页可管理多个提供商，每个提供商多个key、每个key多个方案。保存提供商后点“新建提供商”才能新增另一个；点编辑则更新同一对象版本。用提供商/key筛选看绑定。方案始终选择一个提供商与其一个key，切换提供商需重新选择匹配key；模型保存不发真实模型请求、不证明认证成功。
 
-
 附件版本目录、权限、HTTP/CLI契约及迁移回退边界见[团队附件版本](attachments.md)。
-
 
 ## 网页待处理额度与维护
 
@@ -219,11 +220,9 @@ Docker 诊断页面点击“发现本机 Docker 与镜像”，只读取服务�
 
 共享实验和新建页面显示受理状态、调度器活动及观察时间、本人/全局待处理计数。活动过旧显示未知并拒绝新键，既有原键找回仍可用；不提供预计开始时间。`/api/v1/health` 匿名只含存活/就绪布尔值，`/api/v1/readiness` 授权读取安全详情；就绪不保证 Docker/Hub/模型成功。迁移/回退的维护保护限制见[自动化接口](../reference/automation-api.md#兼容升级与回退)。
 
-
 调度器以 SQLite 持久状态配合本机 `scheduler.wake` FIFO 唤醒，端点须为当前用户拥有的 0600 FIFO，不能以普通文件或 symlink 替代。通知失败不撤销已提交操作，低频对账会恢复推进。新增 runs.finish_status/finish_reason 由 Store 幂等初始化，保存取消/超时等最终决定；仍使用 SQLite rollback journal。`scheduler-stop.json` 只属于瞬态停止握手；正常启停按 PID/birth 判定，不能复制它到恢复实例。
 
 正常维护等待期间，在途准备、执行或清理尚未结束时可能超过客户端等待期限；此时持久停止意图继续生效，不能据此强杀或宣称已停止。直接 stop 的中断语义见[非交互停止与异常恢复](#非交互停止与异常恢复)。证据维护竞争时，产物删除可返回 evidence_busy（409），在线备份返回 deferred；释放控制锁后重试。
-
 
 ## 外置主密钥升级与泄露轮换
 

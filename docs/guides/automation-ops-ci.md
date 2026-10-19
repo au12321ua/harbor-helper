@@ -1,6 +1,6 @@
 # 自动化验证与离线运维
 
-统一入口是 `python scripts/verify.py`，Gitea Actions 调用相同脚本。它不部署或升级服务。需要 Linux `/proc`、pidfd、Python 3.12–3.13、uv、Node 22；浏览器所需系统库须由开发环境或 runner 镜像预先安装。首次运行：
+统一入口是 `python scripts/verify.py`，GitHub Actions 与 Gitea Actions 调用同一脚本。它不部署或升级服务。需要 Linux `/proc`、pidfd、Python 3.12–3.13、uv、Node 22；浏览器所需系统库须由开发环境或 runner 镜像预先安装。首次运行：
 
 ```bash
 python3 scripts/verify.py --prepare \
@@ -16,11 +16,22 @@ UI 默认独占 4173，可以用 `--ui-port` 指定；已有 listener、缺浏�
 
 独立模型协议 wire 测试不进入默认 pytest 收集，避免未安装的外部 OpenCode 二进制改变 full 的零跳过约束。显式执行 `HH_OPENCODE_BINARY=/absolute/verified/opencode uv run pytest -q tests/protocol_wire.py`，需预先核对版本1.18.35及二进制来源；仅使用本地假协议服务与假key，覆盖三协议流式文本、工具往返、参数、usage与配置覆盖负例。该检查与独立Docker微任务另行记录，不能以普通full代替。
 
-## Gitea 接入
+## GitHub 与 Gitea 接入
 
-`.gitea/workflows/verify.yml` 对所有分支的 push 和 pull_request 自动运行 `full`，保留 `workflow_dispatch` 手动入口，feature 候选在集成前也能运行。Python 3.13 的 `compatibility` backend job 在手动运行或 dev/master 的 push 时执行。外来 fork PR 在 job 条件中拒绝，不使用 `pull_request_target`。普通 job 仅需仓库读权限，无生产凭据或自动部署步骤。`HH_RUNNER_LABEL` 仓库变量选择已核实可用的 label，未设置时使用 `ubuntu-latest`。更换 runner 时核对本仓可用范围、实际执行方式、宿主敏感挂载以及网络；label 名称本身不能证明容器隔离。
+两份工作流仅适配平台，检查内容统一由 `scripts/verify.py` 维护：
 
-工作流通过 setup-python/setup-node/锁定版本 uv 准备工具，并安装 Playwright 系统库。不能 apt-install 的 runner 应事先准备系统依赖并按实际镜像调整该准备步。不要在 host runner 上执行外来 PR。Action 源、PyPI/npm/Playwright CDN、artifact 服务都须可达；本配置选择 upload-artifact v3，未使用未经实测的并发语法或缓存服务。每个候选的远端状态以对应 SHA 的 run 和 artifact 为准，YAML 存在或本地通过均不能充作远端验收。核对 report.sha、full、skip=0、四条 browser_passed、无生成物漂移、UI 命令成功和 cleanup.remaining=[]，再保存 run 链接与 artifact。
+| 平台 | 工作流 | Runner | 诊断上传 |
+| --- | --- | --- | --- |
+| GitHub | [verify.yml](../../.github/workflows/verify.yml) | GitHub 托管 `ubuntu-latest` | `upload-artifact@v4` |
+| Gitea | [verify.yml](../../.gitea/workflows/verify.yml) | 仓库变量 `HH_RUNNER_LABEL`，默认 `ubuntu-latest` | `upload-artifact@v3` |
+
+两者对所有分支 push、pull_request 和手动 `workflow_dispatch` 运行 Python 3.12 `full`；Python 3.13 `compatibility` backend job 在 dev/master push 或手动运行时执行。普通 job 仅需仓库读权限，不配置生产凭据或部署步骤。checkout 不保留 Git 凭据。
+
+GitHub 使用托管 runner 接受 fork PR；工作流不读取仓库 secrets，不使用 `pull_request_target`。Gitea 可能使用宿主 runner，因此 job 条件拒绝外来 fork PR。Gitea label 不代表隔离保证，管理员须核对实际容器、敏感挂载和网络后再启用。
+
+首次接入需在仓库设置启用 Actions，并确保 runner、Action 源、PyPI/npm/Playwright CDN 与 artifact 服务可达。工作流准备 Python、Node 22、uv 0.11.31 和浏览器系统库；不能 apt-install 的 Gitea runner 应预置系统库并调整准备步骤。GitHub 的 artifact v4 服务与 Gitea 的 v3 接口不同，不直接复制上传步骤。
+
+YAML 入库和本地通过都不代表远端运行通过。推送后核对对应提交的 run 与 artifact：`report.sha`、`status=passed`、full 的 skip=0、四条 `browser_passed`、无生成物漂移、UI 命令成功及 `cleanup.remaining=[]`。分支保护与必需检查另在仓库设置配置，文件本身不会启用这些保护。
 
 ## 只读巡检
 

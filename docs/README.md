@@ -1,30 +1,21 @@
 # 文档导航
 
-从[项目README](../README.md)完成Web初装或成员使用，再按用途查阅。
+从[项目 README](../README.md)开始。当前任务和部署状态在项目群的持久进度卡中维护；文档描述可复用的操作与契约。
 
-## 使用、维护与开发
+## 使用与集成
 
-- [0.2.0交付说明](releases/0.2.0.md)、[升级后的浏览器体验](guides/0.2.0-browser.md)、[发布与升级交接](guides/0.2.0-upgrade.md)：dev已整合，正式旧版尚未升级/tag/发布。
-
-- [Web服务指南](guides/web-service.md)：管理员配置、远程CLI、完整停机、备份与审计。
+- [Web 服务指南](guides/web-service.md)：安装、首次设置、管理员配置、成员 CLI、维护与升级。
 - [网页版本与更新](guides/web-updates.md)：版本来源、更新接入、持久屏障与宿主恢复。
-- [浏览器类型契约](guides/browser-contract.md)：DTO 来源、离线生成/漂移检查、调用约束与覆盖清单。
-- [前端开发](../frontend/README.md)、[源码职责](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
-- [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
-- [自动化授权与机器 API](reference/automation-api.md)：固定能力、schema、状态、幂等与薄 CLI；迁移/回退边界。
-- [SDK 与 MCP](guides/sdk-mcp.md)：Python 客户端、stdio 配置、服务端历史及完整资料授权。
-- [研究客户端 skill](guides/research-skill.md)：可移植发布源、安装/调用与无附件/明确版本对照流程。
-- [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
+- [团队附件版本](guides/attachments.md)：ZIP 格式、版本发布、引用与权限。
+- [自动化授权与机器 API](reference/automation-api.md)：能力、schema、状态、幂等与薄 CLI。
+- [Python SDK 与 MCP](guides/sdk-mcp.md)、[研究客户端 skill](guides/research-skill.md)。
 
-## 产品设计
+## 开发与运维
 
-- [附件版本与研究 agent 调用契约](design/attachment-agent-contract.md)：吸收设计审计意见后的实施契约，描述版本复用、授权、受理恢复及机器状态；不表示已经实现，开发计划仍以群内版本记录为准。
+- [开发交接](HANDOFF.md)：产品边界、兼容策略和验证入口。
+- [分支、协作与发布](guides/development-workflow.md)：独立工作树、dev 集成与固定版本发布。
+- [自动化验证与离线运维](guides/automation-ops-ci.md)：GitHub/Gitea CI、隔离验证、巡检、备份与恢复。
+- [源码职责](architecture/source-layout.md)、[前端开发](../frontend/README.md)、[浏览器类型契约](guides/browser-contract.md)。
+- [团队服务验收标准](reference/service-acceptance.md)：通过条件，标准本身不代表任意版本已通过。
 
-## 历史设计与验收条件
-
-- [团队服务设计](archive/team-service/service-design.md)。
-- 已移除的旧本地CLI：[早期设计](archive/local-cli/v0-design.md)、[一次登录设计](archive/local-cli/usability-design.md)、[本地CLI验收条件](archive/local-cli/acceptance.md)、[成员试用步骤](archive/local-cli/member-acceptance.md)。
-- [Harbor原生环境与缓存设计](archive/harbor-native/harbor-native-environment-design.md)。
-- [已否定的任务环境方案](archive/rejected-task-environment/task-environment-design.md)：只用于解释历史取舍，不能恢复为当前约束。
-
-历史设计中的默认值、范围和建议属于原设计阶段；当前使用以指南及源码为准。工程自查、独立验收、实际部署和真实模型证据需分别记录产品版本、前置条件及未覆盖范围，不能互相替代。
+已废弃的本地 CLI、被否定的环境方案和被当前指南替代的设计稿不再保留在文档目录，可通过 Git 历史查阅。现场报告与原始证据只保存于 ignored `.local/`，各自结论限定到其受验版本和范围。

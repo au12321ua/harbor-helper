@@ -2,7 +2,7 @@
 
 本页定义团队服务的通用验收行为。每项结论须另行记录固定产品版本、前置条件、实际过程与未覆盖范围；标准不是运行报告。
 
-共享、权限、凭据和HTTP边界见[服务设计](../archive/team-service/service-design.md)，运行步骤见[服务指南](../guides/web-service.md)。
+共享、权限与凭据边界见[开发交接](../HANDOFF.md)，HTTP 契约见[机器 API](automation-api.md)与[浏览器契约](../guides/browser-contract.md)，运行步骤见[服务指南](../guides/web-service.md)。
 
 每项记录固定产品版本、实际过程、结果和证据。先使用隔离服务state、假key、无网络边界与简单数据集oracle；真实模型验证另需明确预算，不以运行时长/并发上限承诺金额。全体成员共享结果，验收不再包含成员间 private 结果隔离。
 

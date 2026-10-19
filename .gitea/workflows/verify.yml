@@ -1,3 +1,4 @@
+# Platform adapter; check commands live in scripts/verify.py, shared with GitHub.
 name: isolated-verification
 on:
   push:
@@ -13,6 +14,8 @@ jobs:
     runs-on: ${{ vars.HH_RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -44,6 +47,8 @@ jobs:
     runs-on: ${{ vars.HH_RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -60,3 +65,4 @@ jobs:
             ${{ runner.temp }}/hh-backend-report/report.json
             ${{ runner.temp }}/hh-backend-report/command-*.log
             ${{ runner.temp }}/hh-backend-report/pytest.xml
+          if-no-files-found: warn
