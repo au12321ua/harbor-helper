@@ -249,6 +249,8 @@ CSV 使用 UTF-8 BOM、CRLF 和标准双引号引用。固定列为 `format_vers
 
 ## Linux 生命周期与维护
 
+已接入的实例可由管理员在网页检查固定版本并更新；首次接入、源配置、升级屏障与故障处理见[网页版本与更新](web-updates.md)。
+
 `python3 scripts/service.py ACTION --directory /absolute/private/instance` 是统一主机入口。安装后使用输出的 `manager/service.py`，避免依赖工程目录。命令为 `install/start/stop/status/maintain/upgrade/uninstall`；实例名只含小写字母、数字和连字符，同名 unit 或内容/路径不符时拒绝操作。运行进程的内部 release 租约与 state 的 release 标识约束共用写者，外部 CLI 仍只按机器协议兼容性判断，不要求精确发布 SHA 相等。
 
 ### 两阶段正常停止

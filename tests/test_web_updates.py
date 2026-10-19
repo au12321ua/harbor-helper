@@ -241,9 +241,20 @@ def test_dangling_barrier_is_not_treated_as_absence(tmp_path):
     root.mkdir(mode=0o700)
     (root / ".upgrade.json").symlink_to(tmp_path / "missing-marker")
     assert blocked(root)
+    assert projection(root) == {"upgrading": True, "phase": "needs_manual"}
     with pytest.raises(ValueError, match="upgrade_in_progress"):
         Store(root)
     assert not (root / "queue.sqlite").exists()
+
+
+def test_terminal_journal_with_restored_barrier_requires_manual_clearance(instance):
+    base, _data = instance
+    durable(
+        base / "updates/journal.json",
+        {"protocol": 1, "id": "old-job", "phase": "succeeded", "barrier": False},
+    )
+    durable(base / "state/.upgrade.json", {"protocol": 1, "job": "old-job"})
+    assert projection(base / "state") == {"upgrading": True, "phase": "needs_manual"}
 
 
 @pytest.mark.parametrize("window", ["rename_old_pending", "rename_new_pending"])

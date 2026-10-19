@@ -7,6 +7,7 @@
 - [0.2.0交付说明](releases/0.2.0.md)、[升级后的浏览器体验](guides/0.2.0-browser.md)、[发布与升级交接](guides/0.2.0-upgrade.md)：dev已整合，正式旧版尚未升级/tag/发布。
 
 - [Web服务指南](guides/web-service.md)：管理员配置、远程CLI、完整停机、备份与审计。
+- [网页版本与更新](guides/web-updates.md)：版本来源、更新接入、持久屏障与宿主恢复。
 - [浏览器类型契约](guides/browser-contract.md)：DTO 来源、离线生成/漂移检查、调用约束与覆盖清单。
 - [前端开发](../frontend/README.md)、[源码职责](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
 - [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。

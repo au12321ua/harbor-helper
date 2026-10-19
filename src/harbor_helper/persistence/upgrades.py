@@ -110,6 +110,8 @@ def projection(root):
     try:
         value = journal(root)
         phase = value.get("phase") if value else None
+        if blocked(root) and (not value or phase in TERMINAL):
+            return {"upgrading": True, "phase": "needs_manual"}
         return {
             "upgrading": bool(value and phase not in TERMINAL),
             "phase": phase if phase in PUBLIC_PHASES else "needs_manual" if value else None,
