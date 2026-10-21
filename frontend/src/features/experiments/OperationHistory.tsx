@@ -133,7 +133,7 @@ export function OperationHistory() {
           刷新
         </Button>
         <Help label="请求重试规则">
-          受理不等于实验成功。拒绝不占执行容量；原键同内容可重新裁决，修改输入须换新键。最近重试被拒不会改变原来的受理结果。
+          受理不等于实验成功。拒绝不占执行容量；原键同内容可重新裁决；回收期间须先恢复，永久删除后仅返回墓碑。修改输入须换新键。最近重试被拒不会改变原来的受理结果。
         </Help>
       </div>
       <ErrorNotice error={error} />
@@ -159,13 +159,14 @@ export function OperationHistory() {
               <div className="section-bar">
                 <strong>{operations[op.operation] || op.operation}</strong>
                 <Badge variant="secondary">
-                  {op.status === "accepted" ? "已受理" : "已拒绝"}
+                  {op.status === "purged" ? "已永久删除" : result?.status === "recycled" ? "已回收" : op.status === "accepted" ? "已受理" : "已拒绝"}
                 </Badge>
               </div>
               <p>
                 {op.username || `用户 ${op.user_id.slice(0, 8)}`} ·{" "}
                 {date(op.created)} · 请求 {op.attempts} 次
               </p>
+              {op.request_group && <p>当前组名：{String(op.request_group.name || "未命名 · " + String(op.request_group.group_id).slice(4, 12))} / #{op.request_group.number}；提交时名称：{String(op.request.name || "（空）")}</p>}
               {op.error && <p role="status">{reason(op.error)}</p>}
               {submission && (
                 <p>

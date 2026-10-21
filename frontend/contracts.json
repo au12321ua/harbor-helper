@@ -4180,6 +4180,31 @@
           "title": "Request",
           "type": "object"
         },
+        "request_group": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Group"
+        },
         "result": {
           "anyOf": [
             {

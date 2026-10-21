@@ -138,3 +138,21 @@ def test_artifact_two_stages_snapshot_download_and_retention_wins(data, preparat
         next(e for e in app.recycle.listing(admin)["items"] if e["id"] == event["id"])["state"]
         == "expired"
     )
+
+
+def test_dataset_cleanup_waits_for_author_cache_inspection(data):
+    from harbor_helper.persistence.files import write_json
+    from harbor_helper.service.author_cache import cache_lock
+
+    app, admin = Application(data.root), actor(data, "admin")
+    dataset = app.management.datasets()["datasets"][0]
+    version = dataset["versions"][0]
+    cache = data.root / "author-inputs/exclusive-synthetic-cache"
+    cache.mkdir(parents=True)
+    write_json(cache / "source.json", {"resolved": version["resolved"]})
+    event = app.recycle.move(admin, "dataset_version", version["id"])
+    with cache_lock(data.store, version["resolved"]):
+        assert app.recycle.purge(admin, event["id"], "cache-purge")["state"] == "purging"
+        assert cache.exists()
+    assert app.recycle.purge(admin, event["id"], "cache-purge")["state"] == "purged"
+    assert not cache.exists()

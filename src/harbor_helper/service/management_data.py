@@ -235,10 +235,11 @@ def remember_dataset(db, dataset_id, value):
             "INSERT INTO dataset_sources VALUES(?,?,?,?,?,?)",
             (version_id, dataset_id, number, resolved, json.dumps(value), time.time()),
         )
-    db.execute(
-        "UPDATE dataset_identities SET default_version=COALESCE(default_version,?) WHERE id=?",
-        (version_id, dataset_id),
-    )
+        if number == 1:
+            db.execute(
+                "UPDATE dataset_identities SET default_version=? WHERE id=?",
+                (version_id, dataset_id),
+            )
     return version_id
 
 

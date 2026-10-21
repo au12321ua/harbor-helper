@@ -5,6 +5,7 @@ import json
 import shutil
 import time
 import uuid
+from contextlib import ExitStack
 
 from harbor_helper.persistence.statuses import TERMINAL
 from harbor_helper.service.management_data import available, request_id
@@ -428,11 +429,17 @@ class Recycle:
                     "DELETE FROM management_names WHERE kind='attachment' AND id=?", (object_id,)
                 )
         elif kind == "dataset_version":
-            with self.store.connect() as db:
+            with self.store.connect() as db, ExitStack() as locks:
                 row = db.execute(
                     "SELECT * FROM dataset_sources WHERE id=?", (object_id,)
                 ).fetchone()
                 if row:
+                    from harbor_helper.service.author_cache import cache_lock
+
+                    try:
+                        locks.enter_context(cache_lock(self.store, row["resolved"], blocking=False))
+                    except BlockingIOError:
+                        return "待清理：作者参数检查正在使用缓存"
                     db.execute(
                         "DELETE FROM objects WHERE kind='author_parameters' AND id=? AND json_extract(config,'$.source')=?",
                         (row["dataset_id"], row["resolved"]),

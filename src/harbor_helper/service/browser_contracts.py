@@ -598,6 +598,7 @@ class GrantResult(DTO):
 
 
 class OperationRecord(DTO):
+    request_group: dict[str, str | int | None] | None = None
     id: str
     user_id: str
     username: str | None = None

@@ -522,6 +522,7 @@ function DatasetVersions({
             {remote.truncated ? " · 已截断" : ""}
             {remote.possibly_incomplete ? " · 列表可能不完整" : ""}
           </p>
+          {!remote.versions.length ? <p>该来源没有可选择的未撤回版本。</p> : null}
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor={`remote-${dataset.id}`}>

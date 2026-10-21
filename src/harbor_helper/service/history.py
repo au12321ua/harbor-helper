@@ -196,6 +196,15 @@ def listing(
                 request={}, result={"id": value["id"], "status": "recycled"}, error=None, recent=[]
             )
         result = value["result"]
+        if not hidden and value["status"] != "purged":
+            target = result.get("id") if isinstance(result, dict) else None
+            with store.connect() as db:
+                group = db.execute(
+                    "SELECT g.name,l.group_id,l.number,l.source_id,l.relation FROM request_links l JOIN request_groups g ON g.id=l.group_id WHERE l.id IN (?,?) ORDER BY l.number DESC LIMIT 1",
+                    (target, value["id"]),
+                ).fetchone()
+            if group:
+                value["request_group"] = dict(group)
         if (
             isinstance(result, dict)
             and isinstance(result.get("id"), str)

@@ -129,6 +129,11 @@ def test_request_groups_empty_unique_and_number_high_water(data):
         app.management.rename(users(data)["bob"], entry["group_id"], "No")
     assert app.management.rename(alice, entry["group_id"], "Renamed")["name"] == "Renamed"
     assert data.submission(first["id"])["frozen"]["service"]["name"] == "Alpha"
+    from harbor_helper.service.history import listing
+
+    operation = next(o for o in listing(data.store, alice)["operations"] if o["idem"] == "first")
+    assert operation["request_group"]["name"] == "Renamed"
+    assert operation["request"]["name"] == "Alpha"
     with data.store.connect() as db:
         db.execute("UPDATE submissions SET status='failed' WHERE id=?", (first["id"],))
     child = app.recover_submission(alice, first["id"], "recover")

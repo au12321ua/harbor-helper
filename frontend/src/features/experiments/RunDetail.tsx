@@ -121,6 +121,7 @@ export function RunDetailContent({ user }: { user: User }) {
           </div>
         }
       />
+      <p>提交时名称：{row.frozen_name || "（空）"}{row.request_group ? ` · 组内 #${row.request_group.number} · 直接来源 ${row.request_group.source_id || "无"}` : ""}</p>
       <ErrorNotice error={error} />
       {manifest.service?.retry_changes &&
       Object.keys(manifest.service.retry_changes).length ? (

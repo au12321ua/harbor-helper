@@ -56,12 +56,12 @@ class TeamConfiguration:
             or not 1 <= len(value["team_name"].strip()) <= 128
         ):
             raise ServiceError("team_name", "Team name must be 1–128 characters")
-        if value.get("default_dataset_id"):
-            self.ready_dataset(value["default_dataset_id"])
-        if value.get("default_model_profile"):
-            self.data.object("profile", value["default_model_profile"])
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if value.get("default_dataset_id"):
+                self.ready_dataset(value["default_dataset_id"])
+            if value.get("default_model_profile"):
+                self.data.object("profile", value["default_model_profile"])
             settings = {
                 **json.loads(
                     db.execute("SELECT config FROM configuration_settings WHERE id=1").fetchone()[0]
@@ -312,6 +312,19 @@ class TeamConfiguration:
         )
 
     def inspect_author_parameters(
+        self, object_id, task_names=None, *, selection_supplied=False, version_id=None
+    ):
+        from harbor_helper.service.author_cache import cache_lock
+
+        selected = self.ready_dataset(object_id, version_id)
+        with cache_lock(self.store, selected["resolved"]):
+            # Purge may have won while waiting for another inspection.
+            self.ready_dataset(object_id, version_id)
+            return self._inspect_author_parameters(
+                object_id, task_names, selection_supplied=selection_supplied, version_id=version_id
+            )
+
+    def _inspect_author_parameters(
         self, object_id, task_names=None, *, selection_supplied=False, version_id=None
     ):
         from harbor_helper.execution.author_inputs import AuthorInputError, discover
