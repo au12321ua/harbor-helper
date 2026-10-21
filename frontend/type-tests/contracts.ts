@@ -8,6 +8,7 @@ import type {
   Report,
   RunDetail,
   AttachmentResult,
+  Tombstone,
 } from "../src/api";
 
 declare const labelsWithoutStarting: Omit<
@@ -24,18 +25,29 @@ async function checks() {
   const dynamicLogs: Logs = await api(`/runs/${dynamicId}/logs`);
   const dynamicReport: Report | null = await api(`/runs/${dynamicId}/report`);
   const literalReport: Report | null = await api("/runs/id/report");
-  const attachment: AttachmentResult = await api(
+  const attachment: AttachmentResult | Tombstone = await api(
     `/attachment-operations/create/${operationKey}`,
   );
-  const greedyAttachment: AttachmentResult = await api(
+  const greedyAttachment: AttachmentResult | Tombstone = await api(
     "/attachment-operations/create/namespace/key/with/slashes",
   );
-  const accepted: Accepted = await api(
+  const accepted: Accepted | Tombstone = await api(
     `/submission-operations/submit/${operationKey}`,
   );
-  const greedyAccepted: Accepted = await api(
+  const greedyAccepted: Accepted | Tombstone = await api(
     "/submission-operations/submit/namespace/key/with/slashes",
   );
+  // Deleted receipts stay distinguishable; callers must narrow before using content.
+  if ("deleted" in attachment) {
+    const deleted: true = attachment.deleted;
+    void deleted;
+    // @ts-expect-error tombstones never carry attachment content
+    void attachment.attachment;
+  }
+  if ("deleted" in accepted) {
+    // @ts-expect-error tombstones never carry the submitted body
+    void accepted.request;
+  }
   void [
     dynamicDetail,
     dynamicLogs,
