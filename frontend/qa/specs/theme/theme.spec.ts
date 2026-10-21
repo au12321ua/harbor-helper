@@ -157,7 +157,7 @@ test("setup entry and mobile long team name keep the theme control visible", asy
   await expect(themeRoot(page)).toHaveAttribute("data-theme", "light");
   await page.unroute("**/api/v1/setup");
   await page.route("**/api/v1/catalog", async (route) => {
-    const { catalog } = await import("./fixture");
+    const { catalog } = await import("../../support/fixture");
     await route.fulfill({
       json: {
         ...catalog,
