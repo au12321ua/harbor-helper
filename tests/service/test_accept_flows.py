@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from recovery_support import configured
+from support.recovery_support import configured
 
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.lifecycle import prepare_one

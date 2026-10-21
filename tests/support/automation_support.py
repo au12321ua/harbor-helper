@@ -1,9 +1,9 @@
 """Shared test factories; each call owns its mutable state."""
 
 from fastapi.testclient import TestClient
-from service_support import PASSWORD, WRITE, client
 
 from harbor_helper.service.api import create_app
+from support.service_support import PASSWORD, WRITE, client
 
 
 def issue(data, username="alice", scopes=None, expires=None):

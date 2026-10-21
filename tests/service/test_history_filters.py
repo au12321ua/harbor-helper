@@ -6,7 +6,7 @@ import sys
 
 import httpx
 import pytest
-from http_support import PASSWORD, WRITE, cli
+from support.http_support import PASSWORD, WRITE, cli
 
 from harbor_helper.sdk import Client
 from harbor_helper.security.files import secure_write

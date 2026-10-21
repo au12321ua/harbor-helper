@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from support.paths import REPO
 
 from harbor_helper.persistence.store import Store
 from harbor_helper.persistence.upgrades import blocked, durable, enqueue, projection
@@ -159,7 +160,7 @@ def test_request_conflict_and_result_idempotency(instance):
 
 
 def test_git_relations_and_metadata_drift(tmp_path, monkeypatch):
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = REPO / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     manager = importlib.import_module("update_manager")
     base = tmp_path / "instance"
@@ -222,7 +223,7 @@ def test_git_relations_and_metadata_drift(tmp_path, monkeypatch):
 
 def test_journal_write_failure_does_not_poison_recovery(instance, monkeypatch):
     base, _data = instance
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = REPO / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     manager = importlib.import_module("update_manager")
     value = {"protocol": 1, "id": "job", "phase": "backup"}
@@ -263,7 +264,7 @@ def test_journalled_rename_recovery_preserves_original_paths(instance, monkeypat
     from types import SimpleNamespace
 
     base, data = instance
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = REPO / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     manager = importlib.import_module("update_manager")
     data.store.close()
@@ -359,7 +360,7 @@ def test_offline_copy_probe_and_exclusive_live_application_validation(instance, 
     )
     data.add_credential("k1", "p1", "synthetic", "never-transmitted")
     data.store.close()
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = REPO / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     manager = importlib.import_module("update_manager")
     monkeypatch.setattr(manager.ops, "writers", lambda *_: [])
@@ -434,7 +435,7 @@ def test_probe_audit_guard_rejects_external_effects(instance, monkeypatch, opera
 
     base, data = instance
     data.store.close()
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = REPO / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     manager = importlib.import_module("update_manager")
     before = manager.ops.state_inventory(base / "state")
@@ -515,7 +516,7 @@ def test_restart_never_reexecutes_journalled_upgrade(
     instance, monkeypatch, phase, barrier, committed
 ):
     base, _data = instance
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = REPO / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     manager = importlib.import_module("update_manager")
     record = {"owner": "synthetic-owner", "release": "a" * 40}
@@ -576,7 +577,7 @@ def test_wakeup_condition_recovers_only_actionable_journals(
     instance, monkeypatch, phase, committed, activation, wakes
 ):
     base, _data = instance
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
     manager = importlib.import_module("update_manager")
     durable(
         base / "updates/journal.json",
@@ -595,7 +596,7 @@ def test_wakeup_condition_recovers_only_actionable_journals(
 
 def test_wakeup_condition_idle_spool_and_unknown_protocol(instance, monkeypatch):
     base, _data = instance
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
     manager = importlib.import_module("update_manager")
     before = manager.ops.inventory(base)
     assert not manager.pending(base)
@@ -610,7 +611,7 @@ def test_wakeup_condition_idle_spool_and_unknown_protocol(instance, monkeypatch)
 
 def test_activation_set_strict_validation_and_legacy_migration(instance, monkeypatch):
     base, _data = instance
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
     manager = importlib.import_module("update_manager")
     record = {"instance": "synthetic", "owner": "synthetic-owner"}
     runtime = "a" * 40

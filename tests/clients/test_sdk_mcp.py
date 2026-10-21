@@ -8,8 +8,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from http_support import PASSWORD, WRITE
-from process_support import wait
+from support.http_support import PASSWORD, WRITE
+from support.process_support import wait
 
 from harbor_helper.sdk import Client, RemoteError
 from harbor_helper.security.files import secure_write
@@ -120,7 +120,7 @@ def test_sdk_stdio_and_web_share_operation_and_evidence(http_service):
                 json.loads(history.content[0].text)["operations"][0]["id"]
                 == accepted["operation_id"]
             )
-            from attachment_support import archive
+            from support.attachment_support import archive
 
             bundle = root / "mcp-input.zip"
             bundle.write_bytes(archive().getvalue())

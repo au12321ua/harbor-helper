@@ -331,7 +331,7 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
 
     root = tmp_path / "http-service"
     data = ServiceData.initialize(root, tmp_path / "http-master", "admin", PASSWORD)
-    from admission_fixture import synthetic_activity
+    from support.admission_fixture import synthetic_activity
 
     synthetic_activity(data)  # Synthetic activity only; this fixture never prepares inputs.
     data.create_user("alice", PASSWORD)

@@ -1,7 +1,7 @@
-import { test } from "./fixture";
+import { test } from "../../support/fixture";
 import { writeFile } from "node:fs/promises";
 import { expect, type Page } from "@playwright/test";
-import { fixture, catalog } from "./fixture";
+import { fixture, catalog } from "../../support/fixture";
 test.use({ timezoneId: "Europe/London" });
 
 function data(large = false): any {

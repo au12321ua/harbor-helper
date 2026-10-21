@@ -8,10 +8,10 @@ import multiprocessing
 import os
 import signal
 import time
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from support.paths import REPO
 
 from harbor_helper.security import master_key as crypto
 from harbor_helper.service.api import create_app
@@ -357,7 +357,7 @@ def test_admin_password_cas_and_secret_response(vault):
 
 
 def test_crypto_consumers_are_centralized():
-    root = Path(__file__).resolve().parents[1]
+    root = REPO
     for path in (root / "src").rglob("*.py"):
         if path.name == "master_key.py":
             continue

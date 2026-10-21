@@ -12,7 +12,7 @@ from typing import cast
 
 import pytest
 from harbor.environments.docker.docker import DockerEnvironment
-from scheduler_support import settle
+from support.scheduler_support import settle
 
 from harbor_helper.execution.processes import process_birth
 from harbor_helper.persistence.files import write_json

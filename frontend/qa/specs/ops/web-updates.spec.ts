@@ -1,6 +1,6 @@
-import { test } from "./fixture";
+import { test } from "../../support/fixture";
 import { expect } from "@playwright/test";
-import { fixture } from "./fixture";
+import { fixture } from "../../support/fixture";
 
 const version = {
   version: "0.2.0",

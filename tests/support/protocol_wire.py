@@ -10,10 +10,10 @@ import threading
 from copy import deepcopy
 
 import pytest
-from protocol_server import ProtocolServer
 
 from harbor_helper.execution.config import DEFAULT
 from harbor_helper.execution.runs import job_config
+from support.protocol_server import ProtocolServer
 
 
 def config_for(tmp_path, protocol, endpoint, params):

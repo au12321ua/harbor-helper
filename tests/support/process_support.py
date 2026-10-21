@@ -6,13 +6,13 @@ import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 from harbor_helper.execution.processes import process_birth
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.application import Application
 from harbor_helper.service.data import ServiceData
 from harbor_helper.service.observation import scheduler
+from support.paths import REPO
 
 
 def wait(predicate, timeout=20):
@@ -31,7 +31,7 @@ class Processes:
         self.cwd.mkdir()
         package = self.cwd / "harbor_helper"
         shutil.copytree(
-            Path(__file__).resolve().parents[1] / "src/harbor_helper",
+            REPO / "src/harbor_helper",
             package,
             ignore=shutil.ignore_patterns("__pycache__", "static"),
         )

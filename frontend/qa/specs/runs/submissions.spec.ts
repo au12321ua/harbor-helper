@@ -1,4 +1,4 @@
-import { test, fixture, catalog, run } from "./fixture";
+import { test, fixture, catalog, run } from "../../support/fixture";
 import { expect } from "@playwright/test";
 test("invited login and dataset/profile submission use same-origin mutation header", async ({
   page,

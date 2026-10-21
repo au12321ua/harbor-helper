@@ -7,11 +7,11 @@ import subprocess
 import sys
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import pytest
-from attachment_support import archive
-from service_support import client
+from support.attachment_support import archive
+from support.paths import REPO
+from support.service_support import client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.security.access_tokens import check_access_tree
@@ -341,7 +341,7 @@ app.attachments.write(user,"attachment_create","crash",{"name":"Team input"},str
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path / "home"),
-        "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+        "PYTHONPATH": str(REPO / "src"),
     }
     process = subprocess.run(
         [sys.executable, str(script), str(data.root), phase],

@@ -5,10 +5,11 @@ import shutil
 import socket
 import subprocess
 import sys
-from pathlib import Path
 
 import httpx
-from process_support import Processes, wait
+
+from support.paths import REPO
+from support.process_support import Processes, wait
 
 PASSWORD = "Fake-process-password-2026"
 
@@ -18,7 +19,7 @@ WRITE = {"X-Requested-With": "harbor-helper"}
 def serve_http(tmp_path):
     p = Processes(tmp_path)
     package = p.cwd / "harbor_helper"
-    shutil.copytree(Path(__file__).parents[1] / "src/harbor_helper/static", package / "static")
+    shutil.copytree(REPO / "src/harbor_helper/static", package / "static")
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

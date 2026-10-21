@@ -4,7 +4,7 @@ import argparse
 import importlib.util
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from support.paths import REPO
 
 
 def module(name):

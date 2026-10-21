@@ -6,8 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from ops_support import (
-    REPO,
+from support.ops_support import (
     SHA,
     backup_args,
     close_stores,
@@ -16,7 +15,8 @@ from ops_support import (
     restore_args,
     verify,
 )
-from process_support import Processes, wait
+from support.paths import REPO
+from support.process_support import Processes, wait
 
 
 def test_online_snapshot_live_writers_restore_and_ownership(http_service, tmp_path):

@@ -4,7 +4,7 @@ import signal
 
 import pytest
 from fastapi.testclient import TestClient
-from process_support import Processes, wait
+from support.process_support import Processes, wait
 
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.admission import set_maintenance

@@ -3,8 +3,8 @@
 import json
 
 import pytest
-from admission_support import accept
-from service_support import WRITE, client
+from support.admission_support import accept
+from support.service_support import WRITE, client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.service import admission, observation

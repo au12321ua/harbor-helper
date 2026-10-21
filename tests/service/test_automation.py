@@ -7,10 +7,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from attachment_support import archive
-from automation_support import issue
 from fastapi.testclient import TestClient
-from service_support import PASSWORD, WRITE, client
+from support.attachment_support import archive
+from support.automation_support import issue
+from support.service_support import PASSWORD, WRITE, client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.results.reports import report

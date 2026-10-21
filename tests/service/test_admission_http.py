@@ -4,13 +4,13 @@ import json
 import socket
 import subprocess
 import sys
-from pathlib import Path
 
 import httpx
 import pytest
-from browser_support import run_browser
-from http_support import PASSWORD, WRITE
-from process_support import wait
+from support.browser_support import run_browser
+from support.http_support import PASSWORD, WRITE
+from support.paths import REPO
+from support.process_support import wait
 
 from harbor_helper.service.observation import scheduler
 
@@ -193,7 +193,7 @@ def test_pause_two_http_processes_cli_drain_and_unready_old_key(http_service):
 @pytest.mark.browser
 def test_production_admission_browser(http_service, request):
     p, url, root = http_service
-    script = Path(__file__).parents[1] / "frontend/qa/admission-production.mjs"
+    script = REPO / "frontend/qa/production/admission-production.mjs"
     result = run_browser(
         request,
         script,

@@ -7,10 +7,11 @@ from pathlib import Path
 
 import httpx
 import pytest
-from attachment_support import archive
-from browser_support import run_browser
-from http_support import PASSWORD, WRITE, cli
-from process_support import wait
+from support.attachment_support import archive
+from support.browser_support import run_browser
+from support.http_support import PASSWORD, WRITE, cli
+from support.paths import REPO
+from support.process_support import wait
 
 
 def test_noninteractive_cli_http_baseline_version_and_response_recovery(http_service):
@@ -171,7 +172,7 @@ def test_noninteractive_cli_http_baseline_version_and_response_recovery(http_ser
 def test_production_static_browser_credentials(http_service, request):
     p, url, root = http_service
     # Node Playwright uses the already built UI from this production HTTP service.
-    script = Path(__file__).parents[1] / "frontend/qa/automation-production.mjs"
+    script = REPO / "frontend/qa/production/automation-production.mjs"
     env = {**p.env, "HH_BROWSER_URL": url, "HH_BROWSER_EVIDENCE": str(root)}
     result = run_browser(request, script, env=env)
     assert "production credential UI passed" in result.stdout
@@ -214,7 +215,7 @@ def test_production_browser_damaged_manifest_observation(http_service, request):
             )
     result = run_browser(
         request,
-        Path(__file__).parents[1] / "frontend/qa/damaged-observation-production.mjs",
+        REPO / "frontend/qa/production/damaged-observation-production.mjs",
         env={
             **p.env,
             "HH_BROWSER_URL": url,

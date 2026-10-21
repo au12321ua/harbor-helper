@@ -1,4 +1,4 @@
-import { test, fixture } from "./fixture";
+import { test, fixture } from "../../support/fixture";
 import { expect } from "@playwright/test";
 test("members share other runs but cannot cancel them or see admin navigation", async ({
   page,

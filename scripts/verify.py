@@ -108,10 +108,9 @@ def main():
         "git_status": subprocess.check_output(
             ["git", "status", "--porcelain"], cwd=REPO, text=True
         ),
-        "manual_excluded": [
-            "frontend/qa/live-service.mjs",
-            "frontend/qa/final-integration-production.mjs",
-        ],
+        "manual_excluded": sorted(
+            p.relative_to(REPO).as_posix() for p in (REPO / "frontend/qa/manual").rglob("*.mjs")
+        ),
         "status": "failed",
     }
     env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL") if k in os.environ}
@@ -258,13 +257,13 @@ def main():
         ]
         collected = args.output / "pytest-collection.json"
         executed = args.output / "pytest-execution.json"
-        pytest = [".venv/bin/python", "-m", "pytest", "-p", "gate_plugin", *selection]
+        pytest = [".venv/bin/python", "-m", "pytest", "-p", "support.gate_plugin", *selection]
         run([*pytest, "--collect-only", "-q", f"--gate-report={collected}"])
         run(
             [*pytest, "-q", f"--junitxml={args.output / 'pytest.xml'}", f"--gate-report={executed}"]
         )
         expected_scripts = {
-            p.relative_to(REPO).as_posix() for p in (REPO / "frontend/qa").glob("*-production.mjs")
+            p.relative_to(REPO).as_posix() for p in (REPO / "frontend/qa/production").rglob("*.mjs")
         } - set(report["manual_excluded"])
         report["pytest"] = pytest_result(
             json.loads(collected.read_text()),

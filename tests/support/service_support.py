@@ -1,6 +1,5 @@
 """Shared test factories; each call owns its mutable state."""
 
-from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
 
 from harbor_helper.persistence.files import tree_digest
@@ -8,6 +7,7 @@ from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
 from harbor_helper.service.data import ServiceData
 from harbor_helper.service.lifecycle import prepare_one
+from support.admission_fixture import synthetic_activity
 
 WRITE = {"X-Requested-With": "harbor-helper"}
 

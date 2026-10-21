@@ -7,8 +7,9 @@ import sys
 
 import httpx
 import pytest
-from browser_support import REPO, run_browser
-from process_support import wait
+from support.browser_support import run_browser
+from support.paths import REPO
+from support.process_support import wait
 
 
 @pytest.mark.browser
@@ -48,7 +49,7 @@ def test_theme_production_pages(tmp_path, request):
             wait(ready)
             run_browser(
                 request,
-                REPO / "frontend/qa/theme-production.mjs",
+                REPO / "frontend/qa/production/theme-production.mjs",
                 env={
                     **env,
                     "HH_THEME_URL": url,

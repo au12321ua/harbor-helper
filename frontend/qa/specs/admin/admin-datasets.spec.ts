@@ -1,4 +1,4 @@
-import { test, fixture, catalog } from "./fixture";
+import { test, fixture, catalog } from "../../support/fixture";
 import { expect } from "@playwright/test";
 test("Hub status survives reload and distinguishes storage from access validation", async ({
   page,

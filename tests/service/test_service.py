@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
-from service_support import KEYS, PASSWORD, WRITE, accept_model, client, prepare
+from support.service_support import KEYS, PASSWORD, WRITE, accept_model, client, prepare
 
 from harbor_helper.execution.audit import finish
 from harbor_helper.persistence.files import read_json

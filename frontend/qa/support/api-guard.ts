@@ -4,7 +4,7 @@ import {
   type BrowserContext,
   type TestInfo,
 } from "@playwright/test";
-import type { RunningVersion, MasterStatus, AccessCredential, AttachmentCatalog } from "../src/generated/contracts";
+import type { RunningVersion, MasterStatus, AccessCredential, AttachmentCatalog } from "../../src/generated/contracts";
 
 type Guard = { unknown: string[]; contexts: Set<BrowserContext> };
 const guards = new WeakMap<TestInfo, Guard>();

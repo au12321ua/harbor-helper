@@ -5,7 +5,8 @@ import shutil
 import pytest
 from fastapi.testclient import TestClient
 from harbor.models.job.config import JobConfig
-from recovery_support import PASSWORD, SOURCE, WRITE, configured
+from support.paths import FIXTURES
+from support.recovery_support import PASSWORD, SOURCE, WRITE, configured
 
 from harbor_helper.persistence.files import read_json, tree_digest, write_json
 from harbor_helper.results.reports import compare
@@ -275,7 +276,6 @@ def test_discovery_failure_retains_resolved_source_without_run(recovery, monkeyp
 @pytest.mark.parametrize("has_policy", [True, False])
 @pytest.mark.parametrize("snapshot_state", ["valid", "missing", "invalid", "tampered"])
 def test_legacy_parent_detail_budgets_are_read_only(recovery, snapshot_state, has_policy):
-    from pathlib import Path
 
     data, app, actor, dataset, _task = recovery
     configured(recovery)
@@ -283,7 +283,7 @@ def test_legacy_parent_detail_budgets_are_read_only(recovery, snapshot_state, ha
     prepare_one(data.store)
     run_id = data.submission(accepted["id"])["run_id"]
     root = data.store.path(run_id)
-    fixture = Path(__file__).parent / "fixtures/execution_recovery"
+    fixture = FIXTURES / "execution_recovery"
     tasks = root / "tasks"
     shutil.rmtree(tasks)
     task_root = tasks / "generation--cylinder"

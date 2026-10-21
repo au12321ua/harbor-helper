@@ -1,11 +1,11 @@
 """Function-scoped shared fixture registration; factories live in support modules."""
 
 import pytest
-from core_support import make_store
-from http_support import serve_http
-from process_support import Processes
-from recovery_support import make_recovery
-from service_support import make_data, patch_preparation
+from support.core_support import make_store
+from support.http_support import serve_http
+from support.process_support import Processes
+from support.recovery_support import make_recovery
+from support.service_support import make_data, patch_preparation
 
 
 @pytest.fixture

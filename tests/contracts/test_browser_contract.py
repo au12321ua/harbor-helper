@@ -3,10 +3,10 @@
 import importlib.util
 import json
 import socket
-from pathlib import Path
 
 import pytest
-from service_support import client
+from support.paths import REPO
+from support.service_support import client
 
 from harbor_helper.service import browser_contracts as b
 from harbor_helper.service.api import create_app
@@ -65,7 +65,7 @@ def test_raw_response_defects_are_safe_503(data, monkeypatch, defect):
 
 
 def test_session_and_pat_projection_cannot_be_interchanged(data):
-    from automation_support import issue
+    from support.automation_support import issue
 
     browser, pat, _ = issue(data, scopes=["read", "execute"])
     for client_, model in ((browser, b.User), (pat, b.MachineUser)):
@@ -79,7 +79,7 @@ def test_session_and_pat_projection_cannot_be_interchanged(data):
 
 
 def test_export_is_offline_deterministic_and_excludes_non_browser_routes(tmp_path, monkeypatch):
-    path = Path(__file__).parents[1] / "tools/browser_contract.py"
+    path = REPO / "tools/browser_contract.py"
     spec = importlib.util.spec_from_file_location("browser_contract_export", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -115,7 +115,7 @@ def test_export_is_offline_deterministic_and_excludes_non_browser_routes(tmp_pat
 
 
 def test_legacy_open_configuration_values_are_not_narrowed(data):
-    from service_support import WRITE
+    from support.service_support import WRITE
 
     http = client(data, "admin")
     for path, body in [

@@ -5,9 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
-from service_support import initialize_accounts
+from support.admission_fixture import synthetic_activity
+from support.service_support import initialize_accounts
 
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.api import create_app

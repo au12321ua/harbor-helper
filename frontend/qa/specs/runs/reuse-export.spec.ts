@@ -1,7 +1,7 @@
-import { test } from "./fixture";
+import { test } from "../../support/fixture";
 import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import type { Catalog, Comparison, Manifest } from "../src/api";
+import type { Catalog, Comparison, Manifest } from "../../../src/api";
 import {
   fromManifest,
   fromParent,
@@ -9,11 +9,11 @@ import {
   initialDraft,
   problems,
   submissionBody,
-} from "../src/features/experiments/reuse";
+} from "../../../src/features/experiments/reuse";
 import {
   comparisonCSV,
   comparisonJSON,
-} from "../src/features/experiments/comparisonExport";
+} from "../../../src/features/experiments/comparisonExport";
 const catalog = {
   datasets: [
     {

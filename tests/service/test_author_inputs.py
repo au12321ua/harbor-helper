@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from recovery_support import SOURCE, author_task
+from support.recovery_support import SOURCE, author_task
 
 from harbor_helper.execution.author_inputs import AuthorInputError, check_inputs, discover
 from harbor_helper.persistence.files import tree_digest

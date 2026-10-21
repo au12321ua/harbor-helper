@@ -2,8 +2,8 @@ import { defineConfig } from "@playwright/test";
 const port = Number(process.env.HH_UI_PORT || 4173);
 const url = `http://127.0.0.1:${port}`;
 export default defineConfig({
-  testDir: "./qa",
-  testMatch: "*.spec.ts",
+  testDir: "./qa/specs",
+  testMatch: "**/*.spec.ts",
   fullyParallel: false,
   forbidOnly: true,
   use: { baseURL: url, headless: true },

@@ -6,13 +6,13 @@ No Hub, Docker or model call is evidence from this test.
 
 import json
 import time
-from pathlib import Path
 
 import httpx
 import pytest
-from browser_support import run_browser
-from http_support import PASSWORD, WRITE
-from process_support import wait
+from support.browser_support import run_browser
+from support.http_support import PASSWORD, WRITE
+from support.paths import REPO
+from support.process_support import wait
 
 
 @pytest.mark.browser
@@ -85,7 +85,7 @@ def test_reuse_export_production_page_wiring(http_service, request):
                     "fixture preparation failed",
                 ),
             )
-        script = Path(__file__).parents[1] / "frontend/qa/reuse-export-production.mjs"
+        script = REPO / "frontend/qa/production/reuse-export-production.mjs"
         result = run_browser(
             request,
             script,

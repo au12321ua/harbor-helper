@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from core_support import add_run, trial
+from support.core_support import add_run, trial
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.results.reports import compare, report

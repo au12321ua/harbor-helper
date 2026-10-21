@@ -1,6 +1,6 @@
-import { test } from "./fixture";
+import { test } from "../../support/fixture";
 import { expect, type Page } from "@playwright/test";
-import { fixture } from "./fixture";
+import { fixture } from "../../support/fixture";
 
 const key = "harbor-helper.theme";
 const themeRoot = (page: Page) => page.locator("html");

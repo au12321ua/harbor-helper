@@ -6,13 +6,13 @@ import os
 import subprocess
 import sys
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
+from support.paths import REPO
 
 from harbor_helper.service import route_contracts as registry
 from harbor_helper.service.api import create_app
@@ -210,7 +210,7 @@ def test_unknown_output_model_is_safe():
 
 
 def test_export_independently_rejects_bypassed_create_app(app, monkeypatch):
-    path = Path(__file__).parents[1] / "tools/browser_contract.py"
+    path = REPO / "tools/browser_contract.py"
     spec = importlib.util.spec_from_file_location("export_escape", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

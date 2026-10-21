@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from support.paths import REPO
 
 from harbor_helper.service.data import ServiceData
 
@@ -15,7 +16,7 @@ from harbor_helper.service.data import ServiceData
 def stage_protocol(scripts):
     import shutil
 
-    repo = Path(__file__).resolve().parents[1]
+    repo = REPO
     target = scripts.parent / "src/harbor_helper/persistence"
     target.mkdir(parents=True)
     shutil.copyfile(repo / "src/harbor_helper/persistence/upgrades.py", target / "upgrades.py")
@@ -25,7 +26,7 @@ def stage_protocol(scripts):
 
 @pytest.fixture
 def manager(monkeypatch):
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = REPO / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     spec = importlib.util.spec_from_file_location("linux_service", scripts / "service.py")
     assert spec and spec.loader

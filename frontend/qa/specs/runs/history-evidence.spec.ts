@@ -1,4 +1,4 @@
-import { test, fixture } from "./fixture";
+import { test, fixture } from "../../support/fixture";
 import { expect } from "@playwright/test";
 test("历史分离受理准备重试，服务端筛选分页与降级", async ({page}) => {
   await fixture(page);

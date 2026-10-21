@@ -1,4 +1,4 @@
-import { test, fixture, catalog, user, run } from "./fixture";
+import { test, fixture, catalog, user, run } from "../../support/fixture";
 import { expect } from "@playwright/test";
 test("shared attachment versions, maintenance, explicit selection and write recovery", async ({
   page,

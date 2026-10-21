@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from support.paths import REPO
 
 
 def run_browser(request, script, *, env, timeout=60):

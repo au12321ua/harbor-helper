@@ -3,7 +3,7 @@
 import sqlite3
 
 import pytest
-from core_support import add_run, default_cfg, trial
+from support.core_support import add_run, default_cfg, trial
 
 from harbor_helper.execution.config import (
     load_team,

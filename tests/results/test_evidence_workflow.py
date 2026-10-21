@@ -4,8 +4,8 @@ import hashlib
 import json
 
 import pytest
-from http_support import WRITE
-from service_support import make_data, patch_preparation
+from support.http_support import WRITE
+from support.service_support import make_data, patch_preparation
 
 from harbor_helper.security.local_paths import LocalRoot
 
@@ -123,7 +123,7 @@ def test_nontext_audit_blocks_entire_run_and_report(tmp_path, kind):
     import gzip
 
     from pytest import MonkeyPatch
-    from service_support import KEYS
+    from support.service_support import KEYS
 
     from harbor_helper.execution.audit import audit_finished
     from harbor_helper.service.application import Application
@@ -168,7 +168,7 @@ def test_nontext_audit_blocks_entire_run_and_report(tmp_path, kind):
 @pytest.mark.parametrize("scopes", [None, ["read"], ["evidence"], ["read", "evidence"]])
 def test_evidence_authorization_matrix(tmp_path, username, account_grant, scopes):
     from pytest import MonkeyPatch
-    from service_support import PASSWORD, client
+    from support.service_support import PASSWORD, client
 
     from harbor_helper.execution.audit import audit_finished
     from harbor_helper.service.access import grant

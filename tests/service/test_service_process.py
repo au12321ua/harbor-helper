@@ -13,7 +13,7 @@ import sys
 import time
 
 import pytest
-from process_support import wait
+from support.process_support import wait
 
 from harbor_helper.execution.processes import process_birth
 from harbor_helper.persistence.files import read_json

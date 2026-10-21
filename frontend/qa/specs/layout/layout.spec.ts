@@ -1,6 +1,6 @@
-import { test, fixture, catalog, run } from "./fixture";
+import { test, fixture, catalog, run } from "../../support/fixture";
 import { expect } from "@playwright/test";
-import { redesignFixture } from "./ui-support";
+import { redesignFixture } from "../../support/ui-support";
 test("workbench visual evidence at approved desktop laptop and mobile dimensions", async ({
   page,
 }) => {

@@ -7,11 +7,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from admission_fixture import synthetic_activity
-from admission_support import accept, actor, pause
-from automation_support import issue
 from fastapi.testclient import TestClient
-from service_support import WRITE, client
+from support.admission_fixture import synthetic_activity
+from support.admission_support import accept, actor, pause
+from support.automation_support import issue
+from support.service_support import WRITE, client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.service import admission, machine
@@ -257,7 +257,7 @@ def test_actual_preparation_failure_and_queue_cancel_release(data, preparation, 
     Application(data.root).cancel_run(actor(data), rid)
     # Cancellation request alone does not manufacture a terminal run state.
     assert admission.pending(data, actor(data)["id"])["member_pending"] == 1
-    from scheduler_support import settle
+    from support.scheduler_support import settle
 
     settle(data.store)
     assert data.store.get(rid)["status"] == "cancelled"

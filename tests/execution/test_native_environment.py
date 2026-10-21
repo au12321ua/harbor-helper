@@ -8,9 +8,9 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from admission_fixture import synthetic_activity
 from harbor.environments.docker.docker import DockerEnvironment
 from harbor.models.trial.paths import TrialPaths
+from support.admission_fixture import synthetic_activity
 
 from harbor_helper.execution.environments import (
     NativeDockerEnvironment,

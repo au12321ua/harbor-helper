@@ -10,8 +10,8 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from core_support import add_run, default_cfg
-from scheduler_support import settle
+from support.core_support import add_run, default_cfg
+from support.scheduler_support import settle
 
 from harbor_helper.execution.audit import finish
 from harbor_helper.execution.config import (

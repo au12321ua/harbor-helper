@@ -1,6 +1,6 @@
-import { test, fixture, run } from "./fixture";
+import { test, fixture, run } from "../../support/fixture";
 import { expect } from "@playwright/test";
-import { designComparison, redesignFixture } from "./ui-support";
+import { designComparison, redesignFixture } from "../../support/ui-support";
 test("shared list, actual zero report, literal safe logs and screenshot", async ({
   page,
 }) => {

@@ -1,20 +1,17 @@
 """Exercise the Job gate used by workers, before any Docker/model execution."""
 
 import asyncio
-from pathlib import Path
 
 import pytest
 from harbor.environments.docker.docker import DockerEnvironment
 from harbor.job import Job
 from harbor.models.job.config import JobConfig
 from harbor.trial.trial import Trial
+from support.paths import REPO
 
 from harbor_helper.execution.agents import BundledOpenCode, HelperOpenCode, HelperOpenCodeOptions
 
-TASK = (
-    Path(__file__).resolve().parents[1]
-    / "examples/harbor-helper-switch-smoke/harbor-helper-switch-answer"
-)
+TASK = REPO / "examples/harbor-helper-switch-smoke/harbor-helper-switch-answer"
 
 
 def config(tmp_path, bundled=False, **kwargs):

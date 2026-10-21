@@ -1,6 +1,6 @@
-import { test, fixture, catalog } from "./fixture";
+import { test, fixture, catalog } from "../../support/fixture";
 import { expect } from "@playwright/test";
-import { holdCatalogRefresh, expectEditorsLocked } from "./ui-support";
+import { holdCatalogRefresh, expectEditorsLocked } from "../../support/ui-support";
 test("model edits show current saved values and repeated save preserves them", async ({
   page,
 }) => {

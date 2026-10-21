@@ -1,10 +1,10 @@
 """operation history behavior with isolated synthetic inputs."""
 
 import sys
-from pathlib import Path
 
 import pytest
-from service_support import make_data
+from support.paths import REPO
+from support.service_support import make_data
 
 
 def test_rejected_history_redecides_and_bounds_attempts(tmp_path, monkeypatch):
@@ -62,7 +62,7 @@ def test_rejected_history_redecides_and_bounds_attempts(tmp_path, monkeypatch):
 
 
 def test_attachment_business_rejection_is_durable_and_retriable(tmp_path):
-    from attachment_support import archive
+    from support.attachment_support import archive
 
     from harbor_helper.service.application import Application
     from harbor_helper.service.history import listing
@@ -130,7 +130,7 @@ app.accept(app.data.users()[0],{"agent":"oracle"},"crash-key")
         env={
             "PATH": os.environ["PATH"],
             "HOME": str(tmp_path / "home"),
-            "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
+            "PYTHONPATH": str(REPO / "src"),
         },
         capture_output=True,
         check=False,

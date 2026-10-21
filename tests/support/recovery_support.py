@@ -2,11 +2,10 @@
 
 import shutil
 
-from admission_fixture import synthetic_activity
-from service_support import initialize_accounts
-
 from harbor_helper.persistence.files import tree_digest
 from harbor_helper.service.application import Application
+from support.admission_fixture import synthetic_activity
+from support.service_support import initialize_accounts
 
 SOURCE = "test/benchmark@sha256:" + "b" * 64
 WRITE = {"X-Requested-With": "harbor-helper"}

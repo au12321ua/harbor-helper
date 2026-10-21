@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from support.paths import REPO
+
 from harbor_helper.execution import agent_tools
 from harbor_helper.persistence.files import read_json, write_json
 
@@ -40,10 +42,7 @@ print("native Job options validated")
             "-B",
             "-c",
             code,
-            str(
-                Path(__file__).resolve().parents[1]
-                / "examples/harbor-helper-switch-smoke/harbor-helper-switch-answer"
-            ),
+            str(REPO / "examples/harbor-helper-switch-smoke/harbor-helper-switch-answer"),
         ],
         cwd=tmp_path,
         env=env,
@@ -98,7 +97,7 @@ def test_real_downloader_module_from_unrelated_directory(tmp_path, monkeypatch):
 def test_real_hub_client_subprocess_package_root_and_isolated_home(tmp_path):
     package = tmp_path / "harbor_helper"
     shutil.copytree(
-        Path(__file__).resolve().parents[1] / "src/harbor_helper",
+        REPO / "src/harbor_helper",
         package,
         ignore=shutil.ignore_patterns("__pycache__", "static"),
     )
