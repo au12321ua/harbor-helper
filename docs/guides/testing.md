@@ -15,35 +15,62 @@
 
 ## 布局与复用
 
-Python 的 `tests/conftest.py` 集中注册 function-scoped fixture。`service_support` 提供账户、加密假 key 与来源准备 factory；`process_support`/`http_support` 管理真实隔离进程、等待、HTTP 与回收；`core_support` 提供 oracle run/report 构造；附件、恢复、automation 和 ops 构造各在相应 `*_support.py`。已有 `admission_fixture`、`scheduler_support`、`protocol_server` 继续承担原来的支持职责。`protocol_wire.py` 仍是显式手工选择的独立 wire 检查，不进入默认收集。
+测试目录按职责定位，执行层次仍由 marker 与真实边界决定，不以目录代替门禁：
 
-测试只从支持模块导入 helper；fixture 通过参数请求，不从其他 `test_*.py` 导入，也不调用 pytest 私有解包 API。pytest 的 `pythonpath` 显式包含 `tests` 与 `scripts`。需要在测试中直接构造另一实例时调用公开 factory，每次使用新的 tmp_path 子目录和明确的 MonkeyPatch 上下文；不要直接调用 fixture。复用构造过程，不共享可变账户、目录、HTTP client 或 catalog。局部特有场景保留局部 fixture，不为消除几行重复建立通用框架。
+```text
+tests/
+  conftest.py       # function-scoped fixture 注册
+  execution/        # 调度、运行、恢复、资源/环境、Hub 来源
+  service/          # 应用、HTTP、配置、受理、附件、记录
+  security/         # 凭据、主密钥、秘密隔离
+  clients/          # CLI、SDK、MCP
+  ops/              # 运维、更新、本机平台
+  contracts/        # HTTP/协议/生成契约、包边界、验证报告契约
+  results/          # 评分结果、报告、证据工作流
+  support/          # 公共 factory、HTTP/进程、wire、门禁插件、路径锚点
+  fixtures/         # 静态素材，不放可变运行 state
+frontend/qa/
+  specs/
+    admin/          # 数据集、模型和管理表单
+    runs/           # 提交、工作台、历史、复用导出、附件
+    access/         # 身份与权限
+    layout/         # 布局与响应式
+    theme/          # 主题行为、对比度与视觉
+    ops/            # 网页更新管理
+  support/          # fixture、API guard、UI 与对比度 helper
+  production/       # 自动运行的真实 HTTP/生产页面 .mjs
+  manual/           # 显式手工脚本
+```
 
-`test_results`、`test_run_configuration` 与 `test_scheduler` 分别覆盖结果、冻结配置和调度；`test_sdk_mcp` 保留公开入口的真实进程集成，`test_operation_history`/`test_evidence_workflow` 覆盖各自业务边界。纯领域测试使用 synthetic activity；真实 HTTP、scheduler、worker 与 CLI/MCP 的集成测试继续启动隔离进程，只替换外部 Hub/Docker/模型边界，不能统一改成 mock。
+Python 从 `support.*` 导入共享模块：`support.service_support` 提供账户、加密假 key 与来源准备 factory；`support.process_support`/`support.http_support` 管理真实隔离进程、等待、HTTP 与回收；`support.core_support` 提供 oracle run/report 构造；附件、恢复、automation 和 ops 构造各在相应支持模块。已有 admission、scheduler、protocol server 支持模块保留职责。`support/protocol_wire.py` 仍是显式手工选择的独立 wire 检查，不进入默认收集。混合测试按主要保护边界完整归类，例如真实 Docker adapter 的隔离构造检查放 execution，验证报告门禁放 contracts；不为目录对称拆散场景。
 
-Playwright 的 `qa/*.spec.ts` 按配置、提交、工作台、权限、附件、历史资料、主题和更新组织；`fixture.ts` 提供场景默认数据，`ui-support.ts` 复用目录刷新 barrier 和工作台构造。修改 mock 数据时克隆每次测试的状态，避免修改导出模板。
+测试只从支持包导入 helper；fixture 通过参数请求，不从其他 `test_*.py` 导入，也不调用 pytest 私有解包 API。pytest 的 `pythonpath` 显式包含 `tests` 与 `scripts`，以供导入 `support` 包及验证工具。仓库根与静态素材路径统一使用 `support.paths.REPO`/`FIXTURES`，以 pyproject 和源码目录定位锚点，不按测试所在深度计算。需要直接构造另一实例时调用公开 factory，每次使用新的 tmp_path 子目录和明确的 MonkeyPatch 上下文；不要直接调用 fixture。复用构造过程，不共享可变账户、目录、HTTP client 或 catalog。局部特有场景保留局部 fixture，不为消除几行重复建立通用框架。
+
+纯领域测试使用 synthetic activity；真实 HTTP、scheduler、worker 与 CLI/MCP 集成继续启动隔离进程，只替换外部 Hub/Docker/模型边界，不能统一改成 mock。定向运行例如 `uv run pytest -q tests/execution/test_scheduler.py`；fixture 仍由根 conftest 注册，不因分目录改变生命周期。
+
+Playwright 只收集 `qa/specs/**/*.spec.ts`。`qa/support/fixture.ts` 提供场景默认数据，`ui-support.ts` 复用目录刷新 barrier 和工作台构造。修改 mock 数据时克隆每次测试的状态，避免修改导出模板。定向运行例如 `npm run test:ui -- specs/theme/`；相对模块导入必须指向实际 support 或生产源码，不复制 helper 到各域。
 
 ## API mock 必须封闭
 
-所有 spec 从 `./fixture` 导入扩展的 `test`，不能绕回 Playwright 原始 `test`。auto fixture 在 context 层拦截 `**/api/**`，对未注册的方法与路径记录错误并中止请求，teardown 统一断言无未知请求；即使 UI 吞掉异常，测试也必须失败。额外创建的移动 context 必须调用 `fixture(page)` 安装同一保护，并在测试内关闭。
+所有 spec 从 `qa/support/fixture` 的相对路径导入扩展的 `test`，不能绕回 Playwright 原始 `test`。auto fixture 在 context 层拦截 `**/api/**`，对未注册的方法与路径记录错误并中止请求，teardown 统一断言无未知请求；即使 UI 吞掉异常，测试也必须失败。额外创建的移动 context 必须调用 `fixture(page)` 安装同一保护，并在测试内关闭。
 
 公共外壳读取接口提供符合 DTO 的缺省值；通用业务路由按方法和路径明确匹配。场景自定义的 page route 优先于基础路由，未处理的请求用 `route.fallback()` 交给保护层。故意错误、断连、畸形响应必须在场景中显式注册，不能加入“允许未知”的白名单，也不能用 `/admin/*`、任意 `/logs` 或空成功对象兜底。新增 DTO 有类型导出时用 `satisfies` 约束默认响应。
 
 ## 生产页面接线与执行证据
 
-真实页面用例标记 `@pytest.mark.browser`，通过 `browser_support.run_browser(request, script, env=…)` 启动 Node。helper 验证标记，等待子进程成功后才记录脚本路径；失败、超时和未标记调用都不能生成成功证据。普通 pytest 排除该层，full 显式覆盖默认选择，无环境变量可以把它转为 skip。
+真实页面用例标记 `@pytest.mark.browser`，通过 `support.browser_support.run_browser(request, script, env=…)` 启动 Node。helper 验证标记，等待子进程成功后才记录脚本路径；失败、超时和未标记调用都不能生成成功证据。普通 pytest 排除该层，full 显式覆盖默认选择，无环境变量可以把它转为 skip。
 
-full 先收集 pytest 节点，再核对实际 setup/call/teardown 全部 passed，要求 browser 集合非空；成功脚本集合必须等于 `qa/*-production.mjs` 排除手工脚本后的集合。新增生产探针沿用该命名并接入 helper，不维护函数名清单或历史测试数量下限。Playwright 开启 `forbidOnly`；full 比对收集与实际报告的项目/节点身份，拒绝空集合、skip/fixme、失败、flaky 和未执行项。
+full 先收集 pytest 节点，再核对实际 setup/call/teardown 全部 passed，要求 browser 集合非空；成功脚本集合必须等于 `qa/production/**/*.mjs` 的自动发现集合；`qa/manual/**/*.mjs` 单独报告为手工。新增生产探针放 production 并接入 helper，不维护函数名清单或历史测试数量下限。Playwright 开启 `forbidOnly`；full 比对收集与实际报告的项目/节点身份，拒绝空集合、skip/fixme、失败、flaky 和未执行项。
 
 | 脚本 | 归类 |
 | --- | --- |
-| `automation-production.mjs` | 自动 browser：凭证页面与真实 HTTP 接线。 |
-| `admission-production.mjs` | 自动 browser：受理、维护与额度。 |
-| `damaged-observation-production.mjs` | 自动 browser：损坏记录的局部观察与安全。 |
-| `reuse-export-production.mjs` | 自动 browser：复用、导出及冻结来源。 |
-| `theme-production.mjs` | 自动 browser：首次设置、首屏主题、跨标签同步和生产页面；fresh state，无真实实验。 |
-| `live-service.mjs` | 维持手工，不计入自动覆盖。 |
-| `final-integration-production.mjs` | 维持手工，不计入自动覆盖。 |
+| `qa/production/automation-production.mjs` | 自动 browser：凭证页面与真实 HTTP 接线。 |
+| `qa/production/admission-production.mjs` | 自动 browser：受理、维护与额度。 |
+| `qa/production/damaged-observation-production.mjs` | 自动 browser：损坏记录的局部观察与安全。 |
+| `qa/production/reuse-export-production.mjs` | 自动 browser：复用、导出及冻结来源。 |
+| `qa/production/theme-production.mjs` | 自动 browser：首次设置、首屏主题、跨标签同步和生产页面；fresh state，无真实实验。 |
+| `qa/manual/live-service.mjs` | 维持手工，不计入自动覆盖。 |
+| `qa/manual/final-integration-production.mjs` | 维持手工，不计入自动覆盖。 |
 
 ## 断言、等待与删除
 

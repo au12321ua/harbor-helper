@@ -19,6 +19,8 @@ npx playwright install chromium
 NO_PROXY=127.0.0.1,localhost npm run test:ui
 ```
 
-UI fixture 独占端口 4173，可用 `HH_UI_PORT` 修改，不复用已有服务。完整 Python/生产页面/前端检查使用仓库统一的[隔离验证入口](../docs/guides/automation-ops-ci.md)，避免继承真实凭据。`qa/live-service.mjs` 和 `qa/final-integration-production.mjs` 为手工验证脚本，需要独立实例和对应授权，不属于默认 CI。
+UI fixture 独占端口 4173，可用 `HH_UI_PORT` 修改，不复用已有服务。完整 Python/生产页面/前端检查使用仓库统一的[隔离验证入口](../docs/guides/automation-ops-ci.md)，避免继承真实凭据。`qa/manual/live-service.mjs` 和 `qa/manual/final-integration-production.mjs` 为手工验证脚本，需要独立实例和对应授权，不属于默认 CI。
 
 DTO 变更、生成类型与漂移检查见[浏览器契约](../docs/guides/browser-contract.md)，源码职责见[架构入口](../docs/architecture/source-layout.md)。
+
+测试布局：`qa/specs/` 按 admin、runs、access、layout、theme、ops 分组；共享 fixture/helper 位于 `qa/support/`，真实页面自动脚本位于 `qa/production/`，手工脚本位于 `qa/manual/`。详细约定见[测试维护](../docs/guides/testing.md)。
