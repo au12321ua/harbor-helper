@@ -18,4 +18,6 @@
 - [源码职责](architecture/source-layout.md)、[前端开发](../frontend/README.md)、[浏览器类型契约](guides/browser-contract.md)。
 - [团队服务验收标准](reference/service-acceptance.md)：通过条件，标准本身不代表任意版本已通过。
 
+- [测试维护约定](guides/testing.md)：测试层次、fixture/factory、严格 API mock、生产浏览器门禁与删测审查。
+
 已废弃的本地 CLI、被否定的环境方案和被当前指南替代的设计稿不再保留在文档目录，可通过 Git 历史查阅。现场报告与原始证据只保存于 ignored `.local/`，各自结论限定到其受验版本和范围。

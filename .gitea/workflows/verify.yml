@@ -41,6 +41,10 @@ jobs:
             ${{ runner.temp }}/hh-report/report.json
             ${{ runner.temp }}/hh-report/command-*.log
             ${{ runner.temp }}/hh-report/pytest.xml
+            ${{ runner.temp }}/hh-report/pytest-collection.json
+            ${{ runner.temp }}/hh-report/pytest-execution.json
+            ${{ runner.temp }}/hh-report/playwright-collection.json
+            ${{ runner.temp }}/hh-report/playwright.json
           if-no-files-found: warn
   compatibility:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master')) }}
@@ -65,4 +69,6 @@ jobs:
             ${{ runner.temp }}/hh-backend-report/report.json
             ${{ runner.temp }}/hh-backend-report/command-*.log
             ${{ runner.temp }}/hh-backend-report/pytest.xml
+            ${{ runner.temp }}/hh-backend-report/pytest-collection.json
+            ${{ runner.temp }}/hh-backend-report/pytest-execution.json
           if-no-files-found: warn
