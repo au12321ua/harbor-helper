@@ -41,12 +41,12 @@ export async function protectAPI(context: BrowserContext) {
 }
 
 export const test = base.extend<{ apiGuard: void }>({
-  apiGuard: [async ({ context }, use, info) => {
+  apiGuard: [async ({ context }, runTest, info) => {
     const guard: Guard = { unknown: [], contexts: new Set() };
     guards.set(info, guard);
     try {
       await protectAPI(context);
-      await use();
+      await runTest();
     } finally {
       for (const ctx of guard.contexts) await ctx.unrouteAll({ behavior: "wait" });
       guards.delete(info);
