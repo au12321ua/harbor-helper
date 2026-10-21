@@ -5,6 +5,7 @@ export default defineConfig({
   testDir: "./qa",
   testMatch: "*.spec.ts",
   fullyParallel: false,
+  forbidOnly: true,
   use: { baseURL: url, headless: true },
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`,

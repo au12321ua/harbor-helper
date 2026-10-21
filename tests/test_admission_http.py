@@ -1,7 +1,6 @@
 """Real HTTP/CLI plus scheduler drain; external source/execution remain fixture adapters."""
 
 import json
-import os
 import socket
 import subprocess
 import sys
@@ -9,6 +8,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from browser_support import run_browser
 from test_automation_http import PASSWORD, WRITE
 from test_automation_http import http_service as production_http_fixture
 from test_service_process import wait
@@ -196,18 +196,14 @@ def test_pause_two_http_processes_cli_drain_and_unready_old_key(http_service):
             log.close()
 
 
-@pytest.mark.skipif(
-    os.environ.get("HH_TEST_BROWSER") != "1", reason="Opt-in production UI with Playwright Chromium"
-)
-def test_production_admission_browser(http_service):
+@pytest.mark.browser
+def test_production_admission_browser(http_service, request):
     p, url, root = http_service
     script = Path(__file__).parents[1] / "frontend/qa/admission-production.mjs"
-    result = subprocess.run(
-        ["node", str(script)],
+    result = run_browser(
+        request,
+        script,
         env={**p.env, "HH_BROWSER_URL": url, "HH_BROWSER_EVIDENCE": str(root)},
-        capture_output=True,
-        text=True,
-        check=False,
         timeout=60,
     )
     # Retain original safe browser output for audit (no token issuance in this script).

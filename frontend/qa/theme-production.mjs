@@ -186,9 +186,18 @@ try {
   await page.getByLabel("当前密码", { exact: true }).fill(password);
   await page.getByRole("button", { name: "签发凭证", exact: true }).click();
   await page.getByLabel("新签发凭证", { exact: true }).waitFor();
-  await toggle().click();
-  assert(await page.getByLabel("新签发凭证", { exact: true }).inputValue());
-  await toggle().click();
+  // Credential issuance now uses a modal dialog. Its backdrop intentionally blocks
+  // the header; exercise supported cross-tab theme synchronization while it stays open.
+  const issuedValue = await page.getByLabel("新签发凭证", { exact: true }).inputValue();
+  assert(issuedValue);
+  const themePage = await context.newPage();
+  await themePage.goto(url + "/account");
+  for (const theme of ["dark", "light"]) {
+    await themePage.getByRole("button", { name: /切换到[明暗]主题/ }).click();
+    await checkTheme(theme);
+    assert((await page.getByLabel("新签发凭证", { exact: true }).inputValue()) === issuedValue);
+  }
+  await themePage.close();
   await page
     .getByRole("button", { name: "已安全保存，关闭原值", exact: true })
     .click();

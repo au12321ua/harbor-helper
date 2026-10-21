@@ -15,17 +15,12 @@ import sys
 import tempfile
 import time
 import uuid
-import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from verification_results import playwright_result, pytest_result
 
 REPO = Path(__file__).resolve().parents[1]
 GENERATED = ["src/harbor_helper/static", "frontend/contracts.json", "frontend/src/generated"]
-BROWSER = {
-    "test_production_static_browser_credentials",
-    "test_production_admission_browser",
-    "test_production_browser_damaged_manifest_observation",
-    "test_reuse_export_production_page_wiring",
-}
 
 
 def birth(pid):
@@ -143,15 +138,17 @@ def main():
             missing_tools.append(name)
             continue
         (scratch / "tools" / name).symlink_to(path)
-    runtime = dict(env, PATH=f"{REPO}/.venv/bin:{scratch}/tools", HH_TEST_BROWSER="1")
+    runtime = dict(env, PATH=f"{REPO}/.venv/bin:{scratch}/tools")
     runtime.update(
         HH_UI_PORT=str(args.ui_port),
         HH_UI_OUTPUT=str(args.output / "ui"),
+        PLAYWRIGHT_JSON_OUTPUT_FILE=str(args.output / "playwright.json"),
         UV_CACHE_DIR=str(scratch / "cache/uv"),
     )
 
     def run(command, cwd=REPO, prepare=False):
         entry = {"argv": command, "cwd": str(cwd)}
+        started = time.monotonic()
         report["commands"].append(entry)
         print("+", " ".join(command), flush=True)
         with (args.output / f"command-{len(report['commands']):02}.log").open("w") as log:
@@ -164,6 +161,7 @@ def main():
                 start_new_session=True,
             )
             entry["exit"] = child.wait()
+        entry["seconds"] = round(time.monotonic() - started, 3)
         if entry["exit"]:
             raise RuntimeError(f"command {len(report['commands'])} failed ({entry['exit']})")
 
@@ -249,28 +247,33 @@ def main():
         report["generated_drift"] = drift
         if drift:
             raise RuntimeError("generated static/contract differs from candidate")
-        junit = args.output / "pytest.xml"
-        cmd = [".venv/bin/python", "-m", "pytest", "-q", f"--junitxml={junit}"]
-        if args.mode == "backend":
-            cmd += [
-                "-k",
-                " and ".join(f"not {name}" for name in sorted(BROWSER)),
-            ]
-        run(cmd)
-        cases = ET.parse(junit).getroot().findall(".//testcase")
-        report["pytest"] = {
-            "cases": len(cases),
-            "skipped": sum(c.find("skipped") is not None for c in cases),
-            "browser_passed": sorted(
-                c.attrib["name"] for c in cases if c.attrib["name"] in BROWSER and len(c) == 0
-            ),
-        }
-        if report["pytest"]["skipped"] or (
-            args.mode == "full" and set(report["pytest"]["browser_passed"]) != BROWSER
-        ):
-            raise RuntimeError("skip/browser execution gate failed")
+        selection = [
+            "-o",
+            "addopts=--strict-markers",
+            "-m",
+            "" if args.mode == "full" else "not browser",
+        ]
+        collected = args.output / "pytest-collection.json"
+        executed = args.output / "pytest-execution.json"
+        pytest = [".venv/bin/python", "-m", "pytest", "-p", "gate_plugin", *selection]
+        run([*pytest, "--collect-only", "-q", f"--gate-report={collected}"])
+        run(
+            [*pytest, "-q", f"--junitxml={args.output / 'pytest.xml'}", f"--gate-report={executed}"]
+        )
+        expected_scripts = {
+            p.relative_to(REPO).as_posix() for p in (REPO / "frontend/qa").glob("*-production.mjs")
+        } - set(report["manual_excluded"])
+        report["pytest"] = pytest_result(
+            json.loads(collected.read_text()),
+            json.loads(executed.read_text()),
+            browser=args.mode == "full",
+            expected_scripts=expected_scripts,
+        )
         if args.mode == "full":
-            run(["npm", "run", "test:ui"], REPO / "frontend")
+            run(["npm", "run", "test:ui", "--", "--reporter=list,json"], REPO / "frontend")
+            report["playwright"] = playwright_result(
+                json.loads((args.output / "playwright.json").read_text())
+            )
         report["status"] = "passed"
     except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001
         report["error"] = str(error)

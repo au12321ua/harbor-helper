@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from browser_support import run_browser
 from test_attachments import archive
 from test_service_process import Processes, wait
 
@@ -241,27 +242,20 @@ def test_noninteractive_cli_http_baseline_version_and_response_recovery(http_ser
     assert token not in (root / "http.log").read_text()
 
 
-@pytest.mark.skipif(
-    os.environ.get("HH_TEST_BROWSER") != "1",
-    reason="Opt-in production UI; npm ci and Playwright Chromium required",
-)
-def test_production_static_browser_credentials(http_service):
+@pytest.mark.browser
+def test_production_static_browser_credentials(http_service, request):
     p, url, root = http_service
     # Node Playwright uses the already built UI from this production HTTP service.
     script = Path(__file__).parents[1] / "frontend/qa/automation-production.mjs"
     env = {**p.env, "HH_BROWSER_URL": url, "HH_BROWSER_EVIDENCE": str(root)}
-    result = subprocess.run(
-        ["node", str(script)], env=env, text=True, capture_output=True, check=False, timeout=60
-    )
+    result = run_browser(request, script, env=env, timeout=60)
     assert result.returncode == 0, result.stderr
     assert "production credential UI passed" in result.stdout
     assert (root / "credential-ui.png").is_file()
 
 
-@pytest.mark.skipif(
-    os.environ.get("HH_TEST_BROWSER") != "1", reason="Opt-in production UI with Playwright Chromium"
-)
-def test_production_browser_damaged_manifest_observation(http_service):
+@pytest.mark.browser
+def test_production_browser_damaged_manifest_observation(http_service, request):
     from harbor_helper.persistence.wakeup import notify
     from harbor_helper.service import browser_contracts as dto
 
@@ -294,8 +288,9 @@ def test_production_browser_damaged_manifest_observation(http_service):
             assert all(
                 s not in response.text for s in (*p.keys, str(path), "fixture-private-marker")
             )
-    result = subprocess.run(
-        ["node", str(Path(__file__).parents[1] / "frontend/qa/damaged-observation-production.mjs")],
+    result = run_browser(
+        request,
+        Path(__file__).parents[1] / "frontend/qa/damaged-observation-production.mjs",
         env={
             **p.env,
             "HH_BROWSER_URL": url,
@@ -303,9 +298,6 @@ def test_production_browser_damaged_manifest_observation(http_service):
             "HH_BROWSER_RUNS": json.dumps({"active": active, "broken": broken, "queued": queued}),
             "HH_BROWSER_FORBIDDEN": json.dumps([*p.keys, str(path), "fixture-private-marker"]),
         },
-        text=True,
-        capture_output=True,
-        check=False,
         timeout=60,
     )
     assert result.returncode == 0, result.stderr

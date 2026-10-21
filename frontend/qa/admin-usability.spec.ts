@@ -1,5 +1,6 @@
+import { test } from "./fixture";
 import { writeFile } from "node:fs/promises";
-import { test, expect, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { fixture, catalog } from "./fixture";
 test.use({ timezoneId: "Europe/London" });
 
@@ -125,7 +126,9 @@ test("long check survives tabs/routes; other dataset saves and mounted drafts su
     .evaluateAll((elements) => elements.map((e) => e.id));
   expect(new Set(ids).size).toBe(ids.length);
   // A second operation remains tracked across a route unmount.
-  await first.getByRole("button", { name: "验证", exact: true }).click(); // fixture response has no status -> unknown
+  // Deliberately malformed success: the UI must expose an unknown verification result.
+  await page.route("**/api/v1/admin/catalog/dataset/dataset1/verify", r => r.fulfill({ json: {} }));
+  await first.getByRole("button", { name: "验证", exact: true }).click();
   await expect(first.getByText(/结果未知/)).toBeVisible();
 });
 

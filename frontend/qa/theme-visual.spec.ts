@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test } from "./fixture";
+import { expect, type Page } from "@playwright/test";
 import { fixture, catalog, run } from "./fixture";
 import { contrastSamples } from "./theme-contrast";
 import { writeFile } from "node:fs/promises";

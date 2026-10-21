@@ -5,13 +5,12 @@ No Hub, Docker or model call is evidence from this test.
 """
 
 import json
-import os
-import subprocess
 import time
 from pathlib import Path
 
 import httpx
 import pytest
+from browser_support import run_browser
 from test_automation_http import PASSWORD, WRITE
 from test_automation_http import http_service as production_http_fixture
 from test_service_process import wait
@@ -22,8 +21,8 @@ def http_service(tmp_path):
     yield from production_http_fixture._get_wrapped_function()(tmp_path)
 
 
-@pytest.mark.skipif(os.environ.get("HH_TEST_BROWSER") != "1", reason="Opt-in production browser")
-def test_reuse_export_production_page_wiring(http_service):
+@pytest.mark.browser
+def test_reuse_export_production_page_wiring(http_service, request):
     p, url, root = http_service
     for identity in ("source-dataset", "default-dataset"):
         p.app.configuration.persist(
@@ -93,17 +92,15 @@ def test_reuse_export_production_page_wiring(http_service):
                 ),
             )
         script = Path(__file__).parents[1] / "frontend/qa/reuse-export-production.mjs"
-        result = subprocess.run(
-            ["node", str(script)],
+        result = run_browser(
+            request,
+            script,
             env={
                 **p.env,
                 "HH_BROWSER_URL": url,
                 "HH_BROWSER_EVIDENCE": str(root),
                 "HH_SOURCE_RUN": source,
             },
-            text=True,
-            capture_output=True,
-            check=False,
             timeout=90,
         )
         (root / "browser.stdout").write_text(result.stdout)

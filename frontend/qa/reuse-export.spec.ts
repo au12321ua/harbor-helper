@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test } from "./fixture";
+import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import type { Catalog, Comparison, Manifest } from "../src/api";
 import {
@@ -288,38 +289,41 @@ async function fixture(page: Page, source = manifest) {
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname.replace("/api/v1", "");
-    let json: unknown = {};
-    if (path === "/setup") json = { initialized: true };
-    else if (path === "/me") json = { username: "alice", role: "member" };
-    else if (path === "/readiness")
+    const key = `${req.method()} ${path}`;
+    let json: unknown;
+    if (key === "GET /setup") json = { initialized: true };
+    else if (key === "GET /me") json = { username: "alice", role: "member" };
+    else if (key === "GET /readiness")
       json = {
         accepting: true,
         scheduler: { state: "ready" },
         maintenance: { paused: false },
         pending: { global_pending: 0, member_pending: 0 },
       };
-    else if (path === "/attachments")
+    else if (key === "GET /attachments")
       json = { attachments: catalog.attachments };
-    else if (path === "/catalog") json = catalog;
-    else if (path === "/runs")
+    else if (key === "GET /catalog") json = catalog;
+    else if (key === "GET /runs")
       json = { runs: [row, { ...row, id: "run-b" }, { ...row, id: "run-c" }] };
-    else if (path === "/runs/run-a")
+    else if (key === "GET /runs/run-a")
       json = { row, manifest: source, report: null, artifacts: [] };
-    else if (path === "/compare") json = comparison;
-    else if (path === "/submissions" && req.method() === "POST") {
+    else if (key === "POST /compare") json = comparison;
+    else if (key === "POST /submissions" && req.method() === "POST") {
       writes.push({
         body: req.postDataJSON(),
         key: req.headers()["idempotency-key"],
       });
       await route.abort("failed");
       return;
-    } else if (path.startsWith("/submissions/"))
+    } else if (key === "GET /submissions/sub-failed")
       json = {
         id: "sub-failed",
         status: "failed",
         parent: "run-a",
         request: { wall_seconds: 900, model_profile: "wrong" },
       };
+    else if (key === "GET /runs/run-a/logs") json = { text: "", truncated: false };
+    else { await route.fallback(); return; }
     await route.fulfill({ json });
   });
   return writes;

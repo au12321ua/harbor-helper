@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test } from "./fixture";
+import { expect, type Page } from "@playwright/test";
 import { fixture, catalog } from "./fixture";
 
 function datasetCard(page: Page, n = 1) {

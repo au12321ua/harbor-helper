@@ -1,3 +1,5 @@
+export { test } from "./api-guard";
+import { protectAPI } from "./api-guard";
 import { type Page } from "@playwright/test";
 export const user = {
   id: "u1",
@@ -78,6 +80,7 @@ export const catalog = {
   },
 };
 export async function fixture(page: Page, role = "admin", logged = true) {
+  await protectAPI(page.context());
   let authenticated = logged;
   const currentCatalog = structuredClone(catalog);
   let paused = false;
@@ -93,9 +96,10 @@ export async function fixture(page: Page, role = "admin", logged = true) {
       body = request.postDataJSON();
     } catch {}
     calls.push({ path, body, headers: request.headers() });
-    let value: any = {};
+    const key = `${request.method()} ${path}`;
+    let value: any;
     let status = 200;
-    if (path === "/access-capabilities")
+    if (key === "GET /access-capabilities")
       value = {
         scopes: [
           "read",
@@ -106,20 +110,20 @@ export async function fixture(page: Page, role = "admin", logged = true) {
         ],
         evidence_grant: role === "admin",
       };
-    else if (path === "/setup") value = { initialized: true };
-    else if (path === "/me") {
+    else if (key === "GET /setup") value = { initialized: true };
+    else if (key === "GET /me") {
       value = { ...user, role, evidence_grant: role === "admin" };
       if (!authenticated) {
         status = 401;
         value = { code: "unauthorized", message: "请登录" };
       }
-    } else if (path === "/auth/login") {
+    } else if (key === "POST /auth/login") {
       authenticated = true;
       value = { user: { ...user, role, evidence_grant: role === "admin" } };
-    } else if (path === "/auth/logout") {
+    } else if (key === "POST /auth/logout") {
       authenticated = false;
       value = { ok: true };
-    } else if (path === "/readiness")
+    } else if (key === "GET /readiness")
       value = {
         initialized: true,
         accepting: !paused,
@@ -137,7 +141,7 @@ export async function fixture(page: Page, role = "admin", logged = true) {
           global_limit: currentCatalog.limits.max_queue,
         },
       };
-    else if (path === "/admin/shutdown") {
+    else if ((key === "GET /admin/shutdown" || key === "POST /admin/shutdown")) {
       if (request.method() === "POST") stopMode = body.mode;
       value = {
         maintenance: {
@@ -162,15 +166,15 @@ export async function fixture(page: Page, role = "admin", logged = true) {
           audit_incomplete: 0,
         },
       };
-    } else if (path === "/admin/maintenance") {
+    } else if (key === "PATCH /admin/maintenance") {
       paused = body.paused;
       maintenanceReason = body.reason;
       value = { paused };
-    } else if (path === "/admin/limits") {
+    } else if (key === "PATCH /admin/limits") {
       Object.assign(currentCatalog.limits, body);
       value = currentCatalog.limits;
-    } else if (path === "/catalog") value = currentCatalog;
-    else if (path === "/admin/model-profiles" && request.method() === "POST") {
+    } else if (key === "GET /catalog") value = currentCatalog;
+    else if (key === "POST /admin/model-profiles" && request.method() === "POST") {
       const index = currentCatalog.model_profiles.findIndex(
         (p) => p.id === body.id,
       );
@@ -182,7 +186,7 @@ export async function fixture(page: Page, role = "admin", logged = true) {
       };
       if (index >= 0) currentCatalog.model_profiles[index] = value;
       else currentCatalog.model_profiles.push(value);
-    } else if (path === "/usage")
+    } else if (key === "GET /usage")
       value = {
         total_runs: 1,
         total_submissions: 1,
@@ -190,7 +194,7 @@ export async function fixture(page: Page, role = "admin", logged = true) {
         active_trials: 0,
         queued_jobs: 0,
       };
-    else if (path === "/runs")
+    else if (key === "GET /runs")
       value = {
         runs: [
           run,
@@ -204,7 +208,7 @@ export async function fixture(page: Page, role = "admin", logged = true) {
         ],
         submissions: [],
       };
-    else if (path === "/runs/hh-test-zero")
+    else if (key === "GET /runs/hh-test-zero")
       value = {
         row: run,
         manifest: {
@@ -227,7 +231,7 @@ export async function fixture(page: Page, role = "admin", logged = true) {
           ],
         },
       };
-    else if (path === "/runs/hh-other-running")
+    else if (key === "GET /runs/hh-other-running")
       value = {
         row: {
           ...run,
@@ -240,23 +244,31 @@ export async function fixture(page: Page, role = "admin", logged = true) {
         artifacts: [],
         report: null,
       };
-    else if (path.endsWith("/logs"))
+    else if (["GET /runs/hh-test-zero/logs", "GET /runs/hh-other-running/logs"].includes(key))
       value = {
         text: '[bold]literal markup[/bold]\n<script>window.bad=1</script>\n"quoted"',
       };
-    else if (path === "/submissions") {
+    else if (key === "POST /submissions") {
       value = { id: "submission-test", status: "preparing" };
-    } else if (path === "/submissions/submission-test")
+    } else if (key === "GET /submissions/submission-test")
       value = {
         id: "submission-test",
         submitter: user.username,
         status: "preparing",
       };
-    else if (path === "/compare")
+    else if (key === "POST /compare")
       value = { comparable: false, reasons: ["来源数据集不同"] };
-    else if (path === "/admin/users") value = [{ ...user, enabled: true }];
-    else if (path.startsWith("/admin/")) value = { ok: true };
-    else if (path.endsWith("/rerun")) value = { id: "submission-test" };
+    else if (key === "GET /admin/users") value = [{ ...user, enabled: true }];
+    else if (key === "PATCH /admin/settings") {
+      Object.assign(currentCatalog.settings, body);
+      value = currentCatalog.settings;
+    } else if (key === "POST /admin/credentials")
+      value = { id: "c-new", version: 1, provider_id: body.provider_id,
+                label: body.label, enabled: true, created: 1791460000 };
+    else if (key === "POST /admin/catalog/dataset/dataset1/verify")
+      value = { ...currentCatalog.datasets[0], status: "verified" };
+    else if (key === "POST /runs/hh-test-zero/rerun") value = { id: "submission-test" };
+    else { await route.fallback(); return; }
     await route.fulfill({
       status,
       contentType: "application/json",

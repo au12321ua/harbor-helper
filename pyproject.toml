@@ -33,3 +33,6 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests", "scripts"]
+addopts = "--strict-markers -m 'not browser'"
+markers = ["browser: isolated production HTTP/static with actual Chromium subprocesses"]

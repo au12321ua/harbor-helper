@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test } from "./fixture";
+import { expect, type Page } from "@playwright/test";
 import { fixture, catalog, user, run } from "./fixture";
 // Hold the refresh until assertions finish, rather than racing an arbitrary timeout.
 async function holdCatalogRefresh(page: Page) {
