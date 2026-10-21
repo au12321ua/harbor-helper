@@ -94,3 +94,10 @@ def test_ui_gate_rejects_incomplete_or_skipped_execution(defect):
 def test_ui_gate_reads_nested_suites():
     report = {"suites": [ui_report()]}
     assert playwright_result(report)["skipped"] == 0
+
+
+def test_ui_gate_rejects_missing_collected_node():
+    collected = ui_report()
+    collected["suites"][0]["specs"].append({"id": "missing", "tests": [{"projectId": "chromium"}]})
+    with pytest.raises(RuntimeError, match="node set"):
+        playwright_result(ui_report(), collected)

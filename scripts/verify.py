@@ -270,9 +270,13 @@ def main():
             expected_scripts=expected_scripts,
         )
         if args.mode == "full":
+            runtime["PLAYWRIGHT_JSON_OUTPUT_FILE"] = str(args.output / "playwright-collection.json")
+            run(["npm", "run", "test:ui", "--", "--list", "--reporter=json"], REPO / "frontend")
+            runtime["PLAYWRIGHT_JSON_OUTPUT_FILE"] = str(args.output / "playwright.json")
             run(["npm", "run", "test:ui", "--", "--reporter=list,json"], REPO / "frontend")
             report["playwright"] = playwright_result(
-                json.loads((args.output / "playwright.json").read_text())
+                json.loads((args.output / "playwright.json").read_text()),
+                json.loads((args.output / "playwright-collection.json").read_text()),
             )
         report["status"] = "passed"
     except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001

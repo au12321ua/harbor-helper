@@ -30,16 +30,26 @@ def pytest_result(collected, executed, *, browser, expected_scripts):
     }
 
 
-def playwright_result(report):
-    specs = []
+def playwright_result(report, collected=None):
+    def test_entries(document):
+        entries = []
 
-    def visit(suite):
-        specs.extend(suite.get("specs", []))
-        for child in suite.get("suites", []):
-            visit(child)
+        def visit(suite):
+            for spec in suite.get("specs", []):
+                entries.extend((spec.get("id"), test) for test in spec["tests"])
+            for child in suite.get("suites", []):
+                visit(child)
 
-    visit(report)
-    tests = [test for spec in specs for test in spec["tests"]]
+        visit(document)
+        return entries
+
+    entries = test_entries(report)
+    tests = [test for _, test in entries]
+    if collected is not None:
+        expected = {(identity, test.get("projectId")) for identity, test in test_entries(collected)}
+        actual = {(identity, test.get("projectId")) for identity, test in entries}
+        if not expected or expected != actual:
+            raise RuntimeError("Playwright collected/executed node set is empty or differs")
     if not tests or report.get("errors"):
         raise RuntimeError("Playwright empty collection or global error")
     for test in tests:
