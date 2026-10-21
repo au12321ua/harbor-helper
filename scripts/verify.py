@@ -227,6 +227,9 @@ def main():
         run([".venv/bin/python", "tools/browser_contract.py", "--check"])
         if args.mode == "full":
             with socket.socket() as probe:
+                # A completed prior run may leave TIME_WAIT connections; active listeners
+                # must still reject the bind (we do not enable SO_REUSEPORT).
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 probe.bind(("127.0.0.1", args.ui_port))
             run(
                 [
