@@ -3,19 +3,12 @@
 import json
 
 import pytest
-from test_admission import accept
-from test_admission import data as data_fixture
-from test_service import WRITE, client
+from admission_support import accept
+from service_support import WRITE, client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.service import admission, observation
 from harbor_helper.service.application import Application
-
-
-@pytest.fixture
-def data(tmp_path):
-    return data_fixture._get_wrapped_function()(tmp_path)
-
 
 INVALID = [True, float("nan"), float("inf"), float("-inf"), 10**400, -(10**400)]
 IDS = ["bool", "nan", "inf", "negative-inf", "huge-int", "negative-huge-int"]

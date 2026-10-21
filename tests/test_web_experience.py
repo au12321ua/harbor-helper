@@ -2,8 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from test_service import PASSWORD, WRITE, client
-from test_service import data as data  # noqa: PLC0414
+from service_support import PASSWORD, WRITE, client
 
 from harbor_helper.service import access, history
 from harbor_helper.service.api import create_app

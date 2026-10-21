@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from admission_fixture import synthetic_activity
 from fastapi.testclient import TestClient
+from service_support import initialize_accounts
 
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.api import create_app
@@ -55,10 +56,7 @@ def test_protected_setup_concurrent_and_invalid_retry(tmp_path):
 
 @pytest.fixture
 def web(tmp_path, monkeypatch):
-    data = ServiceData.initialize(
-        tmp_path / "state", tmp_path / "private/master", "admin", PASSWORD
-    )
-    data.create_user("member", PASSWORD)
+    data = initialize_accounts(tmp_path, PASSWORD, ("member",))
     synthetic_activity(data)
     app = Application(data.root)
     client = TestClient(create_app(data.root, start_scheduler=False))

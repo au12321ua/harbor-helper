@@ -10,9 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from test_service import client
-from test_service import data as service_fixture_data
-from test_service import preparation as service_fixture_preparation
+from attachment_support import archive
+from service_support import client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.security.access_tokens import check_access_tree
@@ -22,26 +21,7 @@ from harbor_helper.service.bundles import Bundles
 from harbor_helper.service.lifecycle import prepare_one
 from harbor_helper.service.primitives import ServiceError
 
-
-@pytest.fixture
-def data(tmp_path):
-    return service_fixture_data._get_wrapped_function()(tmp_path)
-
-
-@pytest.fixture
-def preparation(monkeypatch):
-    return service_fixture_preparation._get_wrapped_function()(monkeypatch)
-
-
 PAT = "hh_pat_v1_" + "A" * 43
-
-
-def archive(value=b"v1", name="sdk/readme", compression=zipfile.ZIP_STORED):
-    stream = io.BytesIO()
-    with zipfile.ZipFile(stream, "w", compression=compression) as z:
-        z.writestr(name, value)
-    stream.seek(0)
-    return stream
 
 
 def actor(data, name="alice"):

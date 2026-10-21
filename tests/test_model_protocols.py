@@ -1,7 +1,6 @@
 """Protocols validated at catalog and admission; no upstream calls."""
 
 import pytest
-from test_service import data, preparation  # noqa: F401
 
 from harbor_helper.execution.model_protocols import bundle_config, parameters
 from harbor_helper.service.application import Application
@@ -9,7 +8,7 @@ from harbor_helper.service.primitives import ServiceError
 
 
 @pytest.mark.parametrize("protocol", ["openai", "anthropic"])
-def test_native_profile_freeze_and_revalidate_after_provider_edit(data, protocol):  # noqa: F811
+def test_native_profile_freeze_and_revalidate_after_provider_edit(data, protocol):
     provider = data.object("provider", "p1")
     data.models.save_object("provider", {**provider, "protocol": protocol})
     with pytest.raises(ServiceError, match="only max_output_tokens"):
@@ -29,7 +28,7 @@ def test_native_profile_freeze_and_revalidate_after_provider_edit(data, protocol
 @pytest.mark.parametrize(
     "change", [{"endpoint": "http://other.invalid/v1"}, {"protocol": "anthropic"}]
 )
-def test_inherited_latest_key_refuses_changed_protocol_or_endpoint(data, preparation, change):  # noqa: F811
+def test_inherited_latest_key_refuses_changed_protocol_or_endpoint(data, preparation, change):
     from harbor_helper.service.lifecycle import prepare_one
 
     app = Application(data.root)

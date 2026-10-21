@@ -11,14 +11,8 @@ from pathlib import Path
 import httpx
 import pytest
 from browser_support import run_browser
-from test_automation_http import PASSWORD, WRITE
-from test_automation_http import http_service as production_http_fixture
-from test_service_process import wait
-
-
-@pytest.fixture
-def http_service(tmp_path):
-    yield from production_http_fixture._get_wrapped_function()(tmp_path)
+from http_support import PASSWORD, WRITE
+from process_support import wait
 
 
 @pytest.mark.browser

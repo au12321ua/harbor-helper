@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from test_execution_recovery import configured, recovery  # noqa: F401 - shared fixture
+from recovery_support import configured
 
 from harbor_helper.persistence.files import read_json
 from harbor_helper.service.lifecycle import prepare_one
@@ -20,7 +20,7 @@ CHANGED = {
 
 
 @pytest.fixture
-def flows(recovery):  # noqa: F811
+def flows(recovery):
     data, app, actor, dataset, _task = recovery
     configured(recovery)
     data.models.save_object(

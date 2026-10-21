@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 import pytest
-from test_ops import backup_args, module, ops, restore_args
+from ops_support import backup_args, module, ops, restore_args
 
 from harbor_helper.service.data import ServiceData
 

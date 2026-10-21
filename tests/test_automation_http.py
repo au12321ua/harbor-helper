@@ -1,91 +1,16 @@
-import os
-
 """Actual CLI -> isolated production HTTP/scheduler/worker; only external execution is fake."""
 
 import json
+import os
 import shutil
-import socket
-import subprocess
-import sys
 from pathlib import Path
 
 import httpx
 import pytest
+from attachment_support import archive
 from browser_support import run_browser
-from test_attachments import archive
-from test_service_process import Processes, wait
-
-PASSWORD = "Fake-process-password-2026"
-WRITE = {"X-Requested-With": "harbor-helper"}
-
-
-@pytest.fixture
-def http_service(tmp_path):
-    p = Processes(tmp_path)
-    package = p.cwd / "harbor_helper"
-    shutil.copytree(Path(__file__).parents[1] / "src/harbor_helper/static", package / "static")
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    url = f"http://127.0.0.1:{port}"
-    code = "from harbor_helper.service.api import create_app; import uvicorn; " + (
-        f"uvicorn.run(create_app({str(p.data.root)!r},start_scheduler=False),host='127.0.0.1',port={port},access_log=False)"
-    )
-    log = (tmp_path / "http.log").open("w")
-    server = subprocess.Popen(
-        [sys.executable, "-c", code], cwd=p.cwd, env=p.env, stdout=log, stderr=log
-    )
-
-    def connected():
-        try:
-            return httpx.get(url + "/api/v1/setup", trust_env=False).status_code == 200
-        except httpx.RequestError:
-            return False
-
-    try:
-        wait(connected)
-        p.start()
-        yield p, url, tmp_path
-    finally:
-        server.terminate()
-        server.wait(timeout=10)
-        p.close()
-        log.close()
-        from harbor_helper.execution.processes import process_birth
-
-        wait(
-            lambda: all(
-                not r["pid"] or process_birth(r["pid"]) != r["birth"] for r in p.data.store.runs()
-            ),
-            timeout=5,
-        )
-        proof = {
-            "http_stopped": server.poll() is not None,
-            "scheduler_stopped": p.child is None or p.child.poll() is not None,
-            "worker_births_released": all(
-                not r["pid"] or process_birth(r["pid"]) != r["birth"] for r in p.data.store.runs()
-            ),
-            "url": url,
-        }
-        (tmp_path / "teardown.json").write_text(json.dumps(proof, indent=2))
-        assert all(
-            proof[k] for k in ("http_stopped", "scheduler_stopped", "worker_births_released")
-        )
-
-
-def cli(p, *argv, stdin=None):
-    result = subprocess.run(
-        [sys.executable, "-m", "harbor_helper.commands.main", *argv, "--json"],
-        cwd=p.cwd,
-        env=p.env,
-        input=stdin,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout), result
+from http_support import PASSWORD, WRITE, cli
+from process_support import wait
 
 
 def test_noninteractive_cli_http_baseline_version_and_response_recovery(http_service):
@@ -248,7 +173,7 @@ def test_production_static_browser_credentials(http_service, request):
     # Node Playwright uses the already built UI from this production HTTP service.
     script = Path(__file__).parents[1] / "frontend/qa/automation-production.mjs"
     env = {**p.env, "HH_BROWSER_URL": url, "HH_BROWSER_EVIDENCE": str(root)}
-    result = run_browser(request, script, env=env, timeout=60)
+    result = run_browser(request, script, env=env)
     assert result.returncode == 0, result.stderr
     assert "production credential UI passed" in result.stdout
     assert (root / "credential-ui.png").is_file()

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from test_ops import backup_args, ops
+from ops_support import backup_args, ops
 
 from harbor_helper.persistence.store import Store
 from harbor_helper.service.data import ServiceData

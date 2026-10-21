@@ -1,7 +1,3 @@
-"""Ops behavior against isolated production HTTP/scheduler and synthetic executions."""
-
-import argparse
-import importlib.util
 import json
 import os
 import signal
@@ -10,51 +6,20 @@ import sys
 from pathlib import Path
 
 import pytest
-from test_automation_http import http_service  # noqa: F401
-from test_service_process import Processes, processes, wait  # noqa: F401
-
-REPO = Path(__file__).resolve().parents[1]
-
-
-def module(name):
-    spec = importlib.util.spec_from_file_location(name, REPO / "scripts" / f"{name}.py")
-    assert spec is not None and spec.loader is not None
-    value = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(value)
-    return value
-
-
-ops = module("ops")
-verify = module("verify")
-SHA = "a" * 40
+from ops_support import (
+    REPO,
+    SHA,
+    backup_args,
+    close_stores,
+    ops,
+    reopen_store,
+    restore_args,
+    verify,
+)
+from process_support import Processes, wait
 
 
-def close_stores(p):
-    p.data.store.close()
-    p.app.store.close()
-
-
-def reopen_store(p):
-    from harbor_helper.persistence.store import Store
-
-    p.data.store = Store(p.data.root)
-
-
-def backup_args(base, out, kind="online"):
-    return argparse.Namespace(directory=base, output=out, kind=kind, release=SHA, lock_timeout=0.1)
-
-
-def restore_args(result, target):
-    snapshot = Path(result["snapshot"])
-    return argparse.Namespace(
-        snapshot=snapshot,
-        target=target,
-        release=SHA,
-        master_file=snapshot.with_name(snapshot.name + ".master"),
-    )
-
-
-def test_online_snapshot_live_writers_restore_and_ownership(http_service, tmp_path):  # noqa: F811
+def test_online_snapshot_live_writers_restore_and_ownership(http_service, tmp_path):
     p, _url, base = http_service
     # A completed zero-score fixture plus a worker deliberately held in execution.
     done = p.run_id(p.submit(idem="ops-terminal"))
@@ -108,7 +73,7 @@ def test_online_snapshot_live_writers_restore_and_ownership(http_service, tmp_pa
         )
 
 
-def test_readonly_check_health_ready_and_unknown(http_service):  # noqa: F811
+def test_readonly_check_health_ready_and_unknown(http_service):
     p, url, base = http_service
     # Process record follows local_platform layout/identity; source service is untouched.
     port = int(url.rsplit(":", 1)[1])
@@ -342,7 +307,7 @@ else:
     assert result.stdout.strip() == "replacement FIFO refused"
 
 
-def test_snapshot_evidence_lock_defers_without_holding_control(processes, tmp_path):  # noqa: F811
+def test_snapshot_evidence_lock_defers_without_holding_control(processes, tmp_path):
     p = processes
     p.start()
     run_id = p.run_id(p.submit())

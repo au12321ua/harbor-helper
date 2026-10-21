@@ -8,11 +8,9 @@ from pathlib import Path
 
 import httpx
 import pytest
-from test_automation_http import PASSWORD, WRITE
-from test_automation_http import (
-    http_service as http_service,  # noqa: PLC0414  # Reuse isolated process fixture.
-)
-from test_service_process import wait
+from http_support import PASSWORD, WRITE
+from process_support import wait
+from service_support import make_data, patch_preparation
 
 from harbor_helper.sdk import Client, RemoteError
 from harbor_helper.security.files import secure_write
@@ -124,7 +122,7 @@ def test_sdk_stdio_and_web_share_operation_and_evidence(http_service):
                 json.loads(history.content[0].text)["operations"][0]["id"]
                 == accepted["operation_id"]
             )
-            from test_attachments import archive
+            from attachment_support import archive
 
             bundle = root / "mcp-input.zip"
             bundle.write_bytes(archive().getvalue())
@@ -335,13 +333,12 @@ def test_local_root_rejects_recursive_links_and_pins_parent(tmp_path):
 
 
 def test_rejected_history_redecides_and_bounds_attempts(tmp_path, monkeypatch):
-    from test_service import data as data_fixture
 
     from harbor_helper.service.application import Application
     from harbor_helper.service.history import listing
     from harbor_helper.service.primitives import ServiceError
 
-    data = data_fixture._get_wrapped_function()(tmp_path)
+    data = make_data(tmp_path)
     app = Application(data.root)
     user = data.users()[0]
     # Use production maintenance writer; no execution or external requests.
@@ -390,14 +387,13 @@ def test_rejected_history_redecides_and_bounds_attempts(tmp_path, monkeypatch):
 
 
 def test_attachment_business_rejection_is_durable_and_retriable(tmp_path):
-    from test_attachments import archive
-    from test_service import data as data_fixture
+    from attachment_support import archive
 
     from harbor_helper.service.application import Application
     from harbor_helper.service.history import listing
     from harbor_helper.service.primitives import ServiceError
 
-    data = data_fixture._get_wrapped_function()(tmp_path)
+    data = make_data(tmp_path)
     app = Application(data.root)
     user = data.users()[0]
     first = app.attachments.write(user, "attachment_create", "input", {"name": "Input"}, archive())
@@ -456,24 +452,21 @@ def test_text_binary_and_gzip_secret_audit(tmp_path):
 def test_snapshot_releases_lock_and_survives_retention(tmp_path):
     import time
 
-    from test_service import data as data_fixture
-
     from harbor_helper.service.application import Application
     from harbor_helper.service.lifecycle import maintenance
     from harbor_helper.service.materials import inventory, manifest, snapshot
     from harbor_helper.service.primitives import ServiceError
 
-    data = data_fixture._get_wrapped_function()(tmp_path)
+    data = make_data(tmp_path)
     admin = next(u for u in data.users() if u["role"] == "admin")
     # Oracle fixture: explicit CLEAN terminal run with valid fixed metadata.
     app = Application(data.root)
     accepted = app.accept(admin, {"agent": "oracle"}, "snapshot")
     from pytest import MonkeyPatch
-    from test_service import preparation as prepare_fixture
 
     patch = MonkeyPatch()
     try:
-        prepare_fixture._get_wrapped_function()(patch)
+        patch_preparation(patch)
         from harbor_helper.service.lifecycle import prepare_one
 
         prepare_one(data.store)
@@ -509,22 +502,20 @@ def test_nontext_audit_blocks_entire_run_and_report(tmp_path, kind):
     import gzip
 
     from pytest import MonkeyPatch
-    from test_service import KEYS
-    from test_service import data as data_fixture
-    from test_service import preparation as preparation_fixture
+    from service_support import KEYS
 
     from harbor_helper.execution.audit import audit_finished
     from harbor_helper.service.application import Application
     from harbor_helper.service.lifecycle import prepare_one
     from harbor_helper.service.primitives import ServiceError
 
-    data = data_fixture._get_wrapped_function()(tmp_path)
+    data = make_data(tmp_path)
     app = Application(data.root)
     user = data.users()[0]
     accepted = app.accept(user, {"model_profile": "m1"}, "binary-audit")
     patch = MonkeyPatch()
     try:
-        preparation_fixture._get_wrapped_function()(patch)
+        patch_preparation(patch)
         prepare_one(data.store)
     finally:
         patch.undo()
@@ -556,12 +547,10 @@ def test_operation_submission_atomic_process_death(tmp_path, phase):
     import os
     import subprocess
 
-    from test_service import data as data_fixture
-
     from harbor_helper.service.application import Application
     from harbor_helper.service.history import listing
 
-    data = data_fixture._get_wrapped_function()(tmp_path)
+    data = make_data(tmp_path)
     script = tmp_path / "crash.py"
     script.write_text("""
 import os,sys
@@ -616,23 +605,21 @@ app.accept(app.data.users()[0],{"agent":"oracle"},"crash-key")
 @pytest.mark.parametrize("scopes", [None, ["read"], ["evidence"], ["read", "evidence"]])
 def test_evidence_authorization_matrix(tmp_path, username, account_grant, scopes):
     from pytest import MonkeyPatch
-    from test_service import PASSWORD, client
-    from test_service import data as data_fixture
-    from test_service import preparation as preparation_fixture
+    from service_support import PASSWORD, client
 
     from harbor_helper.execution.audit import audit_finished
     from harbor_helper.service.access import grant
     from harbor_helper.service.application import Application
     from harbor_helper.service.lifecycle import prepare_one
 
-    data = data_fixture._get_wrapped_function()(tmp_path)
+    data = make_data(tmp_path)
     admin = next(u for u in data.users() if u["role"] == "admin")
     target = next(u for u in data.users() if u["username"] == username)
     app = Application(data.root)
     submission = app.accept(admin, {"agent": "oracle"}, "matrix")
     patch = MonkeyPatch()
     try:
-        preparation_fixture._get_wrapped_function()(patch)
+        patch_preparation(patch)
         prepare_one(data.store)
     finally:
         patch.undo()

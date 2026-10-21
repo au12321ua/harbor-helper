@@ -7,11 +7,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from attachment_support import archive
+from automation_support import issue
 from fastapi.testclient import TestClient
-from test_attachments import archive
-from test_service import PASSWORD, WRITE, client
-from test_service import data as service_data
-from test_service import preparation as fake_preparation
+from service_support import PASSWORD, WRITE, client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.results.reports import report
@@ -20,31 +19,6 @@ from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
 from harbor_helper.service.lifecycle import prepare_one
 from harbor_helper.service.primitives import ServiceError
-
-
-@pytest.fixture
-def data(tmp_path):
-    return service_data._get_wrapped_function()(tmp_path)
-
-
-@pytest.fixture
-def preparation(monkeypatch):
-    return fake_preparation._get_wrapped_function()(monkeypatch)
-
-
-def issue(data, username="alice", scopes=None, expires=None):
-    c = client(data, username)
-    body = {"name": "research", "current_password": PASSWORD}
-    if scopes is not None:
-        body["scopes"] = scopes
-    if expires is not None:
-        body["expires"] = expires
-    r = c.post("/api/v1/access-credentials", json=body, headers=WRITE)
-    assert r.status_code == 201, r.text
-    value = r.json()
-    p = TestClient(create_app(data.root, start_scheduler=False), raise_server_exceptions=False)
-    p.headers.update({**WRITE, "Authorization": "Bearer " + value["token"]})
-    return c, p, value
 
 
 def test_issue_password_once_digest_metadata_and_lifecycle(data):

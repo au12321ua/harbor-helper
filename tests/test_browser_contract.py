@@ -6,7 +6,7 @@ import socket
 from pathlib import Path
 
 import pytest
-from test_service import client, data, preparation  # noqa: F401
+from service_support import client
 
 from harbor_helper.service import browser_contracts as b
 from harbor_helper.service.api import create_app
@@ -16,7 +16,7 @@ from harbor_helper.service.route_contracts import browser_routes
 
 
 @pytest.mark.parametrize("defect", ["extra", "missing", "type", "state", "nested"])
-def test_raw_response_defects_are_safe_503(data, monkeypatch, defect):  # noqa: F811
+def test_raw_response_defects_are_safe_503(data, monkeypatch, defect):
     original = Application.runs
 
     def broken(self):
@@ -64,8 +64,8 @@ def test_raw_response_defects_are_safe_503(data, monkeypatch, defect):  # noqa: 
     )
 
 
-def test_session_and_pat_projection_cannot_be_interchanged(data):  # noqa: F811
-    from test_automation import issue
+def test_session_and_pat_projection_cannot_be_interchanged(data):
+    from automation_support import issue
 
     browser, pat, _ = issue(data, scopes=["read", "execute"])
     for client_, model in ((browser, b.User), (pat, b.MachineUser)):
@@ -124,8 +124,8 @@ def test_all_browser_routes_have_raw_boundary(tmp_path):
     assert names == set(b.BROWSER)
 
 
-def test_legacy_open_configuration_values_are_not_narrowed(data):  # noqa: F811
-    from test_service import WRITE
+def test_legacy_open_configuration_values_are_not_narrowed(data):
+    from service_support import WRITE
 
     http = client(data, "admin")
     for path, body in [

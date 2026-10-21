@@ -6,10 +6,7 @@ import sys
 
 import httpx
 import pytest
-from test_automation_http import PASSWORD, WRITE, cli
-from test_automation_http import (
-    http_service as http_service,  # noqa: PLC0414  # Shared isolated real HTTP fixture.
-)
+from http_support import PASSWORD, WRITE, cli
 
 from harbor_helper.sdk import Client
 from harbor_helper.security.files import secure_write

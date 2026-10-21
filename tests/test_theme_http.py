@@ -8,7 +8,7 @@ import sys
 import httpx
 import pytest
 from browser_support import REPO, run_browser
-from test_service_process import wait
+from process_support import wait
 
 
 @pytest.mark.browser

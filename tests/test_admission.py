@@ -8,11 +8,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from admission_fixture import synthetic_activity
+from admission_support import accept, actor, pause
+from automation_support import issue
 from fastapi.testclient import TestClient
-from test_automation import issue
-from test_service import WRITE, client
-from test_service import data as data_fixture
-from test_service import preparation as preparation_fixture
+from service_support import WRITE, client
 
 from harbor_helper.persistence.files import read_json, write_json
 from harbor_helper.service import admission, machine
@@ -20,31 +19,6 @@ from harbor_helper.service.api import create_app
 from harbor_helper.service.application import Application
 from harbor_helper.service.lifecycle import prepare_one
 from harbor_helper.service.primitives import ServiceError
-
-
-@pytest.fixture
-def data(tmp_path):
-    return data_fixture._get_wrapped_function()(tmp_path)
-
-
-@pytest.fixture
-def preparation(monkeypatch):
-    return preparation_fixture._get_wrapped_function()(monkeypatch)
-
-
-def actor(data, name="alice"):
-    return next(u for u in data.users() if u["username"] == name)
-
-
-def accept(data, key, name="alice"):
-    return Application(data.root).accept(actor(data, name), {"agent": "oracle"}, key)
-
-
-def pause(data, paused=True):
-    with data.store.control():
-        return admission.set_maintenance(
-            data, {"paused": paused, "reason": "scheduled maintenance"}
-        )
 
 
 def test_multi_pat_browser_shared_identity_quota_and_admin(data):
