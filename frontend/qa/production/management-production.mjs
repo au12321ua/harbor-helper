@@ -1,0 +1,52 @@
+import {chromium} from "@playwright/test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+const browser=await chromium.launch({headless:true});
+try {
+  const context=await browser.newContext();
+  const page=await context.newPage();
+  const errors=[];
+  page.on("pageerror",e=>errors.push(e.message));
+  async function login(p,user){
+    await p.goto(process.env.HH_BROWSER_URL);
+    await p.getByLabel("账户",{exact:true}).fill(user);
+    await p.getByLabel("密码",{exact:true}).fill("Fake-process-password-2026");
+    await p.getByRole("button",{name:"登录",exact:true}).click();
+    await p.locator(".app-shell").waitFor();
+    await p.goto(process.env.HH_BROWSER_URL+"/management");
+    await p.getByRole("heading",{name:"请求与目录管理"}).waitFor();
+  }
+  await login(page,"alice");
+  await page.getByRole("tab",{name:"附件",exact:true}).click();
+  const downloaded=page.waitForEvent("download");
+  await page.getByRole("link",{name:"下载此版本",exact:true}).click();
+  const download=await downloaded;
+  assert.equal(await download.failure(),null);
+  await download.saveAs(process.env.HH_BROWSER_EVIDENCE+"/team-version.zip");
+  await page.getByRole("tab",{name:"请求组",exact:true}).click();
+  await page.getByLabel("组名（组创建者或管理员可改）").fill("Browser renamed");
+  await page.getByRole("button",{name:"保存组名"}).click();
+  await page.getByText("Browser renamed / #1",{exact:true}).waitFor();
+  page.on("dialog",d=>d.accept());
+  await page.getByLabel("选择请求 #1").check();
+  await page.getByRole("button",{name:"将选中 1 项移入回收站"}).click();
+  await page.getByRole("tab",{name:"回收站",exact:true}).click();
+  await page.getByRole("button",{name:"恢复",exact:true}).waitFor();
+  assert.equal(await page.getByRole("button",{name:"永久删除",exact:true}).count(),0);
+  await page.getByRole("button",{name:"恢复",exact:true}).click();
+  await page.getByRole("tab",{name:"请求组",exact:true}).click();
+  await page.getByText("Browser renamed / #1",{exact:true}).waitFor();
+  await page.getByLabel("选择请求 #1").check();
+  await page.getByRole("button",{name:"将选中 1 项移入回收站"}).click();
+  const adminContext=await browser.newContext();
+  const admin=await adminContext.newPage();
+  await login(admin,"admin");
+  await admin.getByRole("tab",{name:"回收站",exact:true}).click();
+  await admin.getByRole("button",{name:"永久删除",exact:true}).click();
+  await admin.getByRole("button",{name:"确认永久删除此回收事件"}).click();
+  await admin.getByText(/purged · 1 项 · complete/).waitFor();
+  await admin.screenshot({path:process.env.HH_BROWSER_EVIDENCE+"/management-production.png",fullPage:true});
+  assert.deepEqual(errors,[]);
+  await fs.writeFile(process.env.HH_BROWSER_EVIDENCE+"/management-proof.json",JSON.stringify({member_download:true,rename:true,recycle_restore:true,separate_purge:true,errors},null,2));
+  console.log("production management passed");
+} finally {await browser.close();}

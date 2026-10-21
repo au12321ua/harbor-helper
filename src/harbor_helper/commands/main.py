@@ -15,6 +15,13 @@ def parser():
     mcp.add_argument("--download-root", type=Path, default=Path.cwd())
     submit_p = sub.add_parser("submit", help="Submit an experiment to the team service")
     submit_p.add_argument("--dataset")
+    submit_p.add_argument("--dataset-id")
+    submit_p.add_argument("--dataset-source-version-id")
+    submit_p.add_argument("--source-request-id")
+    submit_p.add_argument(
+        "--independent", action="store_true", help="Create an independent request group"
+    )
+    submit_p.add_argument("--name")
     submit_p.add_argument("--model-profile", help="Team model profile ID from catalog")
     submit_p.add_argument("--idempotency-key", help="Retry key for the same submission")
     submit_p.add_argument("--agent", choices=["oracle", "opencode"])
@@ -79,6 +86,12 @@ def parser():
     management_ops = manage.add_subparsers(dest="management_command", required=True)
     for action in ("requests", "datasets", "recycle-list"):
         management_ops.add_parser(action)
+    register = management_ops.add_parser("register-dataset")
+    register.add_argument("name")
+    register.add_argument(
+        "reference",
+        help="Dataset author/package; importing versions is a separate preview/confirm step",
+    )
     rename = management_ops.add_parser("rename-group")
     rename.add_argument("group_id")
     rename.add_argument("name")

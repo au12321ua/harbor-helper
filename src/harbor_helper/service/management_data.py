@@ -110,6 +110,9 @@ def initialize(store):
                 owner_id TEXT NOT NULL, actor_id TEXT NOT NULL, created REAL NOT NULL,
                 state TEXT NOT NULL, members TEXT NOT NULL, cleanup TEXT,
                 restored REAL, purged REAL);
+            CREATE TABLE IF NOT EXISTS purge_receipts (
+                user_id TEXT NOT NULL, key_hash TEXT NOT NULL, event_id TEXT NOT NULL,
+                PRIMARY KEY(user_id,key_hash));
             CREATE TABLE IF NOT EXISTS recycled_objects (
                 kind TEXT NOT NULL, id TEXT NOT NULL, event_id TEXT NOT NULL, state TEXT NOT NULL,
                 PRIMARY KEY(kind,id));

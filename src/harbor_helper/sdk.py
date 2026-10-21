@@ -245,6 +245,11 @@ class Client:
             "PATCH", "/management/groups/" + identifier(group_id), body={"name": name}
         )
 
+    def register_dataset(self, name, reference):
+        return self.request(
+            "POST", "/admin/catalog/dataset", body={"name": name, "reference": reference}
+        )
+
     def list_datasets(self):
         return self.request("GET", "/management/datasets")
 

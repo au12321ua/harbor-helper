@@ -1,6 +1,5 @@
 """Management invariants with independent synthetic service state; no real Hub/model."""
 
-
 import pytest
 from support.attachment_support import archive
 from support.service_support import client
@@ -137,3 +136,40 @@ def test_request_groups_empty_unique_and_number_high_water(data):
     with data.store.connect() as db:
         link = db.execute("SELECT * FROM request_links WHERE id=?", (child["id"],)).fetchone()
     assert link["number"] == 2 and link["group_id"] == entry["group_id"]
+
+
+def test_purge_key_binds_event_and_recycled_name_remains_reserved(data):
+    app, alice, admin = Application(data.root), users(data)["alice"], users(data)["admin"]
+    first = attachment(app, alice, "Reserved", "one")
+    aid, vid = first["attachment"]["id"], first["version"]["id"]
+    one = app.recycle.move(alice, "attachment", aid, [vid])
+    with pytest.raises(ServiceError, match="名称"):
+        attachment(app, alice, "ＲＥＳＥＲＶＥＤ", "collision")
+    second = attachment(app, alice, "Second", "two")
+    two = app.recycle.move(alice, "attachment_version", second["version"]["id"])
+    assert app.recycle.purge(admin, one["id"], "bound-key")["state"] == "purged"
+    with pytest.raises(ServiceError) as error:
+        app.recycle.purge(admin, two["id"], "bound-key")
+    assert error.value.code == "idempotency_conflict"
+    assert app.recycle.purge(admin, one["id"], "bound-key")["state"] == "purged"
+    assert attachment(app, alice, "Reserved", "replacement")["attachment"]["id"] != aid
+
+
+def test_concurrent_normalized_group_names_only_one_is_accepted(data):
+    from concurrent.futures import ThreadPoolExecutor
+
+    app, alice = Application(data.root), users(data)["alice"]
+
+    def submit(item):
+        try:
+            return app.accept(
+                alice, {"agent": "oracle", "name": item}, "name-" + str(len(item.encode()))
+            )
+        except ServiceError as error:
+            return error
+
+    with ThreadPoolExecutor(2) as pool:
+        outcomes = list(pool.map(submit, ["Race", "ＲＡＣＥ"]))
+    assert sum(isinstance(value, dict) for value in outcomes) == 1
+    rejected = next(value for value in outcomes if isinstance(value, ServiceError))
+    assert rejected.code == "name_conflict" and rejected.status == 409

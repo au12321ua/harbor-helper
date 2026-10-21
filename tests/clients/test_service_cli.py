@@ -358,6 +358,8 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
                 "oracle",
                 "--idempotency-key",
                 "actual-api-once",
+                "--dataset",
+                "test/data@1",
                 "--json",
             ).stdout
         )
@@ -373,7 +375,7 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
                     "retry",
                     "/submissions",
                     "--body",
-                    json.dumps({"agent": "oracle"}),
+                    json.dumps({"agent": "oracle", "dataset": "test/data@1"}),
                     "--idempotency-key",
                     "actual-api-once",
                     "--json",
@@ -386,7 +388,7 @@ def test_true_http_application_member_cli_persistent_preparation(api, home, tmp_
         assert listing["submissions"][0]["submitter"] == "alice"
         cancelled = json.loads(call(home, "cancel", accepted["id"], "--json").stdout)
         assert cancelled["status"] == "cancelled"
-        assert json.loads(call(home, "catalog", "--json").stdout)["default_dataset"]
+        assert json.loads(call(home, "catalog", "--json").stdout)["default_dataset"] is None
         assert (
             json.loads(call(home, "service", "status", "--json").stdout)["user"]["username"]
             == "alice"

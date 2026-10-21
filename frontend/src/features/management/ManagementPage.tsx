@@ -671,7 +671,8 @@ function DatasetMerge({
           <>
             <p>
               {preview.versions.length} 个来源版本；{preview.parameters.length}{" "}
-              份参数修订。
+              份参数修订；{preview.drafts.length} 份未验证资料（保留原归属）。
+              当前团队默认：{preview.team_default || "未设置"}；原版本选择：{JSON.stringify(preview.defaults)}。
             </p>
             {summaries.map((s) => (
               <Field key={s}>

@@ -32,9 +32,8 @@ def register(app, deps, *, setup_token_file, master_key_file, start_scheduler):
             deps.store, master_key_file, body.username, body.password.get_secret_value()
         )
         deps.application = Application(deps.store)
-        from harbor_helper.persistence.files import write_json
 
-        write_json(deps.store.root / "web.json", {"team_name": body.team_name.strip()})
+        deps.application.configuration.save_settings({"team_name": body.team_name.strip()})
         app.state.application = deps.application
         if start_scheduler:
             from harbor_helper.execution.runs import ensure_supervisor

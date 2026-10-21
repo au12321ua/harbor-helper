@@ -1,5 +1,6 @@
 """Explicit recycle events and retryable cleanup over concrete service dependencies."""
 
+import hashlib
 import json
 import shutil
 import time
@@ -15,7 +16,9 @@ KINDS = {"request", "dataset", "dataset_version", "attachment", "attachment_vers
 
 class Recycle:
     def __init__(self, app):
-        self.app, self.data, self.store = app, app.data, app.store
+        import weakref
+
+        self.app, self.data, self.store = weakref.proxy(app), app.data, app.store
 
     def allowed(self, actor, owner, kind, *, purge=False):
         token = bool(actor.get("access_credential_id"))
@@ -81,7 +84,12 @@ class Recycle:
             ).fetchone()
             if row:
                 identity = row["id"] if kind == "dataset" else row["dataset_id"]
-                available(db, "dataset", identity)
+                alias = db.execute(
+                    "SELECT target FROM dataset_aliases WHERE id=?", (identity,)
+                ).fetchone()
+                available(db, "dataset", alias[0] if alias else identity)
+                if alias and kind == "dataset":
+                    raise ServiceError("dataset_alias", "请管理合并后的目标数据集", 409)
                 members = [(kind, object_id)]
                 if kind == "dataset":
                     members += [
@@ -141,6 +149,10 @@ class Recycle:
                 )
                 if child_kind == "dataset":
                     db.execute(
+                        "UPDATE configuration_settings SET config=json_set(config,'$.default_dataset_id',NULL) WHERE json_extract(config,'$.default_dataset_id')=?",
+                        (child_id,),
+                    )
+                    db.execute(
                         "UPDATE dataset_identities SET default_version=NULL WHERE id=?", (child_id,)
                     )
                 if child_kind == "dataset_version":
@@ -157,11 +169,6 @@ class Recycle:
                 (actor["id"], actor.get("access_credential_id"), "recycle", event_id, time.time()),
             )
             event = self._event(db, event_id)
-        if (
-            kind == "dataset"
-            and self.app.configuration.settings().get("default_dataset_id") == object_id
-        ):
-            self.app.configuration.save_settings({"default_dataset_id": None})
         return self.public(event)
 
     def _event(self, db, event_id):
@@ -209,8 +216,25 @@ class Recycle:
                 )
             if event["kind"] == "artifact":
                 run_id, _file_id = event["object_id"].split(":", 1)
-                if (self.store.path(run_id) / "archived.json").exists():
-                    raise ServiceError("artifact_expired", "既有保留期已清理产物，无法恢复", 410)
+                try:
+                    if (self.store.path(run_id) / "archived.json").exists():
+                        raise ServiceError(
+                            "artifact_expired", "既有保留期已清理产物，无法恢复", 410
+                        )
+                    self.app.artifact_cleanup_path(run_id, _file_id)
+                except ServiceError:
+                    db.execute(
+                        "UPDATE recycle_events SET state='expired',cleanup='retention expired' WHERE id=?",
+                        (event_id,),
+                    )
+                    db.execute(
+                        "UPDATE recycled_objects SET state='purged' WHERE kind='artifact' AND id=? AND event_id=?",
+                        (event["object_id"], event_id),
+                    )
+                    db.commit()
+                    raise ServiceError(
+                        "artifact_expired", "产物已被保留期清理或不可用，无法恢复", 410
+                    ) from None
             for member in json.loads(event["members"]):
                 old = member["previous"]
                 if old and old["state"] == "recycled":
@@ -250,7 +274,18 @@ class Recycle:
             db.execute("BEGIN IMMEDIATE")
             event = self._event(db, event_id)
             self.allowed(actor, event["owner_id"], event["kind"], purge=True)
+            key_hash = hashlib.sha256(idem.encode()).hexdigest()
+            receipt = db.execute(
+                "SELECT event_id FROM purge_receipts WHERE user_id=? AND key_hash=?",
+                (actor["id"], key_hash),
+            ).fetchone()
+            if receipt and receipt[0] != event_id:
+                raise ServiceError("idempotency_conflict", "此永久删除幂等键已绑定其他事件", 409)
             if event["state"] == "purged":
+                db.execute(
+                    "INSERT OR IGNORE INTO purge_receipts VALUES(?,?,?)",
+                    (actor["id"], key_hash, event_id),
+                )
                 return self.public(event)
             if event["state"] not in {"recycled", "purging"}:
                 raise ServiceError(
@@ -258,6 +293,10 @@ class Recycle:
                     "只能永久删除当前回收事件；旧事件不能删除后来回收的对象",
                     409,
                 )
+            db.execute(
+                "INSERT OR IGNORE INTO purge_receipts VALUES(?,?,?)",
+                (actor["id"], key_hash, event_id),
+            )
             members = json.loads(event["members"])
             for m in members:
                 db.execute(
@@ -323,6 +362,10 @@ class Recycle:
         for row in operations:
             tombstone = json.dumps({"id": object_id, "deleted": True, "status": "purged"})
             db.execute(
+                "INSERT INTO recycled_objects VALUES('request',?,?,'purged') ON CONFLICT(kind,id) DO UPDATE SET state='purged'",
+                (row["id"], "purged-operation"),
+            )
+            db.execute(
                 "UPDATE operations SET status='purged',request='{}',result=?,error=NULL,recent='[]' WHERE id=?",
                 (tombstone, row["id"]),
             )
@@ -349,7 +392,11 @@ class Recycle:
                 if row:
                     db.execute("DELETE FROM submissions WHERE id=?", (object_id,))
                 db.execute(
-                    "DELETE FROM management_names WHERE kind='group' AND id IN (SELECT group_id FROM request_links WHERE id=?) AND NOT EXISTS (SELECT 1 FROM request_links l LEFT JOIN recycled_objects r ON r.kind='request' AND r.id=l.id WHERE l.group_id=management_names.id AND COALESCE(r.state,'active')!='purged')",
+                    "UPDATE request_groups SET name='' WHERE id IN (SELECT group_id FROM request_links WHERE id=?) AND NOT EXISTS (SELECT 1 FROM request_links l LEFT JOIN recycled_objects r ON r.kind='request' AND r.id=l.id WHERE l.group_id=request_groups.id AND COALESCE(r.state,'active')!='purged')",
+                    (object_id,),
+                )
+                db.execute(
+                    "DELETE FROM management_names WHERE kind='group'  AND id IN (SELECT group_id FROM request_links WHERE id=?) AND NOT EXISTS (SELECT 1 FROM request_links l LEFT JOIN recycled_objects r ON r.kind='request' AND r.id=l.id WHERE l.group_id=management_names.id AND COALESCE(r.state,'active')!='purged')",
                     (object_id,),
                 )
         elif kind == "attachment_version":
@@ -390,9 +437,44 @@ class Recycle:
                         "DELETE FROM objects WHERE kind='author_parameters' AND id=? AND json_extract(config,'$.source')=?",
                         (row["dataset_id"], row["resolved"]),
                     )
+                    db.execute(
+                        "DELETE FROM objects WHERE kind='dataset' AND id=? AND json_extract(config,'$.resolved')=?",
+                        (row["dataset_id"], row["resolved"]),
+                    )
+                    db.execute(
+                        "DELETE FROM dataset_previews WHERE dataset_id=? AND json_extract(config,'$.resolved')=?",
+                        (row["dataset_id"], row["resolved"]),
+                    )
                     db.execute("DELETE FROM dataset_sources WHERE id=?", (object_id,))
+                    shared = db.execute(
+                        "SELECT 1 FROM dataset_sources WHERE resolved=?", (row["resolved"],)
+                    ).fetchone()
+                    if not shared:
+                        from harbor_helper.persistence.files import read_json
+
+                        base = self.store.root / "author-inputs"
+                        if base.exists():
+                            for cache in base.iterdir():
+                                if (
+                                    cache.is_dir()
+                                    and not cache.is_symlink()
+                                    and (cache / "source.json").is_file()
+                                ) and (
+                                    read_json(cache / "source.json").get("resolved")
+                                    == row["resolved"]
+                                ):
+                                    shutil.rmtree(cache)
+
         elif kind == "dataset":
             with self.store.connect() as db:
+                db.execute(
+                    "DELETE FROM dataset_previews WHERE dataset_id=? OR dataset_id IN (SELECT id FROM dataset_aliases WHERE target=?)",
+                    (object_id, object_id),
+                )
+                db.execute(
+                    "UPDATE dataset_identities SET name='',source='',default_version=NULL WHERE id IN (SELECT id FROM dataset_aliases WHERE target=?)",
+                    (object_id,),
+                )
                 for row in db.execute(
                     "SELECT id FROM dataset_aliases WHERE target=?", (object_id,)
                 ).fetchall():
@@ -418,7 +500,12 @@ class Recycle:
             with self.store.evidence(run_id, blocking=False):
                 from harbor_helper.service.materials import tombstone
 
-                path = self.app.artifact_path(run_id, file_id, include_recycled=True)
+                try:
+                    path = self.app.artifact_cleanup_path(run_id, file_id)
+                except ServiceError as error:
+                    if error.status == 404:
+                        return None
+                    raise
                 tombstone(
                     self.store,
                     run_id,

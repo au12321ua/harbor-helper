@@ -234,6 +234,7 @@ def test_schema_safe_discovery_tasks_and_strict_input(data):
         "dataset",
         {
             "id": "catalog",
+            "resolved": "test/data@sha256:" + "b" * 64,
             "name": "catalog",
             "enabled": True,
             "status": "verified",
@@ -569,7 +570,9 @@ def test_all_machine_schema_operations_have_types_permissions_and_safe_errors(da
             ].endswith("ErrorResponse")
             success = next(v for k, v in operation["responses"].items() if k.startswith("2"))
             # Schema endpoint returns OpenAPI itself; every business output is typed.
-            if operation["x-operation"] != "machine_schema":
+            if operation["x-operation"] == "attachment_download":
+                assert success["content"]["application/zip"]["schema"]["format"] == "binary"
+            elif operation["x-operation"] != "machine_schema":
                 assert success["content"]["application/json"]["schema"]
     assert set(operations) == policy.SCHEMA_OPERATIONS
     attachment = schema["paths"]["/api/v1/attachments"]["post"]

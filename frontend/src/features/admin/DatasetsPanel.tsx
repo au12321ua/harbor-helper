@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { runDatasetOperation, useDatasetOperations } from "./datasetOperations";
 import { type CatalogDataset, type Dataset } from "@/api";
@@ -165,6 +166,7 @@ export function DatasetsPanel({
                 >
                   编辑
                 </Button>
+                <Button asChild variant="outline"><Link to="/management">选择并导入来源版本</Link></Button>
                 <Button
                   disabled={
                     !!active ||

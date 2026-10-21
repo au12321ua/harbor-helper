@@ -2,7 +2,6 @@ import json
 from typing import Annotated
 
 from fastapi import Depends, Header, Request, Response
-from fastapi.responses import FileResponse
 
 from harbor_helper.service import dtos, machine
 from harbor_helper.service.browser_contracts import Materials
@@ -187,14 +186,28 @@ def register(app, deps):
 
     @app.get("/api/v1/runs/{run_id}/artifacts/{file_id}")
     def artifact(run_id: str, file_id: str, user: Annotated[dict, Depends(actor)]):
-        path = deps.application.artifact_path(run_id, file_id)
-        return FileResponse(
-            path,
+        from urllib.parse import quote
+
+        from fastapi.responses import StreamingResponse
+        from starlette.background import BackgroundTask
+
+        stream, size, name = deps.application.artifact_download(run_id, file_id)
+
+        def chunks():
+            try:
+                while chunk := stream.read(65536):
+                    yield chunk
+            finally:
+                stream.close()
+
+        return StreamingResponse(
+            chunks(),
             media_type="application/octet-stream",
-            filename=path.name,
             headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{__import__('urllib.parse', fromlist=['quote']).quote(path.name)}"
+                "Content-Length": str(size),
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name),
             },
+            background=BackgroundTask(stream.close),
         )
 
     @app.delete("/api/v1/runs/{run_id}/artifacts/{file_id}")

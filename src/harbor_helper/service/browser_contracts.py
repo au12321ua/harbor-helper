@@ -262,6 +262,8 @@ class Accepted(DTO):
 class RunSummary(DTO):
     id: str
     name: str
+    frozen_name: str
+    request_group: dict[str, str | int | None] | None
     dataset_name: str | None
     status: RunStatus
     created: float

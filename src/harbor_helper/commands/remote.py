@@ -115,6 +115,8 @@ def dispatch(args, name):
     cmd = args.command
     if cmd == "manage":
         action = args.management_command
+        if action == "register-dataset":
+            return client.register_dataset(args.name, args.reference)
         if action == "requests":
             return client.list_requests()
         if action == "datasets":
@@ -246,9 +248,22 @@ def dispatch(args, name):
     if cmd == "submit":
         body = {
             k: getattr(args, k)
-            for k in ("dataset", "agent", "attempts", "concurrency", "wall_seconds", "task")
+            for k in (
+                "name",
+                "dataset",
+                "dataset_id",
+                "dataset_source_version_id",
+                "source_request_id",
+                "agent",
+                "attempts",
+                "concurrency",
+                "wall_seconds",
+                "task",
+            )
             if getattr(args, k, None) is not None
         }
+        if args.independent:
+            body["independent"] = True
         if args.agent != "oracle" and not args.model_profile:
             raise RemoteError("Choose --model-profile from catalog (or explicitly --agent oracle)")
         if args.model_profile:

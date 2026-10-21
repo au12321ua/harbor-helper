@@ -125,6 +125,29 @@ def register(app, deps):
             for method in route.methods:
                 op = schema.get("paths", {}).get(route.path_format, {}).get(method.lower())
                 if op is not None:
+                    from pydantic import TypeAdapter
+
+                    from harbor_helper.service.browser_contracts import BROWSER, REQUESTS
+
+                    name = route.endpoint.__name__
+                    if name in BROWSER and name != "download_report":
+                        typed = TypeAdapter(BROWSER[name]).json_schema(
+                            ref_template="#/components/schemas/{model}"
+                        )
+                        schema["components"]["schemas"].update(typed.pop("$defs", {}))
+                        for code, response in op["responses"].items():
+                            if code.startswith("2"):
+                                response["content"] = {"application/json": {"schema": typed}}
+                    if name == "attachment_download":
+                        op["responses"]["200"]["content"] = {
+                            "application/zip": {"schema": {"type": "string", "format": "binary"}}
+                        }
+                    if name in REQUESTS:
+                        typed = TypeAdapter(REQUESTS[name]).json_schema(
+                            ref_template="#/components/schemas/{model}"
+                        )
+                        schema["components"]["schemas"].update(typed.pop("$defs", {}))
+                        op["requestBody"] = {"content": {"application/json": {"schema": typed}}}
                     op["x-capability"] = policy.CAPABILITIES[route.endpoint.__name__]
                     op["security"] = [{"MemberBearer": []}]
                     op["x-operation"] = route.endpoint.__name__

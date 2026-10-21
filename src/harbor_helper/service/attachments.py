@@ -39,12 +39,12 @@ class Attachments:
             )
 
     def version(self, db, version_id):
-        row = db.execute("SELECT * FROM attachment_versions WHERE id=?", (version_id,)).fetchone()
-        if not row:
-            raise ServiceError("attachment_version_missing", "Attachment version not found", 404)
         from harbor_helper.service.management_data import available
 
         available(db, "attachment_version", version_id)
+        row = db.execute("SELECT * FROM attachment_versions WHERE id=?", (version_id,)).fetchone()
+        if not row:
+            raise ServiceError("attachment_version_missing", "Attachment version not found", 404)
         return dict(row)
 
     def public(self, db, version_id):

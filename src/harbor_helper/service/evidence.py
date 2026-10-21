@@ -62,9 +62,20 @@ class Evidence:
                 if not local_file_error(self.store.path(row["id"]), error):
                     raise
                 audit_status = lifecycle_status.INCOMPLETE
+        from harbor_helper.service.management_data import request_id
+
+        with self.store.connect() as db:
+            group = db.execute(
+                "SELECT g.name,l.group_id,l.number,l.source_id,l.relation FROM request_links l JOIN request_groups g ON g.id=l.group_id WHERE l.id=?",
+                (request_id(db, row["id"]),),
+            ).fetchone()
         return {
             "id": row["id"],
-            "name": binding.get("name") or row["id"],
+            "name": (group["name"] or "未命名 · " + group["group_id"][4:12])
+            if group
+            else binding.get("name") or row["id"],
+            "frozen_name": binding.get("name") or "",
+            "request_group": dict(group) if group else None,
             "dataset_name": binding.get("dataset_name"),
             "status": row["status"],
             "created": row["created"],
@@ -302,16 +313,10 @@ class Evidence:
 
             with self.store.connect() as db:
                 available(db, "artifact", run_id + ":" + file_id)
+        if include_recycled:
+            return self.artifact_cleanup_path(run_id, file_id)
         self.safe_key(run_id)
         artifact = next((a for a in self.artifacts(run_id) if a["id"] == file_id), None)
-        if include_recycled and not artifact:
-            root = self.store.path(run_id)
-            for candidate in root.glob("harbor/*/*/artifacts/**/*"):
-                if candidate.is_file() and not candidate.is_symlink():
-                    relative = candidate.relative_to(root).as_posix()
-                    if hashlib.sha256(relative.encode()).hexdigest()[:24] == file_id:
-                        artifact = {"name": relative, "deleted": False}
-                        break
         if not artifact:
             raise ServiceError("artifact_missing", "Artifact not found", 404)
         if artifact["deleted"]:
@@ -325,19 +330,43 @@ class Evidence:
             raise ServiceError("artifact_missing", "Artifact unavailable", 404)
         return path
 
+    def artifact_cleanup_path(self, run_id, file_id):
+        """Resolve an opaque artifact id for cleanup, without displaying evidence."""
+        root = self.store.path(run_id)
+        for candidate in root.glob("harbor/*/*/artifacts/**/*"):
+            if (
+                candidate.is_file()
+                and not candidate.is_symlink()
+                and candidate.resolve().is_relative_to(root.resolve())
+            ):
+                relative = candidate.relative_to(root).as_posix()
+                if hashlib.sha256(relative.encode()).hexdigest()[:24] == file_id:
+                    return candidate
+        raise ServiceError("artifact_missing", "Artifact unavailable", 404)
+
+    def artifact_download(self, run_id, file_id):
+        import shutil
+        import tempfile
+
+        with self.store.control(), self.store.evidence(run_id):
+            path = self.artifact_path(run_id, file_id)
+            stream = tempfile.TemporaryFile()  # noqa: SIM115 - ownership passes to the HTTP stream
+            try:
+                with path.open("rb") as source:
+                    shutil.copyfileobj(source, stream)
+                size = stream.tell()
+                stream.seek(0)
+                return stream, size, path.name
+            except BaseException:
+                stream.close()
+                raise
+
     def delete_artifact(self, actor, run_id, file_id):
         from harbor_helper.service.permissions import management_admin
-
-        management_admin(actor, "recycle_all")
         from harbor_helper.service.recycle import Recycle
 
-        try:
-            with self.store.evidence(run_id, blocking=False):
-                return Recycle(self).move(actor, "artifact", run_id + ":" + file_id)
-        except BlockingIOError:
-            raise ServiceError(
-                "evidence_busy", "Evidence maintenance active; retry later", 409
-            ) from None
+        management_admin(actor, "recycle_all")
+        return Recycle(self).move(actor, "artifact", run_id + ":" + file_id)
 
     def _delete_artifact(self, actor, run_id, file_id):
         row = self.store.get(run_id)

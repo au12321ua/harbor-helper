@@ -100,7 +100,6 @@ export function initialDraft(catalog: Catalog, entry?: NewEntry): Draft {
     dataset_source_version_id: "",
     dataset_id:
       catalog.settings.default_dataset_id ||
-      catalog.datasets.find((d) => d.ready && d.enabled !== false)?.id ||
       "",
     task: "",
     agent: "opencode",
@@ -132,9 +131,13 @@ export function problems(
   catalog: Catalog,
 ): Partial<Record<DraftField, string>> {
   const issues: Partial<Record<DraftField, string>> = {};
-  const dataset = catalog.datasets.find(
+  const identity = catalog.datasets.find(
     (d) => d.id === draft.dataset_id && d.ready && d.enabled !== false,
   );
+  const version = identity?.source_versions?.find((v) => v.id === draft.dataset_source_version_id);
+  const dataset = version && identity ? {...identity, tasks: version.tasks} : identity;
+  if (draft.dataset_source_version_id && !version)
+    issues.dataset_source_version_id = "来源版本不可用，请明确重选";
   if (!dataset)
     issues.dataset_id =
       draft.dataset_id === undefined

@@ -3917,6 +3917,37 @@
     "MergePreview": {
       "additionalProperties": false,
       "properties": {
+        "defaults": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Defaults",
+          "type": "object"
+        },
+        "drafts": {
+          "items": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "title": "Drafts",
+          "type": "array"
+        },
         "parameters": {
           "items": {
             "additionalProperties": {
@@ -3946,6 +3977,17 @@
           "title": "Target",
           "type": "string"
         },
+        "team_default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Team Default"
+        },
         "versions": {
           "items": {
             "additionalProperties": {
@@ -3962,7 +4004,10 @@
         "target",
         "revision",
         "versions",
-        "parameters"
+        "parameters",
+        "defaults",
+        "team_default",
+        "drafts"
       ],
       "title": "MergePreview",
       "type": "object"
@@ -5270,6 +5315,10 @@
           ],
           "title": "Finished"
         },
+        "frozen_name": {
+          "title": "Frozen Name",
+          "type": "string"
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -5310,6 +5359,30 @@
             }
           ],
           "title": "Reason"
+        },
+        "request_group": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Group"
         },
         "started": {
           "anyOf": [
@@ -5355,6 +5428,8 @@
       "required": [
         "id",
         "name",
+        "frozen_name",
+        "request_group",
         "dataset_name",
         "status",
         "created",

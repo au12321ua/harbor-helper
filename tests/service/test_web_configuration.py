@@ -70,6 +70,27 @@ def web(tmp_path, monkeypatch):
             "tasks": [{"name": "answer", "package": "team/answer", "ref": "sha256:" + "c" * 64}],
         },
     )
+    monkeypatch.setattr(
+        "harbor_helper.service.sources.source_call",
+        lambda reference, **kw: (
+            {
+                "package": "team/data",
+                "versions": [
+                    {"digest": SOURCE.split("@")[1], "revision": 1, "tags": [], "published": ""}
+                ],
+                "truncated": False,
+                "possibly_incomplete": True,
+                "limit": 200,
+            }
+            if kw.get("action") == "versions"
+            else {
+                "resolved": SOURCE,
+                "tasks": [
+                    {"name": "answer", "package": "team/answer", "ref": "sha256:" + "c" * 64}
+                ],
+            }
+        ),
+    )
     return data, app, client
 
 
@@ -80,10 +101,22 @@ def create_catalog(web):
         headers=WRITE,
         json={"name": "Answer", "reference": "team/data@1"},
     ).json()
-    dataset = client.post(
-        f"/api/v1/admin/catalog/dataset/{dataset['id']}/verify", headers=WRITE
+    assert (
+        client.post(
+            f"/api/v1/admin/catalog/dataset/{dataset['id']}/verify", headers=WRITE
+        ).status_code
+        == 409
+    )
+    preview = client.post(
+        f"/api/v1/management/datasets/{dataset['id']}/preview",
+        headers=WRITE,
+        json={"digest": SOURCE.split("@")[1]},
     ).json()
-    assert dataset["status"] == "verified"
+    confirmed = client.post(
+        "/api/v1/management/datasets/confirm", headers=WRITE, json={"preview_id": preview["id"]}
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    dataset = _app.configuration.ready_dataset(dataset["id"])
     return dataset
 
 
@@ -224,10 +257,15 @@ def test_native_dataset_references_resolve_and_freeze_digest(web, ref):
     assert response.status_code == 200
     dataset = response.json()
     assert dataset["reference"] == (ref if "@" in ref else ref + "@latest")
-    checked = client.post(
-        f"/api/v1/admin/catalog/dataset/{dataset['id']}/verify", headers=WRITE
+    preview = client.post(
+        f"/api/v1/management/datasets/{dataset['id']}/preview",
+        headers=WRITE,
+        json={"digest": SOURCE.split("@")[1]},
     ).json()
-    assert checked["status"] == "verified" and checked["resolved"] == SOURCE
+    checked = client.post(
+        "/api/v1/management/datasets/confirm", headers=WRITE, json={"preview_id": preview["id"]}
+    )
+    assert checked.status_code == 200 and checked.json()["resolved"] == SOURCE
     submission = app.accept(
         data.users()[1],
         {"dataset_id": dataset["id"], "task": "answer", "agent": "oracle"},

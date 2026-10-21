@@ -86,7 +86,17 @@ def register(app, deps):
     ):
         if kind != "dataset":
             raise ServiceError("catalog_kind", "Unknown catalog kind", 404)
-        result = deps.application.configuration.verify(kind, object_id)
+        try:
+            selected = deps.application.configuration.ready_dataset(object_id)
+        except ServiceError:
+            raise ServiceError(
+                "dataset_version_selection",
+                "请在请求与目录管理中查询版本、预览并确认；手填引用不能导入新版本",
+                409,
+            ) from None
+        result = deps.application.configuration.verify(
+            kind, object_id, fixed_reference=selected["resolved"]
+        )
         deps.data.event(user, "verify_" + kind, object_id)
         return result
 

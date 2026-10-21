@@ -29,13 +29,23 @@ class TeamConfiguration:
                 version INTEGER PRIMARY KEY, enabled INTEGER NOT NULL,
                 nonce BLOB NOT NULL, ciphertext BLOB NOT NULL, updated_at REAL)""")
 
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS configuration_settings (id INTEGER PRIMARY KEY CHECK(id=1), config TEXT NOT NULL)"
+            )
+            path = self.data.root / "web.json"
+            db.execute(
+                "INSERT OR IGNORE INTO configuration_settings VALUES(1,?)",
+                (json.dumps(read_json(path) if path.exists() else {}),),
+            )
             columns = {row["name"] for row in db.execute("PRAGMA table_info(source_credentials)")}
             if "updated_at" not in columns:
                 db.execute("ALTER TABLE source_credentials ADD COLUMN updated_at REAL")
 
     def settings(self):
-        path = self.data.root / "web.json"
-        return read_json(path) if path.exists() else {}
+        with self.store.connect() as db:
+            return json.loads(
+                db.execute("SELECT config FROM configuration_settings WHERE id=1").fetchone()[0]
+            )
 
     @wake_after
     def save_settings(self, value):
@@ -50,8 +60,17 @@ class TeamConfiguration:
             self.ready_dataset(value["default_dataset_id"])
         if value.get("default_model_profile"):
             self.data.object("profile", value["default_model_profile"])
-        settings = {**self.settings(), **value}
-        write_json(self.data.root / "web.json", settings)
+        with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            settings = {
+                **json.loads(
+                    db.execute("SELECT config FROM configuration_settings WHERE id=1").fetchone()[0]
+                ),
+                **value,
+            }
+            db.execute(
+                "UPDATE configuration_settings SET config=? WHERE id=1", (json.dumps(settings),)
+            )
         return settings
 
     def hub_status(self):
@@ -125,6 +144,15 @@ class TeamConfiguration:
                 )
 
                 available(db, "dataset", object_id)
+                if db.execute("SELECT 1 FROM dataset_aliases WHERE id=?", (object_id,)).fetchone():
+                    raise ServiceError("dataset_alias", "请修改合并后的目标数据集", 409)
+                identity = db.execute(
+                    "SELECT source FROM dataset_identities WHERE id=?", (object_id,)
+                ).fetchone()
+                if identity and identity["source"] != value["reference"].split("@")[0]:
+                    raise ServiceError(
+                        "dataset_source_fixed", "数据集来源不可更改，请新增另一来源", 409
+                    )
                 value["name"] = reserve_name(db, "dataset", object_id, value["name"])
                 source = value["reference"].split("@")[0]
                 old = db.execute(
@@ -183,14 +211,14 @@ class TeamConfiguration:
             ) from None
         return self.persist(kind, value)
 
-    def verify(self, kind, object_id):
+    def verify(self, kind, object_id, *, fixed_reference=None):
         with self.data.store.control():
             value = self.data.object(kind, object_id)
             initial_version = value["version"]
             hub = self.hub_status()
             source_key = self.hub_key()
         try:
-            value.update(source_call(value["reference"], key=source_key))
+            value.update(source_call(fixed_reference or value["reference"], key=source_key))
             value["source_version"] = hub["version"] if hub["mode"] == "team" else None
             value.update(status="verified", checked=time.time(), error=None)
         except ServiceError as error:
@@ -255,6 +283,10 @@ class TeamConfiguration:
             except ServiceError:
                 pass
         with self.store.connect() as db:
+            alias = db.execute(
+                "SELECT target FROM dataset_aliases WHERE id=?", (object_id,)
+            ).fetchone()
+            object_id = alias[0] if alias else object_id
             ids = [
                 object_id,
                 *[
@@ -267,6 +299,7 @@ class TeamConfiguration:
             rows = db.execute(
                 "SELECT * FROM objects WHERE kind='author_parameters' ORDER BY version DESC"
             ).fetchall()
+            rows = sorted(rows, key=lambda r: (r["id"] == object_id, r["version"]), reverse=True)
             values = [
                 {**json.loads(r["config"]), "id": object_id, "version": r["version"]}
                 for r in rows

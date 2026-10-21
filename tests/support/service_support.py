@@ -59,8 +59,10 @@ def make_data(tmp_path):
 
 def configure_default_dataset(data):
     # Tests using an implicit source choose an explicit, checked synthetic default.
-    app = Application(data.root)
-    default = app.configuration.persist(
+    from harbor_helper.service.configuration import TeamConfiguration
+
+    configuration = TeamConfiguration(data)
+    default = configuration.persist(
         "dataset",
         {
             "id": "fixture-default",
@@ -72,11 +74,11 @@ def configure_default_dataset(data):
             "tasks": [{"name": "box", "package": "test/box", "ref": "sha256:fixed"}],
         },
     )
-    app.configuration.persist(
+    configuration.persist(
         "author_parameters",
         {"id": default["id"], "source": default["resolved"], "values": {}, "status": "checked"},
     )
-    app.configuration.save_settings({"default_dataset_id": default["id"]})
+    configuration.save_settings({"default_dataset_id": default["id"]})
 
 
 def client(data, username="alice"):

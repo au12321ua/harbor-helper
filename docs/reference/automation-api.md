@@ -15,7 +15,7 @@
 
 元数据字段：`id,user_id,name,scopes,created,expires,revoked,last_used`；时间为 Unix 秒，尚未撤销/使用时为 null。`last_used` 表示成功认证时间，包含随后被 scope 拒绝的请求，不等同于成功执行。签发、撤销、写操作保留审计身份。账户停用、凭证到期/撤销、密码重置立即拒绝后续认证；恢复账户不恢复被撤销凭证。密码变更及管理员密码重置同时使旧浏览器会话失效。
 
-固定能力为 `read`、`attachments`、`execute`、`cancel_own`、`evidence`，默认 `['read']`。`evidence` 还须同时选择 read 且账户拥有完整资料资格；其余能力独立勾选。`execute` 不隐含 read；按原键找回需要 execute。`GET /me` 仅返回已认证身份和能力，对所有有效凭证可用，供 CLI 安全配置验证。授权只属于该用户已有能力的子集；管理员签发的凭证也按成员权限执行，不能维护别人附件、取消别人任务或调用管理员/账户/凭证管理操作。持有凭证不能再铸造凭证或扩大权限。服务端按固定操作表鉴权，新或未列操作默认只允许会话，客户端隐藏按钮不是授权边界。
+固定能力为 `read`、`attachments`、`execute`、`cancel_own`、`evidence`、`attachment_download`、`recycle_own`、`datasets_manage`、`recycle_all`、`purge`，默认 `['read']`。`evidence` 还须同时选择 read 且账户拥有完整资料资格；其余能力独立勾选。`execute` 不隐含 read；按原键找回需要 execute。`GET /me` 仅返回已认证身份和能力，对所有有效凭证可用，供 CLI 安全配置验证。授权只属于该用户已有能力的子集；管理员签发的凭证对旧操作仍按成员权限执行，不能靠旧 attachments/cancel_own 维护或取消别人对象；新增管理 scope 同时核验当前真实管理员身份，账户/凭证管理仍只允许会话。持有凭证不能再铸造凭证或扩大权限。服务端按固定操作表鉴权，新或未列操作默认只允许会话，客户端隐藏按钮不是授权边界。
 
 自动化 HTTP 使用 `Authorization: Bearer <私有值>`；写请求另需 `X-Requested-With: harbor-helper`，有 Origin 时须与服务一致。不得将原值放 URL、命令参数、shell history、附件、日志或报告。HTTPS/代理日志由部署环境负责。请求原值仅在请求内存中用于验证/扫描，worker、env、冻结输入只得到非秘密 `access_credential_id`；该字段与模型 `credential_id/version` 分开。复制父实验输入时重新记录当前用户和访问凭证 ID；网页受理为 null（冻结绑定可能省略该键），不继承父授权。
 
@@ -49,7 +49,7 @@
 
 `Discovery.allowed_operations` 使用上述操作标识，另包括有明确能力的旧兼容操作：me/catalog/usage/runs/submission/run/report/download_report/compare。这些别名保留 HTTP 兼容，但catalog 保留发现投影，run/list/report 与网页共用安全业务事实；read PAT 可读取与网页相同的安全日志、产物和诊断/比较事实；更完整资料需要账户授信及 read+evidence。机器契约优先使用 `/machine/...`。旧会话远程 profile 保留原角色及旧响应。
 
-`SubmissionInput` 严格拒绝未知字段和错误类型，身份不由客户端提交。可用字段：`dataset_id`（网页配置的数据集，优先）、`dataset`（旧显式引用）、`model_profile`、`agent`（oracle/opencode）、`attachment_version_id`、`attempts`、`concurrency`、`wall_seconds`、`environment_build_timeout_multiplier`、`task`、`name`。数值为正整数且继续受现有团队限额校验；name≤128 字符。选择 task 使用任务名 glob；省略 task 选择整个数据集。模型实验选择方案，Oracle 显式选择 agent。省略附件字段是无附件基线；版本必须明确，不接受 latest，不自动沿用。dataset 验证/ready 仅表示当前配置的来源检查，不证明作者输入、Docker、Hub 或模型下一次一定可执行。
+`SubmissionInput` 严格拒绝未知字段和错误类型，身份不由客户端提交。可用字段：`dataset_id`（网页配置的数据集，优先）、`dataset`（旧显式引用）、`model_profile`、`agent`（oracle/opencode）、`attachment_version_id`、`attempts`、`concurrency`、`wall_seconds`、`environment_build_timeout_multiplier`、`task`、`name`、`dataset_source_version_id`、`source_request_id`、`independent`。数值为正整数且继续受现有团队限额校验；name≤128 字符。选择 task 使用任务名 glob；省略 task 选择整个数据集。模型实验选择方案，Oracle 显式选择 agent。省略附件字段是无附件基线；版本必须明确，不接受 latest，不自动沿用。dataset 验证/ready 仅表示当前配置的来源检查，不证明作者输入、Docker、Hub 或模型下一次一定可执行。
 
 `Accepted` 保留旧 id/status/request/run_id/parent/submitter/created/error 及附件字段，新增 user_id/access_credential_id。已安全检查的作者诊断、配置变更与网页一致。输入和输出的详细字段、null/可选规则以运行时 schema 为准；机器报告只给各任务的有效性、聚合评分、尝试奖励和安全失败类别。有效 0.0 是合法评分；缺评分为 missing_score；执行异常为 execution_failure，证据不足为 unknown，不凭 run status 推断评分。
 
@@ -116,3 +116,8 @@ harbor-helper --remote-profile research service report hh-RUN --json
 不认识 admission.json、成员字段和就绪门的旧代码会忽略这些保护；**暂停保护不能靠旧代码继续维持**。需先停止外部新写入口、确认全部写者与队列/资源状态，再按固定旧版本执行回退，保留新文件和所有受理/幂等/历史数据；不可删文件开放、重 init、更换 master 或用旧备份覆盖新业务。恢复支持维护门的版本后读取原持久暂停值。暂停/就绪不替代一致备份和独立 scheduler 停机确认。
 
 SDK、MCP、完整资料权限与下载范围见 [使用指南](../guides/sdk-mcp.md)。
+
+
+## 管理增强与下载
+
+新增管理HTTP路径、CLI/SDK/MCP对照、scope/角色/归属校验和两阶段回收见[管理指南](../guides/management.md)。machine schema 包含这些明确授权的管理操作，未全局开放管理员API。回收期间同键重放409；永久删除后仅墓碑，旧rejected不能重新裁决，恢复后仍可按原语义重新裁决。下载指定附件版本需 attachment_download，独立于 evidence。

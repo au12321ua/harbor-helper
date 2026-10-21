@@ -49,6 +49,7 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
   const [draft, setDraft] = useState(() => initialDraft(data, entry));
   const submitKey = useRef(newIdempotencyKey());
   const navigate = useNavigate();
+  const [independent, setIndependent] = useState(false);
   const [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>();
   const change = (field: DraftField, value: unknown) => {
@@ -165,7 +166,7 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
               {
                 ...submissionBody(draft),
                 ...(entry?.kind === "history" && entry.sourceId
-                  ? { source_request_id: entry.sourceId }
+                  ? { source_request_id: entry.sourceId, independent }
                   : {}),
               },
               submitKey.current,
@@ -194,6 +195,12 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
                       </AlertDescription>
                     </Alert>
                   ) : null}
+                  {entry?.kind === "history" && entry.sourceId && (
+                    <SelectField label="请求关联" name="request_relation" value={independent ? "independent" : "extend"}
+                      onChange={(value) => {setIndependent(value === "independent"); submitKey.current = newIdempotencyKey();}}>
+                      <option value="extend">延伸原请求组</option><option value="independent">另建独立请求组</option>
+                    </SelectField>
+                  )}
                   <Field>
                     <FieldLabel htmlFor="experiment_name">
                       实验名称（可选）

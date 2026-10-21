@@ -24,8 +24,8 @@ def test_reuse_export_production_page_wiring(http_service, request):
             {
                 "id": identity,
                 "name": identity,
-                "reference": "fixture/data@1",
-                "resolved": "fixture/data@1",
+                "reference": f"fixture/{identity}@1",
+                "resolved": f"fixture/{identity}@sha256:" + "a" * 64,
                 "status": "verified",
                 "enabled": True,
                 "tasks": [{"name": "fixture/box", "package": "fixture/box", "ref": "sha256:fixed"}],

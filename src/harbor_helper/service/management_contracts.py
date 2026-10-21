@@ -123,6 +123,9 @@ class MergePreview(BaseModel):
     revision: str
     versions: list[dict[str, str]]
     parameters: list[dict[str, str | int]]
+    defaults: dict[str, str | None]
+    team_default: str | None
+    drafts: list[dict[str, str | int]]
 
 
 class Merged(BaseModel):

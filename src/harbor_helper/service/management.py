@@ -9,7 +9,9 @@ from harbor_helper.service.primitives import ServiceError
 
 class Management:
     def __init__(self, app):
-        self.app = app
+        import weakref
+
+        self.app = weakref.proxy(app)
         self.data = app.data
         self.store = app.store
 
@@ -144,6 +146,15 @@ class Management:
                     (source, target),
                 )
             ]
+            defaults = {i["id"]: i["default_version"] for i in identities}
+            drafts = [
+                dict(r)
+                for r in db.execute(
+                    "SELECT id,version,config FROM objects WHERE kind='dataset' AND id IN (?,?) AND (json_extract(config,'$.resolved') IS NULL OR json_extract(config,'$.status')!='verified') ORDER BY id,version",
+                    (source, target),
+                )
+            ]
+            settings = self.app.configuration.settings()
             from harbor_helper.persistence.files import digest
 
             return {
@@ -151,7 +162,12 @@ class Management:
                 "target": target,
                 "versions": versions,
                 "parameters": parameters,
-                "revision": digest([versions, parameters]),
+                "defaults": defaults,
+                "team_default": settings.get("default_dataset_id"),
+                "drafts": drafts,
+                "revision": digest(
+                    [versions, parameters, defaults, drafts, settings.get("default_dataset_id")]
+                ),
             }
 
     def merge(self, actor, source, target, revision, parameter_choices):
@@ -189,6 +205,10 @@ class Management:
             with self.store.connect() as db:
                 from harbor_helper.service.management_data import allocate
 
+                default_source = db.execute(
+                    "SELECT resolved FROM dataset_sources WHERE id=?",
+                    (preview["defaults"].get(source),),
+                ).fetchone()
                 for version in preview["versions"]:
                     if version["dataset_id"] != source:
                         continue
@@ -219,15 +239,23 @@ class Management:
                         (target,),
                     ).fetchone()[0]
                     value = json.loads(selected["config"])
-                    value["merged_from"] = {"id": selected["id"], "version": selected["version"]}
                     db.execute(
                         "INSERT INTO objects VALUES(?,?,?,?)",
                         ("author_parameters", target, number, json.dumps(value)),
                     )
-            settings = self.app.configuration.settings()
-            if settings.get("default_dataset_id") == source:
-                # Clear an ambiguous default rather than select an arbitrary target version.
-                self.app.configuration.save_settings({"default_dataset_id": None})
+                if preview["team_default"] == source:
+                    mapped = db.execute(
+                        "SELECT id FROM dataset_sources WHERE dataset_id=? AND resolved=?",
+                        (target, default_source[0] if default_source else None),
+                    ).fetchone()
+                    db.execute(
+                        "UPDATE dataset_identities SET default_version=? WHERE id=?",
+                        (mapped[0] if mapped else None, target),
+                    )
+                    db.execute(
+                        "UPDATE configuration_settings SET config=json_set(config,'$.default_dataset_id',?) WHERE id=1",
+                        (target if mapped else None,),
+                    )
         return {"merged": True, "target": target}
 
     def versions(self, actor, dataset_id):

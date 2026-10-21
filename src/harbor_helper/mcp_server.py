@@ -74,6 +74,11 @@ def serve(profile_name, upload_root, download_root):
     def list_requests():
         return call(client.list_requests)
 
+    @server.tool()
+    def register_dataset(name: str, reference: str):
+        """Register an author/package identity. Import a version with preview and confirm."""
+        return call(client.register_dataset, name, reference)
+
     @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
     def list_datasets():
         return call(client.list_datasets)

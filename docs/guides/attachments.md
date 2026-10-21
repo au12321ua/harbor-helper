@@ -22,7 +22,7 @@ ZIP 根目录仅支持 `skills/`、`sdk/`、`config/opencode.json` 和 `bootstra
 | 名称/说明/启用状态 | `PATCH /attachments/{attachment_id}` | 创建者或管理员 | JSON 中至少一个 `name/description/enabled` |
 | 版本停用/恢复 | `PATCH /attachments/{attachment_id}/versions/{version_id}` | 创建者或管理员 | JSON `{enabled: boolean}` |
 
-名称1–128字符，说明/发布说明最多4096字符，可重名；调用选择 ID。创建者账户被停用不会隐式停用附件，团队仍可复用，管理员仍可维护。版本字节、序号、摘要、发布者/时间及来源不可变；版本只允许变更启用状态。没有下载、覆盖或物理删除版本库接口。
+名称1–128字符，说明/发布说明最多4096字符；非空名称按 NFKC＋casefold 唯一，回收期间占名；调用选择 ID。创建者账户被停用不会隐式停用附件，团队仍可复用，管理员仍可维护。版本字节、序号、摘要、发布者/时间及来源不可变；版本只允许变更启用状态。版本不可覆盖；指定版本下载及回收/恢复/永久删除见管理指南。
 
 目录返回 `{attachments}`。每个附件含 `id,name,description,creator_id,creator,created,enabled,versions`；versions 按序号倒序排列，含 `id,attachment_id,number,bundle_id,digest,publisher_id,publisher,created,notes,source_version_id,enabled,availability`。时间为 Unix 秒，`availability` 为 `available/unavailable`，与启用状态分别表示。附件目录全量返回；机器实验历史与任务目录的分页见自动化 API。
 
@@ -59,6 +59,9 @@ harbor-helper --remote-profile team --json submit --agent oracle --attachment-ve
 
 ## 持久化与维护边界
 
-发布先校验并 fsync 私有 bundle 字节/目录，再用单一 SQLite 事务公开 bundle 行、身份、版本及幂等键；control 锁串行化序号与停用/受理。进程退出可能遗留无引用字节，但目录和任务选择只读已提交行。本版不自动回收这些孤立字节；日志/产物保留策略也不删除附件版本库。
+发布先校验并 fsync 私有 bundle 字节/目录，再用单一 SQLite 事务公开 bundle 行、身份、版本及幂等键；control 锁串行化序号与停用/受理。进程退出可能遗留无引用字节，但目录和任务选择只读已提交行。本版不自动回收这些孤立字节；日志/产物保留策略不自动删除附件版本库；管理员可通过回收站显式永久删除。
 
 升级与恢复按 [Web 维护指南](web-service.md#明确升级备份与回退)先停写，保全一致 state 与配对主密钥。旧代码可读表不代表兼容当前权限、停用和谱系；不能删除表或回放旧 WAL 来回退，也不能用过期备份覆盖新业务。
+
+
+请求组、固定版本选择、目录合并、团队附件下载与两阶段回收的当前行为见[请求、版本与回收管理](management.md)。附件停用仍允许下载；正常历史请求仍可使用自己的已验证快照重跑，目录回收不删除其独立副本。

@@ -109,6 +109,7 @@ SCHEMA_OPERATIONS.update(
         "recycle_purge",
         "inspect_author_inputs",
         "save_author_inputs",
+        "save_catalog",
     }
 )
 
