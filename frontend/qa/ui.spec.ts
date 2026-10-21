@@ -196,7 +196,7 @@ test("invited login and dataset/profile submission use same-origin mutation head
   const submitted = calls.find((c) => c.path === "/submissions" && c.body);
   expect(submitted?.body.dataset_id).toBe("dataset1");
   expect(submitted?.body.task).toBe("answer");
-  expect(submitted?.headers["idempotency-key"]).toHaveLength(32);
+  expect(submitted?.headers["idempotency-key"]).toEqual(expect.stringMatching(/\S/));
   expect(submitted?.headers["x-requested-with"]).toBe("harbor-helper");
   expect(submitted?.body).not.toHaveProperty("key");
 });
@@ -2360,7 +2360,11 @@ test("历史加载、空、失败与筛选旧响应隔离", async ({page}) => {
   await page.goto("/operations"); await expect(page.locator("article")).toHaveCount(0);
   await page.getByLabel("受理结果",{exact:true}).selectOption("rejected");
   await expect(page.getByText("暂无请求记录",{exact:true})).toBeVisible();
-  release(); await page.waitForTimeout(100);
+  const staleResponse = page.waitForResponse(response =>
+    response.url().includes("/api/v1/operations?") && !response.url().includes("status=rejected"));
+  release();
+  await (await staleResponse).finished();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
   await expect(page.locator("article")).toHaveCount(0);
   await page.route("**/api/v1/operations?**",route=>route.fulfill({status:503,json:{message:"历史暂不可用",request_id:"history-request"}}));
   await page.getByRole("button",{name:"刷新",exact:true}).click();

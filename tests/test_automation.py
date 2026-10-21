@@ -30,7 +30,7 @@ def test_issue_password_once_digest_metadata_and_lifecycle(data):
     c, p, value = issue(data)
     raw = value["token"]
     assert raw.startswith("hh_pat_v1_") and len(raw) == 53
-    assert 29.99 * 86400 < value["credential"]["expires"] - time.time() <= 30 * 86400
+    assert value["credential"]["expires"] - value["credential"]["created"] == 30 * 86400
     assert value["credential"]["scopes"] == ["read"]
     metadata = c.get("/api/v1/access-credentials").json()
     assert raw not in json.dumps(metadata) and "digest" not in json.dumps(metadata)

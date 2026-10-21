@@ -38,6 +38,7 @@ class Processes:
         with (package / "execution/sources.py").open("a") as f:
             f.write("""
 async def resolve_dataset(reference, target, task_filter=None):
+    (target.parents[2]/"prepare-entered").touch()
     while (target.parents[2]/"prepare-hold").exists():
         await __import__('asyncio').sleep(.05)
     target.mkdir()
@@ -122,6 +123,10 @@ subprocess.Popen = _launch_window
 """)
         with (package / "service/lifecycle.py").open("a") as f:
             f.write("""
+_original_fixture_prepare = prepare_one
+def prepare_one(store):
+    try:return _original_fixture_prepare(store)
+    finally:(store.root/"prepare-finished").touch()
 _original_fixture_maintenance = maintenance
 def maintenance(store):
     while (store.root/"maintenance-hold").exists():time.sleep(.02)

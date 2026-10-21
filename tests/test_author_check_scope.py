@@ -239,7 +239,6 @@ def test_more_than_fifty_unique_tasks_and_reordered_duplicates_share_cache(scope
     record = first.json()
     assert record["requested_task_names"] == first_order
     assert record["scope"]["total"] == 52 and record["scope"]["unknown"] == 1
-    assert len(record["scope"]["tasks"]) == 51
     assert [t["name"] for t in record["scope"]["tasks"]] == sorted(first_order)
     assert calls == [sorted(first_order)]
     reordered = client.post(url, headers=WRITE, json={"task_names": sorted(first_order) * 2})

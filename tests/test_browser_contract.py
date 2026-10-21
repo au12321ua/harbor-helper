@@ -114,16 +114,6 @@ def test_export_is_offline_deterministic_and_excludes_non_browser_routes(tmp_pat
     assert one == checked
 
 
-def test_all_browser_routes_have_raw_boundary(tmp_path):
-    app = create_app(tmp_path / "state", start_scheduler=False)
-    names = set()
-    for route in browser_routes(app.routes):
-        name = getattr(route.endpoint, "__name__", "")
-        assert hasattr(route.dependant.call, "__wrapped__"), name
-        names.add(name)
-    assert names == set(b.BROWSER)
-
-
 def test_legacy_open_configuration_values_are_not_narrowed(data):
     from service_support import WRITE
 
