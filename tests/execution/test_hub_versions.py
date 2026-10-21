@@ -87,3 +87,43 @@ def test_source_subprocess_uses_team_key_and_independent_home(monkeypatch):
     assert sources.source_call("team/data", key="fake-team-key", action="versions") == {
         "versions": []
     }
+
+
+def test_yanked_versions_are_excluded_and_cannot_be_previewed(monkeypatch, capsys):
+    async def package(self, **kwargs):
+        return {"type": "dataset"}
+
+    async def versions(self, **kwargs):
+        return {}, [
+            {
+                "revision": 1,
+                "content_hash": "sha256:" + "a" * 64,
+                "tags": [],
+                "yanked_at": "withdrawn",
+            },
+            {"revision": 2, "content_hash": "sha256:" + "b" * 64, "tags": [], "yanked_at": None},
+        ]
+
+    async def resolve(self, *args):
+        return {"type": "dataset"}, {"yanked_at": "withdrawn"}
+
+    monkeypatch.setattr(RegistryDB, "get_package", package)
+    monkeypatch.setattr(RegistryDB, "list_package_versions", versions)
+    monkeypatch.setattr(RegistryDB, "resolve_dataset_version", resolve)
+    for action in ("versions", "preview"):
+        monkeypatch.setattr(
+            sources.sys,
+            "stdin",
+            io.StringIO(
+                json.dumps(
+                    {"reference": "team/data@sha256:" + "a" * 64, "target": None, "action": action}
+                )
+            ),
+        )
+        with ExitStack() as leases:
+            sources._main(leases, None)
+        value = json.loads(capsys.readouterr().out)
+        if action == "versions":
+            assert [v["revision"] for v in value["versions"]] == [2]
+        else:
+            assert value["error"] == "source_version_unavailable"

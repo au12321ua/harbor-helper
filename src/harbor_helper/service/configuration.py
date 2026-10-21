@@ -59,7 +59,8 @@ class TeamConfiguration:
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if value.get("default_dataset_id"):
-                self.ready_dataset(value["default_dataset_id"])
+                selected = self.ready_dataset(value["default_dataset_id"])
+                value = {**value, "default_dataset_id": selected["id"]}
             if value.get("default_model_profile"):
                 self.data.object("profile", value["default_model_profile"])
             settings = {
@@ -249,6 +250,9 @@ class TeamConfiguration:
             ).fetchone()
             selected = version_id or (identity["default_version"] if identity else None)
             if selected:
+                from harbor_helper.service.management_data import canonical_version
+
+                selected = canonical_version(db, selected)
                 available(db, "dataset_version", selected)
                 version = db.execute(
                     "SELECT * FROM dataset_sources WHERE id=? AND (dataset_id=? OR dataset_id IN (SELECT id FROM dataset_aliases WHERE target=?))",

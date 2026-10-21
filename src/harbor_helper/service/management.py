@@ -107,6 +107,13 @@ class Management:
     def default(self, actor, dataset_id, version_id, team_default=False):
         management_admin(actor, "datasets_manage")
         with self.store.control(), self.store.connect() as db:
+            from harbor_helper.service.management_data import canonical_version
+
+            alias = db.execute(
+                "SELECT target FROM dataset_aliases WHERE id=?", (dataset_id,)
+            ).fetchone()
+            dataset_id = alias[0] if alias else dataset_id
+            version_id = canonical_version(db, version_id)
             available(db, "dataset", dataset_id)
             available(db, "dataset_version", version_id)
             if not db.execute(
@@ -144,6 +151,8 @@ class Management:
                     (source, target),
                 )
             ]
+            for version in versions:
+                available(db, "dataset_version", version["id"])
             parameters = [
                 dict(r)
                 for r in db.execute(
@@ -224,7 +233,17 @@ class Management:
                         "SELECT id FROM dataset_sources WHERE dataset_id=? AND resolved=?",
                         (target, old["resolved"]),
                     ).fetchone()
-                    if not exists:
+                    if exists:
+                        db.execute(
+                            "INSERT OR REPLACE INTO dataset_version_aliases VALUES(?,?)",
+                            (old["id"], exists[0]),
+                        )
+                        db.execute(
+                            "UPDATE dataset_version_aliases SET target=? WHERE target=?",
+                            (exists[0], old["id"]),
+                        )
+                        db.execute("DELETE FROM dataset_sources WHERE id=?", (old["id"],))
+                    else:
                         db.execute(
                             "UPDATE dataset_sources SET dataset_id=?,number=? WHERE id=?",
                             (target, allocate(db, "dataset", target), old["id"]),
@@ -269,6 +288,10 @@ class Management:
 
         with self.store.connect() as db:
             available(db, "dataset", dataset_id)
+            alias = db.execute(
+                "SELECT target FROM dataset_aliases WHERE id=?", (dataset_id,)
+            ).fetchone()
+            dataset_id = alias[0] if alias else dataset_id
             row = db.execute(
                 "SELECT source FROM dataset_identities WHERE id=?", (dataset_id,)
             ).fetchone()
@@ -288,6 +311,10 @@ class Management:
             raise ServiceError("dataset_digest", "请选择不可变来源摘要")
         with self.store.connect() as db:
             available(db, "dataset", dataset_id)
+            alias = db.execute(
+                "SELECT target FROM dataset_aliases WHERE id=?", (dataset_id,)
+            ).fetchone()
+            dataset_id = alias[0] if alias else dataset_id
             identity = db.execute(
                 "SELECT * FROM dataset_identities WHERE id=?", (dataset_id,)
             ).fetchone()

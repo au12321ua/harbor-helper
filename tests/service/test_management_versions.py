@@ -72,7 +72,9 @@ def test_preview_tag_movement_does_not_change_digest_or_default(data, monkeypatc
     assert len(calls) == before
 
 
-def test_conversion_keeps_all_original_revisions_and_merges_explicit_parameter_choice(data):
+def test_conversion_keeps_all_original_revisions_and_merges_explicit_parameter_choice(
+    data, monkeypatch
+):
     app = Application(data.root)
     admin = next(u for u in data.users() if u["role"] == "admin")
     resolved = "team/legacy@sha256:" + "b" * 64
@@ -127,6 +129,23 @@ def test_conversion_keeps_all_original_revisions_and_merges_explicit_parameter_c
     )
     assert app.configuration.author_parameters("legacy-b", resolved)["values"] == {"A": "legacy-a"}
     assert app.configuration.ready_dataset("legacy-a")["id"] == "legacy-b"
+    old_version_id = next(row[0] for row in after if row[1] == "legacy-a")
+    canonical = app.configuration.ready_dataset("legacy-a", old_version_id)["source_version_id"]
+    assert canonical != old_version_id
+    version_event = app.recycle.move(admin, "dataset_version", old_version_id)
+    assert version_event["object_id"] == canonical
+    for identity, version_id in (("legacy-a", old_version_id), ("legacy-b", canonical)):
+        with pytest.raises(ServiceError, match="回收站"):
+            app.configuration.ready_dataset(identity, version_id)
+
+    def forbidden_hub(*args, **kwargs):
+        raise AssertionError("Recycled aliases must be refused before any Hub access")
+
+    monkeypatch.setattr("harbor_helper.service.sources.source_call", forbidden_hub)
+    with pytest.raises(ServiceError, match="回收站"):
+        app.management.preview(admin, "legacy-a", resolved.split("@")[1])
+    app.recycle.restore(admin, version_event["id"])
+    app.management.default(admin, "legacy-b", canonical)
     with data.store.connect() as db:
         versions = [m[1] for m in app.recycle.members(db, "dataset", "legacy-b")[2][1:]]
     event = app.recycle.move(admin, "dataset", "legacy-b", versions)
@@ -140,6 +159,17 @@ def test_conversion_keeps_all_original_revisions_and_merges_explicit_parameter_c
     ][0]["id"]
     app.management.default(admin, "legacy-b", selected)
     assert app.configuration.ready_dataset("legacy-a")["id"] == "legacy-b"
+    version_event = app.recycle.move(admin, "dataset_version", old_version_id)
+    assert app.recycle.purge(admin, version_event["id"], "alias-version-purge")["state"] == "purged"
+    with pytest.raises(ServiceError) as deleted:
+        app.configuration.ready_dataset("legacy-a", old_version_id)
+    assert deleted.value.status == 410
+    with data.store.connect() as db:
+        assert not db.execute(
+            "SELECT 1 FROM objects WHERE id IN ('legacy-a','legacy-b') AND json_extract(config,'$.source')=?",
+            (resolved,),
+        ).fetchone()
+        versions = [m[1] for m in app.recycle.members(db, "dataset", "legacy-b")[2][1:]]
     event = app.recycle.move(admin, "dataset", "legacy-b", versions)
     assert app.recycle.purge(admin, event["id"], "merged-purge")["state"] == "purged"
     with data.store.connect() as db:

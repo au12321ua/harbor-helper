@@ -25,7 +25,9 @@ def reserve_name(db, kind, object_id, name, *, converting=False):
             break
         if not converting:
             raise ServiceError(
-                "name_conflict", "名称已被使用（包括回收站）；请恢复原对象或改名", 409
+                "name_conflict",
+                f"名称已被使用（包括回收站；对象 {old['id']}）；请恢复原对象或改名",
+                409,
             )
         suffix += 1
         name = original[:85] + f"（升级前·{object_id[:12]}·{suffix}）"
@@ -105,6 +107,7 @@ def initialize(store):
                 id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL, source_version INTEGER,
                 config TEXT NOT NULL, created REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS dataset_aliases (id TEXT PRIMARY KEY, target TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS dataset_version_aliases (id TEXT PRIMARY KEY, target TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS recycle_events (
                 id TEXT PRIMARY KEY, kind TEXT NOT NULL, object_id TEXT NOT NULL,
                 owner_id TEXT NOT NULL, actor_id TEXT NOT NULL, created REAL NOT NULL,
@@ -270,7 +273,19 @@ def remember_dataset(db, dataset_id, value):
     return version_id
 
 
+def canonical_version(db, object_id):
+    row = db.execute(
+        "SELECT target FROM dataset_version_aliases WHERE id=?", (object_id,)
+    ).fetchone()
+    return row[0] if row else object_id
+
+
 def state(db, kind, object_id):
+    if kind == "dataset_version":
+        object_id = canonical_version(db, object_id)
+    elif kind == "dataset":
+        alias = db.execute("SELECT target FROM dataset_aliases WHERE id=?", (object_id,)).fetchone()
+        object_id = alias[0] if alias else object_id
     row = db.execute(
         "SELECT state FROM recycled_objects WHERE kind=? AND id=?", (kind, object_id)
     ).fetchone()

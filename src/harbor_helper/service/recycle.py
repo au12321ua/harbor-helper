@@ -8,7 +8,7 @@ import uuid
 from contextlib import ExitStack
 
 from harbor_helper.persistence.statuses import TERMINAL
-from harbor_helper.service.management_data import available, request_id
+from harbor_helper.service.management_data import available, canonical_version, request_id
 from harbor_helper.service.permissions import management_admin
 from harbor_helper.service.primitives import ServiceError
 
@@ -33,6 +33,8 @@ class Recycle:
             management_admin(actor, "purge")
 
     def members(self, db, kind, object_id):
+        if kind == "dataset_version":
+            object_id = canonical_version(db, object_id)
         if kind == "request":
             object_id = request_id(db, object_id)
             row = db.execute("SELECT * FROM submissions WHERE id=?", (object_id,)).fetchone()
@@ -135,6 +137,8 @@ class Recycle:
             db.execute("BEGIN IMMEDIATE")
             if kind == "request":
                 object_id = request_id(db, object_id)
+            elif kind == "dataset_version":
+                object_id = canonical_version(db, object_id)
             current = db.execute(
                 "SELECT * FROM recycled_objects WHERE kind=? AND id=?", (kind, object_id)
             ).fetchone()
@@ -457,16 +461,16 @@ class Recycle:
                     except BlockingIOError:
                         return "待清理：作者参数检查正在使用缓存"
                     db.execute(
-                        "DELETE FROM objects WHERE kind='author_parameters' AND id=? AND json_extract(config,'$.source')=?",
-                        (row["dataset_id"], row["resolved"]),
+                        "DELETE FROM objects WHERE kind='author_parameters' AND (id=? OR id IN (SELECT id FROM dataset_aliases WHERE target=?)) AND json_extract(config,'$.source')=?",
+                        (row["dataset_id"], row["dataset_id"], row["resolved"]),
                     )
                     db.execute(
-                        "DELETE FROM objects WHERE kind='dataset' AND id=? AND json_extract(config,'$.resolved')=?",
-                        (row["dataset_id"], row["resolved"]),
+                        "DELETE FROM objects WHERE kind='dataset' AND (id=? OR id IN (SELECT id FROM dataset_aliases WHERE target=?)) AND json_extract(config,'$.resolved')=?",
+                        (row["dataset_id"], row["dataset_id"], row["resolved"]),
                     )
                     db.execute(
-                        "DELETE FROM dataset_previews WHERE dataset_id=? AND json_extract(config,'$.resolved')=?",
-                        (row["dataset_id"], row["resolved"]),
+                        "DELETE FROM dataset_previews WHERE (dataset_id=? OR dataset_id IN (SELECT id FROM dataset_aliases WHERE target=?)) AND json_extract(config,'$.resolved')=?",
+                        (row["dataset_id"], row["dataset_id"], row["resolved"]),
                     )
                     db.execute("DELETE FROM dataset_sources WHERE id=?", (object_id,))
                     shared = db.execute(
