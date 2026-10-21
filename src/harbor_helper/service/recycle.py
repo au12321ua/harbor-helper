@@ -43,7 +43,17 @@ class Recycle:
                     run = self.store.get(row["run_id"])
                     if run["status"] not in TERMINAL:
                         raise ServiceError("resource_active", "执行资源尚未确认释放", 409)
-                return object_id, row["user_id"], [("request", object_id)]
+                members = [("request", object_id)]
+                if row["run_id"]:
+                    prefix = row["run_id"] + ":"
+                    members += [
+                        ("artifact", r[0])
+                        for r in db.execute(
+                            "SELECT id FROM recycled_objects WHERE kind='artifact' AND state='recycled' AND substr(id,1,?)=?",
+                            (len(prefix), prefix),
+                        )
+                    ]
+                return object_id, row["user_id"], members
             row = db.execute(
                 "SELECT * FROM operations WHERE id=? AND operation IN ('submit','rerun','retry','recover')",
                 (object_id,),
@@ -108,7 +118,13 @@ class Recycle:
                 available(db, "request", request_id(db, run_id))
                 if self.store.get(run_id)["status"] not in TERMINAL:
                     raise ServiceError("resource_active", "产物回收须等待执行资源释放", 409)
-                self.app.artifact_path(run_id, file_id)
+                try:
+                    with self.store.evidence(run_id, blocking=False):
+                        self.app.artifact_path(run_id, file_id)
+                except BlockingIOError:
+                    raise ServiceError(
+                        "evidence_busy", "Evidence maintenance active; retry later", 409
+                    ) from None
                 return object_id, "", [("artifact", object_id)]
         raise ServiceError("recycle_missing", "对象不存在", 404)
 
@@ -223,7 +239,7 @@ class Recycle:
                             "artifact_expired", "既有保留期已清理产物，无法恢复", 410
                         )
                     self.app.artifact_cleanup_path(run_id, _file_id)
-                except ServiceError:
+                except (ServiceError, ValueError):
                     db.execute(
                         "UPDATE recycle_events SET state='expired',cleanup='retention expired' WHERE id=?",
                         (event_id,),
@@ -503,6 +519,9 @@ class Recycle:
                 )
         elif kind == "artifact":
             run_id, file_id = object_id.split(":", 1)
+            with self.store.connect() as db:
+                if not db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone():
+                    return None  # Parent request already removed its files.
             # Resolve the original safe path while bypassing only this recycle marker.
             with self.store.evidence(run_id, blocking=False):
                 from harbor_helper.service.materials import tombstone

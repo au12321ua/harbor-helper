@@ -56,6 +56,11 @@ class Management:
             row = db.execute("SELECT * FROM request_groups WHERE id=?", (group_id,)).fetchone()
             if not row:
                 raise ServiceError("group_missing", "请求组不存在", 404)
+            if not db.execute(
+                "SELECT 1 FROM request_links l LEFT JOIN recycled_objects r ON r.kind='request' AND r.id=l.id WHERE l.group_id=? AND COALESCE(r.state,'active')='active' AND (EXISTS(SELECT 1 FROM submissions s WHERE s.id=l.id) OR EXISTS(SELECT 1 FROM operations o WHERE o.id=l.id AND o.status='rejected'))",
+                (group_id,),
+            ).fetchone():
+                raise ServiceError("group_unavailable", "组内请求均不可用，请先恢复", 409)
             if actor["id"] != row["creator_id"]:
                 management_admin(actor, "recycle_all")
             elif actor.get("access_credential_id"):
@@ -288,6 +293,12 @@ class Management:
             ).fetchone()
             if not identity:
                 raise ServiceError("dataset_missing", "数据集不存在", 404)
+            known = db.execute(
+                "SELECT id FROM dataset_sources WHERE dataset_id=? AND resolved=?",
+                (dataset_id, identity["source"] + "@" + digest),
+            ).fetchone()
+            if known:
+                available(db, "dataset_version", known[0])
         hub = self.app.configuration.hub_status()
         # Validate dataset type and non-yanked membership, including supplemental digests.
         listed = self.versions(actor, dataset_id)

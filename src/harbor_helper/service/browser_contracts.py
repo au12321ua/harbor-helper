@@ -240,7 +240,16 @@ class Catalog(DTO):
     readiness: m.Readiness
 
 
+class RequestGroup(DTO):
+    name: str
+    group_id: str
+    number: int
+    source_id: str | None
+    relation: str
+
+
 class Accepted(DTO):
+    request_group: RequestGroup | None = None
     operation_id: str | None = None
     idempotency_key: str | None = None
     id: str
@@ -263,7 +272,7 @@ class RunSummary(DTO):
     id: str
     name: str
     frozen_name: str
-    request_group: dict[str, str | int | None] | None
+    request_group: RequestGroup | None
     dataset_name: str | None
     status: RunStatus
     created: float
@@ -598,7 +607,7 @@ class GrantResult(DTO):
 
 
 class OperationRecord(DTO):
-    request_group: dict[str, str | int | None] | None = None
+    request_group: RequestGroup | None = None
     id: str
     user_id: str
     username: str | None = None

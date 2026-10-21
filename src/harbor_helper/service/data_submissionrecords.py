@@ -21,9 +21,14 @@ class SubmissionRecords:
     def submission(self, submission_id):
         with self.store.connect() as db:
             row = db.execute("SELECT * FROM submissions WHERE id=?", (submission_id,)).fetchone()
+            group = db.execute(
+                "SELECT g.name,l.group_id,l.number,l.source_id,l.relation FROM request_links l JOIN request_groups g ON g.id=l.group_id WHERE l.id=?",
+                (submission_id,),
+            ).fetchone()
         if row is None:
             raise ServiceError("submission_missing", "Submission not found", 404)
         result = dict(row)
+        result["request_group"] = dict(group) if group else None
         result["request"] = json.loads(result["request"])
         result["frozen"] = json.loads(result["frozen"])
         return result

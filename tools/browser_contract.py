@@ -19,6 +19,21 @@ from harbor_helper.service.dtos import ErrorResponse
 from harbor_helper.service.route_contracts import browser_routes
 
 
+def canonical_schema(value):
+    """Union branches are unordered in JSON Schema; typing caches can reorder them."""
+    if isinstance(value, dict):
+        result = {key: canonical_schema(item) for key, item in value.items()}
+        for key in ("anyOf", "oneOf"):
+            if key in result:
+                result[key] = sorted(
+                    result[key], key=lambda branch: json.dumps(branch, sort_keys=True)
+                )
+        return result
+    if isinstance(value, list):
+        return [canonical_schema(item) for item in value]
+    return value
+
+
 def schema():
     # create_app constructs files, so it only ever receives an owned temporary root.
     with tempfile.TemporaryDirectory(prefix="hh-contract-") as scratch:
@@ -64,11 +79,13 @@ def schema():
                 }
             )
         error = describe(ErrorResponse)
-        return {
-            "definitions": definitions,
-            "error": error,
-            "routes": sorted(routes, key=lambda r: (r["path"], r["method"])),
-        }
+        return canonical_schema(
+            {
+                "definitions": definitions,
+                "error": error,
+                "routes": sorted(routes, key=lambda r: (r["path"], r["method"])),
+            }
+        )
 
 
 def ts(s):

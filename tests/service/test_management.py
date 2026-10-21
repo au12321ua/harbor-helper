@@ -178,3 +178,23 @@ def test_concurrent_normalized_group_names_only_one_is_accepted(data):
     assert sum(isinstance(value, dict) for value in outcomes) == 1
     rejected = next(value for value in outcomes if isinstance(value, ServiceError))
     assert rejected.code == "name_conflict" and rejected.status == 409
+
+
+def test_rejected_extension_keeps_direct_source_and_group(data):
+    app, alice = Application(data.root), users(data)["alice"]
+    first = app.accept(alice, {"agent": "oracle", "name": "Original"}, "source")
+    with pytest.raises(ServiceError):
+        app.accept(
+            alice,
+            {"agent": "oracle", "dataset_id": "missing", "source_request_id": first["id"]},
+            "extension-rejected",
+        )
+    with data.store.connect() as db:
+        operation = db.execute(
+            "SELECT id FROM operations WHERE idem='extension-rejected'"
+        ).fetchone()[0]
+        source = db.execute("SELECT * FROM request_links WHERE id=?", (first["id"],)).fetchone()
+        failed = db.execute("SELECT * FROM request_links WHERE id=?", (operation,)).fetchone()
+    assert failed["source_id"] == first["id"]
+    assert failed["group_id"] == source["group_id"] and failed["relation"] == "extension"
+    assert failed["number"] > source["number"]

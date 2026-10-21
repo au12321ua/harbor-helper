@@ -39,7 +39,7 @@ export function Submission({ user }: { user: User }) {
     <>
       <Title
         title={
-          data?.request?.name ||
+          (data?.request_group ? String(data.request_group.name || "未命名 · " + String(data.request_group.group_id).slice(4, 12)) : data?.request?.name) ||
           (data?.status === "failed"
             ? "实验准备失败"
             : data?.status === "cancelled"
@@ -63,6 +63,7 @@ export function Submission({ user }: { user: User }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <p>提交时名称：{data?.request?.name || "（空）"}</p>
           <p>提交者：{data?.submitter || "—"}</p>
           {data?.error ? (
             <Alert variant="destructive">
@@ -142,6 +143,7 @@ export function Submission({ user }: { user: User }) {
                         `提交 ${data.id}`,
                       )
                     : fromRequest(data.request, `提交 ${data.id}`);
+                  entry.sourceId = data.id;
                   if (token === copyRequest.current)
                     navigate("/new", { state: { entry } });
                 } catch (error) {

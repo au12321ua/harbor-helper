@@ -365,9 +365,21 @@ class Submissions:
                 409,
             )
         if not check_source:
-            selected = self.configuration.ready_dataset(
-                dataset_id, service.get("dataset_source_version_id")
-            )
+            version_id = service.get("dataset_source_version_id")
+            if not version_id:
+                with self.store.connect() as db:
+                    canonical = db.execute(
+                        "SELECT target FROM dataset_aliases WHERE id=?", (dataset_id,)
+                    ).fetchone()
+                    actual_id = canonical[0] if canonical else dataset_id
+                    original = db.execute(
+                        "SELECT id FROM dataset_sources WHERE dataset_id=? AND resolved=?",
+                        (actual_id, cfg["dataset"]),
+                    ).fetchone()
+                if not original:
+                    raise ServiceError("author_inputs_unavailable", "原摘要的目录版本不可用", 409)
+                version_id = original[0]
+            selected = self.configuration.ready_dataset(dataset_id, version_id)
             if selected["resolved"] != cfg["dataset"]:
                 raise ServiceError("author_inputs_unavailable", "原摘要的目录版本不可用", 409)
         if dataset_id and check_source and parameters.get("source") not in {None, cfg["dataset"]}:

@@ -136,7 +136,7 @@ function csvRows(csv: string) {
 test("pure projection matrix: run operations, parent wall, request intent, oracle, CLI, partial preset", () => {
   for (const operation of ["submit", "rerun", "retry", "recover"]) {
     const v = fromManifest({ ...manifest, parent: operation }, operation);
-    expect(v.values.name).toBe("原名 · 副本");
+    expect(v.values.name).toBe("原名");
     expect(problems(v.values, catalog)).toEqual({});
     expect(submissionBody(v.values)).toMatchObject({
       dataset_id: "ds",
@@ -338,7 +338,7 @@ test("browser copy uses manifest, same-key communication retry, edit changes key
   const writes = await fixture(page);
   await copy(page);
   expect(writes).toHaveLength(0);
-  await expect(page.getByLabel("实验名称（可选）")).toHaveValue("原名 · 副本");
+  await expect(page.getByLabel("实验名称（可选）")).toHaveValue("原名");
   await expect(page.getByText(/冻结来源身份未知/)).toBeVisible();
   await page.getByLabel("每任务尝试次数").fill("3");
   const submit = page.getByRole("button", { name: "提交实验", exact: true });

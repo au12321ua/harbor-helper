@@ -208,11 +208,37 @@ def initialize(store):
         ).fetchall():
             if row["status"] == "rejected":
                 body = json.loads(row["request"])
+                intent = body.get("body", body)
+                source = (
+                    intent.get("source_request_id")
+                    or body.get("recovery")
+                    or by_run.get(body.get("parent"))
+                )
+                if (
+                    source
+                    and not db.execute(
+                        "SELECT 1 FROM request_links WHERE id=?", (source,)
+                    ).fetchone()
+                ):
+                    source = None
+                relation = (
+                    "copy"
+                    if intent.get("independent")
+                    else "extension"
+                    if intent.get("source_request_id") and source
+                    else row["operation"]
+                    if source
+                    else "unknown"
+                    if body.get("parent") or body.get("recovery")
+                    else "independent"
+                )
                 link_request(
                     db,
                     row["id"],
                     row["user_id"],
-                    body.get("name", body.get("body", {}).get("name", "")) or "",
+                    intent.get("name") or "",
+                    source,
+                    relation,
                     converting=True,
                 )
 
@@ -227,6 +253,7 @@ def remember_dataset(db, dataset_id, value):
         "SELECT id FROM dataset_sources WHERE dataset_id=? AND resolved=?", (dataset_id, resolved)
     ).fetchone()
     if row:
+        available(db, "dataset_version", row["id"])
         version_id = row["id"]
     else:
         version_id = "dv-" + uuid.uuid4().hex

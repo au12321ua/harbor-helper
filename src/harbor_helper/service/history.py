@@ -117,13 +117,41 @@ def decision(store, actor, operation, idem, request_hash, request, perform):
             and not conflict
             and not (old and operation_recycled(db, old))
         ):
-            from harbor_helper.service.management_data import link_request
+            from harbor_helper.service.management_data import link_request, request_id, state
 
+            body = request.get("body", request)
+            requested_source = (
+                body.get("source_request_id")
+                or request.get("recovery")
+                or (request_id(db, request["parent"]) if request.get("parent") else None)
+            )
+            source = (
+                requested_source
+                if requested_source
+                and state(db, "request", requested_source) == "active"
+                and db.execute(
+                    "SELECT 1 FROM request_links WHERE id=?", (requested_source,)
+                ).fetchone()
+                else None
+            )
+            relation = (
+                "copy"
+                if body.get("independent")
+                else "extension"
+                if body.get("source_request_id") and source
+                else operation
+                if source
+                else "unknown"
+                if requested_source
+                else "independent"
+            )
             link_request(
                 db,
                 operation_id,
                 actor["id"],
-                request.get("name", request.get("body", {}).get("name", "")) or "",
+                body.get("name") or "",
+                source,
+                relation,
                 converting=True,
             )
         if result is not None:

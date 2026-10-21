@@ -6,10 +6,10 @@
         "access_credential_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Access Credential Id"
@@ -38,10 +38,10 @@
         "error": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Error"
@@ -53,10 +53,10 @@
         "idempotency_key": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -75,10 +75,10 @@
         "operation_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -87,16 +87,27 @@
         "parent": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Parent"
         },
         "request": {
           "$ref": "#/definitions/SubmissionInput"
+        },
+        "request_group": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RequestGroup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "retry_changes": {
           "additionalProperties": {
@@ -111,10 +122,10 @@
         "run_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Run Id"
@@ -136,10 +147,10 @@
         "user_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "User Id"
@@ -204,10 +215,10 @@
         "last_used": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Last Used"
@@ -219,10 +230,10 @@
         "revoked": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Revoked"
@@ -264,10 +275,10 @@
         "expires": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -383,10 +394,10 @@
         "attachment_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -395,10 +406,10 @@
         "attachment_lineage": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -407,10 +418,10 @@
         "attachment_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -419,10 +430,10 @@
         "bundle_digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -431,10 +442,10 @@
         "bundle_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -601,10 +612,10 @@
         "idempotency_key": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -613,10 +624,10 @@
         "operation_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -733,10 +744,10 @@
         "source_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Source Version Id"
@@ -779,10 +790,10 @@
         "agent_exit_code": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -888,10 +899,10 @@
         "trial": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -931,10 +942,10 @@
         "version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -950,10 +961,10 @@
         "checked": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -1030,10 +1041,10 @@
         "source": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1077,10 +1088,10 @@
         "version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1187,10 +1198,10 @@
         "access_credential_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1199,10 +1210,10 @@
         "attachment_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1211,10 +1222,10 @@
         "attachment_lineage": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1223,10 +1234,10 @@
         "attachment_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1273,10 +1284,10 @@
         "author_parameters_source": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1297,10 +1308,10 @@
         "bundle_digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1309,10 +1320,10 @@
         "bundle_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1321,10 +1332,10 @@
         "credential_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1345,10 +1356,10 @@
         "dataset_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1357,10 +1368,10 @@
         "dataset_name": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1369,10 +1380,10 @@
         "dataset_source_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1393,10 +1404,10 @@
         "group_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1417,10 +1428,10 @@
         "model_profile": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1441,10 +1452,10 @@
         "name": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1453,10 +1464,10 @@
         "provider_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1477,10 +1488,10 @@
         "recovered_submission": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1489,10 +1500,10 @@
         "relation": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1512,10 +1523,10 @@
         "source_request_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1536,10 +1547,10 @@
         "submission_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1548,10 +1559,10 @@
         "submitter": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1560,10 +1571,10 @@
         "user_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1579,10 +1590,10 @@
         "agent_seconds": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Agent Seconds"
@@ -1590,10 +1601,10 @@
         "agent_timeout_sec": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -1602,10 +1613,10 @@
         "environment_build_timeout_sec": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -1614,10 +1625,10 @@
         "environment_start_timeout_sec": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -1630,10 +1641,10 @@
         "verifier_seconds": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Verifier Seconds"
@@ -1641,10 +1652,10 @@
         "verifier_timeout_sec": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -1720,10 +1731,10 @@
         "default_dataset": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Default Dataset"
@@ -1779,10 +1790,10 @@
         "checked": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -1791,10 +1802,10 @@
         "default_source_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1803,10 +1814,10 @@
         "digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1864,10 +1875,10 @@
         "resolved": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -1981,10 +1992,10 @@
         "snapshot_digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -2006,10 +2017,10 @@
         "attachment_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Attachment Version Id"
@@ -2017,10 +2028,10 @@
         "bundle_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Bundle Id"
@@ -2028,10 +2039,10 @@
         "digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Digest"
@@ -2087,10 +2098,10 @@
           "additionalProperties": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
@@ -2290,10 +2301,10 @@
         "checked": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -2302,10 +2313,10 @@
         "default_source_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -2314,10 +2325,10 @@
         "digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -2377,10 +2388,10 @@
         "resolved": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -2444,10 +2455,10 @@
         "default_version": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Default Version"
@@ -2499,10 +2510,10 @@
         "id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -2576,14 +2587,14 @@
         "compose": {
           "anyOf": [
             {
+              "const": "unknown",
+              "type": "string"
+            },
+            {
               "items": {
                 "$ref": "#/definitions/Phase"
               },
               "type": "array"
-            },
-            {
-              "const": "unknown",
-              "type": "string"
             }
           ],
           "title": "Compose"
@@ -2742,10 +2753,10 @@
         "agent_tool_preparation": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -2808,10 +2819,10 @@
         "task_filter": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Task Filter"
@@ -2866,10 +2877,10 @@
         "operation_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3011,10 +3022,10 @@
         "updated_at": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Updated At"
@@ -3057,10 +3068,10 @@
         "image_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Image Id"
@@ -3108,10 +3119,10 @@
         "binary_sha256": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3139,10 +3150,10 @@
         "preparation_error_type": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3151,10 +3162,10 @@
         "preparation_seconds": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -3167,10 +3178,10 @@
         "source": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3179,10 +3190,10 @@
         "stage": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3191,10 +3202,10 @@
         "status": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3203,10 +3214,10 @@
         "strategy": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3215,10 +3226,10 @@
         "version": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3238,10 +3249,10 @@
         "file": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3250,10 +3261,10 @@
         "message": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3266,10 +3277,10 @@
         "service": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3278,10 +3289,10 @@
         "task": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3290,10 +3301,10 @@
         "variable": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3521,10 +3532,10 @@
         "retry_at": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Retry At"
@@ -3532,10 +3543,10 @@
         "updated": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Updated"
@@ -3566,10 +3577,10 @@
         "retry_at": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -3585,10 +3596,10 @@
         "bundle_digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Bundle Digest"
@@ -3620,10 +3631,10 @@
         "model_checkpoint_actual": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Model Checkpoint Actual"
@@ -3631,10 +3642,10 @@
         "parent": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Parent"
@@ -3694,10 +3705,10 @@
         "rotated_at": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Rotated At"
@@ -3748,10 +3759,10 @@
         "rotated_at": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Rotated At"
@@ -3787,10 +3798,10 @@
         "processing": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Processing"
@@ -3851,10 +3862,10 @@
         "scope": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -3921,10 +3932,10 @@
           "additionalProperties": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
@@ -3980,10 +3991,10 @@
         "team_default": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Team Default"
@@ -4183,27 +4194,13 @@
         "request_group": {
           "anyOf": [
             {
-              "additionalProperties": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "type": "object"
+              "$ref": "#/definitions/RequestGroup"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Request Group"
+          "default": null
         },
         "result": {
           "anyOf": [
@@ -4236,10 +4233,10 @@
         "username": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -4340,10 +4337,10 @@
         "seconds": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Seconds"
@@ -4351,10 +4348,10 @@
         "status": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -4428,7 +4425,7 @@
         "credential_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "boolean"
             },
             {
               "type": "integer"
@@ -4437,7 +4434,7 @@
               "type": "number"
             },
             {
-              "type": "boolean"
+              "type": "string"
             }
           ],
           "title": "Credential Id"
@@ -4472,7 +4469,7 @@
         "provider_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "boolean"
             },
             {
               "type": "integer"
@@ -4481,7 +4478,7 @@
               "type": "number"
             },
             {
-              "type": "boolean"
+              "type": "string"
             }
           ],
           "title": "Provider Id"
@@ -4510,7 +4507,7 @@
         "credential_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "boolean"
             },
             {
               "type": "integer"
@@ -4519,7 +4516,7 @@
               "type": "number"
             },
             {
-              "type": "boolean"
+              "type": "string"
             }
           ],
           "title": "Credential Id"
@@ -4532,10 +4529,10 @@
         "id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -4565,7 +4562,7 @@
         "provider_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "boolean"
             },
             {
               "type": "integer"
@@ -4574,7 +4571,7 @@
               "type": "number"
             },
             {
-              "type": "boolean"
+              "type": "string"
             }
           ],
           "title": "Provider Id"
@@ -4653,10 +4650,10 @@
         "id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -4745,10 +4742,10 @@
         "cleanup": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Cleanup"
@@ -4961,6 +4958,10 @@
         "environment_observations": {
           "anyOf": [
             {
+              "const": "unknown",
+              "type": "string"
+            },
+            {
               "items": {
                 "additionalProperties": {
                   "$ref": "#/definitions/JsonValue"
@@ -4968,10 +4969,6 @@
                 "type": "object"
               },
               "type": "array"
-            },
-            {
-              "const": "unknown",
-              "type": "string"
             }
           ],
           "title": "Environment Observations"
@@ -4995,10 +4992,10 @@
         "reason": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Reason"
@@ -5103,10 +5100,10 @@
         "run_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Run Id"
@@ -5114,10 +5111,10 @@
         "source_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Source Id"
@@ -5151,6 +5148,47 @@
         "display_name"
       ],
       "title": "RequestEntry",
+      "type": "object"
+    },
+    "RequestGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {
+          "title": "Group Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Source Id"
+        }
+      },
+      "required": [
+        "name",
+        "group_id",
+        "number",
+        "source_id",
+        "relation"
+      ],
+      "title": "RequestGroup",
       "type": "object"
     },
     "Requests": {
@@ -5285,10 +5323,10 @@
         "audit_reason": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Audit Reason"
@@ -5321,10 +5359,10 @@
         "dataset_name": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Dataset Name"
@@ -5332,10 +5370,10 @@
         "finished": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Finished"
@@ -5351,10 +5389,10 @@
         "model_profile": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Model Profile"
@@ -5366,10 +5404,10 @@
         "parent": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Parent"
@@ -5377,10 +5415,10 @@
         "reason": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Reason"
@@ -5388,34 +5426,20 @@
         "request_group": {
           "anyOf": [
             {
-              "additionalProperties": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "type": "object"
+              "$ref": "#/definitions/RequestGroup"
             },
             {
               "type": "null"
             }
-          ],
-          "title": "Request Group"
+          ]
         },
         "started": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Started"
@@ -5441,10 +5465,10 @@
         "user_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "User Id"
@@ -5486,10 +5510,10 @@
         "release": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "title": "Release"
@@ -5553,10 +5577,10 @@
         "activity_observed": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -5642,10 +5666,10 @@
         "team_name": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -5732,10 +5756,10 @@
         "updated": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "title": "Updated"
@@ -5860,10 +5884,10 @@
         "agent_seconds": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -5872,11 +5896,11 @@
         "author_build_timeout_sec": {
           "anyOf": [
             {
-              "type": "number"
-            },
-            {
               "const": "unknown",
               "type": "string"
+            },
+            {
+              "type": "number"
             }
           ],
           "title": "Author Build Timeout Sec"
@@ -5888,11 +5912,11 @@
         "start_wait_timeout_sec": {
           "anyOf": [
             {
-              "type": "number"
-            },
-            {
               "const": "unknown",
               "type": "string"
+            },
+            {
+              "type": "number"
             }
           ],
           "title": "Start Wait Timeout Sec"
@@ -5904,10 +5928,10 @@
         "verifier_seconds": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "number"
             }
           ],
           "default": null,
@@ -5945,10 +5969,10 @@
         "attachment_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -5983,10 +6007,10 @@
         "dataset": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -5995,10 +6019,10 @@
         "dataset_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6007,10 +6031,10 @@
         "dataset_source_version_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6037,10 +6061,10 @@
         "model_profile": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6062,10 +6086,10 @@
         "source_request_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6074,10 +6098,10 @@
         "task": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6160,10 +6184,10 @@
         "snapshot_digest": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6245,10 +6269,10 @@
         "idempotency_key": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6257,10 +6281,10 @@
         "operation_id": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6529,10 +6553,10 @@
         "password": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6548,10 +6572,10 @@
         "default": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,
@@ -6568,10 +6592,10 @@
         "service": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "null"
             },
             {
-              "type": "null"
+              "type": "string"
             }
           ],
           "default": null,

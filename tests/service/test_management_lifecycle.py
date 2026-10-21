@@ -156,3 +156,45 @@ def test_dataset_cleanup_waits_for_author_cache_inspection(data):
         assert cache.exists()
     assert app.recycle.purge(admin, event["id"], "cache-purge")["state"] == "purged"
     assert not cache.exists()
+
+
+def test_request_recycle_includes_existing_artifact_event_and_old_ids_cannot_delete(
+    data, preparation
+):
+    import hashlib
+
+    app, alice, admin = Application(data.root), actor(data, "alice"), actor(data, "admin")
+    accepted = app.accept(alice, {"agent": "oracle"}, "artifact-overlap")
+    prepare_one(data.store)
+    run = data.submission(accepted["id"])["run_id"]
+    data.store.update(run, status="succeeded", audit_status="clean")
+    path = data.store.path(run) / "harbor/job/trial/artifacts/overlap.txt"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"overlap")
+    file_id = hashlib.sha256(
+        path.relative_to(data.store.path(run)).as_posix().encode()
+    ).hexdigest()[:24]
+    child = app.delete_artifact(admin, run, file_id)
+    parent = app.recycle.move(alice, "request", accepted["id"])
+    assert parent["count"] == 2
+    with pytest.raises(ServiceError):
+        app.recycle.purge(admin, child["id"], "old-artifact")
+    app.recycle.restore(alice, parent["id"])
+    assert app.artifacts(run) == []
+    app.recycle.restore(admin, child["id"])
+    assert app.artifacts(run)[0]["id"] == file_id
+    newer = app.delete_artifact(admin, run, file_id)
+    parent = app.recycle.move(alice, "request", accepted["id"])
+    assert app.recycle.purge(admin, parent["id"], "parent-purge")["state"] == "purged"
+    assert not (data.root / "runs" / run).exists()
+    assert (
+        next(e for e in app.recycle.listing(admin)["items"] if e["id"] == newer["id"])["state"]
+        == "purged"
+    )
+    assert app.recycle.restore(admin, child["id"])["state"] == "restored"
+    with data.store.connect() as db:
+        marker = db.execute(
+            "SELECT state,event_id FROM recycled_objects WHERE kind='artifact' AND id=?",
+            (run + ":" + file_id,),
+        ).fetchone()
+    assert marker["state"] == "purged" and marker["event_id"] == parent["id"]

@@ -3,6 +3,7 @@ from harbor_helper.security.credentials import redact_value
 
 def public_submission(value):
     return {
+        "request_group": value.get("request_group"),
         "attachment": {
             k: value.get("frozen", {}).get("service", {}).get(k)
             for k in (

@@ -48,6 +48,28 @@ def test_preview_tag_movement_does_not_change_digest_or_default(data, monkeypatc
         app._freeze_author_inputs(
             {"dataset": old_default}, {"dataset_id": dataset["id"]}, check_source=False
         )
+    # A converted request has only its original digest, not the new version-id field.
+    # Changing today's default cannot make its known original revision unavailable.
+    app.configuration.persist(
+        "author_parameters",
+        {
+            "id": dataset["id"],
+            "source": old_default,
+            "values": {"A": "original"},
+            "status": "checked",
+        },
+    )
+    old_version = next(v for v in versions if v["resolved"] == old_default)
+    new_version = next(v for v in versions if v["resolved"] != old_default)
+    app.management.default(admin, dataset["id"], new_version["id"])
+    frozen = {"dataset": old_default}
+    app._freeze_author_inputs(frozen, {"dataset_id": dataset["id"]}, check_source=False)
+    assert frozen["author_env"] == {"A": "original"}
+    app.recycle.move(admin, "dataset_version", old_version["id"])
+    before = len(calls)
+    with pytest.raises(ServiceError, match="回收站"):
+        app.management.preview(admin, dataset["id"], first)
+    assert len(calls) == before
 
 
 def test_conversion_keeps_all_original_revisions_and_merges_explicit_parameter_choice(data):
