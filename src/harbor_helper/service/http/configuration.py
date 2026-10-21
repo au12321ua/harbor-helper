@@ -9,6 +9,7 @@ from harbor_helper.service.primitives import ServiceError
 
 def register(app, deps):
     administrator = deps.administrator
+    dataset_administrator = deps.dataset_administrator
 
     @app.get("/api/v1/admin/master-key")
     def master_key_status(user: Annotated[dict, Depends(administrator)]):
@@ -47,26 +48,31 @@ def register(app, deps):
 
     @app.post("/api/v1/admin/datasets/{object_id}/author-inputs/check")
     def inspect_author_inputs(
-        object_id: str, user: Annotated[dict, Depends(administrator)], body: dict | None = None
+        object_id: str,
+        user: Annotated[dict, Depends(dataset_administrator)],
+        body: dict | None = None,
     ):
-        if body is not None and set(body) - {"task_names"}:
+        if body is not None and set(body) - {"task_names", "version_id"}:
             raise ServiceError("author_task_selection", "Only task_names may be specified")
         return deps.application.configuration.inspect_author_parameters(
             object_id,
             task_names=body.get("task_names") if body and "task_names" in body else None,
             selection_supplied=bool(body is not None and "task_names" in body),
+            version_id=body.get("version_id") if body else None,
         )
 
     @app.put("/api/v1/admin/datasets/{object_id}/author-inputs")
     def save_author_inputs(
-        object_id: str, body: dict, user: Annotated[dict, Depends(administrator)]
+        object_id: str, body: dict, user: Annotated[dict, Depends(dataset_administrator)]
     ):
-        if set(body) != {"values"}:
+        if "values" not in body or set(body) - {"values", "version_id"}:
             raise ServiceError("author_input_invalid", "Use only the discovered values object")
-        return deps.application.configuration.save_author_parameters(object_id, body["values"])
+        return deps.application.configuration.save_author_parameters(
+            object_id, body["values"], body.get("version_id")
+        )
 
     @app.post("/api/v1/admin/catalog/{kind}")
-    def save_catalog(kind: str, body: dict, user: Annotated[dict, Depends(administrator)]):
+    def save_catalog(kind: str, body: dict, user: Annotated[dict, Depends(dataset_administrator)]):
         if kind != "dataset":
             raise ServiceError("catalog_kind", "Unknown catalog kind", 404)
         with deps.store.control():
@@ -75,7 +81,9 @@ def register(app, deps):
             return result
 
     @app.post("/api/v1/admin/catalog/{kind}/{object_id}/verify")
-    def verify_catalog(kind: str, object_id: str, user: Annotated[dict, Depends(administrator)]):
+    def verify_catalog(
+        kind: str, object_id: str, user: Annotated[dict, Depends(dataset_administrator)]
+    ):
         if kind != "dataset":
             raise ServiceError("catalog_kind", "Unknown catalog kind", 404)
         result = deps.application.configuration.verify(kind, object_id)

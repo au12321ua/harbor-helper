@@ -40,6 +40,8 @@ def register(app, deps):
         allowed = access.SCOPES - {"evidence"}
         if access.granted(deps.data, user["id"]):
             allowed = access.SCOPES
+        if user.get("account_role", user["role"]) != "admin":
+            allowed = allowed - access.ADMIN_SCOPES
         return {"scopes": sorted(allowed), "evidence_grant": access.granted(deps.data, user["id"])}
 
     @app.post("/api/v1/admin/users/{user_id}/evidence-grant")

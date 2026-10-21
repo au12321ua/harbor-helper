@@ -15,7 +15,7 @@ type RouteMatches<P extends string, R extends string> =
 export type Accepted = { "operation_id"?: (string | null); "idempotency_key"?: (string | null); "id": string; "user_id": (string | null); "access_credential_id": (string | null); "submitter": string; "operation": "submit" | "rerun" | "retry" | "recover"; "request": SubmissionInput; "run_id": (string | null); "status": "preparing" | "ready" | "failed" | "cancelled"; "created": number; "error": (string | null); "parent": (string | null); "attachment": AttachmentBinding; "diagnosis": (Array<Issue> | null); "retry_changes": { [key: string]: { [key: string]: JsonValue } } };
 export type AccessCapabilities = { "scopes": Array<string>; "evidence_grant": boolean };
 export type AccessCredential = { "id": string; "user_id": string; "name": string; "scopes": Array<string>; "created": number; "expires": number; "revoked": (number | null); "last_used": (number | null) };
-export type AccessIssue = { "name": string; "current_password": string; "scopes"?: Array<"read" | "attachments" | "execute" | "cancel_own" | "evidence">; "expires"?: (number | null) };
+export type AccessIssue = { "name": string; "current_password": string; "scopes"?: Array<"read" | "attachments" | "execute" | "cancel_own" | "evidence" | "attachment_download" | "recycle_own" | "datasets_manage" | "recycle_all" | "purge">; "expires"?: (number | null) };
 export type AccessResult = { "credential": AccessCredential; "token": string };
 export type Account = { "username": string; "password": string; "role"?: string };
 export type Artifact = { "id": string; "deleted": boolean; "name": string };
@@ -30,23 +30,31 @@ export type AttachmentUpdate = { "name"?: (string | null); "description"?: (stri
 export type AttachmentVersion = { "id": string; "attachment_id": string; "number": number; "bundle_id": string; "digest": string; "publisher_id": string; "publisher": string; "created": number; "notes": string; "source_version_id": (string | null); "enabled": boolean; "availability": "available" | "unavailable" };
 export type AttachmentVersionUpdate = { "enabled": boolean };
 export type Attempt = { "task": string; "valid": boolean; "rewards": ({ [key: string]: number } | null); "trial"?: (string | null); "agent_exit_code"?: (string | null); "framework_exception"?: ({ [key: string]: JsonValue } | null); "observed_rewards"?: ({ [key: string]: JsonValue } | null); "exception"?: ({ [key: string]: JsonValue } | null); "agent_info"?: ({ [key: string]: JsonValue } | null); "diagnosis"?: (Diagnosis | null); "phase_timings"?: { [key: string]: JsonValue } };
-export type AuthorCheck = { "task_names"?: (Array<string> | null) };
+export type AuthorCheck = { "version_id"?: (string | null); "task_names"?: (Array<string> | null) };
 export type AuthorParameters = { "id": string; "version": number; "values": { [key: string]: string }; "status": string; "source"?: (string | null); "discovery"?: (Discovery | null); "checked_tasks"?: Array<CheckedTask>; "scope"?: (Scope | null); "last_check_scope"?: (Scope | null); "requested_task_names"?: (Array<string> | null); "issues"?: Array<Issue>; "checked"?: (number | null) };
-export type AuthorSave = { "values": { [key: string]: string } };
-export type Binding = { "user_id"?: (string | null); "submitter"?: (string | null); "submission_id"?: (string | null); "name"?: (string | null); "access_credential_id"?: (string | null); "provider_id"?: (string | null); "provider_version"?: (number | null); "credential_id"?: (string | null); "credential_version"?: (number | null); "model_profile"?: (string | null); "model_profile_version"?: (number | null); "dataset_id"?: (string | null); "dataset_version"?: (number | null); "dataset_name"?: (string | null); "source_version"?: (number | null); "author_parameters_version"?: (number | null); "author_parameters_source"?: (string | null); "author_input_check"?: (boolean | null); "author_input_diagnostics"?: (Discovery | null); "author_input_issues"?: (Array<Issue> | null); "retry_changes"?: { [key: string]: { [key: string]: JsonValue } }; "recovered_submission"?: (string | null); "attachment_id"?: (string | null); "attachment_version_id"?: (string | null); "bundle_id"?: (string | null); "bundle_digest"?: (string | null); "attachment_lineage"?: (string | null) };
+export type AuthorSave = { "version_id"?: (string | null); "values": { [key: string]: string } };
+export type Batch = { "items": Array<Target> };
+export type BatchEntry = { "kind": string; "object_id": string; "event": (RecycleEvent | null); "error": ({ [key: string]: (number | string) } | null) };
+export type BatchResult = { "results": Array<BatchEntry> };
+export type Binding = { "user_id"?: (string | null); "submitter"?: (string | null); "submission_id"?: (string | null); "name"?: (string | null); "access_credential_id"?: (string | null); "provider_id"?: (string | null); "provider_version"?: (number | null); "credential_id"?: (string | null); "credential_version"?: (number | null); "model_profile"?: (string | null); "model_profile_version"?: (number | null); "dataset_id"?: (string | null); "dataset_version"?: (number | null); "dataset_source_version_id"?: (string | null); "group_id"?: (string | null); "group_number"?: (number | null); "source_request_id"?: (string | null); "relation"?: (string | null); "dataset_name"?: (string | null); "source_version"?: (number | null); "author_parameters_version"?: (number | null); "author_parameters_source"?: (string | null); "author_input_check"?: (boolean | null); "author_input_diagnostics"?: (Discovery | null); "author_input_issues"?: (Array<Issue> | null); "retry_changes"?: { [key: string]: { [key: string]: JsonValue } }; "recovered_submission"?: (string | null); "attachment_id"?: (string | null); "attachment_version_id"?: (string | null); "bundle_id"?: (string | null); "bundle_digest"?: (string | null); "attachment_lineage"?: (string | null) };
 export type Budget = { "task": string; "agent_seconds": (number | null); "verifier_seconds": (number | null); "agent_timeout_sec"?: (number | null); "verifier_timeout_sec"?: (number | null); "environment_build_timeout_sec"?: (number | null); "environment_start_timeout_sec"?: (number | null) };
 export type CancelResult = { "run_id": string; "cancel_requested": boolean; "status": "queued" | "starting" | "running" | "cancelling" | "cleanup_blocked" | "succeeded" | "failed" | "cancelled" };
-export type Catalog = { "datasets": Array<CatalogDataset>; "settings": Settings; "hub": Hub; "attachments": Array<AttachmentEntry>; "providers": Array<Provider>; "credentials": Array<CredentialInfo>; "model_profiles": Array<Profile>; "limits": Limits; "default_dataset": string; "readiness": Readiness };
-export type CatalogDataset = { "id": string; "version": number; "name": string; "enabled": boolean; "reference": string; "status": string; "ready": boolean; "resolved"?: (string | null); "checked"?: (number | null); "source_version"?: (number | null); "error"?: ({ [key: string]: string } | null); "tasks"?: Array<Task>; "author_parameters": AuthorParameters; "digest"?: (string | null); "readiness_error": ({ [key: string]: string } | null) };
+export type Catalog = { "datasets": Array<CatalogDataset>; "settings": Settings; "hub": Hub; "attachments": Array<AttachmentEntry>; "providers": Array<Provider>; "credentials": Array<CredentialInfo>; "model_profiles": Array<Profile>; "limits": Limits; "default_dataset": (string | null); "readiness": Readiness };
+export type CatalogDataset = { "source_versions"?: Array<CatalogSourceVersion>; "default_source_version_id"?: (string | null); "id": string; "version": number; "name": string; "enabled": boolean; "reference": string; "status": string; "ready": boolean; "resolved"?: (string | null); "checked"?: (number | null); "source_version"?: (number | null); "error"?: ({ [key: string]: string } | null); "tasks"?: Array<Task>; "author_parameters": AuthorParameters; "digest"?: (string | null); "readiness_error": ({ [key: string]: string } | null) };
+export type CatalogSourceVersion = { "id": string; "number": number; "resolved": string; "tasks": Array<Task>; "author_parameters": AuthorParameters };
 export type CheckedTask = { "name": string; "package": string; "ref": string; "snapshot_digest"?: (string | null); "discovery": Discovery };
 export type CompareAttachment = { "kind": "versioned" | "none"; "attachment_version_id": (string | null); "bundle_id": (string | null); "digest": (string | null) };
 export type CompareInput = { "left": string; "right": string };
 export type Comparison = { "left": string; "right": string; "comparable": boolean; "reasons": Array<string>; "config_changes": { [key: string]: { [key: string]: JsonValue } }; "environment_observations": { [key: string]: JsonValue }; "bundle_change": { [key: string]: (string | null) }; "attachment_inputs": { [key: string]: CompareAttachment }; "tasks": Array<MetricDelta>; "mean_task_delta": ({ [key: string]: number } | null) };
+export type ConfirmInput = { "preview_id": string };
+export type Confirmed = { "confirmed": boolean; "resolved": string };
 export type Credential = { "id"?: string; "provider_id": string; "label": string; "key": string };
 export type CredentialInfo = { "id": string; "version": number; "provider_id": string; "label": string; "enabled": boolean; "created": number };
-export type Dataset = { "id": string; "version": number; "name": string; "enabled": boolean; "reference": string; "status": string; "ready"?: boolean; "resolved"?: (string | null); "checked"?: (number | null); "source_version"?: (number | null); "error"?: ({ [key: string]: string } | null); "tasks"?: Array<Task>; "author_parameters"?: (AuthorParameters | null); "digest"?: (string | null); "readiness_error"?: ({ [key: string]: string } | null) };
+export type Dataset = { "source_versions"?: Array<CatalogSourceVersion>; "default_source_version_id"?: (string | null); "id": string; "version": number; "name": string; "enabled": boolean; "reference": string; "status": string; "ready"?: boolean; "resolved"?: (string | null); "checked"?: (number | null); "source_version"?: (number | null); "error"?: ({ [key: string]: string } | null); "tasks"?: Array<Task>; "author_parameters"?: (AuthorParameters | null); "digest"?: (string | null); "readiness_error"?: ({ [key: string]: string } | null) };
+export type DatasetEntry = { "id": string; "source": string; "name": string; "default_version": (string | null); "auto_named": number; "versions": Array<SourceVersion>; "needs_merge": boolean };
 export type DatasetInput = { "id"?: (string | null); "name": string; "enabled"?: boolean; "reference": string };
-export type Deleted = { "id": string; "deleted": boolean };
+export type Datasets = { "datasets": Array<DatasetEntry> };
+export type DefaultInput = { "version_id": string; "team_default"?: boolean };
 export type Diagnosis = { "phase": string; "model_status": string; "hint": string; "phases": Array<Phase>; "compose": (Array<Phase> | "unknown"); "startup_multiplier": number; "agent_installation": (Installation | null) };
 export type Discovery = { "source": string; "variables": { [key: string]: Array<VariableUse> }; "fixed_names": Array<string>; "blocked": Array<Issue>; "budgets": Array<Budget>; "images": Array<Image> };
 export type Docker = { "checked_at": number; "images": Array<DockerImage>; "truncated": boolean; "state": string; "message": string };
@@ -77,18 +85,34 @@ export type MasterRotation = { "password": string; "expected_generation": number
 export type MasterStatus = { "generation": number; "rotated_at": (number | null); "available": boolean };
 export type Material = { "id": string; "name": string; "category": string; "bytes": number; "sha256": string; "status": string; "source": string; "processing": (string | null) };
 export type Materials = { "run_id": string; "state": string; "files": Array<Material>; "session_coverage"?: Array<{ [key: string]: unknown }>; "scope"?: (string | null); "limitations"?: Array<string>; "legacy"?: boolean };
+export type MergeInput = { "source": string; "target": string; "revision": string; "parameter_choices"?: { [key: string]: ParameterChoice } };
+export type MergePreview = { "source": string; "target": string; "revision": string; "versions": Array<{ [key: string]: string }>; "parameters": Array<{ [key: string]: (number | string) }> };
+export type MergePreviewInput = { "source": string; "target": string };
+export type Merged = { "merged": boolean; "target": string };
 export type MetricDelta = { "task": string; "left": { [key: string]: number }; "right": { [key: string]: number }; "delta": { [key: string]: number } };
 export type OperationHistory = { "operations": Array<OperationRecord>; "total": number; "offset": number; "next_offset": (number | null); "attempt_limit": number };
 export type OperationRecord = { "id": string; "user_id": string; "username"?: (string | null); "operation": string; "idem": string; "request": { [key: string]: unknown }; "created": number; "updated": number; "attempts": number; "status": string; "result": ({ [key: string]: unknown } | null); "error": ({ [key: string]: unknown } | null); "recent": Array<{ [key: string]: unknown }>; "summarized_attempts": number };
+export type ParameterChoice = { "id": string; "version": number };
 export type PasswordChange = { "current_password": string; "password": string };
 export type PasswordResult = { "changed": boolean; "login_required": boolean };
 export type Phase = { "phase": string; "reached"?: boolean; "status"?: (string | null); "seconds": (number | null) };
+export type Preview = { "id": string; "dataset_id": string; "resolved": string; "tasks": Array<{ [key: string]: string }>; "listed": boolean };
+export type PreviewInput = { "digest": string };
 export type Profile = { "id": string; "version": number; "name"?: JsonValue; "provider_id": (string | number | number | boolean); "credential_id": (string | number | number | boolean); "model": string; "params": { [key: string]: JsonValue }; "opencode_version": string; "enabled": boolean };
 export type ProfileInput = { "id"?: (string | null); "version"?: (number | null); "name"?: JsonValue; "provider_id": (string | number | number | boolean); "credential_id": (string | number | number | boolean); "model": string; "params"?: { [key: string]: JsonValue }; "opencode_version"?: string; "enabled"?: boolean };
 export type Provider = { "id": string; "version": number; "name"?: JsonValue; "protocol": string; "endpoint": string; "enabled": boolean };
 export type ProviderInput = { "id"?: (string | null); "version"?: (number | null); "name"?: JsonValue; "protocol": string; "endpoint": string; "enabled"?: boolean };
 export type Readiness = { "initialized": boolean; "accepting": boolean; "reason": string; "observed": number; "scheduler": SchedulerInfo; "maintenance": MaintenanceInfo; "pending": { [key: string]: number } };
+export type RecycleEvent = { "id": string; "kind": string; "object_id": string; "owner_id": string; "actor_id": string; "created": number; "state": string; "cleanup": (string | null); "count": number };
+export type RecycleList = { "items": Array<RecycleEvent> };
+export type RecyclePreview = { "kind": "request" | "dataset" | "dataset_version" | "attachment" | "attachment_version" | "artifact"; "object_id": string; "expected": Array<string> };
+export type RemoteVersion = { "revision": number; "digest": string; "tags": Array<string>; "published": string };
+export type RemoteVersions = { "package": string; "versions": Array<RemoteVersion>; "truncated": boolean; "possibly_incomplete": boolean; "limit": number };
+export type Rename = { "name": string };
+export type Renamed = { "id": string; "name": string };
 export type Report = { "run_id": string; "status": "queued" | "starting" | "running" | "cancelling" | "cleanup_blocked" | "succeeded" | "failed" | "cancelled"; "reason": (string | null); "complete": boolean; "expected_attempts": number; "valid_attempts": number; "invalid_attempts": number; "missing_attempts": number; "source": { [key: string]: JsonValue }; "harbor_version": string; "environment_observations": (Array<{ [key: string]: JsonValue }> | "unknown"); "tasks": Array<TaskReport>; "unexpected_trials": Array<Attempt> };
+export type RequestEntry = { "id": string; "group_id": string; "number": number; "source_id": (string | null); "relation": string; "name": string; "creator_id": string; "user_id": string; "submitter": string; "status": string; "run_id": (string | null); "created": number; "display_name": string };
+export type Requests = { "requests": Array<RequestEntry> };
 export type RetryInput = { "wall_seconds"?: (number | null) };
 export type Revoked = { "id": string; "revoked": boolean };
 export type Rotation = { "key": string };
@@ -103,11 +127,14 @@ export type Setup = { "username": string; "password": string; "setup_token": str
 export type ShutdownInput = { "mode": "wait" | "cancel" | "abort" };
 export type ShutdownIntent = { "mode": "none" | "wait" | "cancel" | "abort"; "phase": "idle" | "draining" | "complete"; "updated": (number | null) };
 export type ShutdownStatus = { "maintenance": MaintenanceInfo; "intent": ShutdownIntent; "counts": { [key: string]: number } };
+export type SourceVersion = { "id": string; "number": number; "resolved": string; "created": number; "tasks": Array<{ [key: string]: string }>; "parameters": { [key: string]: JsonValue } };
 export type StartupPolicy = { "multiplier": number; "wall_seconds": number; "scope": string; "tasks": Array<StartupTask> };
 export type StartupTask = { "task": string; "agent_seconds"?: (number | null); "verifier_seconds"?: (number | null); "author_build_timeout_sec": (number | "unknown"); "start_wait_timeout_sec": (number | "unknown"); "author_network_mode": string };
-export type SubmissionInput = { "dataset"?: (string | null); "dataset_id"?: (string | null); "model_profile"?: (string | null); "agent"?: ("oracle" | "opencode" | null); "attachment_version_id"?: (string | null); "attempts"?: (number | null); "concurrency"?: (number | null); "wall_seconds"?: (number | null); "environment_build_timeout_multiplier"?: (number | null); "task"?: (string | null); "name"?: (string | null) };
+export type SubmissionInput = { "dataset"?: (string | null); "dataset_id"?: (string | null); "dataset_source_version_id"?: (string | null); "source_request_id"?: (string | null); "independent"?: boolean; "model_profile"?: (string | null); "agent"?: ("oracle" | "opencode" | null); "attachment_version_id"?: (string | null); "attempts"?: (number | null); "concurrency"?: (number | null); "wall_seconds"?: (number | null); "environment_build_timeout_multiplier"?: (number | null); "task"?: (string | null); "name"?: (string | null) };
+export type Target = { "kind": "request" | "dataset" | "dataset_version" | "attachment" | "attachment_version" | "artifact"; "object_id": string; "expected"?: (Array<string> | null) };
 export type Task = { "name": string; "package": string; "ref": string; "snapshot_digest"?: (string | null) };
 export type TaskReport = { "task": string; "expected_attempts": number; "valid_attempts": number; "observed_attempts": number; "mean_rewards": ({ [key: string]: number } | null); "attempts": Array<Attempt> };
+export type Tombstone = { "id": string; "deleted": true; "status": "purged"; "operation_id"?: (string | null); "idempotency_key"?: (string | null) };
 export type UpdateInput = { "action": "check" | "upgrade" | "cancel" | "cancel-all"; "request_id": string; "payload": { [key: string]: string } };
 export type UpdateQueued = { "request_id": string };
 export type UpdateStatus = { "enabled": boolean; "source": ({ [key: string]: string } | null); "job": ({ [key: string]: JsonValue } | null); "results": Array<{ [key: string]: JsonValue }> };
@@ -118,17 +145,21 @@ export type User = { "evidence_grant"?: boolean; "id": string; "username": strin
 export type UserUpdate = { "enabled"?: (boolean | null); "password"?: (string | null) };
 export type VariableUse = { "task": string; "service"?: (string | null); "file": string; "required": boolean; "default"?: (string | null) };
 export type ApiFailure = ErrorResponse;
-export type GETPath = `/attachment-operations/${string}/${string}` | `/submission-operations/${string}/${string}` | `/submissions/${string}` | `/admin/access-credentials` | `/runs/${string}/evidence` | `/admin/model-profiles` | `/runs/${string}/report` | `/access-capabilities` | `/access-credentials` | `/runs/${string}/logs` | `/admin/credentials` | `/admin/master-key` | `/admin/providers` | `/admin/shutdown` | `/admin/updates` | `/runs/${string}` | `/admin/docker` | `/admin/limits` | `/admin/users` | `/attachments` | `/operations` | `/readiness` | `/catalog` | `/version` | `/setup` | `/usage` | `/runs` | `/me`;
+export type GETPath = `/attachment-operations/${string}/${string}` | `/submission-operations/${string}/${string}` | `/management/datasets/${string}/versions` | `/submissions/${string}` | `/admin/access-credentials` | `/runs/${string}/evidence` | `/admin/model-profiles` | `/runs/${string}/report` | `/access-capabilities` | `/management/datasets` | `/management/requests` | `/access-credentials` | `/management/recycle` | `/runs/${string}/logs` | `/admin/credentials` | `/admin/master-key` | `/admin/providers` | `/admin/shutdown` | `/admin/updates` | `/runs/${string}` | `/admin/docker` | `/admin/limits` | `/admin/users` | `/attachments` | `/operations` | `/readiness` | `/catalog` | `/version` | `/setup` | `/usage` | `/runs` | `/me`;
 export type GET<P extends GETPath> = P extends unknown ?
-  RouteMatches<P, "/attachment-operations/{operation}/{key:path}"> extends true ? { request: Record<string, never>; response: AttachmentResult; status: 200; media: "application/json" } :
-  RouteMatches<P, "/submission-operations/{operation}/{key:path}"> extends true ? { request: Record<string, never>; response: Accepted; status: 200; media: "application/json" } :
+  RouteMatches<P, "/attachment-operations/{operation}/{key:path}"> extends true ? { request: Record<string, never>; response: (AttachmentResult | Tombstone); status: 200; media: "application/json" } :
+  RouteMatches<P, "/submission-operations/{operation}/{key:path}"> extends true ? { request: Record<string, never>; response: (Accepted | Tombstone); status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/datasets/{dataset_id}/versions"> extends true ? { request: Record<string, never>; response: RemoteVersions; status: 200; media: "application/json" } :
   RouteMatches<P, "/submissions/{submission_id}"> extends true ? { request: Record<string, never>; response: Accepted; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/access-credentials"> extends true ? { request: Record<string, never>; response: Array<AccessCredential>; status: 200; media: "application/json" } :
   RouteMatches<P, "/runs/{run_id}/evidence"> extends true ? { request: Record<string, never>; response: Materials; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/model-profiles"> extends true ? { request: Record<string, never>; response: Array<Profile>; status: 200; media: "application/json" } :
   RouteMatches<P, "/runs/{run_id}/report"> extends true ? { request: Record<string, never>; response: (Report | null); status: 200; media: "application/json" } :
   RouteMatches<P, "/access-capabilities"> extends true ? { request: Record<string, never>; response: AccessCapabilities; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/datasets"> extends true ? { request: Record<string, never>; response: Datasets; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/requests"> extends true ? { request: Record<string, never>; response: Requests; status: 200; media: "application/json" } :
   RouteMatches<P, "/access-credentials"> extends true ? { request: Record<string, never>; response: Array<AccessCredential>; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/recycle"> extends true ? { request: Record<string, never>; response: RecycleList; status: 200; media: "application/json" } :
   RouteMatches<P, "/runs/{run_id}/logs"> extends true ? { request: Record<string, never>; response: Logs; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/credentials"> extends true ? { request: Record<string, never>; response: Array<CredentialInfo>; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/master-key"> extends true ? { request: Record<string, never>; response: MasterStatus; status: 200; media: "application/json" } :
@@ -149,25 +180,33 @@ export type GET<P extends GETPath> = P extends unknown ?
   RouteMatches<P, "/runs"> extends true ? { request: Record<string, never>; response: Runs; status: 200; media: "application/json" } :
   RouteMatches<P, "/me"> extends true ? { request: Record<string, never>; response: User; status: 200; media: "application/json" } :
   never : never;
-export type POSTPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/admin/catalog/${string}/${string}/verify` | `/attachment-versions/${string}/derive` | `/admin/users/${string}/evidence-grant` | `/attachments/${string}/versions` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/admin/shutdown` | `/admin/updates` | `/auth/password` | `/admin/users` | `/attachments` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
+export type POSTPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/management/datasets/${string}/preview` | `/admin/catalog/${string}/${string}/verify` | `/attachment-versions/${string}/derive` | `/management/recycle/${string}/restore` | `/admin/users/${string}/evidence-grant` | `/attachments/${string}/versions` | `/management/recycle/${string}/purge` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/management/dataset-merge/preview` | `/management/datasets/confirm` | `/management/recycle/preview` | `/management/dataset-merge` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/management/recycle` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/admin/shutdown` | `/admin/updates` | `/auth/password` | `/admin/users` | `/attachments` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
 export type POST<P extends POSTPath> = P extends unknown ?
   RouteMatches<P, "/admin/datasets/{object_id}/author-inputs/check"> extends true ? { request: (AuthorCheck | null); response: AuthorParameters; status: 200; media: "application/json" } :
   RouteMatches<P, "/access-credentials/{credential_id}/revoke"> extends true ? { request: Record<string, never>; response: Revoked; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/credentials/{credential_id}/disable"> extends true ? { request: Record<string, never>; response: CredentialInfo; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/credentials/{credential_id}/rotate"> extends true ? { request: Rotation; response: CredentialInfo; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/datasets/{dataset_id}/preview"> extends true ? { request: PreviewInput; response: Preview; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/catalog/{kind}/{object_id}/verify"> extends true ? { request: Record<string, never>; response: Dataset; status: 200; media: "application/json" } :
-  RouteMatches<P, "/attachment-versions/{version_id}/derive"> extends true ? { request: AttachmentCreate; response: AttachmentResult; status: 201; media: "multipart/form-data" } :
+  RouteMatches<P, "/attachment-versions/{version_id}/derive"> extends true ? { request: AttachmentCreate; response: (AttachmentResult | Tombstone); status: 201; media: "multipart/form-data" } :
+  RouteMatches<P, "/management/recycle/{event_id}/restore"> extends true ? { request: Record<string, never>; response: RecycleEvent; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/users/{user_id}/evidence-grant"> extends true ? { request: EvidenceGrant; response: GrantResult; status: 200; media: "application/json" } :
-  RouteMatches<P, "/attachments/{attachment_id}/versions"> extends true ? { request: AttachmentPublish; response: AttachmentResult; status: 201; media: "multipart/form-data" } :
+  RouteMatches<P, "/attachments/{attachment_id}/versions"> extends true ? { request: AttachmentPublish; response: (AttachmentResult | Tombstone); status: 201; media: "multipart/form-data" } :
+  RouteMatches<P, "/management/recycle/{event_id}/purge"> extends true ? { request: Record<string, never>; response: RecycleEvent; status: 200; media: "application/json" } :
   RouteMatches<P, "/submissions/{submission_id}/cancel"> extends true ? { request: (EmptyInput | null); response: Accepted; status: 200; media: "application/json" } :
-  RouteMatches<P, "/submissions/{submission_id}/retry"> extends true ? { request: (EmptyInput | null); response: Accepted; status: 202; media: "application/json" } :
+  RouteMatches<P, "/submissions/{submission_id}/retry"> extends true ? { request: (EmptyInput | null); response: (Accepted | Tombstone); status: 202; media: "application/json" } :
+  RouteMatches<P, "/management/dataset-merge/preview"> extends true ? { request: MergePreviewInput; response: MergePreview; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/datasets/confirm"> extends true ? { request: ConfirmInput; response: Confirmed; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/recycle/preview"> extends true ? { request: Target; response: RecyclePreview; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/dataset-merge"> extends true ? { request: MergeInput; response: Merged; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/master-key/rotate"> extends true ? { request: MasterRotation; response: MasterRotated; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/catalog/{kind}"> extends true ? { request: DatasetInput; response: Dataset; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/model-profiles"> extends true ? { request: ProfileInput; response: Profile; status: 200; media: "application/json" } :
   RouteMatches<P, "/runs/{run_id}/cancel"> extends true ? { request: (EmptyInput | null); response: CancelResult; status: 200; media: "application/json" } :
-  RouteMatches<P, "/runs/{run_id}/rerun"> extends true ? { request: (EmptyInput | null); response: Accepted; status: 202; media: "application/json" } :
-  RouteMatches<P, "/runs/{run_id}/retry"> extends true ? { request: RetryInput; response: Accepted; status: 202; media: "application/json" } :
+  RouteMatches<P, "/runs/{run_id}/rerun"> extends true ? { request: (EmptyInput | null); response: (Accepted | Tombstone); status: 202; media: "application/json" } :
+  RouteMatches<P, "/runs/{run_id}/retry"> extends true ? { request: RetryInput; response: (Accepted | Tombstone); status: 202; media: "application/json" } :
   RouteMatches<P, "/access-credentials"> extends true ? { request: AccessIssue; response: AccessResult; status: 201; media: "application/json" } :
+  RouteMatches<P, "/management/recycle"> extends true ? { request: Batch; response: BatchResult; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/credentials"> extends true ? { request: Credential; response: CredentialInfo; status: 201; media: "application/json" } :
   RouteMatches<P, "/admin/hub/disable"> extends true ? { request: Record<string, never>; response: Hub; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/providers"> extends true ? { request: ProviderInput; response: Provider; status: 200; media: "application/json" } :
@@ -175,30 +214,32 @@ export type POST<P extends POSTPath> = P extends unknown ?
   RouteMatches<P, "/admin/updates"> extends true ? { request: UpdateInput; response: UpdateQueued; status: 200; media: "application/json" } :
   RouteMatches<P, "/auth/password"> extends true ? { request: PasswordChange; response: PasswordResult; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/users"> extends true ? { request: Account; response: User; status: 201; media: "application/json" } :
-  RouteMatches<P, "/attachments"> extends true ? { request: AttachmentCreate; response: AttachmentResult; status: 201; media: "multipart/form-data" } :
+  RouteMatches<P, "/attachments"> extends true ? { request: AttachmentCreate; response: (AttachmentResult | Tombstone); status: 201; media: "multipart/form-data" } :
   RouteMatches<P, "/auth/logout"> extends true ? { request: Record<string, never>; response: LoggedOut; status: 200; media: "application/json" } :
-  RouteMatches<P, "/submissions"> extends true ? { request: SubmissionInput; response: Accepted; status: 202; media: "application/json" } :
+  RouteMatches<P, "/submissions"> extends true ? { request: SubmissionInput; response: (Accepted | Tombstone); status: 202; media: "application/json" } :
   RouteMatches<P, "/auth/login"> extends true ? { request: Login; response: LoginResult; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/hub"> extends true ? { request: Rotation; response: Hub; status: 200; media: "application/json" } :
   RouteMatches<P, "/compare"> extends true ? { request: CompareInput; response: Comparison; status: 200; media: "application/json" } :
   RouteMatches<P, "/setup"> extends true ? { request: Setup; response: Initialized; status: 201; media: "application/json" } :
   never : never;
-export type JsonPostPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/admin/catalog/${string}/${string}/verify` | `/admin/users/${string}/evidence-grant` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/admin/shutdown` | `/admin/updates` | `/auth/password` | `/admin/users` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
+export type JsonPostPath = `/admin/datasets/${string}/author-inputs/check` | `/access-credentials/${string}/revoke` | `/admin/credentials/${string}/disable` | `/admin/credentials/${string}/rotate` | `/management/datasets/${string}/preview` | `/admin/catalog/${string}/${string}/verify` | `/management/recycle/${string}/restore` | `/admin/users/${string}/evidence-grant` | `/management/recycle/${string}/purge` | `/submissions/${string}/cancel` | `/submissions/${string}/retry` | `/management/dataset-merge/preview` | `/management/datasets/confirm` | `/management/recycle/preview` | `/management/dataset-merge` | `/admin/master-key/rotate` | `/admin/catalog/${string}` | `/admin/model-profiles` | `/runs/${string}/cancel` | `/runs/${string}/rerun` | `/runs/${string}/retry` | `/access-credentials` | `/management/recycle` | `/admin/credentials` | `/admin/hub/disable` | `/admin/providers` | `/admin/shutdown` | `/admin/updates` | `/auth/password` | `/admin/users` | `/auth/logout` | `/submissions` | `/auth/login` | `/admin/hub` | `/compare` | `/setup`;
 export type UploadPath = `/attachment-versions/${string}/derive` | `/attachments/${string}/versions` | `/attachments`;
-export type PATCHPath = `/attachments/${string}/versions/${string}` | `/attachments/${string}` | `/admin/users/${string}` | `/admin/maintenance` | `/admin/settings` | `/admin/limits`;
+export type PATCHPath = `/attachments/${string}/versions/${string}` | `/management/groups/${string}` | `/attachments/${string}` | `/admin/users/${string}` | `/admin/maintenance` | `/admin/settings` | `/admin/limits`;
 export type PATCH<P extends PATCHPath> = P extends unknown ?
   RouteMatches<P, "/attachments/{attachment_id}/versions/{version_id}"> extends true ? { request: AttachmentVersionUpdate; response: Updated; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/groups/{group_id}"> extends true ? { request: Rename; response: Renamed; status: 200; media: "application/json" } :
   RouteMatches<P, "/attachments/{attachment_id}"> extends true ? { request: AttachmentUpdate; response: Updated; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/users/{user_id}"> extends true ? { request: UserUpdate; response: User; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/maintenance"> extends true ? { request: MaintenanceInput; response: MaintenanceInfo; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/settings"> extends true ? { request: Settings; response: Settings; status: 200; media: "application/json" } :
   RouteMatches<P, "/admin/limits"> extends true ? { request: LimitsInput; response: Limits; status: 200; media: "application/json" } :
   never : never;
-export type PUTPath = `/admin/datasets/${string}/author-inputs`;
+export type PUTPath = `/admin/datasets/${string}/author-inputs` | `/management/datasets/${string}/default`;
 export type PUT<P extends PUTPath> = P extends unknown ?
   RouteMatches<P, "/admin/datasets/{object_id}/author-inputs"> extends true ? { request: AuthorSave; response: AuthorParameters; status: 200; media: "application/json" } :
+  RouteMatches<P, "/management/datasets/{dataset_id}/default"> extends true ? { request: DefaultInput; response: Updated; status: 200; media: "application/json" } :
   never : never;
 export type DELETEPath = `/runs/${string}/artifacts/${string}`;
 export type DELETE<P extends DELETEPath> = P extends unknown ?
-  RouteMatches<P, "/runs/{run_id}/artifacts/{file_id}"> extends true ? { request: Record<string, never>; response: Deleted; status: 200; media: "application/json" } :
+  RouteMatches<P, "/runs/{run_id}/artifacts/{file_id}"> extends true ? { request: Record<string, never>; response: RecycleEvent; status: 200; media: "application/json" } :
   never : never;

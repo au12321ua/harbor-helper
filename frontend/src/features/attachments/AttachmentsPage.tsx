@@ -3,6 +3,7 @@ import {
   newIdempotencyKey,
   upload,
   type AttachmentResult,
+  type Tombstone,
   type PATCH,
   type PATCHPath,
   type User,
@@ -40,7 +41,7 @@ export function AttachmentsPage({ user }: { user: User }) {
   const [file, setFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>();
-  const [result, setResult] = useState<AttachmentResult>();
+  const [result, setResult] = useState<AttachmentResult | Tombstone>();
   const [receipt, setReceipt] = useState<{
     operation: string;
     key: string;
@@ -266,7 +267,7 @@ export function AttachmentsPage({ user }: { user: User }) {
                   开始新操作
                 </Button>
               </div>
-              {result ? (
+              {result && "attachment" in result ? (
                 <p role="status">
                   已提交 {result.attachment.name} · v{result.version.number} ·{" "}
                   {result.version.id} ·{" "}
@@ -346,6 +347,7 @@ export function AttachmentsPage({ user }: { user: User }) {
                   </div>
                 </form>
               ) : null}
+              <p>停用阻止新请求选用；成员仍可下载，正常历史请求仍可按自己的冻结快照重跑。</p>
               <ul className="flex flex-col gap-4">
                 {a.versions.map((v) => (
                   <li key={v.id}>
@@ -367,6 +369,9 @@ export function AttachmentsPage({ user }: { user: User }) {
                       </p>
                     </details>
                     <div className="flex flex-wrap gap-2">
+                      <Button asChild variant="outline" disabled={v.availability !== "available"}>
+                        <a href={`/api/v1/attachment-versions/${v.id}/download`}>下载 v{v.number}</a>
+                      </Button>
                       {a.enabled &&
                       v.enabled &&
                       v.availability === "available" ? (

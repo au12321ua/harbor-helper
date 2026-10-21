@@ -96,7 +96,7 @@ def test_semantic_idempotency_concurrency_and_target_conflict(data):
             )
         )
     assert sorted(v["version"]["number"] for v in versions) == [2, 3, 4, 5]
-    other = create(app, user, "other")
+    other = create(app, user, "other", name="Other input")
     with pytest.raises(ServiceError) as error:
         app.attachments.write(
             user,
@@ -143,11 +143,14 @@ def test_frozen_lineage_rerun_retry_recover_current_identity(data, preparation):
     assert (snapshot / "manifest.json").read_bytes() == before
     app.attachments.update(alice, aid, {"enabled": False}, vid)
     for retry in (False, True):
-        with pytest.raises(ServiceError) as error:
-            app.accept(bob, {}, f"disabled-{retry}", parent=rid, retry=retry)
-        assert error.value.code == "attachment_disabled"
-    with pytest.raises(ServiceError):
-        app.recover_submission(bob, child["id"], "disabled-recovery")
+        accepted_disabled = app.accept(bob, {}, f"disabled-{retry}", parent=rid, retry=retry)
+        assert accepted_disabled["attachment"]["attachment_version_id"] == vid
+    assert (
+        app.recover_submission(bob, child["id"], "disabled-recovery")["attachment"][
+            "attachment_version_id"
+        ]
+        == vid
+    )
 
 
 @pytest.mark.parametrize(

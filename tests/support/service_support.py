@@ -52,8 +52,31 @@ def make_data(tmp_path):
                 "params": {"temperature": 0},
             },
         )
+    configure_default_dataset(data)
     synthetic_activity(data)
     return data
+
+
+def configure_default_dataset(data):
+    # Tests using an implicit source choose an explicit, checked synthetic default.
+    app = Application(data.root)
+    default = app.configuration.persist(
+        "dataset",
+        {
+            "id": "fixture-default",
+            "name": "Fixture default",
+            "reference": "test/default@1",
+            "enabled": True,
+            "status": "verified",
+            "resolved": "test/default@sha256:" + "a" * 64,
+            "tasks": [{"name": "box", "package": "test/box", "ref": "sha256:fixed"}],
+        },
+    )
+    app.configuration.persist(
+        "author_parameters",
+        {"id": default["id"], "source": default["resolved"], "values": {}, "status": "checked"},
+    )
+    app.configuration.save_settings({"default_dataset_id": default["id"]})
 
 
 def client(data, username="alice"):

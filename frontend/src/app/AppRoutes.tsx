@@ -1,3 +1,4 @@
+import { ManagementPage } from "@/features/management/ManagementPage";
 import { OperationHistory } from "@/features/experiments/OperationHistory";
 import { type User } from "@/api";
 import { EmptyState } from "@/components/shared";
@@ -20,6 +21,7 @@ export function AppRoutes({
 }) {
   return (
     <Routes>
+      <Route path="/management" element={<ManagementPage user={user} />} />
       <Route path="/operations" element={<OperationHistory />} />
       <Route path="/account" element={<AccountPage logout={onLogout} />} />
       <Route path="/" element={<ExperimentList />} />

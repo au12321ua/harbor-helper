@@ -29,6 +29,15 @@ class Objects:
 
     def object(self, kind, object_id, version=None):
         with self.store.connect() as db:
+            if kind == "dataset":
+                from harbor_helper.service.management_data import available
+
+                alias = db.execute(
+                    "SELECT target FROM dataset_aliases WHERE id=?", (object_id,)
+                ).fetchone()
+                available(db, "dataset", alias[0] if alias else object_id)
+                if alias and version is None:
+                    object_id = alias[0]
             row = db.execute(
                 "SELECT * FROM objects WHERE kind=? AND id=? "
                 + ("AND version=?" if version else "ORDER BY version DESC LIMIT 1"),

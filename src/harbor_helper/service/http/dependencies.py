@@ -23,6 +23,14 @@ class Dependencies:
         def actor(request: Request):
             user = self.data.actor(token(request))
             policy.authorize(user, request.scope["route"].endpoint.__name__)
+            from harbor_helper.service.management_data import available, request_id
+
+            # Content read/derive paths all share this guard, including machine projections.
+            with self.store.connect() as db:
+                for key in ("run_id", "submission_id"):
+                    value = request.path_params.get(key)
+                    if value:
+                        available(db, "request", request_id(db, value))
             request.state.actor = user
             return user
 
@@ -30,6 +38,13 @@ class Dependencies:
             admin(user)
             return user
 
+        def dataset_administrator(user: Annotated[dict, Depends(actor)]):
+            from harbor_helper.service.permissions import management_admin
+
+            management_admin(user, "datasets_manage")
+            return user
+
+        self.dataset_administrator = dataset_administrator
         self.actor = actor
         self.administrator = administrator
 

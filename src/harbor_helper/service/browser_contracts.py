@@ -37,6 +37,7 @@ class User(DTO):
 class MachineUser(User):
     access_credential_id: str
     scopes: list[str]
+    account_role: Literal["admin", "member"]
 
 
 class Initialized(DTO):
@@ -192,7 +193,17 @@ class AuthorParameters(DTO):
     checked: float | None = None
 
 
+class CatalogSourceVersion(DTO):
+    id: str
+    number: int
+    resolved: str
+    tasks: list[Task]
+    author_parameters: AuthorParameters
+
+
 class Dataset(DTO):
+    source_versions: list[CatalogSourceVersion] = []
+    default_source_version_id: str | None = None
     id: str
     version: int
     name: str
@@ -225,7 +236,7 @@ class Catalog(DTO):
     credentials: list[CredentialInfo]
     model_profiles: list[Profile]
     limits: Limits
-    default_dataset: str
+    default_dataset: str | None
     readiness: m.Readiness
 
 
@@ -459,6 +470,11 @@ class Binding(DTO):
     model_profile_version: int | None = None
     dataset_id: str | None = None
     dataset_version: int | None = None
+    dataset_source_version_id: str | None = None
+    group_id: str | None = None
+    group_number: int | None = None
+    source_request_id: str | None = None
+    relation: str | None = None
     dataset_name: str | None = None
     source_version: int | None = None
     author_parameters_version: int | None = None
@@ -531,10 +547,12 @@ class UserUpdate(DTO):
 
 
 class AuthorCheck(DTO):
+    version_id: str | None = None
     task_names: list[str] | None = None
 
 
 class AuthorSave(DTO):
+    version_id: str | None = None
     values: dict[str, str]
 
 
@@ -731,3 +749,51 @@ REQUESTS = {
     "profile": ProfileInput,
     "set_limits": LimitsInput,
 }
+
+
+from harbor_helper.service import management_contracts as mc
+
+BROWSER.update(
+    {
+        "managed_requests": mc.Requests,
+        "rename_group": mc.Renamed,
+        "managed_datasets": mc.Datasets,
+        "dataset_versions": mc.RemoteVersions,
+        "dataset_preview": mc.Preview,
+        "dataset_confirm": mc.Confirmed,
+        "dataset_default": m.Updated,
+        "dataset_merge_preview": mc.MergePreview,
+        "dataset_merge": mc.Merged,
+        "recycle_list": mc.RecycleList,
+        "recycle_preview": mc.RecyclePreview,
+        "recycle_move": mc.BatchResult,
+        "recycle_restore": mc.RecycleEvent,
+        "recycle_purge": mc.RecycleEvent,
+        "delete_artifact": mc.RecycleEvent,
+    }
+)
+REQUESTS.update(
+    {
+        "rename_group": mc.Rename,
+        "dataset_preview": mc.PreviewInput,
+        "dataset_confirm": mc.ConfirmInput,
+        "dataset_default": mc.DefaultInput,
+        "dataset_merge_preview": mc.MergePreviewInput,
+        "dataset_merge": mc.MergeInput,
+        "recycle_preview": mc.Target,
+        "recycle_move": mc.Batch,
+    }
+)
+
+for _name in (
+    "submit",
+    "rerun",
+    "retry_run",
+    "recover_submission",
+    "lookup_submission",
+    "attachment_lookup",
+    "create_attachment",
+    "publish_attachment",
+    "derive_attachment",
+):
+    BROWSER[_name] = BROWSER[_name] | mc.Tombstone

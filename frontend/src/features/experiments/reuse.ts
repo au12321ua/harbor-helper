@@ -3,6 +3,7 @@ import type { Catalog, Manifest, SubmissionInput } from "@/api";
 export const fields = [
   "name",
   "dataset_id",
+  "dataset_source_version_id",
   "task",
   "agent",
   "model_profile",
@@ -19,12 +20,13 @@ export type Reuse = {
   source: string;
   values: Draft;
   datasetIdentity?: string | null;
+  sourceId?: string;
 };
 export type NewEntry = Reuse | { kind: "attachment"; version: string };
 export function fromManifest(
   manifest: Manifest,
   source: string,
-  copyName = true,
+  _copyName = true,
 ): Reuse {
   const e: Partial<Manifest["effective"]> = manifest.effective ?? {},
     s = manifest.service;
@@ -33,8 +35,10 @@ export function fromManifest(
     kind: "history",
     source,
     datasetIdentity: e.dataset,
+    sourceId: s?.submission_id || undefined,
     values: {
-      name: copyName ? `${name.slice(0, 123)} · 副本` : name,
+      name,
+      dataset_source_version_id: s?.dataset_source_version_id ?? "",
       dataset_id:
         s?.dataset_id ?? (e.dataset ? `引用：${e.dataset}` : undefined),
       task: e.task_filter === null ? "" : e.task_filter,
@@ -55,6 +59,7 @@ export function fromRequest(request: SubmissionInput, source: string): Reuse {
     source: `${source}（公开提交意图，未恢复冻结结果）`,
     values: {
       name: request.name ?? "",
+      dataset_source_version_id: request.dataset_source_version_id ?? "",
       dataset_id:
         request.dataset_id ??
         (request.dataset ? `引用：${request.dataset}` : undefined),
@@ -92,6 +97,7 @@ export function initialDraft(catalog: Catalog, entry?: NewEntry): Draft {
   if (entry?.kind === "history") return { ...entry.values };
   return {
     name: "",
+    dataset_source_version_id: "",
     dataset_id:
       catalog.settings.default_dataset_id ||
       catalog.datasets.find((d) => d.ready && d.enabled !== false)?.id ||
@@ -203,6 +209,7 @@ export function submissionBody(draft: Draft): SubmissionInput {
   return {
     name: text(draft.name),
     dataset_id: text(draft.dataset_id),
+    dataset_source_version_id: text(draft.dataset_source_version_id) || undefined,
     task: draft.task === "" ? null : text(draft.task),
     agent: draft.agent as "oracle" | "opencode",
     model_profile: draft.agent === "oracle" ? null : text(draft.model_profile),

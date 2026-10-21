@@ -13,7 +13,19 @@ from harbor_helper.persistence.wakeup import wake_after
 from harbor_helper.security.passwords import PASSWORDS
 from harbor_helper.service.primitives import ServiceError
 
-SCOPES = {"read", "attachments", "execute", "cancel_own", "evidence"}
+SCOPES = {
+    "read",
+    "attachments",
+    "execute",
+    "cancel_own",
+    "evidence",
+    "attachment_download",
+    "recycle_own",
+    "datasets_manage",
+    "recycle_all",
+    "purge",
+}
+ADMIN_SCOPES = {"datasets_manage", "recycle_all", "purge"}
 PUBLIC = "id,user_id,name,scopes,created,expires,revoked,last_used"
 
 
@@ -62,7 +74,9 @@ def issue(data, actor, name, password, scopes, expires, *, access_value=None):
     credential_id = uuid.uuid4().hex
     with data.store.connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT password,enabled FROM users WHERE id=?", (actor["id"],)).fetchone()
+        row = db.execute(
+            "SELECT password,enabled,role FROM users WHERE id=?", (actor["id"],)
+        ).fetchone()
         # Password reset/disable concurrent with verification must not mint a new credential.
         try:
             if not row or not row["enabled"]:
@@ -72,6 +86,8 @@ def issue(data, actor, name, password, scopes, expires, *, access_value=None):
             raise ServiceError(
                 "login_required", "Current password verification required", 401
             ) from None
+        if set(scopes) & ADMIN_SCOPES and row["role"] != "admin":
+            raise ServiceError("admin_scope_required", "成员不能签发管理员能力", 403)
         if "evidence" in scopes and ("read" not in scopes or not granted(data, actor["id"], db)):
             raise ServiceError(
                 "evidence_grant_required", "Evidence requires account grant and read scope", 403

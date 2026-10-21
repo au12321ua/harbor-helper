@@ -152,7 +152,7 @@ class Accounts:
         with self.store.connect() as db:
             if (token or "").startswith("hh_pat_v1_"):
                 row = db.execute(
-                    """SELECT u.id,u.username,u.enabled,c.id access_credential_id,c.scopes
+                    """SELECT u.id,u.username,u.enabled,u.role account_role,c.id access_credential_id,c.scopes
                     FROM access_credentials c JOIN users u ON u.id=c.user_id
                     WHERE c.digest=? AND c.expires>? AND c.revoked IS NULL AND u.enabled=1""",
                     (digest, time.time()),

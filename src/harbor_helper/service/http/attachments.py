@@ -29,6 +29,37 @@ def register(app, deps):
     def attachment_lookup(operation: str, key: str, user: Annotated[dict, Depends(actor)]):
         return deps.application.attachments.lookup(user, operation, key)
 
+    @app.get("/api/v1/attachment-versions/{version_id}/download")
+    def attachment_download(
+        request: Request, version_id: str, user: Annotated[dict, Depends(actor)]
+    ):
+        from urllib.parse import quote
+
+        from fastapi.responses import StreamingResponse
+        from starlette.background import BackgroundTask
+
+        stream, size, sha, name = deps.application.attachments.download(
+            user, version_id, access_value=token(request)
+        )
+
+        def chunks():
+            try:
+                while chunk := stream.read(65536):
+                    yield chunk
+            finally:
+                stream.close()
+
+        return StreamingResponse(
+            chunks(),
+            media_type="application/zip",
+            headers={
+                "Content-Length": str(size),
+                "X-Content-SHA256": sha,
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name),
+            },
+            background=BackgroundTask(stream.close),
+        )
+
     @app.post("/api/v1/attachments", status_code=201, response_model=AttachmentResult)
     def create_attachment(
         request: Request,

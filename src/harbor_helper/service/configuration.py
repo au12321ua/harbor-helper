@@ -117,6 +117,35 @@ class TeamConfiguration:
                 "SELECT COALESCE(MAX(version),0)+1 FROM objects WHERE kind=? AND id=?",
                 (kind, object_id),
             ).fetchone()[0]
+            if kind == "dataset":
+                from harbor_helper.service.management_data import (
+                    available,
+                    remember_dataset,
+                    reserve_name,
+                )
+
+                available(db, "dataset", object_id)
+                value["name"] = reserve_name(db, "dataset", object_id, value["name"])
+                source = value["reference"].split("@")[0]
+                old = db.execute(
+                    "SELECT id FROM dataset_identities WHERE source=? AND id!=? AND id NOT IN (SELECT id FROM dataset_aliases)",
+                    (source, object_id),
+                ).fetchone()
+                if (
+                    old
+                    and not db.execute(
+                        "SELECT 1 FROM dataset_identities WHERE id=?", (object_id,)
+                    ).fetchone()
+                ):
+                    raise ServiceError(
+                        "dataset_exists", "来源已存在，请在原数据集中选择版本或合并旧同源项", 409
+                    )
+                db.execute(
+                    "INSERT INTO dataset_identities VALUES(?,?,?,NULL,0) ON CONFLICT(id) DO UPDATE SET name=excluded.name",
+                    (object_id, source, value["name"]),
+                )
+                value["version"] = version
+                remember_dataset(db, object_id, value)
             db.execute(
                 "INSERT INTO objects VALUES(?,?,?,?)", (kind, object_id, version, json.dumps(value))
             )
@@ -178,25 +207,83 @@ class TeamConfiguration:
                 raise ServiceError("configuration_changed", "配置已修改；请重新验证", 409)
             return self.persist(kind, value)
 
-    def ready_dataset(self, object_id):
-        value = self.data.object("dataset", object_id)
-        if not value["enabled"] or value["status"] != "verified":
+    def ready_dataset(self, object_id, version_id=None):
+        from harbor_helper.service.management_data import available
+
+        with self.store.connect() as db:
+            alias = db.execute(
+                "SELECT target FROM dataset_aliases WHERE id=?", (object_id,)
+            ).fetchone()
+            object_id = alias[0] if alias else object_id
+            available(db, "dataset", object_id)
+            identity = db.execute(
+                "SELECT * FROM dataset_identities WHERE id=?", (object_id,)
+            ).fetchone()
+            selected = version_id or (identity["default_version"] if identity else None)
+            if selected:
+                available(db, "dataset_version", selected)
+                version = db.execute(
+                    "SELECT * FROM dataset_sources WHERE id=? AND (dataset_id=? OR dataset_id IN (SELECT id FROM dataset_aliases WHERE target=?))",
+                    (selected, object_id, object_id),
+                ).fetchone()
+                if not version:
+                    raise ServiceError("dataset_version_missing", "请选择该数据集的可用版本", 409)
+                value = {
+                    **json.loads(version["config"]),
+                    "id": object_id,
+                    "source_version_id": selected,
+                    "name": identity["name"],
+                }
+            elif identity:
+                raise ServiceError("dataset_version_unset", "请管理员明确选择默认来源版本", 409)
+            else:
+                value = self.data.object("dataset", object_id)
+        if (
+            not self.data.object("dataset", object_id)["enabled"]
+            or not value["enabled"]
+            or value["status"] != "verified"
+        ):
             raise ServiceError("dataset_unverified", "管理员须启用并验证数据集", 409)
         if value.get("source_version"):
             self.hub_key(value["source_version"])
         return value
 
-    def author_parameters(self, object_id):
-        values = self.data.objects("author_parameters")
+    def author_parameters(self, object_id, resolved=None):
+        if resolved is None:
+            try:
+                resolved = self.ready_dataset(object_id)["resolved"]
+            except ServiceError:
+                pass
+        with self.store.connect() as db:
+            ids = [
+                object_id,
+                *[
+                    r[0]
+                    for r in db.execute(
+                        "SELECT id FROM dataset_aliases WHERE target=?", (object_id,)
+                    )
+                ],
+            ]
+            rows = db.execute(
+                "SELECT * FROM objects WHERE kind='author_parameters' ORDER BY version DESC"
+            ).fetchall()
+            values = [
+                {**json.loads(r["config"]), "id": object_id, "version": r["version"]}
+                for r in rows
+                if r["id"] in ids
+                and (resolved is None or json.loads(r["config"]).get("source") == resolved)
+            ]
         return next(
             (v for v in values if v["id"] == object_id),
             {"id": object_id, "version": 0, "values": {}, "status": "unchecked"},
         )
 
-    def inspect_author_parameters(self, object_id, task_names=None, *, selection_supplied=False):
+    def inspect_author_parameters(
+        self, object_id, task_names=None, *, selection_supplied=False, version_id=None
+    ):
         from harbor_helper.execution.author_inputs import AuthorInputError, discover
 
-        selected = self.ready_dataset(object_id)
+        selected = self.ready_dataset(object_id, version_id)
         catalog = selected["tasks"]
         by_name = {task["name"]: task for task in catalog}
         partial = selection_supplied or task_names is not None
@@ -288,10 +375,10 @@ class TeamConfiguration:
                 }
             )
         with self.data.store.control():
-            current = self.ready_dataset(object_id)
+            current = self.ready_dataset(object_id, version_id)
             if current["resolved"] != reference or current["tasks"] != catalog:
                 raise ServiceError("configuration_changed", "数据集来源已变更；请重新检查", 409)
-            old = self.author_parameters(object_id)
+            old = self.author_parameters(object_id, reference)
             records = {}
             if old.get("source") == reference:
                 records = {
@@ -395,12 +482,12 @@ class TeamConfiguration:
         )
 
     @wake_after
-    def save_author_parameters(self, object_id, values):
+    def save_author_parameters(self, object_id, values, version_id=None):
         from harbor_helper.execution.author_inputs import AuthorInputError, check_inputs
 
         with self.data.store.control():
-            selected = self.ready_dataset(object_id)
-            old = self.author_parameters(object_id)
+            selected = self.ready_dataset(object_id, version_id)
+            old = self.author_parameters(object_id, selected["resolved"])
             if old.get("source") != selected["resolved"] or "discovery" not in old:
                 raise ServiceError("author_inputs_unchecked", "先检查当前来源作者参数", 409)
             issues = []
@@ -427,15 +514,56 @@ class TeamConfiguration:
     def catalog(self):
         datasets = []
         for value in self.data.objects("dataset"):
+            from harbor_helper.service.management_data import state
+
+            with self.store.connect() as db:
+                if (
+                    state(db, "dataset", value["id"]) != "active"
+                    or db.execute(
+                        "SELECT 1 FROM dataset_aliases WHERE id=?", (value["id"],)
+                    ).fetchone()
+                ):
+                    continue
+                identity = db.execute(
+                    "SELECT name FROM dataset_identities WHERE id=?", (value["id"],)
+                ).fetchone()
+                if identity:
+                    value["name"] = identity["name"]
             try:
-                self.ready_dataset(value["id"])
+                selected = self.ready_dataset(value["id"])
+                value.update({k: v for k, v in selected.items() if k != "source_version_id"})
                 ready = True
                 readiness_error = None
             except ServiceError as error:
                 ready = False
                 readiness_error = {"code": error.code, "message": str(error)}
+            with self.store.connect() as db:
+                identity = db.execute(
+                    "SELECT default_version FROM dataset_identities WHERE id=?", (value["id"],)
+                ).fetchone()
+                versions = []
+                for version in db.execute(
+                    "SELECT * FROM dataset_sources WHERE dataset_id=? ORDER BY number DESC",
+                    (value["id"],),
+                ).fetchall():
+                    if state(db, "dataset_version", version["id"]) != "active":
+                        continue
+                    config = json.loads(version["config"])
+                    versions.append(
+                        {
+                            "id": version["id"],
+                            "number": version["number"],
+                            "resolved": version["resolved"],
+                            "tasks": config["tasks"],
+                            "author_parameters": self.author_parameters(
+                                value["id"], version["resolved"]
+                            ),
+                        }
+                    )
             datasets.append(
                 {
+                    "source_versions": versions,
+                    "default_source_version_id": identity[0] if identity else None,
                     **value,
                     "ready": ready,
                     "readiness_error": readiness_error,

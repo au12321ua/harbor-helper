@@ -9,7 +9,6 @@ from harbor_helper.persistence.files import read_json
 from harbor_helper.persistence.store import ACTIVE, TERMINAL
 from harbor_helper.security.credentials import redact_value
 from harbor_helper.security.master_key import MasterUnavailable
-from harbor_helper.service.permissions import admin
 from harbor_helper.service.primitives import ServiceError
 from harbor_helper.service.run_metadata import local_file_error, read_manifest, recovered_metadata
 from harbor_helper.service.views import public_submission, safe_view
@@ -18,6 +17,10 @@ from harbor_helper.service.views import public_submission, safe_view
 def locked(function):
     @wraps(function)
     def wrapped(self, run_id, *args, **kwargs):
+        from harbor_helper.service.management_data import available, request_id
+
+        with self.store.connect() as db:
+            available(db, "request", request_id(db, run_id))
         with self.store.evidence(run_id):
             return function(self, run_id, *args, **kwargs)
 
@@ -100,9 +103,21 @@ class Evidence:
         with self.store.connect() as db:
             ids = [r[0] for r in db.execute("SELECT id FROM submissions ORDER BY created DESC")]
         return {
-            "runs": [self.summary(r) for r in reversed(self.store.runs())],
-            "submissions": [public_submission(self.data.submission(i)) for i in ids],
+            "runs": [
+                self.summary(r)
+                for r in reversed(self.store.runs())
+                if self.request_visible(r["id"])
+            ],
+            "submissions": [
+                public_submission(self.data.submission(i)) for i in ids if self.request_visible(i)
+            ],
         }
+
+    def request_visible(self, object_id):
+        from harbor_helper.service.management_data import request_id, state
+
+        with self.store.connect() as db:
+            return state(db, "request", request_id(db, object_id)) == "active"
 
     def safe_key(self, run_id):
         path = self.store.path(run_id)
@@ -266,7 +281,12 @@ class Evidence:
                     continue
                 relative = file.relative_to(path).as_posix()
                 file_id = hashlib.sha256(relative.encode()).hexdigest()[:24]
-                values.append({"id": file_id, "name": relative, "deleted": file_id in removed})
+                from harbor_helper.service.management_data import state
+
+                with self.store.connect() as db:
+                    hidden = state(db, "artifact", run_id + ":" + file_id) != "active"
+                if not hidden:
+                    values.append({"id": file_id, "name": relative, "deleted": file_id in removed})
         # Preserve deletion tombstones even after physical deletion.
         values += [
             {"id": i, "name": "Deleted artifact", "deleted": True}
@@ -276,9 +296,22 @@ class Evidence:
         return values
 
     @locked
-    def artifact_path(self, run_id, file_id):
+    def artifact_path(self, run_id, file_id, *, include_recycled=False):
+        if not include_recycled:
+            from harbor_helper.service.management_data import available
+
+            with self.store.connect() as db:
+                available(db, "artifact", run_id + ":" + file_id)
         self.safe_key(run_id)
         artifact = next((a for a in self.artifacts(run_id) if a["id"] == file_id), None)
+        if include_recycled and not artifact:
+            root = self.store.path(run_id)
+            for candidate in root.glob("harbor/*/*/artifacts/**/*"):
+                if candidate.is_file() and not candidate.is_symlink():
+                    relative = candidate.relative_to(root).as_posix()
+                    if hashlib.sha256(relative.encode()).hexdigest()[:24] == file_id:
+                        artifact = {"name": relative, "deleted": False}
+                        break
         if not artifact:
             raise ServiceError("artifact_missing", "Artifact not found", 404)
         if artifact["deleted"]:
@@ -293,15 +326,18 @@ class Evidence:
         return path
 
     def delete_artifact(self, actor, run_id, file_id):
-        admin(actor)
-        with self.store.control():
-            try:
-                with self.store.evidence(run_id, blocking=False):
-                    return self._delete_artifact(actor, run_id, file_id)
-            except BlockingIOError:
-                raise ServiceError(
-                    "evidence_busy", "Evidence maintenance active; retry later", 409
-                ) from None
+        from harbor_helper.service.permissions import management_admin
+
+        management_admin(actor, "recycle_all")
+        from harbor_helper.service.recycle import Recycle
+
+        try:
+            with self.store.evidence(run_id, blocking=False):
+                return Recycle(self).move(actor, "artifact", run_id + ":" + file_id)
+        except BlockingIOError:
+            raise ServiceError(
+                "evidence_busy", "Evidence maintenance active; retry later", 409
+            ) from None
 
     def _delete_artifact(self, actor, run_id, file_id):
         row = self.store.get(run_id)

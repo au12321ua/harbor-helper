@@ -31,6 +31,11 @@ def exception(path: str, handler: str, reason: str, methods: str = "GET") -> Exe
 
 EXEMPTIONS = (
     exception(
+        "/api/v1/attachment-versions/{version_id}/download",
+        "attachments.register.<locals>.attachment_download",
+        "Verified version ZIP streaming",
+    ),
+    exception(
         "/api/v1/build", "updates.register.<locals>.build_identity", "Minimal cache identity"
     ),
     exception(

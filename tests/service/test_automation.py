@@ -216,7 +216,8 @@ def test_schema_safe_discovery_tasks_and_strict_input(data):
     _c, p, _value = issue(data, scopes=["read", "execute"])
     schema = p.get("/api/v1/machine/schema")
     assert schema.status_code == 200, schema.text
-    assert "/api/v1/admin" not in schema.text and "AccessIssue" not in schema.text
+    assert "/api/v1/admin/users" not in schema.text and "AccessIssue" not in schema.text
+    assert "/api/v1/admin/datasets" in schema.text
     assert schema.json()["paths"]["/api/v1/submissions"]["post"]["x-capability"] == "execute"
     assert (
         "SubmissionInput" in schema.text
@@ -378,7 +379,7 @@ def test_access_plaintext_rejected_upload_and_parent_snapshot(data, preparation)
 def test_recover_retry_new_current_credential_and_permanent_keys(data, preparation):
     browser, p, one = issue(data, scopes=["read", "execute"])
     _, current, two = issue(data, scopes=["read", "execute"])
-    body = {"dataset": "test/data@1", "agent": "oracle"}
+    body = {"dataset_id": "fixture-default", "agent": "oracle"}
     first = p.post("/api/v1/submissions", json=body, headers={"Idempotency-Key": "original"}).json()
     with data.store.connect() as db:
         db.execute(
@@ -547,12 +548,21 @@ def test_all_machine_schema_operations_have_types_permissions_and_safe_errors(da
     for item in schema["paths"].values():
         for operation in item.values():
             operations.append(operation["x-operation"])
-            assert operation["x-capability"] in {
+            assert set(
+                [operation["x-capability"]]
+                if isinstance(operation["x-capability"], str)
+                else operation["x-capability"]
+            ) <= {
                 "read",
                 "attachments",
                 "execute",
                 "cancel_own",
                 "evidence",
+                "attachment_download",
+                "recycle_own",
+                "datasets_manage",
+                "recycle_all",
+                "purge",
             }
             assert operation["responses"]["403"]["content"]["application/json"]["schema"][
                 "$ref"

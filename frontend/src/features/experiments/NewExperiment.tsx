@@ -21,6 +21,7 @@ import { useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 const fieldLabels: Record<DraftField, string> = {
   name: "实验名称",
+  dataset_source_version_id: "来源版本",
   dataset_id: "数据集",
   task: "任务",
   agent: "执行方案",
@@ -66,7 +67,19 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
     attempts: text(draft.attempts),
     concurrency: text(draft.concurrency),
   };
-  const selected = datasets.find((d) => d.id === draft.dataset_id);
+  const selectedIdentity = datasets.find((d) => d.id === draft.dataset_id);
+  const sourceVersion = selectedIdentity?.source_versions?.find(
+    (v) => v.id === draft.dataset_source_version_id,
+  );
+  const selected =
+    sourceVersion && selectedIdentity
+      ? {
+          ...selectedIdentity,
+          tasks: sourceVersion.tasks,
+          resolved: sourceVersion.resolved,
+          author_parameters: sourceVersion.author_parameters,
+        }
+      : selectedIdentity;
   const profiles = profilesFor(data),
     limits = data.limits;
   const originalOption = (field: DraftField) =>
@@ -149,7 +162,12 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
           try {
             const s = await post(
               "/submissions",
-              submissionBody(draft),
+              {
+                ...submissionBody(draft),
+                ...(entry?.kind === "history" && entry.sourceId
+                  ? { source_request_id: entry.sourceId }
+                  : {}),
+              },
               submitKey.current,
             );
             navigate(`/submissions/${s.id}`);
@@ -199,6 +217,7 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
                     }
                     onChange={(value) => {
                       change("dataset_id", value);
+                      change("dataset_source_version_id", "");
                       // Require an explicit task choice after changing dataset.
                       change("task", undefined);
                     }}
@@ -218,6 +237,24 @@ function ExperimentForm({ data, entry }: { data: Catalog; entry?: NewEntry }) {
                       </option>
                     ))}
                   </SelectField>
+                  {selectedIdentity?.source_versions?.length ? (
+                    <SelectField
+                      label="数据集来源版本"
+                      name="dataset_source_version"
+                      value={text(draft.dataset_source_version_id)}
+                      onChange={(v) => {
+                        change("dataset_source_version_id", v);
+                        change("task", undefined);
+                      }}
+                    >
+                      <option value="">使用明确配置的默认版本</option>
+                      {selectedIdentity.source_versions.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          #{v.number} · {v.resolved}
+                        </option>
+                      ))}
+                    </SelectField>
+                  ) : null}
                   <Field>
                     <FieldLabel htmlFor="task">任务</FieldLabel>
                     <select

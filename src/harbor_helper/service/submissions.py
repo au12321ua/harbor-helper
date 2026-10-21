@@ -30,6 +30,9 @@ REQUEST_FIELDS = {
     "task",
     "dataset_id",
     "name",
+    "source_request_id",
+    "independent",
+    "dataset_source_version_id",
 }
 # Inherited plans keep the original research binding but never its submitter identity.
 IDENTITY_FIELDS = {"user_id", "submitter", "submission_id", "name", "access_credential_id"}
@@ -120,7 +123,23 @@ class Submissions:
                 self._apply_retry(request, origin, cfg, service, parent)
             service["author_input_check"] = True
             validate_effective(team, cfg)
-            service.update(self.attachments.binding(version_id, access_value=access_value))
+            if copy_parent:
+                # J1: normal parent requests own their validated input snapshot.
+                binding = origin.get("service") or {}
+                service.update(
+                    {
+                        k: binding.get(k)
+                        for k in (
+                            "bundle_id",
+                            "bundle_digest",
+                            "attachment_version_id",
+                            "attachment_id",
+                            "attachment_lineage",
+                        )
+                    }
+                )
+            else:
+                service.update(self.attachments.binding(version_id, access_value=access_value))
             if copy_parent:
                 self._check_parent_snapshot(copy_parent, access_value)
             submission_id = self._record(
@@ -240,12 +259,18 @@ class Submissions:
                 ),
                 None,
             )
+        if not dataset_id and not request.get("dataset"):
+            raise ServiceError(
+                "dataset_default_unset", "未设置可用默认数据集，请明确选择数据集版本", 409
+            )
         if not dataset_id:
             # Remote CLI retains explicit references, but also uses explicit team Hub config.
             status = self.configuration.hub_status()
             service["source_version"] = status["version"] if status["mode"] == "team" else None
             return
-        selected = self.configuration.ready_dataset(dataset_id)
+        selected = self.configuration.ready_dataset(
+            dataset_id, request.get("dataset_source_version_id")
+        )
         if (
             request.get("dataset_id")
             and request.get("task")
@@ -257,6 +282,7 @@ class Submissions:
             dataset_id=selected["id"],
             dataset_version=selected["version"],
             dataset_name=selected["name"],
+            dataset_source_version_id=selected.get("source_version_id"),
             source_version=selected.get("source_version"),
         )
         # Recheck credential usability at acceptance; download revalidates source content.
@@ -266,7 +292,15 @@ class Submissions:
     def _origin(self, parent, recovery):
         """Frozen input to inherit and the run whose snapshot the new run copies."""
         if parent:
+            from harbor_helper.service.management_data import available, request_id
+
+            with self.store.connect() as db:
+                available(db, "request", request_id(db, parent))
             return read_json(self.store.path(parent) / "manifest.json"), parent
+        from harbor_helper.service.management_data import available
+
+        with self.store.connect() as db:
+            available(db, "request", recovery)
         row = self.data.submission(recovery)
         if row["status"] != lifecycle_status.FAILED or row["run_id"]:
             raise ServiceError("recovery_state", "只能恢复尚未产生实验的失败提交", 409)
@@ -276,7 +310,7 @@ class Submissions:
         cfg = json.loads(json.dumps(origin["effective"]))
         binding = origin.get("service") or {}
         service.update({k: v for k, v in binding.items() if k not in IDENTITY_FIELDS})
-        service["name"] = ((binding.get("name") or label) + " · 重跑")[:128]
+        service["name"] = binding.get("name") or ""
         if cfg["agent"] != "opencode":
             return cfg
         profile = self.data.object("profile", binding.get("model_profile"))
@@ -316,10 +350,26 @@ class Submissions:
     def _freeze_author_inputs(self, cfg, service, *, check_source):
         dataset_id = service.get("dataset_id")
         parameters: dict = (
-            self.configuration.author_parameters(dataset_id)
+            self.configuration.author_parameters(dataset_id, cfg["dataset"])
             if dataset_id
             else {"version": 0, "values": {}}
         )
+        if not check_source and (
+            not dataset_id
+            or parameters.get("source") != cfg["dataset"]
+            or not parameters["version"]
+        ):
+            raise ServiceError(
+                "author_inputs_unavailable",
+                "原摘要的作者参数记录不可用；请选择可用版本新建延伸",
+                409,
+            )
+        if not check_source:
+            selected = self.configuration.ready_dataset(
+                dataset_id, service.get("dataset_source_version_id")
+            )
+            if selected["resolved"] != cfg["dataset"]:
+                raise ServiceError("author_inputs_unavailable", "原摘要的目录版本不可用", 409)
         if dataset_id and check_source and parameters.get("source") not in {None, cfg["dataset"]}:
             raise ServiceError("author_inputs_unchecked", "作者参数对应不同来源；请重新检查", 409)
         cfg["author_env"] = dict(parameters["values"])
@@ -333,7 +383,7 @@ class Submissions:
         if "wall_seconds" in request:
             cfg["wall_seconds"] = request["wall_seconds"]
         binding = origin.get("service") or {}
-        service["name"] = ((binding.get("name") or parent) + " · 修复重试")[:128]
+        service["name"] = binding.get("name") or ""
         before = origin["effective"]
         service["retry_changes"] = {
             key: {"old": before.get(key, {} if key == "author_env" else None), "new": cfg.get(key)}
@@ -364,6 +414,43 @@ class Submissions:
 
     def _record(self, actor, operation, idem, request_hash, request, cfg, service, parent, db):
         submission_id = "sub-" + uuid.uuid4().hex[:16]
+        from harbor_helper.service.management_data import available, link_request, request_id
+
+        source = (
+            request.get("source_request_id")
+            or service.get("recovered_submission")
+            or (request_id(db, parent) if parent else None)
+        )
+        if source:
+            available(db, "request", source)
+        if not source:
+            previous = db.execute(
+                "SELECT id FROM operations WHERE user_id=? AND operation=? AND idem=?",
+                (actor["id"], operation, idem),
+            ).fetchone()
+            if (
+                previous
+                and db.execute(
+                    "SELECT 1 FROM request_links WHERE id=?", (previous["id"],)
+                ).fetchone()
+            ):
+                source = previous["id"]
+        relation = (
+            "copy"
+            if request.get("independent")
+            else "extension"
+            if request.get("source_request_id")
+            else operation
+        )
+        link = link_request(
+            db, submission_id, actor["id"], service.get("name", ""), source, relation
+        )
+        service.update(
+            group_id=link["group_id"],
+            group_number=link["number"],
+            source_request_id=source,
+            relation=relation,
+        )
         service["submission_id"] = submission_id
         frozen = {"effective": cfg, "service": service, "bundle_id": service["bundle_id"]}
         db.execute(

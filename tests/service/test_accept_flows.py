@@ -94,7 +94,7 @@ def test_rerun_keeps_frozen_inputs_but_current_identity_and_credential(flows):
     assert value["effective"]["author_env"] == ORIGINAL
     service = value["service"]
     assert service["user_id"] == bob["id"] and service["submitter"] == "bob"
-    assert service["name"] == "Baseline · 重跑"
+    assert service["name"] == "Baseline"
     assert service["credential_version"] == 2
     assert "retry_changes" not in service
     assert data.submission(child["id"])["parent"] == parent
@@ -109,7 +109,7 @@ def test_retry_refreshes_author_inputs_and_records_changes(flows):
     value = frozen(data, child)
     cfg, service = value["effective"], value["service"]
     assert cfg["author_env"] == CHANGED and cfg["wall_seconds"] == 1200
-    assert service["name"] == "Baseline · 修复重试"
+    assert service["name"] == "Baseline"
     assert service["retry_changes"] == {
         "author_env": {"old": ORIGINAL, "new": CHANGED},
         "wall_seconds": {"old": 900, "new": 1200},
@@ -139,6 +139,6 @@ def test_recover_reuses_failed_plan_with_current_author_inputs(flows):
     assert cfg["author_env"] == CHANGED
     assert cfg["wall_seconds"] == failed["frozen"]["effective"]["wall_seconds"]
     assert service["recovered_submission"] == child["id"]
-    assert service["name"] == failed["frozen"]["service"]["name"] == "Baseline · 重跑"
+    assert service["name"] == failed["frozen"]["service"]["name"] == "Baseline"
     assert "author_input_issues" not in service
     assert data.submission(recovered["id"])["parent"] == parent

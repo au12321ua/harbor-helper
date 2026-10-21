@@ -17,13 +17,29 @@ class Input(BaseModel):
 class AccessIssue(Input):
     name: str = Field(min_length=1, max_length=128)
     current_password: SecretStr
-    scopes: list[Literal["read", "attachments", "execute", "cancel_own", "evidence"]] = ["read"]
+    scopes: list[
+        Literal[
+            "read",
+            "attachments",
+            "execute",
+            "cancel_own",
+            "evidence",
+            "attachment_download",
+            "recycle_own",
+            "datasets_manage",
+            "recycle_all",
+            "purge",
+        ]
+    ] = ["read"]
     expires: float | None = None
 
 
 class SubmissionInput(Input):
     dataset: str | None = None
     dataset_id: str | None = None
+    dataset_source_version_id: str | None = None
+    source_request_id: str | None = None
+    independent: bool = False
     model_profile: str | None = None
     agent: Literal["oracle", "opencode"] | None = None
     attachment_version_id: str | None = None

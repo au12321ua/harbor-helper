@@ -10,7 +10,7 @@ from harbor_helper.security.local_paths import LocalRoot
 def serve(profile_name, upload_root, download_root):
     try:
         from mcp.server.fastmcp import FastMCP
-        from mcp.types import CallToolResult, TextContent
+        from mcp.types import CallToolResult, TextContent, ToolAnnotations
     except ImportError:
         raise RemoteError("Install MCP support with: uv sync --extra mcp") from None
 
@@ -57,6 +57,85 @@ def serve(profile_name, upload_root, download_root):
     @server.tool()
     def list_attachments():
         return call(client.list_attachments)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def fetch_attachment(version_id: str, output: str):
+        """Download one shared attachment version under the fixed download root."""
+
+        def perform():
+            with downloads.destination(output) as destination:
+                result = client.fetch_attachment(version_id, destination)
+                result["path"] = str(downloads.path.joinpath(*downloads.parts(output)))
+                return result
+
+        return call(perform)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def list_requests():
+        return call(client.list_requests)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def list_datasets():
+        return call(client.list_datasets)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def dataset_versions(dataset_id: str):
+        return call(client.dataset_versions, dataset_id)
+
+    @server.tool()
+    def preview_dataset(dataset_id: str, digest: str):
+        return call(client.preview_dataset, dataset_id, digest)
+
+    @server.tool()
+    def confirm_dataset(preview_id: str):
+        return call(client.confirm_dataset, preview_id)
+
+    @server.tool()
+    def dataset_default(dataset_id: str, version_id: str, team_default: bool = False):
+        return call(client.set_dataset_default, dataset_id, version_id, team_default)
+
+    @server.tool()
+    def dataset_parameters(dataset_id: str, version_id: str, values: dict | None = None):
+        """Inspect a version's author parameters, or explicitly save nonsecret values."""
+        if values is None:
+            return call(client.check_dataset_parameters, dataset_id, version_id)
+        return call(client.save_dataset_parameters, dataset_id, values, version_id)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def merge_datasets_preview(source: str, target: str):
+        return call(client.merge_datasets_preview, source, target)
+
+    @server.tool()
+    def merge_datasets(source: str, target: str, revision: str, parameter_choices: dict):
+        return call(client.merge_datasets, source, target, revision, parameter_choices)
+
+    @server.tool()
+    def rename_group(group_id: str, name: str):
+        return call(client.rename_group, group_id, name)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def list_recycle():
+        return call(client.list_recycle)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def preview_recycle(kind: str, object_id: str):
+        return call(client.preview_recycle, kind, object_id)
+
+    @server.tool()
+    def recycle(items: list[dict]):
+        """Move explicit objects/versions to the recycle bin. No physical purge."""
+        return call(client.recycle, items)
+
+    @server.tool()
+    def restore(event_id: str):
+        return call(client.restore, event_id)
+
+    @server.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
+    def purge(event_id: str, idempotency_key: str):
+        """Permanently remove one current recycle event. Backend requires administrator,
+        purge scope and recycle ownership permission. Old restored events are rejected.
+        """
+        return call(client.purge, event_id, idempotency_key)
 
     @server.tool()
     def attachment(

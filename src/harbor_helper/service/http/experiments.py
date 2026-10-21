@@ -14,7 +14,6 @@ from harbor_helper.service.views import public_submission, safe_view
 
 def register(app, deps):
     actor = deps.actor
-    administrator = deps.administrator
 
     @app.get("/api/v1/catalog")
     def catalog(user: Annotated[dict, Depends(actor)]):
@@ -199,7 +198,7 @@ def register(app, deps):
         )
 
     @app.delete("/api/v1/runs/{run_id}/artifacts/{file_id}")
-    def delete_artifact(run_id: str, file_id: str, user: Annotated[dict, Depends(administrator)]):
+    def delete_artifact(run_id: str, file_id: str, user: Annotated[dict, Depends(actor)]):
         return deps.application.delete_artifact(user, run_id, file_id)
 
     @app.get(

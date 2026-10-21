@@ -56,7 +56,7 @@ def register(app, deps):
     ):
         if offset < 0 or not 1 <= limit <= 100:
             raise ServiceError("invalid_range", "offset >= 0; limit 1–100 required")
-        value = deps.data.object("dataset", dataset_id)
+        value = deps.application.configuration.ready_dataset(dataset_id)
         tasks = value.get("tasks", [])
         # Use the verified metadata catalog; no task materialization or Hub download.
         return {

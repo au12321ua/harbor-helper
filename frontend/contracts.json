@@ -289,7 +289,12 @@
               "attachments",
               "execute",
               "cancel_own",
-              "evidence"
+              "evidence",
+              "attachment_download",
+              "recycle_own",
+              "datasets_manage",
+              "recycle_all",
+              "purge"
             ],
             "type": "string"
           },
@@ -922,6 +927,18 @@
           ],
           "default": null,
           "title": "Task Names"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
         }
       },
       "title": "AuthorCheck",
@@ -1056,12 +1073,112 @@
           },
           "title": "Values",
           "type": "object"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
         }
       },
       "required": [
         "values"
       ],
       "title": "AuthorSave",
+      "type": "object"
+    },
+    "Batch": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/Target"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Batch",
+      "type": "object"
+    },
+    "BatchEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RecycleEvent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "object_id": {
+          "title": "Object Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "object_id",
+        "event",
+        "error"
+      ],
+      "title": "BatchEntry",
+      "type": "object"
+    },
+    "BatchResult": {
+      "additionalProperties": false,
+      "properties": {
+        "results": {
+          "items": {
+            "$ref": "#/definitions/BatchEntry"
+          },
+          "title": "Results",
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "title": "BatchResult",
       "type": "object"
     },
     "Binding": {
@@ -1249,6 +1366,18 @@
           "default": null,
           "title": "Dataset Name"
         },
+        "dataset_source_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Source Version Id"
+        },
         "dataset_version": {
           "anyOf": [
             {
@@ -1260,6 +1389,30 @@
           ],
           "default": null,
           "title": "Dataset Version"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Id"
+        },
+        "group_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Number"
         },
         "model_profile": {
           "anyOf": [
@@ -1333,6 +1486,18 @@
           "default": null,
           "title": "Recovered Submission"
         },
+        "relation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relation"
+        },
         "retry_changes": {
           "additionalProperties": {
             "additionalProperties": {
@@ -1343,6 +1508,18 @@
           "default": {},
           "title": "Retry Changes",
           "type": "object"
+        },
+        "source_request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Request Id"
         },
         "source_version": {
           "anyOf": [
@@ -1541,8 +1718,15 @@
           "type": "array"
         },
         "default_dataset": {
-          "title": "Default Dataset",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Default Dataset"
         },
         "hub": {
           "$ref": "#/definitions/Hub"
@@ -1603,6 +1787,18 @@
           ],
           "default": null,
           "title": "Checked"
+        },
+        "default_source_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Source Version Id"
         },
         "digest": {
           "anyOf": [
@@ -1689,6 +1885,14 @@
           "default": null,
           "title": "Source Version"
         },
+        "source_versions": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/CatalogSourceVersion"
+          },
+          "title": "Source Versions",
+          "type": "array"
+        },
         "status": {
           "title": "Status",
           "type": "string"
@@ -1718,6 +1922,42 @@
         "readiness_error"
       ],
       "title": "CatalogDataset",
+      "type": "object"
+    },
+    "CatalogSourceVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "author_parameters": {
+          "$ref": "#/definitions/AuthorParameters"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/Task"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "number",
+        "resolved",
+        "tasks",
+        "author_parameters"
+      ],
+      "title": "CatalogSourceVersion",
       "type": "object"
     },
     "CheckedTask": {
@@ -1930,6 +2170,39 @@
       "title": "Comparison",
       "type": "object"
     },
+    "ConfirmInput": {
+      "additionalProperties": false,
+      "properties": {
+        "preview_id": {
+          "title": "Preview Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "preview_id"
+      ],
+      "title": "ConfirmInput",
+      "type": "object"
+    },
+    "Confirmed": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmed": {
+          "title": "Confirmed",
+          "type": "boolean"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "string"
+        }
+      },
+      "required": [
+        "confirmed",
+        "resolved"
+      ],
+      "title": "Confirmed",
+      "type": "object"
+    },
     "Credential": {
       "additionalProperties": false,
       "properties": {
@@ -2026,6 +2299,18 @@
           "default": null,
           "title": "Checked"
         },
+        "default_source_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Source Version Id"
+        },
         "digest": {
           "anyOf": [
             {
@@ -2113,6 +2398,14 @@
           "default": null,
           "title": "Source Version"
         },
+        "source_versions": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/CatalogSourceVersion"
+          },
+          "title": "Source Versions",
+          "type": "array"
+        },
         "status": {
           "title": "Status",
           "type": "string"
@@ -2139,6 +2432,60 @@
         "status"
       ],
       "title": "Dataset",
+      "type": "object"
+    },
+    "DatasetEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_named": {
+          "title": "Auto Named",
+          "type": "integer"
+        },
+        "default_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Default Version"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "needs_merge": {
+          "title": "Needs Merge",
+          "type": "boolean"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/definitions/SourceVersion"
+          },
+          "title": "Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "name",
+        "default_version",
+        "auto_named",
+        "versions",
+        "needs_merge"
+      ],
+      "title": "DatasetEntry",
       "type": "object"
     },
     "DatasetInput": {
@@ -2177,23 +2524,40 @@
       "title": "DatasetInput",
       "type": "object"
     },
-    "Deleted": {
+    "Datasets": {
       "additionalProperties": false,
       "properties": {
-        "deleted": {
-          "title": "Deleted",
+        "datasets": {
+          "items": {
+            "$ref": "#/definitions/DatasetEntry"
+          },
+          "title": "Datasets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "datasets"
+      ],
+      "title": "Datasets",
+      "type": "object"
+    },
+    "DefaultInput": {
+      "additionalProperties": false,
+      "properties": {
+        "team_default": {
+          "default": false,
+          "title": "Team Default",
           "type": "boolean"
         },
-        "id": {
-          "title": "Id",
+        "version_id": {
+          "title": "Version Id",
           "type": "string"
         }
       },
       "required": [
-        "id",
-        "deleted"
+        "version_id"
       ],
-      "title": "Deleted",
+      "title": "DefaultInput",
       "type": "object"
     },
     "Diagnosis": {
@@ -3518,6 +3882,129 @@
       "title": "Materials",
       "type": "object"
     },
+    "MergeInput": {
+      "additionalProperties": false,
+      "properties": {
+        "parameter_choices": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ParameterChoice"
+          },
+          "default": {},
+          "title": "Parameter Choices",
+          "type": "object"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "revision"
+      ],
+      "title": "MergeInput",
+      "type": "object"
+    },
+    "MergePreview": {
+      "additionalProperties": false,
+      "properties": {
+        "parameters": {
+          "items": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "versions": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "revision",
+        "versions",
+        "parameters"
+      ],
+      "title": "MergePreview",
+      "type": "object"
+    },
+    "MergePreviewInput": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "title": "MergePreviewInput",
+      "type": "object"
+    },
+    "Merged": {
+      "additionalProperties": false,
+      "properties": {
+        "merged": {
+          "title": "Merged",
+          "type": "boolean"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "merged",
+        "target"
+      ],
+      "title": "Merged",
+      "type": "object"
+    },
     "MetricDelta": {
       "additionalProperties": false,
       "properties": {
@@ -3707,6 +4194,25 @@
       "title": "OperationRecord",
       "type": "object"
     },
+    "ParameterChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "ParameterChoice",
+      "type": "object"
+    },
     "PasswordChange": {
       "additionalProperties": false,
       "properties": {
@@ -3790,6 +4296,60 @@
         "seconds"
       ],
       "title": "Phase",
+      "type": "object"
+    },
+    "Preview": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "listed": {
+          "title": "Listed",
+          "type": "boolean"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "dataset_id",
+        "resolved",
+        "tasks",
+        "listed"
+      ],
+      "title": "Preview",
+      "type": "object"
+    },
+    "PreviewInput": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest"
+      ],
+      "title": "PreviewInput",
       "type": "object"
     },
     "Profile": {
@@ -4105,6 +4665,222 @@
       "title": "Readiness",
       "type": "object"
     },
+    "RecycleEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "cleanup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cleanup"
+        },
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "object_id": {
+          "title": "Object Id",
+          "type": "string"
+        },
+        "owner_id": {
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "object_id",
+        "owner_id",
+        "actor_id",
+        "created",
+        "state",
+        "cleanup",
+        "count"
+      ],
+      "title": "RecycleEvent",
+      "type": "object"
+    },
+    "RecycleList": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/RecycleEvent"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "RecycleList",
+      "type": "object"
+    },
+    "RecyclePreview": {
+      "additionalProperties": false,
+      "properties": {
+        "expected": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "request",
+            "dataset",
+            "dataset_version",
+            "attachment",
+            "attachment_version",
+            "artifact"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "object_id": {
+          "title": "Object Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "object_id",
+        "expected"
+      ],
+      "title": "RecyclePreview",
+      "type": "object"
+    },
+    "RemoteVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        },
+        "published": {
+          "title": "Published",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "revision",
+        "digest",
+        "tags",
+        "published"
+      ],
+      "title": "RemoteVersion",
+      "type": "object"
+    },
+    "RemoteVersions": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "title": "Limit",
+          "type": "integer"
+        },
+        "package": {
+          "title": "Package",
+          "type": "string"
+        },
+        "possibly_incomplete": {
+          "title": "Possibly Incomplete",
+          "type": "boolean"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/definitions/RemoteVersion"
+          },
+          "title": "Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "package",
+        "versions",
+        "truncated",
+        "possibly_incomplete",
+        "limit"
+      ],
+      "title": "RemoteVersions",
+      "type": "object"
+    },
+    "Rename": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Rename",
+      "type": "object"
+    },
+    "Renamed": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Renamed",
+      "type": "object"
+    },
     "Report": {
       "additionalProperties": false,
       "properties": {
@@ -4217,6 +4993,111 @@
         "unexpected_trials"
       ],
       "title": "Report",
+      "type": "object"
+    },
+    "RequestEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "creator_id": {
+          "title": "Creator Id",
+          "type": "string"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "group_id": {
+          "title": "Group Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Run Id"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "submitter": {
+          "title": "Submitter",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "group_id",
+        "number",
+        "source_id",
+        "relation",
+        "name",
+        "creator_id",
+        "user_id",
+        "submitter",
+        "status",
+        "run_id",
+        "created",
+        "display_name"
+      ],
+      "title": "RequestEntry",
+      "type": "object"
+    },
+    "Requests": {
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "items": {
+            "$ref": "#/definitions/RequestEntry"
+          },
+          "title": "Requests",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requests"
+      ],
+      "title": "Requests",
       "type": "object"
     },
     "RetryInput": {
@@ -4793,6 +5674,54 @@
       "title": "ShutdownStatus",
       "type": "object"
     },
+    "SourceVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "number"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "number",
+        "resolved",
+        "created",
+        "tasks",
+        "parameters"
+      ],
+      "title": "SourceVersion",
+      "type": "object"
+    },
     "StartupPolicy": {
       "additionalProperties": false,
       "properties": {
@@ -4975,6 +5904,18 @@
           "default": null,
           "title": "Dataset Id"
         },
+        "dataset_source_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Source Version Id"
+        },
         "environment_build_timeout_multiplier": {
           "anyOf": [
             {
@@ -4987,6 +5928,11 @@
           ],
           "default": null,
           "title": "Environment Build Timeout Multiplier"
+        },
+        "independent": {
+          "default": false,
+          "title": "Independent",
+          "type": "boolean"
         },
         "model_profile": {
           "anyOf": [
@@ -5012,6 +5958,18 @@
           ],
           "default": null,
           "title": "Name"
+        },
+        "source_request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Request Id"
         },
         "task": {
           "anyOf": [
@@ -5040,6 +5998,48 @@
         }
       },
       "title": "SubmissionInput",
+      "type": "object"
+    },
+    "Target": {
+      "additionalProperties": false,
+      "properties": {
+        "expected": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "kind": {
+          "enum": [
+            "request",
+            "dataset",
+            "dataset_version",
+            "attachment",
+            "attachment_version",
+            "artifact"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "object_id": {
+          "title": "Object Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "object_id"
+      ],
+      "title": "Target",
       "type": "object"
     },
     "Task": {
@@ -5128,6 +6128,56 @@
         "attempts"
       ],
       "title": "TaskReport",
+      "type": "object"
+    },
+    "Tombstone": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "const": true,
+          "title": "Deleted",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        },
+        "status": {
+          "const": "purged",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "deleted",
+        "status"
+      ],
+      "title": "Tombstone",
       "type": "object"
     },
     "UpdateInput": {
@@ -5992,7 +7042,14 @@
       "projection": "shared/session",
       "request": null,
       "response": {
-        "$ref": "#/definitions/AttachmentResult"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/AttachmentResult"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 200
     },
@@ -6008,7 +7065,14 @@
       "projection": "shared/session",
       "request": null,
       "response": {
-        "$ref": "#/definitions/AttachmentResult"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/AttachmentResult"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 201
     },
@@ -6038,7 +7102,14 @@
       "projection": "shared/session",
       "request": null,
       "response": {
-        "$ref": "#/definitions/AttachmentResult"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/AttachmentResult"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 201
     },
@@ -6070,7 +7141,14 @@
       "projection": "shared/session",
       "request": null,
       "response": {
-        "$ref": "#/definitions/AttachmentResult"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/AttachmentResult"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 201
     },
@@ -6169,6 +7247,218 @@
     {
       "media": "application/json",
       "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "dataset_merge",
+      "path": "/management/dataset-merge",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/MergeInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Merged"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "dataset_merge_preview",
+      "path": "/management/dataset-merge/preview",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/MergePreviewInput"
+      },
+      "response": {
+        "$ref": "#/definitions/MergePreview"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "managed_datasets",
+      "path": "/management/datasets",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Datasets"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "dataset_confirm",
+      "path": "/management/datasets/confirm",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/ConfirmInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Confirmed"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PUT",
+      "navigation": false,
+      "operation": "dataset_default",
+      "path": "/management/datasets/{dataset_id}/default",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/DefaultInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Updated"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "dataset_preview",
+      "path": "/management/datasets/{dataset_id}/preview",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/PreviewInput"
+      },
+      "response": {
+        "$ref": "#/definitions/Preview"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "dataset_versions",
+      "path": "/management/datasets/{dataset_id}/versions",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/RemoteVersions"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "PATCH",
+      "navigation": false,
+      "operation": "rename_group",
+      "path": "/management/groups/{group_id}",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Rename"
+      },
+      "response": {
+        "$ref": "#/definitions/Renamed"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "recycle_list",
+      "path": "/management/recycle",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/RecycleList"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "recycle_move",
+      "path": "/management/recycle",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Batch"
+      },
+      "response": {
+        "$ref": "#/definitions/BatchResult"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "recycle_preview",
+      "path": "/management/recycle/preview",
+      "projection": "shared/session",
+      "request": {
+        "$ref": "#/definitions/Target"
+      },
+      "response": {
+        "$ref": "#/definitions/RecyclePreview"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "recycle_purge",
+      "path": "/management/recycle/{event_id}/purge",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/RecycleEvent"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "POST",
+      "navigation": false,
+      "operation": "recycle_restore",
+      "path": "/management/recycle/{event_id}/restore",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/RecycleEvent"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
+      "method": "GET",
+      "navigation": false,
+      "operation": "managed_requests",
+      "path": "/management/requests",
+      "projection": "shared/session",
+      "request": null,
+      "response": {
+        "$ref": "#/definitions/Requests"
+      },
+      "status": 200
+    },
+    {
+      "media": "application/json",
+      "metadata": null,
       "method": "GET",
       "navigation": false,
       "operation": "me",
@@ -6246,7 +7536,7 @@
       "projection": "shared/session",
       "request": null,
       "response": {
-        "$ref": "#/definitions/Deleted"
+        "$ref": "#/definitions/RecycleEvent"
       },
       "status": 200
     },
@@ -6355,7 +7645,14 @@
         ]
       },
       "response": {
-        "$ref": "#/definitions/Accepted"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Accepted"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 202
     },
@@ -6371,7 +7668,14 @@
         "$ref": "#/definitions/RetryInput"
       },
       "response": {
-        "$ref": "#/definitions/Accepted"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Accepted"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 202
     },
@@ -6415,7 +7719,14 @@
       "projection": "shared/session",
       "request": null,
       "response": {
-        "$ref": "#/definitions/Accepted"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Accepted"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 200
     },
@@ -6431,7 +7742,14 @@
         "$ref": "#/definitions/SubmissionInput"
       },
       "response": {
-        "$ref": "#/definitions/Accepted"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Accepted"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 202
     },
@@ -6491,7 +7809,14 @@
         ]
       },
       "response": {
-        "$ref": "#/definitions/Accepted"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Accepted"
+          },
+          {
+            "$ref": "#/definitions/Tombstone"
+          }
+        ]
       },
       "status": 202
     },

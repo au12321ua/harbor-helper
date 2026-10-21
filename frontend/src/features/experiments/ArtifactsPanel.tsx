@@ -65,7 +65,7 @@ export function ArtifactsPanel({
                         onClick={async () => {
                           if (
                             !window.confirm(
-                              `删除产物 ${a.name}？此操作不可撤销。`,
+                              `将产物 ${a.name} 移入回收站？可以恢复；原有保留期仍继续计算。`,
                             )
                           )
                             return;
@@ -75,14 +75,14 @@ export function ArtifactsPanel({
                               { method: "DELETE" },
                             );
                             await reload();
-                            toast.success("产物已删除");
+                            toast.success("产物已移入回收站，可到请求与目录管理恢复");
                           } catch (e) {
                             toast.error((e as Error).message);
                           }
                         }}
                       >
                         <Trash2 data-icon="inline-start" />
-                        删除
+                        移入回收站
                       </Button>
                     ) : null}
                   </div>

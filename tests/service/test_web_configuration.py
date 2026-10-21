@@ -123,9 +123,9 @@ def test_catalog_snapshot_defaults_permissions_and_edit_invalidation(web):
         ).status_code
         == 404
     )
-    assert not app.catalog()["datasets"][0]["ready"]
-    with pytest.raises(ServiceError):
-        app.accept(actor, request, "new-key")
+    assert app.catalog()["datasets"][0]["ready"]
+    preserved = app.accept(actor, {**request, "name": "Separate check"}, "new-key")
+    assert data.submission(preserved["id"])["frozen"]["effective"]["dataset"] == SOURCE
     assert data.submission(submission["id"])["frozen"] == frozen
     client.post(
         "/api/v1/auth/login", headers=WRITE, json={"username": "member", "password": PASSWORD}
@@ -171,7 +171,9 @@ def test_hub_secret_encryption_rotation_disable_and_safe_errors(web, monkeypatch
     monkeypatch.setattr("harbor_helper.service.configuration.source_call", denied)
     blocked = app.configuration.verify("dataset", dataset["id"])
     assert blocked["status"] == "blocked" and blocked["error"]["code"] == "source_access"
-    assert not app.catalog()["datasets"][0]["ready"]
+    assert app.catalog()["datasets"][0][
+        "ready"
+    ]  # A failed new import preserves the verified default.
 
 
 def test_password_change_revokes_all_sessions(web):

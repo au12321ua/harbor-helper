@@ -43,7 +43,7 @@ def source_error(error):
     }
 
 
-def source_call(reference, *, key=None, target=None, task=None, selected_tasks=None):
+def source_call(reference, *, key=None, target=None, task=None, selected_tasks=None, action=None):
     # Never inherit user HOME, Harbor credentials, model credentials or cloud profiles.
     with tempfile.TemporaryDirectory(prefix="hh-source-") as home:
         env = {
@@ -76,6 +76,7 @@ def source_call(reference, *, key=None, target=None, task=None, selected_tasks=N
                 input=json.dumps(
                     {
                         "reference": reference,
+                        "action": action,
                         "target": str(target) if target else None,
                         "task": task,
                         "selected_tasks": selected_tasks,
@@ -133,6 +134,36 @@ def _main(leases, writer):
                 break
 
     async def execute():
+        if request.get("action") == "versions":
+            from harbor.db.client import RegistryDB
+            from harbor.models.package.reference import PackageReference
+
+            ref = PackageReference.parse(request["reference"])
+            db = RegistryDB()
+            package = await db.get_package(org=ref.org, name=ref.short_name)
+            if not package:
+                raise ValueError("Package unavailable")
+            if package["type"] != "dataset":
+                return {"error": "source_not_dataset", "message": "所选包不是数据集"}
+            _, versions = await db.list_package_versions(
+                org=ref.org, name=ref.short_name, include_yanked=False, limit=201
+            )
+            versions = [v for v in versions if not v.get("yanked_at")]
+            return {
+                "package": ref.name,
+                "versions": [
+                    {
+                        "revision": v["revision"],
+                        "digest": v["content_hash"],
+                        "tags": v["tags"],
+                        "published": str(v.get("published_at") or ""),
+                    }
+                    for v in versions[:200]
+                ],
+                "truncated": len(versions) > 200,
+                "possibly_incomplete": len(versions) <= 200,
+                "limit": 200,
+            }
         if request["target"]:
             options = {}
             if request.get("selected_tasks") is not None:
@@ -140,6 +171,19 @@ def _main(leases, writer):
             return await resolve_dataset(
                 request["reference"], Path(request["target"]), request["task"], **options
             )
+        if request.get("action") == "preview":
+            from harbor.db.client import RegistryDB
+            from harbor.models.package.reference import PackageReference
+
+            ref = PackageReference.parse(request["reference"])
+            package, version = await RegistryDB().resolve_dataset_version(
+                ref.org, ref.short_name, ref.ref
+            )
+            if package["type"] != "dataset" or version.get("yanked_at"):
+                return {
+                    "error": "source_version_unavailable",
+                    "message": "只允许导入未撤回的数据集版本",
+                }
         metadata = await PackageDatasetClient().get_dataset_metadata(request["reference"])
         if metadata.metrics or metadata.files:
             raise UnsupportedDatasetError("Dataset-level custom metrics/files unsupported")

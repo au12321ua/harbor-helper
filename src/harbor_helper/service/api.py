@@ -14,6 +14,7 @@ from harbor_helper.service.http import (
     boundary,
     configuration,
     experiments,
+    management,
     session,
     spa,
     status,
@@ -83,6 +84,7 @@ def create_app(root, *, start_scheduler=False, setup_token_file=None, master_key
     experiments.register(app, deps)
     attachments.register(app, deps)
     configuration.register(app, deps)
+    management.register(app, deps)
     updates.register(app, deps)
     spa.register(app)
     from harbor_helper.service.route_contracts import browser_routes

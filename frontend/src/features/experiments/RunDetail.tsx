@@ -340,7 +340,7 @@ export function RunDetailContent({ user }: { user: User }) {
               <CardHeader>
                 <CardTitle>修复后重试</CardTitle>
                 <CardDescription>
-                  保留父作者快照及研究因素；仅补缺失工具策略/启动倍率，按当前数据集参数重新检查。普通重跑保持原冻结条件。
+                  保留父作者快照及研究因素；仅补缺失工具策略/启动倍率，按原摘要对应的参数重新检查。普通重跑保持原冻结条件。
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">

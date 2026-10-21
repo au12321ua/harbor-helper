@@ -113,6 +113,44 @@ def write_request(name, profile, client, path, body, idem=None):
 def dispatch(args, name):
     profile, client = connection(name)
     cmd = args.command
+    if cmd == "manage":
+        action = args.management_command
+        if action == "requests":
+            return client.list_requests()
+        if action == "datasets":
+            return client.list_datasets()
+        if action == "recycle-list":
+            return client.list_recycle()
+        if action == "rename-group":
+            return client.rename_group(args.group_id, args.name)
+        if action == "versions":
+            return client.dataset_versions(args.dataset_id)
+        if action == "preview":
+            return client.preview_dataset(args.dataset_id, args.digest)
+        if action == "confirm":
+            return client.confirm_dataset(args.preview_id)
+        if action == "default":
+            return client.set_dataset_default(args.dataset_id, args.version_id, args.team_default)
+        if action == "parameters-check":
+            return client.check_dataset_parameters(args.dataset_id, args.version_id)
+        if action == "parameters-save":
+            return client.save_dataset_parameters(
+                args.dataset_id, json.loads(args.values), args.version_id
+            )
+        if action == "merge-preview":
+            return client.merge_datasets_preview(args.source, args.target)
+        if action == "merge":
+            return client.merge_datasets(
+                args.source, args.target, args.revision, json.loads(args.parameter_choices)
+            )
+        if action == "recycle-preview":
+            return client.preview_recycle(args.kind, args.object_id)
+        if action == "recycle":
+            return client.recycle(json.loads(args.items))
+        if action == "restore":
+            return client.restore(args.event_id)
+        if action == "purge":
+            return client.purge(args.event_id, args.idempotency_key)
     if cmd == "service":
         operation = args.service_command
         if operation == "status":
@@ -170,6 +208,8 @@ def dispatch(args, name):
             return client.write(args.path, json.loads(args.body), args.idempotency_key)
     if cmd == "attachments":
         action = args.attachment_command
+        if action == "download":
+            return client.fetch_attachment(args.version_id, args.output)
         if action == "list":
             return client.request("GET", "/attachments")
         if action == "lookup":

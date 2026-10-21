@@ -80,6 +80,11 @@ function IssuedCredentialDialog({
 
 const scopes = [
   ["read", "发现与读取共享实验"],
+  ["recycle_own", "回收和恢复自己的请求及附件"],
+  ["datasets_manage", "管理数据集及版本（管理员）"],
+  ["recycle_all", "管理团队回收站（管理员）"],
+  ["purge", "永久删除已回收对象（管理员，另需回收管理能力）"],
+  ["attachment_download", "下载团队附件指定版本"],
   ["attachments", "上传和维护有权维护的附件"],
   ["execute", "提交、重跑、修复与恢复实验"],
   ["cancel_own", "取消自己的任务"],

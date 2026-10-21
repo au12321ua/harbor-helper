@@ -27,6 +27,9 @@ class Attachments:
         row = db.execute("SELECT * FROM attachments WHERE id=?", (attachment_id,)).fetchone()
         if not row:
             raise ServiceError("attachment_missing", "Attachment not found", 404)
+        from harbor_helper.service.management_data import available
+
+        available(db, "attachment", attachment_id)
         return dict(row)
 
     def maintain(self, actor, attachment):
@@ -39,6 +42,9 @@ class Attachments:
         row = db.execute("SELECT * FROM attachment_versions WHERE id=?", (version_id,)).fetchone()
         if not row:
             raise ServiceError("attachment_version_missing", "Attachment version not found", 404)
+        from harbor_helper.service.management_data import available
+
+        available(db, "attachment_version", version_id)
         return dict(row)
 
     def public(self, db, version_id):
@@ -59,17 +65,22 @@ class Attachments:
     def catalog(self):
         with self.store.connect() as db:
             identities = [
-                dict(r) for r in db.execute("SELECT * FROM attachments ORDER BY created DESC")
+                dict(r)
+                for r in db.execute(
+                    "SELECT * FROM attachments WHERE id NOT IN (SELECT id FROM recycled_objects WHERE kind='attachment' AND state!='active') ORDER BY created DESC"
+                )
             ]
             result = []
             for identity in identities:
                 versions = [
                     self.public(db, r[0])["version"]
                     for r in db.execute(
-                        "SELECT id FROM attachment_versions WHERE attachment_id=? ORDER BY number DESC",
+                        "SELECT id FROM attachment_versions WHERE attachment_id=? AND id NOT IN (SELECT id FROM recycled_objects WHERE kind='attachment_version' AND state!='active') ORDER BY number DESC",
                         (identity["id"],),
                     ).fetchall()
                 ]
+                if not versions:
+                    continue
                 first = self.public(db, versions[0]["id"])["attachment"]
                 result.append({**first, "versions": versions})
         return {"attachments": result}
@@ -88,6 +99,50 @@ class Attachments:
                 "attachment_unavailable", "Attachment input unavailable or unsafe", 409
             ) from None
         return row["digest"]
+
+    def download(self, actor, version_id, *, access_value=None):
+        """Copy a verified version under control; response owns only this private ZIP."""
+        import hashlib
+        import tempfile
+        import zipfile
+
+        from harbor_helper.service.policy import authorize
+
+        authorize(actor, "attachment_download")
+        if not self.data.user(actor["id"])["enabled"]:
+            raise ServiceError("member_disabled", "Account disabled", 403)
+        stream = tempfile.TemporaryFile()  # noqa: SIM115 - ownership transfers to response
+        try:
+            with self.store.control(), self.store.connect() as db:
+                version = self.version(db, version_id)
+                attachment = self.identity(db, version["attachment_id"])
+                # Disabled versions remain downloadable for team archiving.
+                self.validate_bundle(db, version["bundle_id"], access_value)
+                root = self.store.root / "bundles" / version["bundle_id"]
+                with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for path in sorted(root.rglob("*")):
+                        if path.is_file():
+                            archive.write(path, path.relative_to(root).as_posix())
+                self.validate_bundle(db, version["bundle_id"], access_value)
+                db.execute(
+                    "INSERT INTO access_events(user_id,access_credential_id,action,object_id,time) VALUES(?,?,?,?,?)",
+                    (
+                        actor["id"],
+                        actor.get("access_credential_id"),
+                        "attachment_download",
+                        version_id,
+                        time.time(),
+                    ),
+                )
+            size = stream.tell()
+            stream.seek(0)
+            sha = hashlib.file_digest(stream, "sha256").hexdigest()
+            stream.seek(0)
+            name = attachment["name"].replace("/", "_").replace("\\", "_")
+            return stream, size, sha, f"{name}-v{version['number']}.zip"
+        except BaseException:
+            stream.close()
+            raise
 
     def binding(self, version_id=None, *, access_value=None):
         if not version_id:
@@ -127,6 +182,10 @@ class Attachments:
                 raise ServiceError(
                     "attachment_operation_missing", "No committed operation for this key", 404
                 )
+            from harbor_helper.service.management_data import state
+
+            if state(db, "attachment_version", row[0]) == "purged":
+                return {"id": row[0], "deleted": True, "status": "purged"}
             version = self.version(db, row[0])
             if operation == "attachment_publish":
                 self.maintain(actor, self.identity(db, version["attachment_id"]))
@@ -215,15 +274,20 @@ class Attachments:
                     if not attachment["enabled"]:
                         raise ServiceError("attachment_disabled", "Attachment disabled", 409)
                     attachment_id = attachment["id"]
-                    number = db.execute(
-                        "SELECT MAX(number)+1 FROM attachment_versions WHERE attachment_id=?",
-                        (attachment_id,),
-                    ).fetchone()[0]
+                    from harbor_helper.service.management_data import allocate
+
+                    number = allocate(db, "attachment", attachment_id)
                 else:
                     if operation == "attachment_derive":
                         source = self.version(db, normalized["source_version_id"])
                         self.binding(source["id"], access_value=access_value)
                     attachment_id, number = "att-" + uuid.uuid4().hex, 1
+                    from harbor_helper.service.management_data import allocate, reserve_name
+
+                    normalized["name"] = reserve_name(
+                        db, "attachment", attachment_id, normalized["name"]
+                    )
+                    number = allocate(db, "attachment", attachment_id)
                     db.execute(
                         "INSERT INTO attachments VALUES(?,?,?,?,?,1)",
                         (
@@ -274,7 +338,7 @@ class Attachments:
                 {**normalized, "digest": staged["digest"]},
                 perform,
             )
-            committed = result["version"]["bundle_id"] == staged["id"]
+            committed = result.get("version", {}).get("bundle_id") == staged["id"]
             return result
         finally:
             if staged and not committed:
@@ -311,6 +375,10 @@ class Attachments:
                         "attachment_version_missing", "Version does not belong to attachment", 404
                     )
                 target, table = version_id, "attachment_versions"
+            if "name" in body:
+                from harbor_helper.service.management_data import reserve_name
+
+                body = {**body, "name": reserve_name(db, "attachment", attachment_id, body["name"])}
             for field, value in body.items():
                 db.execute(f"UPDATE {table} SET {field}=? WHERE id=?", (value, target))
         return {"updated": True}

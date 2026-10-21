@@ -1,6 +1,5 @@
 """Compose HTTP-facing application capabilities over one persistent service store."""
 
-from harbor_helper.execution.config import load_team
 from harbor_helper.service.admission import readiness
 from harbor_helper.service.attachments import Attachments
 from harbor_helper.service.bundles import Bundles
@@ -17,14 +16,25 @@ class Application(Submissions, Cancellation, Evidence):
         self.store = self.data.store
         self.configuration = TeamConfiguration(self.data)
 
+        from harbor_helper.service.management import Management
+
+        self.management = Management(self)
+        from harbor_helper.service.recycle import Recycle
+
+        self.recycle = Recycle(self)
         self.attachments = Attachments(self.data, Bundles(self.data))
 
     def catalog(self, user_id=None):
         settings = self.configuration.settings()
-        default_dataset = load_team(self.store)["dataset"]
+        default_dataset = None
         if settings.get("default_dataset_id"):
-            selected = self.data.object("dataset", settings["default_dataset_id"])
-            default_dataset = selected["reference"]
+            from harbor_helper.service.primitives import ServiceError
+
+            try:
+                selected = self.configuration.ready_dataset(settings["default_dataset_id"])
+                default_dataset = selected["resolved"]
+            except ServiceError:
+                settings = {**settings, "default_dataset_id": None}
         return {
             **self.configuration.catalog(),
             **self.attachments.catalog(),

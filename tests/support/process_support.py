@@ -178,6 +178,9 @@ def maintenance(store):
                     "params": {},
                 },
             )
+        from support.service_support import configure_default_dataset
+
+        configure_default_dataset(self.data)
         self.app = Application(self.data.root)
         self.log = (base / "supervisor-output.log").open("a")
         self.child = None

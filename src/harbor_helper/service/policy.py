@@ -12,6 +12,26 @@ CAPABILITIES = {
     "artifact": "read",
     "attachment_lookup": "attachments",
     "attachments": "read",
+    "attachment_download": "attachment_download",
+    "managed_requests": "read",
+    "managed_datasets": "read",
+    "rename_group": ("recycle_own", "recycle_all"),
+    "recycle_list": ("recycle_own", "recycle_all"),
+    "recycle_preview": ("recycle_own", "recycle_all"),
+    "recycle_move": ("recycle_own", "recycle_all"),
+    "recycle_restore": ("recycle_own", "recycle_all"),
+    "recycle_purge": "purge",
+    "dataset_versions": "datasets_manage",
+    "dataset_preview": "datasets_manage",
+    "dataset_confirm": "datasets_manage",
+    "dataset_default": "datasets_manage",
+    "dataset_merge_preview": "datasets_manage",
+    "dataset_merge": "datasets_manage",
+    "inspect_author_inputs": "datasets_manage",
+    "save_author_inputs": "datasets_manage",
+    "save_catalog": "datasets_manage",
+    "verify_catalog": "datasets_manage",
+    "delete_artifact": "recycle_all",
     "cancel": "cancel_own",
     "cancel_submission": "cancel_own",
     "catalog": "read",
@@ -70,6 +90,28 @@ SCHEMA_OPERATIONS = {
     "submit",
 }
 
+SCHEMA_OPERATIONS.update(
+    {
+        "attachment_download",
+        "managed_requests",
+        "rename_group",
+        "managed_datasets",
+        "dataset_versions",
+        "dataset_preview",
+        "dataset_confirm",
+        "dataset_default",
+        "dataset_merge_preview",
+        "dataset_merge",
+        "recycle_list",
+        "recycle_preview",
+        "recycle_move",
+        "recycle_restore",
+        "recycle_purge",
+        "inspect_author_inputs",
+        "save_author_inputs",
+    }
+)
+
 
 def authorize(user, operation):
     if not user.get("access_credential_id"):
@@ -79,5 +121,6 @@ def authorize(user, operation):
     needed = CAPABILITIES.get(operation)
     if needed is None:
         raise ServiceError("session_required", "This operation requires a browser session", 403)
-    if needed not in user["scopes"]:
+    alternatives = {needed} if isinstance(needed, str) else set(needed)
+    if not alternatives.intersection(user["scopes"]):
         raise ServiceError("scope_required", f"Automation capability required: {needed}", 403)

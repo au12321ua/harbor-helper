@@ -179,6 +179,10 @@ def inventory(store, run_id):
 
 
 def manifest(application, actor, run_id):
+    from harbor_helper.service.management_data import available, request_id
+
+    with application.store.connect() as db:
+        available(db, "request", request_id(db, run_id))
     require_evidence(application.data, actor)
     store = application.store
     with store.evidence(run_id):
@@ -228,6 +232,19 @@ def manifest(application, actor, run_id):
                 item["status"] = "deleted"
             elif not (root / item["name"]).is_file():
                 item["status"] = "missing"
+        from harbor_helper.service.management_data import state
+
+        with store.connect() as db:
+            value["files"] = [
+                item
+                for item in value["files"]
+                if state(
+                    db,
+                    "artifact",
+                    run_id + ":" + hashlib.sha256(item["name"].encode()).hexdigest()[:24],
+                )
+                == "active"
+            ]
         return {**value, "state": "expired" if expired else "available"}
 
 

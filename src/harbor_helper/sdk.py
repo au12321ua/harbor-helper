@@ -237,6 +237,93 @@ class Client:
     def list_attachments(self):
         return self.request("GET", "/attachments")
 
+    def list_requests(self):
+        return self.request("GET", "/management/requests")
+
+    def rename_group(self, group_id, name):
+        return self.request(
+            "PATCH", "/management/groups/" + identifier(group_id), body={"name": name}
+        )
+
+    def list_datasets(self):
+        return self.request("GET", "/management/datasets")
+
+    def dataset_versions(self, dataset_id):
+        return self.request("GET", "/management/datasets/" + identifier(dataset_id) + "/versions")
+
+    def preview_dataset(self, dataset_id, digest):
+        return self.request(
+            "POST",
+            "/management/datasets/" + identifier(dataset_id) + "/preview",
+            body={"digest": digest},
+        )
+
+    def confirm_dataset(self, preview_id):
+        return self.request("POST", "/management/datasets/confirm", body={"preview_id": preview_id})
+
+    def set_dataset_default(self, dataset_id, version_id, team_default=False):
+        return self.request(
+            "PUT",
+            "/management/datasets/" + identifier(dataset_id) + "/default",
+            body={"version_id": version_id, "team_default": team_default},
+        )
+
+    def merge_datasets_preview(self, source, target):
+        return self.request(
+            "POST", "/management/dataset-merge/preview", body={"source": source, "target": target}
+        )
+
+    def merge_datasets(self, source, target, revision, parameter_choices=None):
+        return self.request(
+            "POST",
+            "/management/dataset-merge",
+            body={
+                "source": source,
+                "target": target,
+                "revision": revision,
+                "parameter_choices": parameter_choices or {},
+            },
+        )
+
+    def check_dataset_parameters(self, dataset_id, version_id=None, task_names=None):
+        body = {"version_id": version_id}
+        if task_names is not None:
+            body["task_names"] = task_names
+        return self.request(
+            "POST", "/admin/datasets/" + identifier(dataset_id) + "/author-inputs/check", body=body
+        )
+
+    def save_dataset_parameters(self, dataset_id, values, version_id=None):
+        return self.request(
+            "PUT",
+            "/admin/datasets/" + identifier(dataset_id) + "/author-inputs",
+            body={"version_id": version_id, "values": values},
+        )
+
+    def list_recycle(self):
+        return self.request("GET", "/management/recycle")
+
+    def preview_recycle(self, kind, object_id):
+        return self.request(
+            "POST", "/management/recycle/preview", body={"kind": kind, "object_id": object_id}
+        )
+
+    def recycle(self, items):
+        return self.request("POST", "/management/recycle", body={"items": items})
+
+    def restore(self, event_id):
+        return self.request(
+            "POST", "/management/recycle/" + identifier(event_id) + "/restore", body={}
+        )
+
+    def purge(self, event_id, idempotency_key):
+        return self.write(
+            "/management/recycle/" + identifier(event_id) + "/purge", {}, idempotency_key
+        )
+
+    def fetch_attachment(self, version_id, output):
+        return self.download("/attachment-versions/" + identifier(version_id) + "/download", output)
+
     def history(self, **filters):
         from urllib.parse import urlencode
 

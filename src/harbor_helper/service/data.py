@@ -93,6 +93,9 @@ class ServiceData(Accounts, Objects, Credentials, Capacity, SubmissionRecords):
         with self.store.connect() as db:
             initialize(db)
 
+        from harbor_helper.service.management_data import initialize as initialize_management
+
+        initialize_management(self.store)
         self.master_keys = MasterKeys(self.store)
         if not initializing:
             self.master_keys.initialize()

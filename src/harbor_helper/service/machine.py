@@ -139,6 +139,20 @@ def lookup(app, user, operation, key):
     if user.get("access_credential_id") and "execute" not in user["scopes"]:
         raise ServiceError("scope_required", "Automation capability required: execute", 403)
     with app.store.connect() as db:
+        from harbor_helper.service.management_data import available
+
+        receipt = db.execute(
+            "SELECT * FROM operations WHERE user_id=? AND operation=? AND idem=?",
+            (user["id"], operation, key),
+        ).fetchone()
+        if receipt and receipt["status"] == "purged":
+            import json
+
+            return {
+                **json.loads(receipt["result"]),
+                "operation_id": receipt["id"],
+                "idempotency_key": key,
+            }
         row = db.execute(
             "SELECT id FROM submissions WHERE user_id=? AND idem=? AND operation=?",
             (user["id"], key, operation),
@@ -148,6 +162,8 @@ def lookup(app, user, operation, key):
             "idempotency_missing", "Key not observed; resend original body with original key", 404
         )
 
+    with app.store.connect() as db:
+        available(db, "request", row[0])
     result = public_submission(app.data.submission(row[0]))
     with app.store.connect() as db:
         identity = db.execute(
@@ -184,7 +200,9 @@ def discovery(app, user):
         "scheduler": scheduler(app),
         "readiness": readiness(app, user["id"]),
         "allowed_operations": sorted(
-            k for k, v in CAPABILITIES.items() if v in scopes or k == "me"
+            k
+            for k, v in CAPABILITIES.items()
+            if (v in scopes if isinstance(v, str) else bool(set(v) & set(scopes))) or k == "me"
         ),
         "scopes": scopes,
         "task_selection": {
@@ -278,4 +296,6 @@ def report_view(value):
 
 
 def accepted_view(user, value):
+    if value.get("deleted"):
+        return value
     return safe_view(value)

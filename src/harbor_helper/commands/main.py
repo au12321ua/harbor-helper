@@ -38,6 +38,9 @@ def parser():
     attachments = sub.add_parser("attachments", help="Shared service attachment versions")
     attachment_ops = attachments.add_subparsers(dest="attachment_command", required=True)
     attachment_ops.add_parser("list")
+    attachment_download = attachment_ops.add_parser("download")
+    attachment_download.add_argument("version_id")
+    attachment_download.add_argument("--output", required=True, type=Path)
     lookup = attachment_ops.add_parser("lookup")
     lookup.add_argument(
         "operation",
@@ -72,6 +75,47 @@ def parser():
     download.add_argument("run_id")
     download.add_argument("file_id")
     download.add_argument("--output", required=True, type=Path)
+    manage = sub.add_parser("manage", help="Shared request, dataset and recycle management")
+    management_ops = manage.add_subparsers(dest="management_command", required=True)
+    for action in ("requests", "datasets", "recycle-list"):
+        management_ops.add_parser(action)
+    rename = management_ops.add_parser("rename-group")
+    rename.add_argument("group_id")
+    rename.add_argument("name")
+    for action in ("versions", "preview", "default", "parameters-check", "parameters-save"):
+        operation = management_ops.add_parser(action)
+        operation.add_argument("dataset_id")
+        if action == "preview":
+            operation.add_argument("digest")
+        if action in {"default", "parameters-check", "parameters-save"}:
+            operation.add_argument("--version-id")
+        if action == "default":
+            operation.add_argument("--team-default", action="store_true")
+        if action == "parameters-save":
+            operation.add_argument(
+                "--values", required=True, help="JSON nonsecret author parameters"
+            )
+    confirm = management_ops.add_parser("confirm")
+    confirm.add_argument("preview_id")
+    for action in ("merge-preview", "merge"):
+        operation = management_ops.add_parser(action)
+        operation.add_argument("source")
+        operation.add_argument("target")
+        if action == "merge":
+            operation.add_argument("revision")
+            operation.add_argument("--parameter-choices", default="{}")
+    for action in ("recycle-preview", "recycle"):
+        operation = management_ops.add_parser(action)
+        if action == "recycle-preview":
+            operation.add_argument("kind")
+            operation.add_argument("object_id")
+        else:
+            operation.add_argument("--items", required=True, help="JSON list from explicit preview")
+    for action in ("restore", "purge"):
+        operation = management_ops.add_parser(action)
+        operation.add_argument("event_id")
+        if action == "purge":
+            operation.add_argument("--idempotency-key", required=True)
     from harbor_helper.commands.service import add_parsers
 
     service_parsers = add_parsers(sub)
@@ -79,6 +123,7 @@ def parser():
         *sub.choices.values(),
         *service_parsers[1:],
         *attachment_ops.choices.values(),
+        *management_ops.choices.values(),
     ]:
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     return p

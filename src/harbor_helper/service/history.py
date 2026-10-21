@@ -30,6 +30,11 @@ def decision(store, actor, operation, idem, request_hash, request, perform):
                 "idempotency_conflict", "Idempotency key reused with different input", 409
             )
             result = None
+        elif old and old["status"] == "purged":
+            result = json.loads(old["result"])
+        elif old and operation_recycled(db, old):
+            failure = ServiceError("object_recycled", "该记录在回收站，请先恢复", 409)
+            result = None
         elif old and old["status"] == "accepted":
             result = json.loads(old["result"])
         else:
@@ -94,7 +99,9 @@ def decision(store, actor, operation, idem, request_hash, request, perform):
                     json.dumps(recent),
                 ),
             )
-        if not conflict:
+        if not conflict and not (
+            old and (old["status"] == "purged" or operation_recycled(db, old))
+        ):
             db.execute(
                 "UPDATE operations SET status=?,result=?,error=? WHERE id=?",
                 (
@@ -103,6 +110,21 @@ def decision(store, actor, operation, idem, request_hash, request, perform):
                     json.dumps(error),
                     operation_id,
                 ),
+            )
+        if (
+            operation in {"submit", "rerun", "retry", "recover"}
+            and failure
+            and not conflict
+            and not (old and operation_recycled(db, old))
+        ):
+            from harbor_helper.service.management_data import link_request
+
+            link_request(
+                db,
+                operation_id,
+                actor["id"],
+                request.get("name", request.get("body", {}).get("name", "")) or "",
+                converting=True,
             )
         if result is not None:
             result = {**result, "operation_id": operation_id, "idempotency_key": idem}
@@ -167,6 +189,12 @@ def listing(
         value.pop("request_hash")
         for field in ("request", "result", "error", "recent"):
             value[field] = json.loads(value[field]) if value[field] else None
+        with store.connect() as db:
+            hidden = operation_recycled(db, row)
+        if hidden:
+            value.update(
+                request={}, result={"id": value["id"], "status": "recycled"}, error=None, recent=[]
+            )
         result = value["result"]
         if (
             isinstance(result, dict)
@@ -188,3 +216,16 @@ def listing(
         "next_offset": offset + limit if offset + limit < total else None,
         "attempt_limit": ATTEMPT_LIMIT,
     }
+
+
+def operation_recycled(db, operation):
+    from harbor_helper.service.management_data import state
+
+    result = json.loads(operation["result"]) if operation["result"] else {}
+    targets = [("request", operation["id"])]
+    if isinstance(result, dict):
+        if isinstance(result.get("id"), str):
+            targets.append(("request", result["id"]))
+        if isinstance(result.get("version"), dict):
+            targets.append(("attachment_version", result["version"].get("id")))
+    return any(state(db, kind, object_id) == "recycled" for kind, object_id in targets)
