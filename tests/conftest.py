@@ -1,6 +1,7 @@
 """Function-scoped shared fixture registration; factories live in support modules."""
 
 import pytest
+from core_support import make_store
 from http_support import serve_http
 from process_support import Processes
 from recovery_support import make_recovery
@@ -34,3 +35,8 @@ def processes(tmp_path):
         yield p
     finally:
         p.close()
+
+
+@pytest.fixture
+def store(tmp_path, monkeypatch):
+    return make_store(tmp_path, monkeypatch)
