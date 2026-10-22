@@ -46,6 +46,7 @@
 | C-03 | 部署形态 | `dev` 使用用户级 systemd，HTTP 与调度器为两个 unit；12、15 为 `/opt`、`/etc`、`/var` 加服务账号的系统级布局，Worker 在服务进程内 | 已定 U-13 |
 | C-04 | CLI 的地位 | 旧 `AGENTS.md` 写“通过 CLI 和 Web”，`dev` 已有远程 CLI 与 MCP；审计稿以网页与 SDK 为正式入口，CLI 是建议 C5 | 已定 U-11 |
 | C-05 | 项目名 | 设计稿称 Maestro，安装路径为 `/opt/maestro`；仓库与包名为 harbor-helper | 已定 U-12 |
+| C-06 | Harbor 锁定版本与错误策略来源 | 15 第 8 节、V-04、06 以 main 分支的 `error_policy.py`（retry / grade / reward_valid）为错误映射依据；M1 实测最新稳定版 0.24.0 没有该模块，Job 内重试只按 `RetryConfig` 的异常类型白 / 黑名单判断。2026-10-22 只有 0.24.1 开发构建包含该模块。M1 暂用 0.24.0 是 Agent 的选择 | 待用户确认：锁定哪个版本，以及错误映射用上游策略还是由平台自定 |
 
 ## 1. 决策状态
 
@@ -120,6 +121,13 @@
 | V-11 | TECH-04：成员 / PAT 的每试次 bootstrap、setup / 凭据 / 网络衔接与文件传输 | 无管理员操作、无宿主目录挂载、有限时长、失败隔离；P0 不共享安装层 | 使用自定义 Agent 包装与文件复制；不延迟到执行阶段下载，无法满足约束则阻塞接入 |
 
 本轮已联网读取官方发布策略、Job configs、错误分类、网络策略、数据集、Oracle solution 与 Hosted Harbor 文档，来源见 [15](15-stack-harbor.md)。尚未安装依赖或执行真实 Harbor / Linux 原型，因此 V 项需要目标环境证据；不能将“官方文档已确认”写成“主机测试通过”。
+
+### M1 验证记录
+
+**2026-10-22，V-10 / TECH-01 与 V-12。** 范围：Harbor 0.24.0（暂选版本，见 C-06），独立 uv 环境，CPython 3.12.3，Docker 29.9.1，Linux 6.8 单机；原型 Runner 与自定义 Agent，2 个本地 ubuntu:22.04 任务 × 2 试次，正常、SIGTERM、SIGKILL、Runner 崩溃各一次。未涉及真实模型、Hub、网络策略、准备缓存与 bootstrap。
+
+- **V-10 / TECH-01：通过，有缺口。** `Job.add_hook` 的试次生命周期钩子能实时、有序地给出环境启动、Agent 开始 / 结束、验证开始、结束和取消，到达延迟不超过 0.1 秒。Runner 在导入 Harbor 前把 fd 1 留给协议、其余输出转到 stderr；在约 100 MB stderr 以及 Python 和子进程都写 stdout 的情况下，协议无污染、无死锁，前提是 Worker 持续读取 stderr。SIGTERM 协作取消后有最终状态，容器由 Harbor 回收；SIGKILL 或崩溃时只有退出码和最后事件，容器和网络会残留。缺口有四项：没有单独的收集事件和 agent setup 开始事件；结构化日志回调只在 Trial 上，不经 Job 暴露；被强杀后的残留只带 compose 标签，需要 Runner 用 `extra_docker_compose` 补平台标签（只能标到服务），或按 trial_name 推出 compose 项目名来清理。
+- **V-12：每次尝试可以识别。** Job 内重试沿用同一 trial_name，每次尝试的 TrialResult id 不同，且都会完整触发开始到结束的钩子。但是 Harbor 在重试前会删除失败尝试的试次目录，job 结果只保留重试总数，所以 Runner 必须在结束钩子里归档每次尝试；只靠最终结果文件对账会丢掉前几次尝试的证据。
 
 ## 5. 可配置数值建议
 
