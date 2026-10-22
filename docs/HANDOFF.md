@@ -1,12 +1,12 @@
 # 开发交接
 
-本页是重写分支 `feature/rewrite` 的维护入口。分支从 `9ff43b5` 开始，按[重写目标设计](design/README.md)整体重写，完成后替换 `dev` 上的现有实现。分支规则见[分支、协作与发布规则](guides/development-workflow.md)的“重写分支”一节；当前目标、阶段和待办只在项目飞书群的 `botmux project` 持久状态中维护。
+本页是重写分支 `feature/rewrite` 的维护入口。分支从 `9ff43b5` 开始，按[重写目标设计](design/README.md)整体重写，完成后替换 `dev` 上的现有实现。分支规则见[分支、协作与发布规则](guides/development-workflow.md)的“重写分支”一节。项目改名为 Maestro，新代码使用 `maestro` 包；不再使用 botmux 协调，用户决定记录在[决策记录](design/14-decisions.md)第 0 节。
 
 ## 需求与设计
 
 - 需求基线是[需求整理与审查](design/requirements-review.md)（审计稿）；00～15 模块文档是它的延伸设计。
 - 实践优先：实现中发现更好的做法或设计有问题时，先在[决策记录](design/14-decisions.md)记录，再同步修改模块文档。
-- 用户决定、待确认的冲突（删除范围、证据审计门、部署形态、CLI 地位、项目名）见决策记录第 0 节。冲突确认之前，不按任何一方擅自实现。
+- 用户决定与冲突结论见决策记录第 0 节；尚未定论的冲突，确认之前不按任何一方擅自实现。
 
 ## 代码状态
 

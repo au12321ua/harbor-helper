@@ -1,6 +1,6 @@
 # harbor-helper
 
-> 本分支 `feature/rewrite` 正在按[重写目标设计](docs/design/README.md)整体重写，可能无法运行。下文描述 `9ff43b5` 基线代码；正式使用请以 `dev` / 发布版本为准。
+> 本分支 `feature/rewrite` 正在按[重写目标设计](docs/design/README.md)把项目整体重写为 Maestro，可能无法运行。下文描述 `9ff43b5` 基线代码（harbor-helper）；正式使用请以 `dev` 或发布版本为准。
 
 包版本：`0.2.0`。部署须固定到经审查验收的提交/tag；源码版本号不代表候选已经发布或部署。
 

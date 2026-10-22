@@ -24,7 +24,7 @@ Python 是复用生态、类型工具和集成经验的选择，并不是进程�
 | 前端 | React、TypeScript、Vite | 构建为静态文件，由服务端托管；运行主机无需 Node |
 | 网页 API 客户端 | 从公共 OpenAPI 生成 TypeScript 类型与调用层 | 网页不连接数据库、不通过模板隐藏业务动作 |
 | Python SDK | httpx 薄客户端 + 由同一契约生成的类型 | 不依赖 FastAPI 应用或 Harbor；等待、分页和下载为辅助层 |
-| CLI | Typer，建立在 SDK 上，支持 JSON | 沿用实验权限，不成为管理旁路；优先级仍按 00 |
+| CLI / MCP | 后续范围，不属于 P0（14 U-11）；加入时建立在 SDK 上 | 沿用实验权限，不成为管理旁路 |
 | 密码与令牌 | Argon2id；网页会话 cookie；PAT 随机值只存哈希 | 使用成熟库，记录算法与参数版本 |
 | 业务凭据 | AES-GCM 加密、独立主密钥 | 随机且不复用 nonce；保存 key_version，日志不含明文 |
 | 发布 | uv 锁定依赖、每发布版本独立环境、current 链接 | 构建 / 安装依据锁文件，不在启动时升级 |

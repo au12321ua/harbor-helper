@@ -1,12 +1,12 @@
 # 10 API、SDK与CLI契约
 
-阶段：P0；CLI 为设计建议 · 来源：贯穿要求、B14、C1 / C2 / C5 / C6
+阶段：P0；CLI 与 MCP 为后续范围（[14](14-decisions.md) U-11） · 来源：贯穿要求、B14、C1 / C2 / C5 / C6
 
 导航：[总览](00-overview.md) · 依赖：[提交](04-plans-submission.md)、[权限](09-identity-security.md)
 
 ## 1. 契约原则
 
-采用 HTTP JSON、/api/v1 前缀。FastAPI 路由和平台 Pydantic 模型输出唯一公共 OpenAPI，React / TypeScript 网页客户端与 Python SDK 类型从同一构建产物生成。SDK 采用 httpx，CLI 建议用 Typer；生成代码与手写的等待、分页、下载辅助层分开维护，不依赖服务端或 Harbor 内部代码。
+采用 HTTP JSON、/api/v1 前缀。FastAPI 路由和平台 Pydantic 模型输出唯一公共 OpenAPI，React / TypeScript 网页客户端与 Python SDK 类型从同一构建产物生成。SDK 采用 httpx；生成代码与手写的等待、分页、下载辅助层分开维护，不依赖服务端或 Harbor 内部代码。
 
 网页的业务请求均通过公开定义的 API；管理 API 仍要求管理员网页会话，公共契约不意味着 PAT 获得管理员权限。Harbor 作业 JSON Schema 仅用于下游适配校验，不是第二份平台 API 来源，详见 [15](15-stack-harbor.md)。
 
@@ -206,7 +206,7 @@ client.artifacts.download_available(run.id, destination=local_directory)
 
 SDK 类型区分 None、0、未知用量、已清理产物。下载校验摘要、支持断点或安全重试；默认不自动重提运行。兼容不匹配时先报 UNSUPPORTED_CAPABILITY，不能尝试猜测字段。
 
-CLI 建议用 Typer 建立在 SDK 之上，支持 JSON 输出、非零失败退出码、稳定 ID 和 --wait；PAT 从受保护配置或环境变量读取，不回显到输出。CLI 不是新增管理通道。
+CLI 与 MCP 不属于 P0（U-11）。以后加入时建立在 SDK 之上，不成为新增管理通道：CLI 支持 JSON 输出、非零失败退出码、稳定 ID 和 --wait，PAT 从受保护配置或环境变量读取，不回显到输出。
 
 ## 8. 契约验收
 
