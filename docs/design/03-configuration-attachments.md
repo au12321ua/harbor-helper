@@ -150,7 +150,7 @@ P0 每个试次各自安装，安装成果不写回共享数据集缓存，也�
 | MCP tools | agents[].mcp_servers | 按 Agent / transport 兼容性检查；远程目标仍受网络边界限制 |
 | Agent 环境变量 | agents[].env | 仅按对应阶段注入，不假定 setup 能读取同一组变量 |
 | 环境 / 验证变量 | environment.env、verifier.env | 只注入必要字段，凭据保持引用直到执行 |
-| SDK 与普通工具文件 | 环境文件传输或自定义 Agent 包装器 | 复制到容器；不挂载宿主目录，不把任意 SDK 包当作 Harbor 原生字段 |
+| SDK 与普通工具文件 | 环境文件传输或自定义 Agent 包装器 | 复制到容器；不挂载宿主目录（执行器为本试次输出挂载的日志与产物目录除外，[14](14-decisions.md) U-16），不把任意 SDK 包当作 Harbor 原生字段 |
 | bootstrap.sh | 自定义 Agent 的安装 / setup 路径 | 每试次安装；时机、用户、目录、超时、失败隔离与网络切换需原型验证 |
 
 bootstrap 不能为了下载依赖延迟到 agent.run() 才执行。公共模型能力比较中必须显示包装器与附件摘要；真实原生字段不等于所有 Agent 都支持相同 MCP / skills 组合。字段依据与首周验证项见 [15](15-stack-harbor.md)。
