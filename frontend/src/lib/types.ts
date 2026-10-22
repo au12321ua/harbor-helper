@@ -212,6 +212,10 @@ export interface Run {
   cleanup_state: "pending" | "running" | "complete" | "failed" | "not_required";
   stop_requested: boolean;
   stop_reason: string | null;
+  /** Why a queued run waits: CAPACITY_SLOTS, CAPACITY_CPU, CAPACITY_MEMORY, PROVIDER_LIMIT. */
+  queue_reason: string | null;
+  /** Last sign of life from the run's Runner process. */
+  heartbeat_at: string | null;
   counts: RunCounts;
   accepted_at: string;
   started_at: string | null;
@@ -246,11 +250,20 @@ export interface TrialResult {
   attempt_id: string;
 }
 
+export interface AttemptStep {
+  /** starting, environment, agent, collecting or verifying */
+  step: string;
+  at: string;
+}
+
 export interface Attempt {
   id: string;
   attempt_index: number;
   state: string;
   phase: string | null;
+  /** Step start times; a step ends when the next one starts or the attempt ends. */
+  steps: AttemptStep[];
+  executor_ref: Record<string, unknown> | null;
   started_at: string;
   ended_at: string | null;
   error: Record<string, unknown> | null;
@@ -315,6 +328,13 @@ export interface Capabilities {
   limits: Record<string, number>;
   auth: Record<string, unknown>;
   actions: Record<string, Record<string, unknown>>;
+  execution: Record<string, unknown>;
+}
+
+export interface CapacityOverview {
+  host: { slots: number; cpus: number; memory_mb: number };
+  in_use: { slots: number; cpus: number; memory_mb: number };
+  providers: { provider: string; max_concurrent_trials: number | null; in_use: number }[];
 }
 
 export interface Health {

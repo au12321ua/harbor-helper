@@ -11,11 +11,12 @@
 ## 进度
 
 - M0、M1 已于 2026-10-22 完成。M1 的结论、样例与版本见[决策记录](design/14-decisions.md)的“M1 验证记录”；原型代码与原始证据在主仓 `.local/`。
-- M2 地基已实现（2026-10-22）：新包 `src/maestro/`、最简网页与测试；实现中的选择与未覆盖范围见决策记录的“M2 实施记录”。下一步是 M3 执行内核。
+- M2 地基已实现（2026-10-22）：新包 `src/maestro/`、最简网页与测试；实现中的选择与未覆盖范围见决策记录的“M2 实施记录”。
+- M3 执行内核已实现（2026-10-23）：独立 Runner 环境（`runner/`，锁定 Harbor 0.24.0）、协议、错误策略映射、实时步骤与日志、取消、按标签清理、重启对账和容量。选择与未覆盖范围见决策记录的“M3 实施记录”。下一步是 M4 数据集与准备。
 
 ## 代码状态
 
-- 新代码在 `src/maestro/`，测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。`src/harbor_helper/` 只剩待 M3～M6 移植的执行、结果与安全模块，基线的服务、JSON state、CLI 和本机脚本已在 M2 删除，参考时读 `9ff43b5`。
+- 新代码在 `src/maestro/`，Runner 在 `runner/`（单独的 uv 项目和锁文件），测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。`src/harbor_helper/` 只剩 M4～M6 要参考的任务来源、作者参数、结果展示与旧安全模块；服务环境已不安装 Harbor，这些文件不能再导入，也不进入发布包，参考完即删。
 - 重写过程中允许无法部署。按模块替换，新模块就绪后直接删除对应的基线代码和测试，不保留新旧并行、转发层或兼容分支。
 - 不承诺向后兼容，不迁移旧 state，新实现从空实例初始化。对外 HTTP、SDK、CLI 契约随重写修改。
 - 可移植的基线与 `dev` 代码见[实施计划](design/13-testing-plan.md)第 2.3 节。移植时先读原代码，按新设计重写接口。
@@ -24,7 +25,8 @@
 
 需要 Linux、Python 3.12–3.13 和 uv；实际执行另需 Docker/Compose、可用作者依赖与 Hub 权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
-- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests`；新代码另跑 `uv run ruff format --check src/maestro tests/maestro`。
+- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests runner/src`；新代码另跑 `uv run ruff format --check src/maestro tests/maestro runner/src`。
+- Runner：在 `runner/` 执行 `uv sync --locked`。真实 Docker 测试需显式开启：`MAESTRO_DOCKER_TESTS=1 uv run pytest -q tests/maestro/test_harbor_docker.py`。它只用本地 Oracle 任务和已有的 `ubuntu:22.04`，不调用模型和 Hub；资源都带每个测试独立的实例标签，结束时核对清空。
 - 数据库：`schema.py` 与最新迁移须一致（`tests/maestro/test_migrations.py` 检查）。首个发布前没有已部署的 schema，`0001` 可以随 `schema.py` 重新生成；发布后只追加迁移。
 - 实例：`maestro --config <config.toml> init / db upgrade / serve / openapi`；示例配置与试用步骤见根目录 README。
 - 前端：在 `frontend/` 执行 `npm ci`、`npm run build`、`npm run lint`；build 写入 `src/maestro/static/`。

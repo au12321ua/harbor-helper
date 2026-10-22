@@ -65,6 +65,13 @@ def upgrade() -> None:
     with op.batch_alter_table('idempotency_records', schema=None) as batch_op:
         batch_op.create_index('ix_idempotency_expires', ['expires_at'], unique=False)
 
+    op.create_table('instance',
+    sa.Column('singleton', sa.Integer(), nullable=False),
+    sa.Column('instance_id', sa.String(length=40), nullable=False),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.CheckConstraint('singleton = 1', name=op.f('ck_instance_singleton')),
+    sa.PrimaryKeyConstraint('singleton', name=op.f('pk_instance'))
+    )
     op.create_table('master_key_state',
     sa.Column('singleton', sa.Integer(), nullable=False),
     sa.Column('generation', sa.Integer(), nullable=False),
@@ -209,6 +216,15 @@ def upgrade() -> None:
     with op.batch_alter_table('pats', schema=None) as batch_op:
         batch_op.create_index('ix_pats_owner', ['owner_id', 'created_at'], unique=False)
 
+    op.create_table('provider_limits',
+    sa.Column('provider', sa.String(length=64), nullable=False),
+    sa.Column('max_concurrent_trials', sa.Integer(), nullable=False),
+    sa.Column('updated_by', sa.String(length=40), nullable=False),
+    sa.Column('updated_at', sa.String(length=32), nullable=False),
+    sa.CheckConstraint('max_concurrent_trials >= 1', name=op.f('ck_provider_limits_max_concurrent_trials')),
+    sa.ForeignKeyConstraint(['updated_by'], ['users.id'], name=op.f('fk_provider_limits_updated_by_users')),
+    sa.PrimaryKeyConstraint('provider', name=op.f('pk_provider_limits'))
+    )
     op.create_table('sessions',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('token_hash', sa.String(length=80), nullable=False),
@@ -380,6 +396,10 @@ def upgrade() -> None:
     sa.Column('cleanup_state', sa.String(length=16), nullable=False),
     sa.Column('service_epoch', sa.String(length=40), nullable=True),
     sa.Column('lease_token', sa.String(length=80), nullable=True),
+    sa.Column('queue_reason', sa.String(length=64), nullable=True),
+    sa.Column('reservation_json', sa.JSON(), nullable=True),
+    sa.Column('runner_json', sa.JSON(), nullable=True),
+    sa.Column('heartbeat_at', sa.String(length=32), nullable=True),
     sa.Column('accepted_at', sa.String(length=32), nullable=False),
     sa.Column('started_at', sa.String(length=32), nullable=True),
     sa.Column('finished_at', sa.String(length=32), nullable=True),
@@ -447,6 +467,8 @@ def upgrade() -> None:
     sa.Column('process_identity_json', sa.JSON(), nullable=True),
     sa.Column('state', sa.String(length=16), nullable=False),
     sa.Column('phase', sa.String(length=32), nullable=True),
+    sa.Column('steps_json', sa.JSON(), nullable=True),
+    sa.Column('executor_ref_json', sa.JSON(), nullable=True),
     sa.Column('started_at', sa.String(length=32), nullable=False),
     sa.Column('ended_at', sa.String(length=32), nullable=True),
     sa.Column('error_json', sa.JSON(), nullable=True),
@@ -588,6 +610,7 @@ def downgrade() -> None:
         batch_op.drop_index('ix_sessions_user')
 
     op.drop_table('sessions')
+    op.drop_table('provider_limits')
     with op.batch_alter_table('pats', schema=None) as batch_op:
         batch_op.drop_index('ix_pats_owner')
 
@@ -601,6 +624,7 @@ def downgrade() -> None:
     op.drop_table('service_epochs')
     op.drop_table('model_configs')
     op.drop_table('master_key_state')
+    op.drop_table('instance')
     with op.batch_alter_table('idempotency_records', schema=None) as batch_op:
         batch_op.drop_index('ix_idempotency_expires')
 

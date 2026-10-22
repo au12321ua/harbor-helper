@@ -27,6 +27,7 @@ import { INVITATION_STATE, fmtTime, label, shortId } from "@/lib/format";
 import { limit, useLoad, useSession } from "@/lib/hooks";
 import type {
   AuditEvent,
+  CapacityOverview,
   Credential,
   CredentialKind,
   Invitation,
@@ -49,6 +50,7 @@ export function AdminPage() {
           <TabsTrigger value="members">成员</TabsTrigger>
           <TabsTrigger value="invitations">邀请</TabsTrigger>
           <TabsTrigger value="credentials">凭据</TabsTrigger>
+          <TabsTrigger value="capacity">容量</TabsTrigger>
           <TabsTrigger value="master-key">主密钥</TabsTrigger>
           <TabsTrigger value="audit">审计</TabsTrigger>
         </TabsList>
@@ -60,6 +62,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="credentials">
           <CredentialsTab />
+        </TabsContent>
+        <TabsContent value="capacity">
+          <CapacityTab />
         </TabsContent>
         <TabsContent value="master-key">
           <MasterKeyTab />
@@ -525,6 +530,129 @@ function ReplaceValue({ credential, onDone }: { credential: Credential; onDone: 
         </Button>
       </div>
     </form>
+  );
+}
+
+function CapacityTab() {
+  const overview = useLoad(async () => (await api.get<CapacityOverview>("admin/capacity")).data);
+  const [form, setForm] = useState({ provider: "", limit: "" });
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+
+  const save = async (provider: string, limitText: string) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const value = limitText.trim() === "" ? null : Number(limitText);
+      await api.put<CapacityOverview>(`admin/capacity/providers/${encodeURIComponent(provider)}`, {
+        max_concurrent_trials: value,
+      });
+      toast.success(value === null ? `已取消 ${provider} 的并发上限` : `${provider} 上限已设为 ${value}`);
+      setForm({ provider: "", limit: "" });
+      await overview.reload();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void save(form.provider.trim(), form.limit);
+  };
+  const data = overview.data;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">执行容量</CardTitle>
+        <CardDescription>
+          运行按“并发 × 单试次资源”整体占用容量，资源确认释放后才归还；清理失败的运行会继续占用。
+          主机总量由部署配置决定，这里只设置各模型提供商同时运行的试次上限。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 text-sm">
+        <ErrorAlert error={overview.error} />
+        {overview.loading && !data && <Loading />}
+        {data && (
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Usage label="试次槽位" used={data.in_use.slots} total={data.host.slots} />
+            <Usage label="CPU（核）" used={data.in_use.cpus} total={data.host.cpus} />
+            <Usage label="内存（MiB）" used={data.in_use.memory_mb} total={data.host.memory_mb} />
+          </div>
+        )}
+        {data && data.providers.length === 0 && <EmptyNote>还没有设置任何提供商上限。</EmptyNote>}
+        {data && data.providers.length > 0 && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>提供商</TableHead>
+                  <TableHead>同时运行的试次上限</TableHead>
+                  <TableHead>当前占用</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.providers.map((p) => (
+                  <TableRow key={p.provider}>
+                    <TableCell className="font-mono text-xs">{p.provider}</TableCell>
+                    <TableCell className="tabular-nums">{p.max_concurrent_trials ?? "不限"}</TableCell>
+                    <TableCell className="tabular-nums">{p.in_use}</TableCell>
+                    <TableCell className="text-right">
+                      {p.max_concurrent_trials != null && (
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void save(p.provider, "")}>
+                          取消上限
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end" onSubmit={submit}>
+          <TextField
+            id="capacity-provider"
+            label="提供商"
+            value={form.provider}
+            onChange={(e) => setForm({ ...form, provider: e.target.value })}
+            required
+          />
+          <TextField
+            id="capacity-limit"
+            label="同时运行的试次上限（留空表示不限）"
+            type="number"
+            min={1}
+            value={form.limit}
+            onChange={(e) => setForm({ ...form, limit: e.target.value })}
+            error={error instanceof ApiError ? error.field("max_concurrent_trials") : undefined}
+          />
+          <Button type="submit" disabled={busy || !form.provider.trim()}>
+            保存
+          </Button>
+        </form>
+        {error !== undefined && !(error instanceof ApiError && error.field("max_concurrent_trials")) && (
+          <ErrorAlert error={error} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Usage({ label, used, total }: { label: string; used: number; total: number }) {
+  const ratio = total ? Math.min(1, used / total) : 0;
+  return (
+    <div className="grid gap-1">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="tabular-nums">
+        {Number(used.toFixed(1))} / {Number(total.toFixed(1))}
+      </div>
+      <div className="h-1.5 rounded bg-muted">
+        <div className="h-1.5 rounded bg-sky-600" style={{ width: `${ratio * 100}%` }} />
+      </div>
+    </div>
   );
 }
 

@@ -10,6 +10,7 @@ from maestro.db.engine import Database
 from maestro.security.master_key import MasterKeys
 from maestro.services.accounts import Accounts
 from maestro.services.artifacts import Artifacts
+from maestro.services.capacity import Capacity, HostCapacity
 from maestro.services.catalog import Catalog
 from maestro.services.credentials import Credentials
 from maestro.services.operations import Operations
@@ -30,6 +31,7 @@ class Maestro:
     catalog: Catalog
     runs: Runs
     artifacts: Artifacts
+    capacity: Capacity
     store: ArtifactStore
     executor: Executor | None
     worker: Worker | None
@@ -46,11 +48,10 @@ class Maestro:
         db = db or Database.open(settings.database)
         store = store or LocalArtifactStore(settings.artifacts_dir)
         keys = MasterKeys(db, settings.master_key_dir, settings.data_dir)
-        worker = (
-            Worker(db, executor, store, slots=max(1, settings.worker_slots))
-            if executor is not None
-            else None
+        host = HostCapacity.detect(
+            settings.worker_slots, settings.execution_cpus, settings.execution_memory_mb
         )
+        worker = Worker(db, executor, store, host) if executor is not None else None
         return cls(
             settings=settings,
             db=db,
@@ -60,8 +61,9 @@ class Maestro:
             credentials=Credentials(db, keys),
             operations=Operations(db),
             catalog=Catalog(db),
-            runs=Runs(db),
+            runs=Runs(db, host),
             artifacts=Artifacts(db, store),
+            capacity=Capacity(db, host),
             store=store,
             executor=executor,
             worker=worker,

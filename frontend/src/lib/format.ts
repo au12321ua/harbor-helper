@@ -79,6 +79,29 @@ export const ATTEMPT_STATE: Labels = {
   interrupted: ["已中断", "bad"],
 };
 
+/** Attempt steps as reported by the executor (Harbor: environment, agent, collecting, verifying). */
+export const STEP_LABEL: Record<string, string> = {
+  starting: "启动",
+  environment: "准备环境",
+  agent: "Agent 执行",
+  collecting: "收集产物",
+  verifying: "验证",
+};
+
+export const QUEUE_REASON: Record<string, string> = {
+  CAPACITY_SLOTS: "等待空闲试次槽位",
+  CAPACITY_CPU: "等待空闲 CPU",
+  CAPACITY_MEMORY: "等待空闲内存",
+  PROVIDER_LIMIT: "等待模型提供商并发额度",
+};
+
+export function fmtDuration(ms: number): string {
+  if (Number.isNaN(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1000)} 秒`;
+}
+
 export const INVITATION_STATE: Labels = {
   pending: ["待使用", "info"],
   used: ["已使用", "neutral"],

@@ -11,8 +11,10 @@
 | 数据库 | `db/schema.py`、`db/engine.py`、`db/migrate.py`、`db/migrations/` | 01 的逻辑表；SQLite WAL / 外键 / busy_timeout；写事务一律 `BEGIN IMMEDIATE` 短事务；Alembic 迁移 |
 | 领域 | `domain/states.py`、`domain/limits.py` | 运行 / 试次 / 尝试 / Operation 状态与四个独立维度、聚合规则；D-011 初值 |
 | 安全 | `security/` | Argon2id 密码、带前缀的随机令牌与摘要、CSRF 派生、主密钥代次与轮换、AES-GCM、基本脱敏 |
-| 业务服务 | `services/` | 账户 / 初始化 / 邀请 / 会话 / 认证，PAT，凭据，权限矩阵（`principal.py`），审计，幂等，Operation，目录读取，运行受理 / 查询 / 取消，产物索引，进程内运行级 Worker |
+| 业务服务 | `services/` | 账户 / 初始化 / 邀请 / 会话 / 认证，PAT，凭据，权限矩阵（`principal.py`），审计，幂等，Operation，目录读取，运行受理 / 查询 / 取消，产物索引，进程内运行级 Worker，执行容量与提供商并发（`capacity.py`），实例标识 |
 | 边界 | `boundaries/` | 数据集来源、实验执行器、运行环境、文件存储四个接口；业务层只见这些平台类型 |
+| 执行 | `execution/` | Harbor 执行器（启动 Runner 子进程、解析协议、上传产物）、平台错误策略与 Harbor 0.24.0 异常映射、Runner 进程身份、按标签清理 Docker、按内容摘要存放的任务材料和开发用本地任务来源 |
+| Runner | 仓库根目录 `runner/` | 单独的 uv 项目，锁定 Harbor；一个运行对应一个 Harbor Job，经 stdout 的 JSON 行协议上报步骤、日志和每次尝试的结果 |
 | 测试替身 | `testing/fakes.py` | 四个边界的假实现，供测试和 `serve --demo-executor` 演示 |
 | HTTP | `api/` | FastAPI 应用、`{data, meta}` 外壳与结构化错误、会话 cookie + CSRF 与 PAT Bearer 认证、路由、公开模型、OpenAPI 导出 |
 
@@ -20,7 +22,6 @@
 
 | 位置 | 内容 | 预计由谁替换 |
 | --- | --- | --- |
-| `harbor_helper/execution/agents.py`、`environments.py`、`agent_tools.py`、`processes.py` | Harbor Agent / Docker 环境包装、工具准备、进程身份 | M3 |
 | `harbor_helper/execution/config.py`、`sources.py`、`author_inputs.py` | 任务下载、内容摘要、作者参数 | M4、M5 |
 | `harbor_helper/results/` | 评分与展示 | M6 |
 | `harbor_helper/security/`、`persistence/files.py` | 旧脱敏与文件工具 | 随上述模块一并删除 |

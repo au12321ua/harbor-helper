@@ -36,11 +36,14 @@ import {
   ARTIFACT_STATE,
   ATTEMPT_STATE,
   CLEANUP_STATE,
+  QUEUE_REASON,
   RESULT_COMPLETENESS,
   RUN_STATE,
   RUN_TERMINAL,
+  STEP_LABEL,
   TRIAL_STATE,
   fmtBytes,
+  fmtDuration,
   fmtTime,
   label,
   shortId,
@@ -161,6 +164,16 @@ function RunDetailView({ runId }: { runId: string }) {
           <Info label="开始时间" value={fmtTime(run.started_at)} />
           <Info label="结束时间" value={fmtTime(run.finished_at)} />
           <Info label="总时限" value={fmtTime(run.deadline_at)} />
+          <Info label="执行方式" value={<ExecutionMode mode={run.snapshot.effective.execution_mode} />} />
+          {run.state === "queued" && run.queue_reason && (
+            <Info
+              label="等待原因"
+              value={<span className="text-amber-800">{QUEUE_REASON[run.queue_reason] ?? run.queue_reason}</span>}
+            />
+          )}
+          {active && run.heartbeat_at && (
+            <Info label="执行进程心跳" value={fmtTime(run.heartbeat_at)} />
+          )}
           {(run.stop_requested || run.stop_reason) && (
             <Info
               label="停止"
@@ -223,7 +236,7 @@ function RunDetailView({ runId }: { runId: string }) {
           {!trials && <Loading />}
           {trials && trials.length === 0 && <EmptyNote>没有试次。</EmptyNote>}
           {trials && trials.length > 0 && (
-            <TrialsTable trials={trials} artifacts={artifacts ?? []} />
+            <TrialsTable trials={trials} artifacts={artifacts ?? []} live={active} />
           )}
         </CardContent>
       </Card>
@@ -242,6 +255,17 @@ function RunDetailView({ runId }: { runId: string }) {
       </Card>
     </div>
   );
+}
+
+function ExecutionMode({ mode }: { mode: unknown }) {
+  if (mode === "oracle") {
+    return (
+      <span title="执行任务自带的参考解法，不调用模型；结果不进入模型能力比较">
+        <Pill tone="warn">测试模式（Oracle）</Pill>
+      </span>
+    );
+  }
+  return <span>{mode ? String(mode) : "—"}</span>;
 }
 
 function Info({ label, value }: { label: string; value: ReactNode }) {
@@ -314,7 +338,15 @@ function ScoreCell({ trial }: { trial: Trial }) {
   );
 }
 
-function TrialsTable({ trials, artifacts }: { trials: Trial[]; artifacts: Artifact[] }) {
+function TrialsTable({
+  trials,
+  artifacts,
+  live,
+}: {
+  trials: Trial[];
+  artifacts: Artifact[];
+  live: boolean;
+}) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggle = (id: string) => {
     const next = new Set(open);
@@ -355,7 +387,9 @@ function TrialsTable({ trials, artifacts }: { trials: Trial[]; artifacts: Artifa
                 <TableCell>
                   <StatusPill value={label(TRIAL_STATE, trial.state)} />
                   {trial.phase && !TRIAL_TERMINAL.has(trial.state) && (
-                    <span className="ml-1 text-xs text-muted-foreground">{trial.phase}</span>
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      {STEP_LABEL[trial.phase] ?? trial.phase}
+                    </span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -374,7 +408,11 @@ function TrialsTable({ trials, artifacts }: { trials: Trial[]; artifacts: Artifa
                 <TableRow key={`${trial.id}-detail`} className="bg-muted/30 hover:bg-muted/30">
                   <TableCell />
                   <TableCell colSpan={7}>
-                    <AttemptSteps trial={trial} />
+                    <AttemptSteps
+                      trial={trial}
+                      artifacts={artifacts.filter((a) => a.trial_id === trial.id)}
+                      live={live}
+                    />
                     {trial.result && (
                       <div className="mt-2 text-xs text-muted-foreground">
                         验证：{trial.result.verifier_status ?? "—"} · 原始分{" "}
@@ -415,17 +453,27 @@ function stepIcon(state: string) {
 
 function duration(attempt: Attempt): string {
   if (!attempt.ended_at) return "进行中";
-  const ms = new Date(attempt.ended_at).getTime() - new Date(attempt.started_at).getTime();
-  if (Number.isNaN(ms)) return "—";
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+  return fmtDuration(new Date(attempt.ended_at).getTime() - new Date(attempt.started_at).getTime());
 }
 
-function AttemptSteps({ trial }: { trial: Trial }) {
+/** Which live logs belong to a step: Harbor writes agent and verifier output separately. */
+const STEP_LOG_PREFIX: Record<string, string> = { agent: "agent/", verifying: "verifier/" };
+const ENDED_BADLY = new Set(["failed", "interrupted", "cancelled"]);
+
+function AttemptSteps({
+  trial,
+  artifacts,
+  live,
+}: {
+  trial: Trial;
+  artifacts: Artifact[];
+  live: boolean;
+}) {
   if (trial.attempts.length === 0) {
     return <div className="text-xs text-muted-foreground">尚无执行尝试。</div>;
   }
   return (
-    <ol className="grid gap-1">
+    <ol className="grid gap-2">
       {trial.attempts.map((attempt) => {
         const err = attempt.error;
         return (
@@ -434,22 +482,129 @@ function AttemptSteps({ trial }: { trial: Trial }) {
               {stepIcon(attempt.state)}
               <span className="font-medium">第 {attempt.attempt_index} 次尝试</span>
               <StatusPill value={label(ATTEMPT_STATE, attempt.state)} />
-              {attempt.phase && <Pill tone="muted">阶段 {attempt.phase}</Pill>}
               <span className="ml-auto text-xs text-muted-foreground">
                 {fmtTime(attempt.started_at)} · {duration(attempt)}
               </span>
             </div>
+            <StepList
+              attempt={attempt}
+              artifacts={artifacts.filter((a) => a.attempt_id === attempt.id)}
+              live={live}
+            />
             {err && (
               <div className="mt-1 rounded bg-red-50 px-2 py-1 font-mono text-xs text-red-800">
                 {String(err.code ?? "ERROR")}
+                {err.exception_type ? ` · ${String(err.exception_type)}` : ""}
                 {err.message ? `：${String(err.message)}` : ""}
-                {err.stage ? `（stage ${String(err.stage)}）` : ""}
               </div>
             )}
           </li>
         );
       })}
     </ol>
+  );
+}
+
+/** GitHub Actions-like steps: each with its duration; steps with logs expand in place. */
+function StepList({
+  attempt,
+  artifacts,
+  live,
+}: {
+  attempt: Attempt;
+  artifacts: Artifact[];
+  live: boolean;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const steps = attempt.steps;
+  if (steps.length === 0) return null;
+  return (
+    <ol className="mt-2 grid gap-0.5 border-l pl-3" data-testid="attempt-steps">
+      {steps.map((step, index) => {
+        const next = steps[index + 1]?.at ?? attempt.ended_at;
+        const last = index === steps.length - 1;
+        const running = !next;
+        const failed = last && ENDED_BADLY.has(attempt.state);
+        const prefix = STEP_LOG_PREFIX[step.step];
+        const logs = prefix
+          ? artifacts.filter((a) => a.relative_path.startsWith(prefix) && /\.(txt|log)$/.test(a.relative_path))
+          : [];
+        const key = `${step.step}-${index}`;
+        const expanded = open === key;
+        return (
+          <li key={key}>
+            <button
+              type="button"
+              className={cn(
+                "flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs",
+                logs.length > 0 && "hover:bg-muted",
+              )}
+              disabled={logs.length === 0}
+              onClick={() => setOpen(expanded ? null : key)}
+            >
+              {running ? (
+                <Loader2 className="size-3.5 animate-spin text-sky-600" />
+              ) : failed ? (
+                <CircleX className="size-3.5 text-red-600" />
+              ) : (
+                <CircleCheck className="size-3.5 text-emerald-600" />
+              )}
+              <span className="font-medium">{STEP_LABEL[step.step] ?? step.step}</span>
+              {logs.length > 0 &&
+                (expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />)}
+              <span className="ml-auto tabular-nums text-muted-foreground">
+                {running
+                  ? "进行中"
+                  : fmtDuration(new Date(next).getTime() - new Date(step.at).getTime())}
+              </span>
+            </button>
+            {expanded &&
+              logs.map((log) => <LogView key={log.id} artifact={log} live={live && running} />)}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+const LOG_TAIL_LINES = 400;
+
+/** Live log tail: refetched whenever the stored size grows (the page polls while active). */
+function LogView({ artifact, live }: { artifact: Artifact; live: boolean }) {
+  const [text, setText] = useState<string>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let stale = false;
+    fetch(`${API}/artifacts/${artifact.id}/download`, { credentials: "same-origin" })
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error(String(res.status)))))
+      .then((body) => {
+        if (!stale) {
+          setText(body);
+          setFailed(false);
+        }
+      })
+      .catch(() => !stale && setFailed(true));
+    return () => {
+      stale = true;
+    };
+  }, [artifact.id, artifact.size_bytes]);
+  const lines = text?.split("\n") ?? [];
+  const shown = lines.length > LOG_TAIL_LINES ? lines.slice(-LOG_TAIL_LINES) : lines;
+  return (
+    <div className="my-1 ml-5">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <code>{artifact.relative_path}</code>
+        <span>{fmtBytes(artifact.size_bytes)}</span>
+        {live && <Loader2 className="size-3 animate-spin" />}
+        {lines.length > LOG_TAIL_LINES && <span>仅显示最后 {LOG_TAIL_LINES} 行</span>}
+      </div>
+      {failed && <div className="text-xs text-red-700">日志读取失败</div>}
+      {text !== undefined && (
+        <pre className="max-h-72 overflow-auto rounded bg-zinc-950 p-2 font-mono text-xs leading-relaxed text-zinc-100">
+          {shown.join("\n") || "（空）"}
+        </pre>
+      )}
+    </div>
   );
 }
 

@@ -121,7 +121,7 @@ class Catalog:
                     insert(t.task_admissions).values(
                         id=new_id("adm"),
                         task_id=task_id,
-                        preparation_method_digest=digest_json({"method": "fake"}),
+                        preparation_method_digest=digest_json({"method": source.kind}),
                         state=ADMITTED if admit else "pending",
                         revision=1,
                         evidence_json={},

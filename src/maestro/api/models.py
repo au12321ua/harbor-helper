@@ -280,6 +280,11 @@ class RunCreate(Model):
     task_selection: TaskSelection = TaskSelection()
     repetitions: int = 1
     concurrency: int = 4
+    execution_mode: Literal["oracle"] = Field(
+        "oracle",
+        description="Until model configuration exists only the Oracle test mode runs: each "
+        "task's reference solution, never compared with model results",
+    )
     client_request_id: str | None = None
 
 
@@ -332,6 +337,11 @@ class Run(Model):
     cleanup_state: Literal["pending", "running", "complete", "failed", "not_required"]
     stop_requested: bool
     stop_reason: str | None
+    queue_reason: str | None = Field(
+        description="Why a queued run waits: CAPACITY_SLOTS, CAPACITY_CPU, CAPACITY_MEMORY "
+        "or PROVIDER_LIMIT"
+    )
+    heartbeat_at: str | None = Field(description="Last sign of life from the run's Runner")
     counts: RunCounts
     accepted_at: str
     started_at: str | None
@@ -366,6 +376,11 @@ class TrialResult(Model):
     attempt_id: str
 
 
+class AttemptStep(Model):
+    step: str = Field(description="starting, environment, agent, collecting or verifying")
+    at: str
+
+
 class Attempt(Model):
     id: str
     attempt_index: int
@@ -380,6 +395,10 @@ class Attempt(Model):
         "interrupted",
     ]
     phase: str | None
+    steps: list[AttemptStep] = Field(
+        description="Step start times; a step ends when the next starts or the attempt ends"
+    )
+    executor_ref: dict[str, Any] | None
     started_at: str
     ended_at: str | None
     error: dict[str, Any] | None
@@ -468,6 +487,35 @@ class Capabilities(Model):
     limits: dict[str, int]
     auth: dict[str, Any]
     actions: dict[str, dict[str, Any]]
+    execution: dict[str, Any]
+
+
+class HostCapacityView(Model):
+    slots: int
+    cpus: float
+    memory_mb: int
+
+
+class CapacityUse(Model):
+    slots: int
+    cpus: float
+    memory_mb: int
+
+
+class ProviderCapacity(Model):
+    provider: str
+    max_concurrent_trials: int | None = Field(description="null means no platform limit")
+    in_use: int
+
+
+class CapacityOverview(Model):
+    host: HostCapacityView
+    in_use: CapacityUse
+    providers: list[ProviderCapacity]
+
+
+class ProviderLimit(Model):
+    max_concurrent_trials: int | None = Field(description="null removes the limit")
 
 
 class Health(Model):

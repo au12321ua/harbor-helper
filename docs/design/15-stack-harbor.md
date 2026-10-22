@@ -131,7 +131,7 @@ harbor run --dry-run --config job.yaml
 
 ## 7. 取消、资源与服务重启
 
-Linux 使用独立进程组启动 Runner，建议通过 asyncio.create_subprocess_exec 并建立新会话。取消先通知协作停止，再向进程组发 SIGTERM，宽限后 SIGKILL；不调用拼接的 shell 命令。
+Linux 使用独立进程组启动 Runner，建议通过 asyncio.create_subprocess_exec 并建立新会话。取消先通知协作停止，再向进程组发 SIGTERM，宽限后 SIGKILL；不调用拼接的 shell 命令。服务进程意外退出或协议管道断开时，Runner 自行按取消处理，不继续执行（M3 增补，见 [14](14-decisions.md)）。
 
 结束进程组不能保证 Docker daemon 管理的容器、网络和控制 sidecar 都已消失。随后必须通过环境清理接口按 instance_id / run_id / trial_id / attempt_id 标签清理，并保留失败记录。心跳丢失时同样先确认旧资源已停止，再创建新尝试。
 

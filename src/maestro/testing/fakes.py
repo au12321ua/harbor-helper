@@ -13,6 +13,7 @@ from maestro.boundaries.executor import (
     CancelToken,
     ExecutionReport,
     ExecutionSink,
+    Leftover,
     RunSpec,
 )
 from maestro.core.digests import digest_json
@@ -82,6 +83,7 @@ class FakeExecutor:
 
     A ``"hang"`` entry blocks until cancellation. Retries happen when an outcome
     recommends it and attempts remain, mirroring Job-internal retries (D-020).
+    Cleanup and reconciliation calls are recorded instead of touching Docker.
     """
 
     script: dict[str, list] = field(default_factory=dict)
@@ -91,9 +93,13 @@ class FakeExecutor:
     executor_id: str = "fake"
     started: asyncio.Event = field(default_factory=asyncio.Event)
     on_trial: Callable | None = None
+    cleaned: list = field(default_factory=list)
+    reconciled: list = field(default_factory=list)
+    release: bool = True
 
     async def execute(self, spec: RunSpec, sink: ExecutionSink, cancel: CancelToken):
         semaphore = asyncio.Semaphore(spec.concurrency)
+        await sink.runner_started({"pid": 0, "runner_id": self.executor_id})
 
         async def run_trial(trial):
             async with semaphore:
@@ -104,9 +110,9 @@ class FakeExecutor:
                     outcome = plan[min(attempt - 1, len(plan) - 1)]
                     await sink.attempt_started(trial.trial_id, attempt)
                     self.started.set()
-                    for phase in ("preparing", "executing", "verifying"):
-                        await sink.phase_changed(trial.trial_id, attempt, phase)
-                        if outcome == "hang" and phase == "executing":
+                    for step in ("environment", "agent", "verifying"):
+                        await sink.phase_changed(trial.trial_id, attempt, step)
+                        if outcome == "hang" and step == "agent":
                             await cancel.wait()
                             return
                         if self.step_delay:
@@ -114,7 +120,10 @@ class FakeExecutor:
                         if cancel.cancelled:
                             return
                     await sink.log(
-                        trial.trial_id, attempt, "agent", f"attempt {attempt} of {trial.task_key}\n"
+                        trial.trial_id,
+                        attempt,
+                        "agent/fake.txt",
+                        f"attempt {attempt} of {trial.task_key}\n",
                     )
                     await sink.artifact(
                         trial.trial_id,
@@ -129,7 +138,16 @@ class FakeExecutor:
                         return
 
         await asyncio.gather(*(run_trial(trial) for trial in spec.trials))
-        return ExecutionReport(cleanup_complete=True)
+        report = await self.cleanup(spec.labels)
+        return ExecutionReport(cleanup_complete=report.released)
+
+    async def cleanup(self, labels: dict[str, str]) -> CleanupReport:
+        self.cleaned.append(labels)
+        return CleanupReport(released=self.release)
+
+    async def reconcile(self, leftover: Leftover) -> CleanupReport:
+        self.reconciled.append(leftover)
+        return await self.cleanup(leftover.labels)
 
 
 class FakeEnvironment:

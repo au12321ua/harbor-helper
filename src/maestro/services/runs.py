@@ -30,7 +30,14 @@ from maestro.domain.states import (
     result_completeness,
     trial_counts,
 )
+from maestro.execution.policy import POLICY_VERSION
 from maestro.services import audit, idempotency, operations, pagination
+from maestro.services.capacity import (
+    HostCapacity,
+    provider_of,
+    refuse_if_never_fits,
+    reservation,
+)
 from maestro.services.catalog import ADMITTED
 from maestro.services.principal import (
     Channel,
@@ -43,6 +50,9 @@ from maestro.services.principal import (
 SNAPSHOT_SCHEMA = 1
 ACTION_SUBMIT = "runs.submit"
 ACTION_CANCEL = "runs.cancel"
+# Until model configuration (M5) only the test mode exists: Oracle runs each task's
+# reference solution and never enters model comparisons (15 section 6).
+EXECUTION_MODES = {"oracle"}
 
 
 def _check_request(body: dict) -> dict:
@@ -73,6 +83,9 @@ def _check_request(body: dict) -> dict:
         errors.append(
             FieldError("/concurrency", "LIMIT_EXCEEDED", limit=limits.RUN_MAX_CONCURRENCY)
         )
+    execution_mode = body.get("execution_mode", "oracle")
+    if execution_mode not in EXECUTION_MODES:
+        errors.append(FieldError("/execution_mode", "ENUM"))
     client_request_id = body.get("client_request_id")
     if client_request_id is not None and (
         not isinstance(client_request_id, str) or not 1 <= len(client_request_id) <= 128
@@ -92,6 +105,7 @@ def _check_request(body: dict) -> dict:
         "task_selection": {"mode": mode, **({"task_ids": sorted(task_ids)} if task_ids else {})},
         "repetitions": repetitions,
         "concurrency": concurrency,
+        "execution_mode": execution_mode,
         "client_request_id": client_request_id,
     }
 
@@ -124,6 +138,8 @@ def public_run(row, counts: dict, principal: Principal | None) -> dict:
         "cleanup_state": row["cleanup_state"],
         "stop_requested": row["stop_requested"],
         "stop_reason": row["stop_reason"],
+        "queue_reason": row["queue_reason"],
+        "heartbeat_at": row["heartbeat_at"],
         "counts": counts,
         "accepted_at": row["accepted_at"],
         "started_at": row["started_at"],
@@ -177,8 +193,9 @@ def refresh_operation(conn: Connection, run_id: str) -> None:
 
 
 class Runs:
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, capacity: HostCapacity | None = None):
         self.db = db
+        self.capacity = capacity
 
     # --- acceptance ------------------------------------------------------------
 
@@ -206,6 +223,8 @@ class Runs:
                 return stored.status_code, stored.response, True
             self._recheck_principal(conn, principal)
             self._recheck_tasks(conn, plan)
+            if self.capacity:
+                refuse_if_never_fits(conn, self.capacity, plan["reservation"])
             if principal.channel == Channel.PAT:
                 self._charge_pat(conn, principal.pat_id)
             response = self._insert_run(conn, principal, request, plan)
@@ -322,6 +341,7 @@ class Runs:
                 "admission_id": r["admission_id"],
                 "admission_revision": r["admission_revision"],
                 "preparation_method_digest": r["preparation_method_digest"],
+                "definition": r["definition_json"],
             }
             for r in sorted(chosen, key=lambda r: r["task_key"])
         ]
@@ -336,12 +356,19 @@ class Runs:
             "tasks": [{k: x[k] for k in ("task_key", "content_digest")} for x in tasks],
             "repetitions": request["repetitions"],
             "concurrency": request["concurrency"],
+            "execution_mode": request["execution_mode"],
         }
         return {
             "version": dict(version),
             "tasks": tasks,
             "excluded": excluded,
             "effective": effective,
+            "reservation": reservation(
+                request["concurrency"],
+                [x["definition"] for x in tasks],
+                provider_of(effective),
+                len(tasks) * request["repetitions"],
+            ),
         }
 
     @staticmethod
@@ -470,7 +497,7 @@ class Runs:
                 for x in plan["tasks"]
             ],
         }
-        policy = {"aggregation_version": 1, "policy_version": "platform-0"}
+        policy = {"aggregation_version": 1, "policy_version": POLICY_VERSION}
         config_digest = digest_json(effective)
         conn.execute(
             insert(t.run_snapshots).values(
@@ -628,6 +655,8 @@ class Runs:
                         "attempt_index": a["attempt_index"],
                         "state": a["state"],
                         "phase": a["phase"],
+                        "steps": a["steps_json"] or [],
+                        "executor_ref": a["executor_ref_json"],
                         "started_at": a["started_at"],
                         "ended_at": a["ended_at"],
                         "error": a["error_json"],
@@ -746,6 +775,7 @@ def finalize(conn: Connection, run_id: str, stop_reason: str | None, cleanup: Cl
             artifact_state=artifact,
             cleanup_state=cleanup,
             lease_token=None,
+            queue_reason=None,
         )
     )
     status = operation_status_for(state, counts)

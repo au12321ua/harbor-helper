@@ -406,6 +406,10 @@ runs = Table(
     Column("cleanup_state", String(16), nullable=False),
     Column("service_epoch", String(40), nullable=True),
     Column("lease_token", String(80), nullable=True),
+    Column("queue_reason", String(64), nullable=True),
+    _json("reservation_json", nullable=True),
+    _json("runner_json", nullable=True),
+    _time("heartbeat_at", nullable=True),
     _time("accepted_at"),
     _time("started_at", nullable=True),
     _time("finished_at", nullable=True),
@@ -473,6 +477,8 @@ execution_attempts = Table(
     _json("process_identity_json", nullable=True),
     Column("state", String(16), nullable=False),
     Column("phase", String(32), nullable=True),
+    _json("steps_json", nullable=True),
+    _json("executor_ref_json", nullable=True),
     _time("started_at"),
     _time("ended_at", nullable=True),
     _json("error_json", nullable=True),
@@ -562,6 +568,25 @@ audit_events = Table(
     _time("created_at"),
     Index("ix_audit_object", "object_type", "object_id", "created_at"),
     Index("ix_audit_created", "created_at", "id"),
+)
+
+provider_limits = Table(
+    "provider_limits",
+    metadata,
+    Column("provider", String(64), primary_key=True),
+    Column("max_concurrent_trials", Integer, nullable=False),
+    _ref("updated_by", "users"),
+    _time("updated_at"),
+    CheckConstraint("max_concurrent_trials >= 1", name="max_concurrent_trials"),
+)
+
+instance = Table(
+    "instance",
+    metadata,
+    Column("singleton", Integer, primary_key=True),
+    Column("instance_id", String(40), nullable=False),
+    _time("created_at"),
+    CheckConstraint("singleton = 1", name="singleton"),
 )
 
 service_epochs = Table(

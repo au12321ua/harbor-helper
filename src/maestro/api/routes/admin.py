@@ -1,10 +1,12 @@
-"""Administrator web-session endpoints: members, invitations, credentials, master key."""
+"""Administrator web-session endpoints: members, invitations, credentials, master key,
+execution capacity."""
 
 from fastapi import APIRouter, Depends, Request
 
 from maestro.api.deps import maestro, ok, principal
 from maestro.api.models import (
     AuditEvent,
+    CapacityOverview,
     Credential,
     CredentialCreate,
     CredentialValue,
@@ -14,6 +16,7 @@ from maestro.api.models import (
     IssuedInvitation,
     MasterKeyRotation,
     MasterKeyStatus,
+    ProviderLimit,
     StatusChange,
     User,
 )
@@ -144,3 +147,16 @@ def audit_events(
         limit=limit,
     )
     return ok(request, items, next_cursor)
+
+
+@router.get("/capacity", response_model=Envelope[CapacityOverview])
+def capacity(request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).capacity.overview(who))
+
+
+@router.put("/capacity/providers/{provider}", response_model=Envelope[CapacityOverview])
+def provider_limit(
+    provider: str, body: ProviderLimit, request: Request, who: Principal = Depends(principal)
+):
+    service = maestro(request).capacity
+    return ok(request, service.set_provider_limit(who, provider, body.max_concurrent_trials))

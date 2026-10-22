@@ -65,6 +65,10 @@ def cmd_serve(args) -> int:
 
     settings = _settings(args)
     executor = None
+    if settings.runner_python and not args.demo_executor:
+        executor = _harbor_executor(settings)
+    elif not args.demo_executor:
+        print("runner_python is not configured: runs will be refused.", file=sys.stderr)
     if args.demo_executor:
         # Development only: a scripted fake executor so pages can be exercised
         # before the Harbor Runner (M3) exists. Never for real experiments.
@@ -99,6 +103,41 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def _harbor_executor(settings):
+    from maestro.execution.docker import DockerResources
+    from maestro.execution.harbor import HarborExecutor
+    from maestro.execution.materials import TaskMaterials
+
+    if not settings.runner_python.is_file():
+        raise MaestroError(
+            "CONFIG_INVALID", f"runner_python {settings.runner_python} does not exist", 500
+        )
+    settings.work_dir.mkdir(mode=0o700, exist_ok=True)
+    return HarborExecutor(
+        settings.runner_python,
+        settings.work_dir,
+        TaskMaterials(settings.cache_dir),
+        DockerResources(timeout=settings.cleanup_timeout_sec),
+        term_grace=settings.runner_term_grace_sec,
+    )
+
+
+def cmd_local_dataset(args) -> int:
+    """Development only: register a directory of Harbor tasks as an admitted dataset.
+
+    Stands in for the Hub import and first preparation of M4; never for real benchmarks.
+    """
+    from maestro.application import Maestro
+    from maestro.execution.materials import LocalTaskSource, TaskMaterials
+
+    settings = _settings(args)
+    service = Maestro.build(settings)
+    source = LocalTaskSource(Path(args.directory).resolve(), TaskMaterials(settings.cache_dir))
+    version_id = service.catalog.register_version(source, "local", args.name, "local", True, None)
+    print(f"dataset local/{args.name} version {version_id}")
+    return 0
+
+
 def cmd_openapi(args) -> int:
     from maestro.api.openapi import document
 
@@ -123,6 +162,10 @@ def main(argv=None) -> int:
     serve.add_argument("--port", type=int)
     serve.add_argument("--demo-executor", action="store_true", help=argparse.SUPPRESS)
     serve.set_defaults(func=cmd_serve)
+    local = sub.add_parser("dev-local-dataset", help=argparse.SUPPRESS)
+    local.add_argument("name")
+    local.add_argument("directory")
+    local.set_defaults(func=cmd_local_dataset)
     openapi = sub.add_parser("openapi", help="print the public OpenAPI document")
     openapi.add_argument("--output")
     openapi.set_defaults(func=cmd_openapi)

@@ -6,7 +6,9 @@ from maestro import __version__
 from maestro.api.deps import maestro, ok, principal
 from maestro.api.models import Capabilities, Envelope, Health
 from maestro.domain import limits
+from maestro.execution.policy import POLICY_VERSION
 from maestro.services.principal import Principal
+from maestro.services.runs import EXECUTION_MODES
 
 router = APIRouter()
 
@@ -89,6 +91,13 @@ def capabilities(request: Request):
                 "admin.credentials": admin,
                 "admin.master_key": admin,
                 "admin.audit": admin,
+                "admin.capacity": admin,
+            },
+            "execution": {
+                "executor": service.executor.executor_id if service.executor else None,
+                "modes": sorted(EXECUTION_MODES),
+                "policy_version": POLICY_VERSION,
+                "capacity": service.capacity.host.public(),
             },
         },
     )

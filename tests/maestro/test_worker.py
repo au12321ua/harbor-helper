@@ -8,6 +8,7 @@ from sqlalchemy import select, update
 from maestro.boundaries.executor import AttemptOutcome
 from maestro.db import schema as t
 from maestro.domain.states import Role
+from maestro.services.capacity import HostCapacity
 from maestro.services.principal import Channel, Principal
 from maestro.services.worker import RunSink, StaleLease
 from maestro.testing.fakes import failed, scored
@@ -166,7 +167,8 @@ def test_restart_interrupts_claimed_runs_and_keeps_queued(service, owner, versio
 
     async def first_process():
         worker = service.worker
-        worker.slots = 1  # only the first run is claimed before the "crash"
+        # Room for the first run's three trials only, so the second one stays queued.
+        worker.capacity = HostCapacity(slots=3, cpus=64, memory_mb=1 << 20)
         worker.start_epoch()
         await worker.tick()
         for _ in range(500):

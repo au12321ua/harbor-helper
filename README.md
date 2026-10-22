@@ -27,6 +27,19 @@ uv run maestro --config "$root/config.toml" serve --port 8420
 
 打开 `http://127.0.0.1:8420`，用初始化令牌创建首个管理员。没有执行器时服务如实拒绝受理运行；开发演示可加隐藏参数 `--demo-executor`，它使用假执行器和一个演示数据集，结果不是真实实验。
 
+### 用 Harbor 真实执行（Oracle 测试模式）
+
+Harbor 装在单独的 Runner 环境里，服务本身不加载 Harbor。需要 Docker 和本机已有的 `ubuntu:22.04` 镜像：
+
+```bash
+(cd runner && uv sync --locked)                       # 锁定 Harbor 0.24.0
+echo "runner_python = \"$PWD/runner/.venv/bin/python\"" >> "$root/config.toml"
+uv run maestro --config "$root/config.toml" dev-local-dataset oracle tests/maestro/fixtures/harbor-tasks
+uv run maestro --config "$root/config.toml" serve --port 8420
+```
+
+`dev-local-dataset` 是开发用的隐藏命令，在 M4 的 Hub 导入完成前，把本地任务目录登记为已准入数据集。目前只有 Oracle 测试模式：执行任务自带的参考解法，不调用模型。运行页能看到每个试次的步骤、耗时和实时日志。
+
 `cookie_secure = false` 只用于本机 HTTP；对外部署由反向代理提供 HTTPS，并保持默认的 `true`。
 
 ## 文档
