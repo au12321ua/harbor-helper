@@ -1,1 +1,0 @@
-"""Harbor Helper service responsibilities."""

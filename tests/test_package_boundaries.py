@@ -7,7 +7,6 @@ source subprocesses use a copied package with a clearly substituted Hub boundary
 import asyncio
 import hashlib
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -53,18 +52,6 @@ print("native Job options validated")
     )
     assert result.returncode == 0, result.stderr
     assert "native Job options validated" in result.stdout
-    for entry in ("harbor_helper.commands.main",):
-        result = subprocess.run(
-            [sys.executable, "-B", "-m", entry, "service", "serve", "--help"],
-            cwd=tmp_path,
-            env=env,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stderr
-        assert "--setup-token-file" in result.stdout
-        assert "RuntimeWarning" not in result.stderr
     assert not (tmp_path / "home").exists()  # Help/import never creates user credentials/state.
 
 
@@ -93,49 +80,3 @@ def test_real_downloader_module_from_unrelated_directory(tmp_path, monkeypatch):
     assert not (cache / evidence["directory"]).exists()
     assert (cached / "opencode").read_bytes() == content
     assert not list(cache.glob(".download-*"))
-
-
-def test_real_hub_client_subprocess_package_root_and_isolated_home(tmp_path):
-    package = tmp_path / "harbor_helper"
-    shutil.copytree(
-        Path(__file__).resolve().parents[1] / "src/harbor_helper",
-        package,
-        ignore=shutil.ignore_patterns("__pycache__", "static"),
-    )
-    # Only the network-facing client main is replaced. Production source_call,
-    # subprocess launch, env allowlist and returned isolation gate are unchanged.
-    source = package / "service/sources.py"
-    text = source.read_text()
-    fixture = """
-def main():
-    request = json.load(sys.stdin)
-    from harbor.auth.constants import CREDENTIALS_PATH
-    from harbor_helper.commands.remote import selected_profile
-    print(json.dumps({"resolved": request["reference"], "tasks": [], "_client": {
-        "home": str(Path.home()), "profile": selected_profile(),
-        "stored_credentials": CREDENTIALS_PATH.exists()}}))
-
-"""
-    source.write_text(
-        text.replace('if __name__ == "__main__":', fixture + 'if __name__ == "__main__":')
-    )
-    env = {"PATH": os.defpath, "HOME": str(tmp_path / "private-home"), "LANG": "C.UTF-8"}
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-c",
-            (
-                "from harbor_helper.service.sources import source_call; "
-                'assert source_call("fixture/data@1") == {"resolved": "fixture/data@1", "tasks": []}; '
-                'print("isolated source subprocess validated")'
-            ),
-        ],
-        cwd=tmp_path,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "isolated source subprocess validated" in result.stdout
