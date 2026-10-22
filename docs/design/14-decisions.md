@@ -128,6 +128,7 @@
 **2026-10-22，V-10 / TECH-01 与 V-12。** 范围：Harbor 0.24.0（最新稳定版，U-15），独立 uv 环境，CPython 3.12.3，Docker 29.9.1，Linux 6.8 单机；原型 Runner 与自定义 Agent，2 个本地 ubuntu:22.04 任务 × 2 试次，正常、SIGTERM、SIGKILL、Runner 崩溃各一次。未涉及真实模型、Hub、网络策略、准备缓存与 bootstrap。
 
 - **V-10 / TECH-01：通过，有缺口。** `Job.add_hook` 的试次生命周期钩子能实时、有序地给出环境启动、Agent 开始 / 结束、验证开始、结束和取消，到达延迟不超过 0.1 秒。Runner 在导入 Harbor 前把 fd 1 留给协议、其余输出转到 stderr；在约 100 MB stderr 以及 Python 和子进程都写 stdout 的情况下，协议无污染、无死锁，前提是 Worker 持续读取 stderr。SIGTERM 协作取消后有最终状态，容器由 Harbor 回收；SIGKILL 或崩溃时只有退出码和最后事件，容器和网络会残留。缺口有四项：没有单独的收集事件和 agent setup 开始事件；结构化日志回调只在 Trial 上，不经 Job 暴露；被强杀后的残留只带 compose 标签，需要 Runner 用 `extra_docker_compose` 补平台标签（只能标到服务），或按 trial_name 推出 compose 项目名来清理。
+- **补充实验（同日）：上述缺口的处理已验证。** 收集产物用“Agent 结束到验证开始”这段区间表示。安装步骤由我们的 Agent 包装层在 setup 前后自己发事件，实测落在环境启动与 Agent 开始之间。实时日志有两种做法：一是在 Runner 里包装 Harbor 的内部接口挂日志回调，延迟约 2 毫秒，但收不到验证器和 Oracle 的输出，因为它们在容器内把输出重定向到了文件；二是读取 Docker 挂载到宿主的试次日志目录，延迟在 0.5 秒以内，能覆盖 setup、Agent 和验证，并且每次重试的日志都分得开。所以以读文件为主，回调可作补充。清理方面，Runner 的 compose 覆盖文件不只给 main 服务、也给默认网络贴平台标签（纠正上一条“只能标到服务”）；从环境启动后 0.2 秒到 Agent 运行中强杀，按标签都能找到全部残留，其中也包括只建了网络、还没建容器的情况。未覆盖非 public 网络模式下的 sidecar 和额外网络。
 - **V-12：每次尝试可以识别。** Job 内重试沿用同一 trial_name，每次尝试的 TrialResult id 不同，且都会完整触发开始到结束的钩子。但是 Harbor 在重试前会删除失败尝试的试次目录，job 结果只保留重试总数，所以 Runner 必须在结束钩子里归档每次尝试；只靠最终结果文件对账会丢掉前几次尝试的证据。
 
 ## 5. 可配置数值建议
