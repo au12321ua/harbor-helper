@@ -2,7 +2,9 @@
 
 发布源为 [harbor-helper-research](../../skills/harbor-helper-research/SKILL.md)，用于代成员调用团队服务，复用当前薄 CLI 或 HTTP。它与实验附件内提供给被评测 agent 的 `skills/`、`sdk/` 分开；不需要服务器登录，不新增 SDK/MCP、权限或队列。
 
-使用前安装支持 [机器 API v1](../reference/automation-api.md) 的 harbor-helper CLI，或使用可安全读取凭证的 HTTP 客户端。CLI 安装见 [Web 服务指南](web-service.md)。PAT 在网页签发后，经私有文件/stdin 配置；目标 URL/profile 均由调用者选择。安装 skill 不会配置服务连接或授权真实模型预算。
+> 本页描述 `9ff43b5` 基线的研究客户端；它依赖的 harbor-helper CLI 与机器 API 已在重写 M2 删除，M7 按新 SDK 重写本页。
+
+使用前安装支持机器 API v1 的 harbor-helper CLI，或使用可安全读取凭证的 HTTP 客户端。PAT 在网页签发后，经私有文件/stdin 配置；目标 URL/profile 均由调用者选择。安装 skill 不会配置服务连接或授权真实模型预算。
 
 本仓库保存发布源，**不自动安装到全局或改配置**。调用者可按自己的 agent 支持方式加载此 SKILL.md；Codex 使用者可主动将整个 `skills/harbor-helper-research/` 目录复制到自己选择的 skill 根目录（例如 `~/.codex/skills/harbor-helper-research/`），保留 `references/operations.md`，不要覆盖已有修改。随后在已发现该 skill 的会话中调用 `$harbor-helper-research`，例如：
 

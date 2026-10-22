@@ -13,7 +13,7 @@
 /opt/maestro/current                指向 versions/<version> 的链接
 /opt/maestro/harbor/<harbor-version>/<runner-revision>/  锁定 Harbor 与 Runner 环境
 /etc/maestro/config.toml            部署配置
-/etc/maestro/secrets/master.key     独立主密钥，服务账号可读
+/etc/maestro/secrets/              按代次保存的主密钥文件，服务账号可读（14 M2 实施记录）
 /var/lib/maestro/app.db             业务数据库，WAL / SHM 同目录
 /var/lib/maestro/artifacts/         原始产物
 /var/cache/maestro/                任务内容与准备缓存

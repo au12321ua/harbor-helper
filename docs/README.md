@@ -9,14 +9,13 @@
 - [测试验收与实施计划](design/13-testing-plan.md)：重写路线、里程碑与验收场景。
 - [决策记录与需求追踪](design/14-decisions.md)：用户决定、待确认冲突、设计建议与待验证项。
 
-## 基线代码的使用与维护
+## 代码
 
-以下文档描述 `9ff43b5` 基线代码，随对应模块被重写而更新或删除，不作为重写的约束：
+- [源码职责](architecture/source-layout.md)：新 `maestro` 包的分工与尚未重写的基线模块。
+- [前端开发](../frontend/README.md)。
+- 公开 API 由服务导出：运行中的服务在 `/api/v1/openapi.json`，离线用 `maestro openapi`。
 
-- [Web服务指南](guides/web-service.md)：管理员配置、远程CLI、完整停机、备份与审计。
-- [自动化授权与机器 API](reference/automation-api.md)：能力、schema、状态、幂等与薄 CLI。
-- [团队附件版本](guides/attachments.md)、[研究客户端 skill](guides/research-skill.md)。
-- [源码职责](architecture/source-layout.md)、[前端开发](../frontend/README.md)。
+以下文档描述 `9ff43b5` 基线功能，相应代码已删除或待重写，仅供移植时参考：[团队附件版本](guides/attachments.md)、[研究客户端 skill](guides/research-skill.md)。基线的 Web 服务指南与机器 API 文档已随基线服务在 M2 删除。
 
 ## 开发协作
 

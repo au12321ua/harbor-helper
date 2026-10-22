@@ -32,7 +32,7 @@
 ## 按任务查阅
 
 - 重写路线、里程碑与验收场景：[测试验收与实施计划](docs/design/13-testing-plan.md)。各模块的设计从[设计入口](docs/design/README.md)进入。
-- 基线代码的行为与职责：[Web服务指南](docs/guides/web-service.md)、[源码职责](docs/architecture/source-layout.md)、[机器 API](docs/reference/automation-api.md)。这些只描述尚未重写的代码，不约束新设计。
+- 代码分工：[源码职责](docs/architecture/source-layout.md)；公开 API 以服务导出的 OpenAPI 为准。尚未重写的基线模块只描述现状，不约束新设计；已删除的基线服务、CLI 与机器 API 可查 `9ff43b5`。
 - 部署现场以存在时的 `.local/LOCAL_ENVIRONMENT.md` 为准；操作前实时核对身份与引用。
 - 废弃方案和 `dev` 上的旧实现可查 Git 历史，不成为新增约束；可移植部分见实施计划第 2.3 节。
 

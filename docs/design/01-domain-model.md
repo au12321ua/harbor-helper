@@ -77,7 +77,8 @@ erDiagram
 | 表 | 关键字段 | 约束与用途 |
 | --- | --- | --- |
 | users | id、role、status、password_hash、created_at | 仅 admin / member；移除使用 disabled |
-| invitations | token_hash、expires_at、used_at、created_by | 单次邀请，不保存原始令牌 |
+| invitations | token_hash、expires_at、used_at、created_by、target_user_id | 单次邀请，不保存原始令牌；target_user_id 非空时为重置密码链接 |
+| sessions | token_hash、user_id、expires_at、revoked_at | 网页会话只存摘要，可在服务端撤销（14 M2 实施记录） |
 | pats | id、owner_id、token_hash、scope、expires_at、run_limit、accepted_runs、revoked_at | scope 为 read / experiment；计数只能在受理事务内增加 |
 | credentials | id、kind、encrypted_payload、key_version、enabled、revision | 对外仅返回引用与脱敏描述 |
 | datasets | id、source_kind、namespace、name、enabled | 来源、namespace、name 联合唯一 |

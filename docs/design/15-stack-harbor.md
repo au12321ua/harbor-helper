@@ -69,7 +69,7 @@ Worker 仍在服务进程内，负责领取、租约、取消、资源和结果�
   venv/                      精确锁定的 Harbor 与 Runner
   compatibility.json         协议、Harbor、schema 与异常映射摘要
 /etc/maestro/config.toml      部署配置
-/etc/maestro/secrets/master.key
+/etc/maestro/secrets/master-<代次>-<随机>.key
 /var/lib/maestro/app.db
 /var/lib/maestro/artifacts/
 /var/cache/maestro/           任务内容与准备缓存

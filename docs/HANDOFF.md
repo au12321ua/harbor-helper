@@ -10,11 +10,12 @@
 
 ## 进度
 
-- M0、M1 已于 2026-10-22 完成。M1 的结论、样例与版本见[决策记录](design/14-decisions.md)的“M1 验证记录”；原型代码与原始证据在主仓 `.local/`。下一步是 M2 地基。
+- M0、M1 已于 2026-10-22 完成。M1 的结论、样例与版本见[决策记录](design/14-decisions.md)的“M1 验证记录”；原型代码与原始证据在主仓 `.local/`。
+- M2 地基已实现（2026-10-22）：新包 `src/maestro/`、最简网页与测试；实现中的选择与未覆盖范围见决策记录的“M2 实施记录”。下一步是 M3 执行内核。
 
 ## 代码状态
 
-- `src/`、`frontend/`、`tests/` 中尚未重写的部分是基线代码，行为见[Web服务指南](guides/web-service.md)和[源码职责](architecture/source-layout.md)。这些文档随模块重写而更新或删除。
+- 新代码在 `src/maestro/`，测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。`src/harbor_helper/` 只剩待 M3～M6 移植的执行、结果与安全模块，基线的服务、JSON state、CLI 和本机脚本已在 M2 删除，参考时读 `9ff43b5`。
 - 重写过程中允许无法部署。按模块替换，新模块就绪后直接删除对应的基线代码和测试，不保留新旧并行、转发层或兼容分支。
 - 不承诺向后兼容，不迁移旧 state，新实现从空实例初始化。对外 HTTP、SDK、CLI 契约随重写修改。
 - 可移植的基线与 `dev` 代码见[实施计划](design/13-testing-plan.md)第 2.3 节。移植时先读原代码，按新设计重写接口。
@@ -23,8 +24,10 @@
 
 需要 Linux、Python 3.12–3.13 和 uv；实际执行另需 Docker/Compose、可用作者依赖与 Hub 权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
-- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests`。
-- 前端：在 `frontend/` 执行 `npm ci`、`npm run build`、`npm run lint`；build 会更新包内 static。
+- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests`；新代码另跑 `uv run ruff format --check src/maestro tests/maestro`。
+- 数据库：`schema.py` 与最新迁移须一致（`tests/maestro/test_migrations.py` 检查）。首个发布前没有已部署的 schema，`0001` 可以随 `schema.py` 重新生成；发布后只追加迁移。
+- 实例：`maestro --config <config.toml> init / db upgrade / serve / openapi`；示例配置与试用步骤见根目录 README。
+- 前端：在 `frontend/` 执行 `npm ci`、`npm run build`、`npm run lint`；build 写入 `src/maestro/static/`。
 - 验证使用独立 HOME、state 和主密钥，隔离 Harbor/profile，并清除继承的真实凭据环境。测试含本地子进程，不能默认没有副作用。真实 Hub、Docker、模型请求与 fixture 验证分开记录；真实模型请求须核对当前授权与预算。
 - 重写后的验收场景见[测试验收与实施计划](design/13-testing-plan.md)。验证命令和门禁随重写调整，以本页为准。
 

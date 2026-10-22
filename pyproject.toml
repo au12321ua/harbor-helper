@@ -22,7 +22,6 @@ dependencies = [
 
 [project.scripts]
 maestro = "maestro.cli:main"
-harbor-helper = "harbor_helper.commands.main:main"
 
 [dependency-groups]
 dev = [
