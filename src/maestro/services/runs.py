@@ -101,6 +101,7 @@ def public_run(row, counts: dict, principal: Principal | None) -> dict:
     if (
         principal
         and row["state"] not in RUN_TERMINAL
+        and not row["stop_requested"]
         and can_manage_owned(principal, row["owner_id"])
     ):
         allowed.append("cancel")
@@ -109,6 +110,8 @@ def public_run(row, counts: dict, principal: Principal | None) -> dict:
         "id": row["id"],
         "name": row["name"],
         "owner_id": row["owner_id"],
+        # Submitter names are team-visible: results are shared, identity is kept.
+        "owner": {"username": row["owner_username"], "display_name": row["owner_display_name"]},
         "pat_id": row["pat_id"],
         "relation": row["relation"],
         "source_run_id": row["source_run_id"],
@@ -133,6 +136,14 @@ def public_run(row, counts: dict, principal: Principal | None) -> dict:
             "operation": f"/api/v1/operations/{row['operation_id']}",
         },
     }
+
+
+def runs_with_owner():
+    return select(
+        t.runs,
+        t.users.c.username.label("owner_username"),
+        t.users.c.display_name.label("owner_display_name"),
+    ).join(t.users, t.users.c.id == t.runs.c.owner_id)
 
 
 def run_counts(conn: Connection, run_id: str) -> tuple[dict, list[str]]:
@@ -171,7 +182,9 @@ class Runs:
 
     # --- acceptance ------------------------------------------------------------
 
-    def submit(self, principal: Principal, idempotency_key: str, body: dict) -> tuple[int, dict]:
+    def submit(
+        self, principal: Principal, idempotency_key: str, body: dict
+    ) -> tuple[int, dict, bool]:
         require_experiment(principal)
         key = idempotency.check_key(idempotency_key)
         request = _check_request(body)
@@ -181,7 +194,7 @@ class Runs:
                 conn, principal.idempotency_principal, ACTION_SUBMIT, key, req_hash
             )
         if stored:
-            return stored.status_code, stored.response
+            return stored.status_code, stored.response, True
         # Expand outside the write transaction; revisions are re-checked inside.
         with self.db.read() as conn:
             plan = self._expand(conn, request)
@@ -190,7 +203,7 @@ class Runs:
                 conn, principal.idempotency_principal, ACTION_SUBMIT, key, req_hash
             )
             if stored:
-                return stored.status_code, stored.response
+                return stored.status_code, stored.response, True
             self._recheck_principal(conn, principal)
             self._recheck_tasks(conn, plan)
             if principal.channel == Channel.PAT:
@@ -207,7 +220,7 @@ class Runs:
                 object_id=response["run_id"],
                 detail={"trials": response["planned_trials"]},
             )
-        return 202, response
+        return 202, response, False
 
     def _expand(self, conn: Connection, request: dict) -> dict:
         version = (
@@ -517,7 +530,7 @@ class Runs:
     # --- queries ------------------------------------------------------------
 
     def _row(self, conn: Connection, run_id: str):
-        row = conn.execute(select(t.runs).where(t.runs.c.id == run_id)).mappings().first()
+        row = conn.execute(runs_with_owner().where(t.runs.c.id == run_id)).mappings().first()
         if row is None:
             raise not_found("Run")
         return row
@@ -562,7 +575,7 @@ class Runs:
             "dataset_version_id": dataset_version_id,
             "client_request_id": client_request_id,
         }
-        query = select(t.runs)
+        query = runs_with_owner()
         for column, value in (
             (t.runs.c.owner_id, owner_id),
             (t.runs.c.state, state),

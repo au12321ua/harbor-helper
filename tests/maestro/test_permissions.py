@@ -68,6 +68,7 @@ def test_cancel_ownership_and_admin_override(service, version_id):
         assert denied.status_code == 403
         view = bob.get(f"/api/v1/runs/{run_a}").json()["data"]
         assert view["allowed_actions"] == ["view"]
+        assert view["owner"]["username"] == "alice"
         assert "cancel" in alice.get(f"/api/v1/runs/{run_a}").json()["data"]["allowed_actions"]
         # Admin PAT has no override; admin web session does.
         assert create_pat(admin).post(f"/api/v1/runs/{run_a}/cancel").status_code == 403

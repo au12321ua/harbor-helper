@@ -35,7 +35,7 @@ def owner(service):
 def accept(service, owner, version_id, **body):
     import uuid
 
-    _, data = service.runs.submit(
+    _, data, _ = service.runs.submit(
         owner, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version_id, **body}
     )
     return data
@@ -140,7 +140,9 @@ def test_cancel_running_keeps_scores(service, owner, version_id, executor):
             await asyncio.sleep(0.01)
         else:
             raise AssertionError(states)
-        service.runs.cancel(owner, data["run_id"])
+        stopping = service.runs.cancel(owner, data["run_id"])
+        # Stop requested but not yet finished: cancel is no longer offered.
+        assert stopping["stop_requested"] and stopping["allowed_actions"] == ["view"]
         await worker.drain()
 
     asyncio.run(scenario())

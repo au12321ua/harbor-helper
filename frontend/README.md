@@ -1,22 +1,31 @@
-# Harbor Helper Web
+# Maestro Web
 
-Vite + React + TypeScript + shadcn/ui (Radix) + Tailwind CSS 的团队共享实验工作台。生产页面与 `/api/v1` API 由同一 HTTP 服务提供，不需要单独域名或跨域配置。
+Vite + React + TypeScript + shadcn/ui (Radix) + Tailwind CSS。生产页面与 `/api/v1` 由同一 HTTP 服务（`maestro serve`）提供，不需要单独域名或跨域配置。
 
 ```bash
 npm ci
-npm run build
+npm run build   # tsc -b + vite build，输出到 ../src/maestro/static/
 npm run lint
 ```
 
-构建输出直接进入 `../src/harbor_helper/static/`，由 Python 应用提供；不要单独部署前端开发服务器。开发时 `npm run dev` 将 `/api` 转发到 `127.0.0.1:8765`。
+开发时 `npm run dev` 把 `/api` 与 `/health` 转发到 `127.0.0.1:8420`。
 
-页面包含受保护首次设置、受邀账户登录与改密、共享实验列表、已验证数据集/任务选择、实验名称与高级参数、失败恢复、日志/报告/产物下载和可比性检查。管理员配置页包含团队来源凭据、版本化运行环境/数据集验证与默认、按名称绑定的模型与 key、编辑与账户重置。配置页在 `ConfigurationPages.tsx`，公共组件在 `shared.tsx`，加载逻辑在 `useLoad.ts`。凭据字段为只写输入，保存成功或失败后均清空；页面不使用 localStorage/sessionStorage 存储会话或密钥。
+页面（M2 最简页面）：初始化 / 登录 / 接受邀请与重置密码（`/invite#<token>`）、运行列表与新建运行、运行详情（四个独立状态维度、试次与执行尝试、产物下载、取消）、数据集只读目录、个人设置（改密、PAT）、管理（成员、邀请、凭据、主密钥、审计）。
+
+- 会话使用 HttpOnly cookie；CSRF token 只保存在内存，所有非安全请求带 `X-CSRF-Token`。
+- 新建运行每次逻辑提交持有一个 `Idempotency-Key`，结果未知时重试复用同一键。
+- PAT 与邀请链接只在创建后显示一次；凭据值只写，不提供查看。
+
+页面目录：`src/pages/`；公共组件：`src/components/common.tsx`；API 客户端与类型：`src/lib/`。
+
+## 冒烟测试
+
+`qa/smoke.spec.ts` 针对一个全新、一次性的服务运行（绝不要指向真实团队 state）：
 
 ```bash
-# UI 契约测试；仅测试环境使用假账户、假 key 和被拦截的 API fixture。
-npx playwright install chromium
-NO_PROXY=127.0.0.1,localhost npm run test:ui
-
-# 显式指定隔离 HTTP 服务和受邀测试账户；使用真实 Hub smoke 数据集的 oracle，零模型请求。
-HH_WEB_URL=http://127.0.0.1:8000 HH_WEB_USER=alice HH_WEB_PASSWORD='<isolated-test-password>' node qa/live-service.mjs
+maestro --config /tmp/<tmp>/config.toml init        # 打印一次性初始化令牌
+maestro --config /tmp/<tmp>/config.toml serve --port 8431 --demo-executor
+MAESTRO_SETUP_TOKEN=<token> NO_PROXY=127.0.0.1 npm run test:ui
 ```
+
+未设置 `MAESTRO_SETUP_TOKEN` 时只运行用拦截响应验证评分与状态展示的用例（仍需服务提供页面）。

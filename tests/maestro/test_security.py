@@ -131,6 +131,14 @@ def test_master_key_file_checks(service, settings):
     assert not service.keys.status()["available"]
 
 
+def test_master_key_dir_problem_is_named(service, settings):
+    settings.master_key_dir.chmod(0o775)
+    with pytest.raises(MasterKeyUnavailable) as error:
+        service.keys._open_directory()
+    assert "0775" in error.value.message
+    settings.master_key_dir.chmod(0o700)
+
+
 def test_master_key_dir_must_be_outside_data(tmp_path):
     from maestro.config import Settings
 

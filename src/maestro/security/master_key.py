@@ -65,22 +65,28 @@ class MasterKeys:
     # --- files -------------------------------------------------------------
 
     def _open_directory(self) -> int:
+        # Reasons name the directory's problem, never key material.
         path = self.directory
+        if (
+            not path.is_absolute()
+            or path.is_symlink()
+            or path.resolve().is_relative_to(self.data_dir.resolve())
+        ):
+            raise MasterKeyUnavailable(
+                "master_key_dir must be an absolute, non-symlink path outside data_dir"
+            )
         try:
-            if (
-                not path.is_absolute()
-                or path.is_symlink()
-                or path.resolve().is_relative_to(self.data_dir.resolve())
-            ):
-                raise ValueError
             fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            meta = os.fstat(fd)
-            if meta.st_uid != os.getuid() or stat.S_IMODE(meta.st_mode) & 0o022:
-                os.close(fd)
-                raise ValueError
-            return fd
-        except (OSError, ValueError):
-            raise MasterKeyUnavailable() from None
+        except OSError as error:
+            raise MasterKeyUnavailable(f"Cannot open master_key_dir: {error.strerror}") from None
+        meta = os.fstat(fd)
+        if meta.st_uid != os.getuid() or stat.S_IMODE(meta.st_mode) & 0o022:
+            os.close(fd)
+            raise MasterKeyUnavailable(
+                "master_key_dir must be owned by the service account and not group- or "
+                f"world-writable (now {stat.S_IMODE(meta.st_mode):04o})"
+            )
+        return fd
 
     def _read(self, basename: str, generation: int, expected: str) -> bytes:
         if not _NAME.fullmatch(basename):

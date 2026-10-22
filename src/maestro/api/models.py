@@ -217,7 +217,7 @@ class DatasetVersion(Model):
     upstream_ref: str
     ref_kind: str
     resolved_digest: str
-    status: str
+    status: Literal["ready"]
     created_at: str
 
 
@@ -238,7 +238,7 @@ class Dataset(Model):
 
 class TaskAdmission(Model):
     id: str
-    state: str
+    state: Literal["pending", "admitted", "first_failed", "revoked"]
     revision: int
 
 
@@ -248,13 +248,20 @@ class TaskContent(Model):
     checked_at: str | None
 
 
+class TaskBlocker(Model):
+    code: Literal["TASK_NOT_ADMITTED", "TASK_ADMISSION_REVOKED", "RESOURCE_CONTENT_UNAVAILABLE"]
+    admission_state: str | None = None
+    resource_kind: str | None = None
+    expected_digest: str | None = None
+
+
 class Task(Model):
     id: str
     task_key: str
     admission: TaskAdmission | None
     content: TaskContent
     can_submit: bool
-    blockers: list[dict[str, Any]]
+    blockers: list[TaskBlocker]
 
 
 # --- runs and operations -------------------------------------------------------------
@@ -303,10 +310,16 @@ RunStateName = Literal[
 ]
 
 
+class Owner(Model):
+    username: str
+    display_name: str
+
+
 class Run(Model):
     id: str
     name: str
     owner_id: str
+    owner: Owner
     pat_id: str | None
     relation: Literal["initial", "rerun", "modified"]
     source_run_id: str | None
@@ -356,7 +369,16 @@ class TrialResult(Model):
 class Attempt(Model):
     id: str
     attempt_index: int
-    state: str
+    state: Literal[
+        "starting",
+        "preparing",
+        "executing",
+        "verifying",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ]
     phase: str | None
     started_at: str
     ended_at: str | None
@@ -381,8 +403,8 @@ class Trial(Model):
     ]
     phase: str | None
     reason_code: str | None
-    artifact_state: str
-    cleanup_state: str
+    artifact_state: Literal["pending", "saving", "complete", "partial", "failed", "expired"]
+    cleanup_state: Literal["pending", "running", "complete", "failed", "not_required"]
     result: TrialResult | None
     attempts: list[Attempt]
 
@@ -396,7 +418,7 @@ class Artifact(Model):
     relative_path: str
     digest: str | None
     size_bytes: int | None
-    status: str
+    status: Literal["pending", "available", "failed", "expired", "unavailable"]
     created_at: str
     expires_at: str | None
 

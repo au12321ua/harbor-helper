@@ -1,14 +1,12 @@
 import { defineConfig } from "@playwright/test";
+
+// Smoke test against a running, disposable Maestro service (see qa/smoke.spec.ts).
 export default defineConfig({
   testDir: "./qa",
-  testMatch: "ui.spec.ts",
+  testMatch: "*.spec.ts",
   fullyParallel: false,
-  use: { baseURL: "http://127.0.0.1:4173", headless: true },
-  webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: true,
-  },
+  timeout: 120_000,
+  use: { baseURL: process.env.MAESTRO_WEB_URL ?? "http://127.0.0.1:8431", headless: true },
   reporter: "list",
-  outputDir: "/tmp/harbor-helper-web-ui-results",
+  outputDir: "/tmp/maestro-web-ui-results",
 });

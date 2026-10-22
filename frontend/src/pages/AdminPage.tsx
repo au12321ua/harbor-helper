@@ -1,0 +1,696 @@
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  EmptyNote,
+  ErrorAlert,
+  Loading,
+  OneTimeSecret,
+  PageTitle,
+  Pill,
+  SelectField,
+  StatusPill,
+  TextField,
+} from "@/components/common";
+import { ApiError, api, errorText } from "@/lib/api";
+import { INVITATION_STATE, fmtTime, label, shortId } from "@/lib/format";
+import { limit, useLoad, useSession } from "@/lib/hooks";
+import type {
+  AuditEvent,
+  Credential,
+  CredentialKind,
+  Invitation,
+  IssuedInvitation,
+  MasterKeyStatus,
+  Role,
+  User,
+} from "@/lib/types";
+
+function inviteLink(token: string) {
+  return `${window.location.origin}/invite#${encodeURIComponent(token)}`;
+}
+
+export function AdminPage() {
+  return (
+    <div>
+      <PageTitle title="管理" />
+      <Tabs defaultValue="members">
+        <TabsList>
+          <TabsTrigger value="members">成员</TabsTrigger>
+          <TabsTrigger value="invitations">邀请</TabsTrigger>
+          <TabsTrigger value="credentials">凭据</TabsTrigger>
+          <TabsTrigger value="master-key">主密钥</TabsTrigger>
+          <TabsTrigger value="audit">审计</TabsTrigger>
+        </TabsList>
+        <TabsContent value="members">
+          <MembersTab />
+        </TabsContent>
+        <TabsContent value="invitations">
+          <InvitationsTab />
+        </TabsContent>
+        <TabsContent value="credentials">
+          <CredentialsTab />
+        </TabsContent>
+        <TabsContent value="master-key">
+          <MasterKeyTab />
+        </TabsContent>
+        <TabsContent value="audit">
+          <AuditTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function MembersTab() {
+  const { me } = useSession();
+  const members = useLoad(async () => (await api.get<User[]>("admin/members")).data);
+  const [reset, setReset] = useState<{ user: User; link: string } | null>(null);
+
+  const setStatus = async (user: User, action: "disable" | "enable") => {
+    const verb = action === "disable" ? "停用" : "启用";
+    if (!window.confirm(`${verb}账户「${user.username}」？`)) return;
+    try {
+      await api.post(`admin/members/${user.id}/${action}`, { expected_revision: user.revision });
+      toast.success(`已${verb}`);
+    } catch (err) {
+      toast.error(`${verb}失败：${errorText(err)}`);
+    }
+    await members.reload();
+  };
+
+  const issueReset = async (user: User) => {
+    if (!window.confirm(`为「${user.username}」生成重置密码链接？`)) return;
+    try {
+      const res = await api.post<IssuedInvitation>(`admin/members/${user.id}/password-reset`);
+      setReset({ user, link: inviteLink(res.data.token) });
+    } catch (err) {
+      toast.error(`生成失败：${errorText(err)}`);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">成员</CardTitle>
+        <CardDescription>不开放注册；新成员通过“邀请”加入。</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {reset && (
+          <OneTimeSecret
+            title={`「${reset.user.username}」的重置密码链接`}
+            value={reset.link}
+            onDismiss={() => setReset(null)}
+          />
+        )}
+        <ErrorAlert error={members.error} />
+        {members.loading && !members.data && <Loading />}
+        {members.data && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>用户名</TableHead>
+                  <TableHead>显示名称</TableHead>
+                  <TableHead>角色</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>创建时间</TableHead>
+                  <TableHead>ID</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {members.data.map((user) => (
+                  <TableRow key={user.id}>
+                    <TableCell>{user.username}</TableCell>
+                    <TableCell>{user.display_name || "—"}</TableCell>
+                    <TableCell>{user.role === "admin" ? "管理员" : "成员"}</TableCell>
+                    <TableCell>
+                      {user.status === "active" ? (
+                        <Pill tone="good">正常</Pill>
+                      ) : (
+                        <Pill tone="muted">已停用 {fmtTime(user.disabled_at)}</Pill>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">{fmtTime(user.created_at)}</TableCell>
+                    <TableCell className="font-mono text-xs">{shortId(user.id)}</TableCell>
+                    <TableCell className="flex justify-end gap-2">
+                      {user.id !== me.id &&
+                        (user.status === "active" ? (
+                          <Button size="sm" variant="outline" onClick={() => void setStatus(user, "disable")}>
+                            停用
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" onClick={() => void setStatus(user, "enable")}>
+                            启用
+                          </Button>
+                        ))}
+                      <Button size="sm" variant="outline" onClick={() => void issueReset(user)}>
+                        生成重置密码链接
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function InvitationsTab() {
+  const { capabilities } = useSession();
+  const invitations = useLoad(async () => (await api.get<Invitation[]>("admin/invitations")).data);
+  const [role, setRole] = useState<Role>("member");
+  const [note, setNote] = useState("");
+  const [hours, setHours] = useState(String(limit(capabilities, "invitation_hours", 72)));
+  const [issued, setIssued] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      const res = await api.post<IssuedInvitation>("admin/invitations", {
+        role,
+        note,
+        valid_hours: hours ? Number(hours) : null,
+      });
+      setIssued(inviteLink(res.data.token));
+      setNote("");
+      await invitations.reload();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (inv: Invitation) => {
+    if (!window.confirm("撤销这个链接？")) return;
+    try {
+      await api.post(`admin/invitations/${inv.id}/revoke`);
+      toast.success("已撤销");
+    } catch (err) {
+      toast.error(`撤销失败：${errorText(err)}`);
+    }
+    await invitations.reload();
+  };
+  const field = (n: string) => (error instanceof ApiError ? error.field(n) : undefined);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">邀请</CardTitle>
+        <CardDescription>生成一次性邀请链接，通过可信渠道发给受邀人。</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {issued && (
+          <OneTimeSecret title="邀请链接" value={issued} onDismiss={() => setIssued(null)} />
+        )}
+        <form className="grid gap-3 md:grid-cols-4 md:items-end" onSubmit={submit}>
+          <SelectField
+            id="inv-role"
+            label="角色"
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+            error={field("role")}
+          >
+            <option value="member">成员</option>
+            <option value="admin">管理员</option>
+          </SelectField>
+          <TextField
+            id="inv-note"
+            label="备注"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            error={field("note")}
+          />
+          <TextField
+            id="inv-hours"
+            label="有效小时数"
+            type="number"
+            min={1}
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            error={field("valid_hours")}
+          />
+          <Button type="submit" disabled={busy}>
+            {busy ? "生成中…" : "生成邀请链接"}
+          </Button>
+        </form>
+        <ErrorAlert error={error} title="生成失败" />
+        <ErrorAlert error={invitations.error} />
+        {invitations.data && invitations.data.length === 0 && <EmptyNote>还没有邀请。</EmptyNote>}
+        {invitations.data && invitations.data.length > 0 && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>类型</TableHead>
+                  <TableHead>角色</TableHead>
+                  <TableHead>备注</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>创建</TableHead>
+                  <TableHead>到期</TableHead>
+                  <TableHead>使用</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invitations.data.map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell>{inv.kind === "invitation" ? "邀请" : "重置密码"}</TableCell>
+                    <TableCell>{inv.role === "admin" ? "管理员" : "成员"}</TableCell>
+                    <TableCell className="text-xs">{inv.note || "—"}</TableCell>
+                    <TableCell>
+                      <StatusPill value={label(INVITATION_STATE, inv.state)} />
+                    </TableCell>
+                    <TableCell className="text-xs">{fmtTime(inv.created_at)}</TableCell>
+                    <TableCell className="text-xs">{fmtTime(inv.expires_at)}</TableCell>
+                    <TableCell className="text-xs">
+                      {inv.used_at ? `${fmtTime(inv.used_at)} · ${shortId(inv.used_by)}` : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {inv.state === "pending" && (
+                        <Button size="sm" variant="outline" onClick={() => void revoke(inv)}>
+                          撤销
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const KIND_LABEL: Record<CredentialKind, string> = {
+  model_api_key: "模型 API key",
+  hub_token: "Hub token",
+  generic_secret: "通用密钥",
+};
+
+function CredentialsTab() {
+  const credentials = useLoad(async () => (await api.get<Credential[]>("admin/credentials")).data);
+  const [form, setForm] = useState({
+    name: "",
+    kind: "model_api_key" as CredentialKind,
+    provider: "",
+    description: "",
+    value: "",
+  });
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const [replacing, setReplacing] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.post<Credential>("admin/credentials", form);
+      toast.success("凭据已保存");
+      setForm({ ...form, name: "", description: "", value: "" });
+      await credentials.reload();
+    } catch (err) {
+      setError(err);
+      setForm((f) => ({ ...f, value: "" }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async (cred: Credential) => {
+    const action = cred.enabled ? "disable" : "enable";
+    try {
+      await api.post(`admin/credentials/${cred.id}/${action}`, { expected_revision: cred.revision });
+      toast.success(cred.enabled ? "已停用" : "已启用");
+    } catch (err) {
+      toast.error(`操作失败：${errorText(err)}`);
+    }
+    await credentials.reload();
+  };
+  const field = (n: string) => (error instanceof ApiError ? error.field(n) : undefined);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">团队凭据</CardTitle>
+        <CardDescription>
+          值只写不读：保存后不会再显示，也不会回传到浏览器。替换值只影响之后的运行。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <form className="grid gap-3 md:grid-cols-3" onSubmit={submit} autoComplete="off">
+          <TextField
+            id="cred-name"
+            label="名称"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            error={field("name")}
+            required
+          />
+          <SelectField
+            id="cred-kind"
+            label="类型"
+            value={form.kind}
+            onChange={(e) => setForm({ ...form, kind: e.target.value as CredentialKind })}
+            error={field("kind")}
+          >
+            {Object.entries(KIND_LABEL).map(([value, text]) => (
+              <option key={value} value={value}>
+                {text}
+              </option>
+            ))}
+          </SelectField>
+          <TextField
+            id="cred-provider"
+            label="提供商"
+            value={form.provider}
+            onChange={(e) => setForm({ ...form, provider: e.target.value })}
+            error={field("provider")}
+            required
+          />
+          <TextField
+            id="cred-description"
+            label="说明"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            error={field("description")}
+          />
+          <TextField
+            id="cred-value"
+            label="值（只写）"
+            type="password"
+            autoComplete="new-password"
+            value={form.value}
+            onChange={(e) => setForm({ ...form, value: e.target.value })}
+            error={field("value")}
+            required
+          />
+          <div className="flex items-end">
+            <Button type="submit" disabled={busy}>
+              {busy ? "保存中…" : "添加凭据"}
+            </Button>
+          </div>
+        </form>
+        <ErrorAlert error={error} title="保存失败" />
+        <ErrorAlert error={credentials.error} />
+        {credentials.data && credentials.data.length === 0 && <EmptyNote>还没有凭据。</EmptyNote>}
+        {credentials.data && credentials.data.length > 0 && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>名称</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead>提供商</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>修订 / 密钥代</TableHead>
+                  <TableHead>更新</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {credentials.data.map((cred) => [
+                  <TableRow key={cred.id}>
+                    <TableCell>
+                      {cred.name}
+                      {cred.description && (
+                        <div className="text-xs text-muted-foreground">{cred.description}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">{KIND_LABEL[cred.kind] ?? cred.kind}</TableCell>
+                    <TableCell>{cred.provider}</TableCell>
+                    <TableCell>
+                      {cred.enabled ? <Pill tone="good">启用</Pill> : <Pill tone="muted">停用</Pill>}
+                    </TableCell>
+                    <TableCell className="tabular-nums text-xs">
+                      r{cred.revision} / k{cred.key_version}
+                    </TableCell>
+                    <TableCell className="text-xs">{fmtTime(cred.updated_at)}</TableCell>
+                    <TableCell className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setReplacing(replacing === cred.id ? null : cred.id)}
+                      >
+                        替换值
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => void toggle(cred)}>
+                        {cred.enabled ? "停用" : "启用"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>,
+                  replacing === cred.id && (
+                    <TableRow key={`${cred.id}-replace`}>
+                      <TableCell colSpan={7}>
+                        <ReplaceValue
+                          credential={cred}
+                          onDone={async () => {
+                            setReplacing(null);
+                            await credentials.reload();
+                          }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ),
+                ])}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReplaceValue({ credential, onDone }: { credential: Credential; onDone: () => Promise<void> }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.put(`admin/credentials/${credential.id}/value`, {
+        value,
+        expected_revision: credential.revision,
+      });
+      setValue("");
+      toast.success("已替换；之后的运行使用新值");
+      await onDone();
+    } catch (err) {
+      setValue("");
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="grid max-w-xl gap-2" onSubmit={submit} autoComplete="off">
+      <TextField
+        id={`replace-${credential.id}`}
+        label={`「${credential.name}」的新值（只写）`}
+        type="password"
+        autoComplete="new-password"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        required
+      />
+      <ErrorAlert error={error} title="替换失败" />
+      <div>
+        <Button type="submit" size="sm" disabled={busy}>
+          {busy ? "保存中…" : "保存新值"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function MasterKeyTab() {
+  const status = useLoad(async () => (await api.get<MasterKeyStatus>("admin/master-key")).data);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<MasterKeyStatus | null>(null);
+
+  const rotate = async () => {
+    const current = status.data;
+    if (!current || current.generation == null) return;
+    if (
+      !window.confirm(
+        "轮换主密钥会生成新一代主密钥并重新加密全部凭据。请先确认已有可用备份方案。继续？",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await api.post<MasterKeyStatus>("admin/master-key/rotations", {
+        expected_generation: current.generation,
+      });
+      setResult(res.data);
+      toast.success("主密钥已轮换");
+    } catch (err) {
+      toast.error(`轮换失败：${errorText(err)}`);
+    } finally {
+      setBusy(false);
+      await status.reload();
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">主密钥</CardTitle>
+        <CardDescription>主密钥保存在数据库之外，不可删除；这里只显示状态。</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        <ErrorAlert error={status.error} />
+        {status.loading && !status.data && <Loading />}
+        {status.data && (
+          <div className="grid gap-2 sm:grid-cols-4">
+            <div>
+              <div className="text-xs text-muted-foreground">已初始化</div>
+              {status.data.initialized ? "是" : "否"}
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">可用</div>
+              {status.data.available ? <Pill tone="good">可用</Pill> : <Pill tone="bad">不可用</Pill>}
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">代（generation）</div>
+              {status.data.generation ?? "—"}
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">上次轮换</div>
+              {fmtTime(status.data.rotated_at)}
+            </div>
+          </div>
+        )}
+        {result?.reencrypted_credentials != null && (
+          <p className="text-sm">本次重新加密了 {result.reencrypted_credentials} 条凭据。</p>
+        )}
+        <div>
+          <Button
+            variant="destructive"
+            disabled={busy || !status.data?.available || status.data?.generation == null}
+            onClick={() => void rotate()}
+          >
+            {busy ? "轮换中…" : "轮换主密钥"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AuditTab() {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>();
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async (after: string | null) => {
+    setLoading(true);
+    try {
+      const res = await api.get<AuditEvent[]>("admin/audit-events", { cursor: after });
+      setEvents((prev) => (after ? [...prev, ...res.data] : res.data));
+      setCursor(res.meta.next_cursor ?? null);
+      setError(undefined);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load(null);
+  }, [load]);
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle className="text-base">审计事件</CardTitle>
+        <Button size="sm" variant="outline" onClick={() => void load(null)}>
+          刷新
+        </Button>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <ErrorAlert error={error} />
+        {events.length > 0 && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>时间</TableHead>
+                  <TableHead>动作</TableHead>
+                  <TableHead>结果</TableHead>
+                  <TableHead>操作者</TableHead>
+                  <TableHead>对象</TableHead>
+                  <TableHead>详情</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {events.map((ev) => (
+                  <TableRow key={ev.id}>
+                    <TableCell className="text-xs">{fmtTime(ev.created_at)}</TableCell>
+                    <TableCell className="font-mono text-xs">{ev.action}</TableCell>
+                    <TableCell>
+                      <Pill tone={ev.outcome === "success" || ev.outcome === "ok" ? "good" : "neutral"}>
+                        {ev.outcome}
+                      </Pill>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {shortId(ev.actor_user_id)}
+                      {ev.auth_channel && (
+                        <div className="text-muted-foreground">
+                          {ev.auth_channel}
+                          {ev.pat_id && ` · ${shortId(ev.pat_id)}`}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {ev.object_type ?? "—"} {ev.object_id && shortId(ev.object_id)}
+                    </TableCell>
+                    <TableCell className="max-w-xs truncate font-mono text-xs" title={JSON.stringify(ev.detail)}>
+                      {ev.detail ? JSON.stringify(ev.detail) : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        {!loading && events.length === 0 && !error && <EmptyNote>没有审计事件。</EmptyNote>}
+        {loading && <Loading />}
+        {cursor && !loading && (
+          <div className="flex justify-center">
+            <Button variant="outline" onClick={() => void load(cursor)}>
+              加载更多
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

@@ -22,6 +22,8 @@ def test_same_key_same_body_returns_original_response(service, version_id):
         second = submit(pat, version_id, key="key-0000001", repetitions=2)
         assert first.status_code == second.status_code == 202
         assert first.json()["data"] == second.json()["data"]
+        assert "Idempotent-Replayed" not in first.headers
+        assert second.headers["Idempotent-Replayed"] == "true"
         assert first.json()["data"]["planned_trials"] == 6
         assert count(service, t.runs) == 1 and count(service, t.trials) == 6
         assert admin.get("/api/v1/me/pats").json()["data"][0]["accepted_runs"] == 1

@@ -36,9 +36,11 @@ def submit(
             stage="acceptance",
             retryable=True,
         )
-    status, data = service.runs.submit(who, idempotency_key, body.model_dump())
+    status, data, replayed = service.runs.submit(who, idempotency_key, body.model_dump())
     service.worker.wake()
-    return JSONResponse(status_code=status, content=ok(request, data))
+    # A replay returns the original response; the header lets clients tell them apart.
+    headers = {"Idempotent-Replayed": "true"} if replayed else {}
+    return JSONResponse(status_code=status, content=ok(request, data), headers=headers)
 
 
 @router.get("/runs", response_model=Envelope[list[Run]], tags=["runs"])

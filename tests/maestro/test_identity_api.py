@@ -104,6 +104,10 @@ def test_invitation_single_use_and_password_reset(service):
         reset = admin.post(f"/api/v1/admin/members/{alice_id}/password-reset", expect=201).json()[
             "data"
         ]
+        admin_id = admin.get("/api/v1/me").json()["data"]["id"]
+        url = f"/api/v1/admin/members/{admin_id}/password-reset"
+        # The role follows the target account, not a fixed "member".
+        assert admin.post(url, expect=201).json()["data"]["role"] == "admin"
         assert reset["kind"] == "password_reset"
         # Reset ends existing sessions and sets the new password.
         TestClient(client.app).post(
