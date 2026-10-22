@@ -1,27 +1,26 @@
 # 文档导航
 
-从[项目README](../README.md)完成Web初装或成员使用，再按用途查阅。
+本分支（`feature/rewrite`）正在按目标设计重写，入口是[重写目标设计](design/README.md)。当前任务和进度只在项目群的持久状态中维护；文档描述设计、契约和可复用的操作。
 
-## 使用、维护与开发
+## 重写设计
 
-- [0.2.0交付说明](releases/0.2.0.md)、[升级后的浏览器体验](guides/0.2.0-browser.md)、[发布与升级交接](guides/0.2.0-upgrade.md)：dev已整合，正式旧版尚未升级/tag/发布。
+- [设计入口](design/README.md)：文档地位、实践优先规则、当前阶段调整和模块索引。
+- [需求整理与审查](design/requirements-review.md)：需求基线（审计稿）。
+- [测试验收与实施计划](design/13-testing-plan.md)：重写路线、里程碑与验收场景。
+- [决策记录与需求追踪](design/14-decisions.md)：用户决定、待确认冲突、设计建议与待验证项。
+
+## 基线代码的使用与维护
+
+以下文档描述 `9ff43b5` 基线代码，随对应模块被重写而更新或删除，不作为重写的约束：
 
 - [Web服务指南](guides/web-service.md)：管理员配置、远程CLI、完整停机、备份与审计。
-- [前端开发](../frontend/README.md)、[源码职责](architecture/source-layout.md)、[开发交接](HANDOFF.md)。
-- [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、`dev`集成、固定版本发布及群内计划入口。
-- [自动化授权与机器 API](reference/automation-api.md)：固定能力、schema、状态、幂等与薄 CLI；迁移/回退边界。
-- [研究客户端 skill](guides/research-skill.md)：可移植发布源、安装/调用与无附件/明确版本对照流程。
-- [团队服务验收标准](reference/service-acceptance.md)：可验证的产品行为；标准本身不代表已经通过验收。
+- [自动化授权与机器 API](reference/automation-api.md)：能力、schema、状态、幂等与薄 CLI。
+- [团队附件版本](guides/attachments.md)、[研究客户端 skill](guides/research-skill.md)。
+- [源码职责](architecture/source-layout.md)、[前端开发](../frontend/README.md)。
 
-## 产品设计
+## 开发协作
 
-- [附件版本与研究 agent 调用契约](design/attachment-agent-contract.md)：吸收设计审计意见后的实施契约，描述版本复用、授权、受理恢复及机器状态；不表示已经实现，开发计划仍以群内版本记录为准。
+- [开发交接](HANDOFF.md)：重写分支的状态、兼容策略和验证入口。
+- [分支、协作与发布规则](guides/development-workflow.md)：独立工作树、重写分支、`dev` 集成与固定版本发布。
 
-## 历史设计与验收条件
-
-- [团队服务设计](archive/team-service/service-design.md)。
-- 已移除的旧本地CLI：[早期设计](archive/local-cli/v0-design.md)、[一次登录设计](archive/local-cli/usability-design.md)、[本地CLI验收条件](archive/local-cli/acceptance.md)、[成员试用步骤](archive/local-cli/member-acceptance.md)。
-- [Harbor原生环境与缓存设计](archive/harbor-native/harbor-native-environment-design.md)。
-- [已否定的任务环境方案](archive/rejected-task-environment/task-environment-design.md)：只用于解释历史取舍，不能恢复为当前约束。
-
-历史设计中的默认值、范围和建议属于原设计阶段；当前使用以指南及源码为准。工程自查、独立验收、实际部署和真实模型证据需分别记录产品版本、前置条件及未覆盖范围，不能互相替代。
+旧设计、归档、0.2.0 发布说明和旧验收标准已从本分支删除，可在 Git 历史与 `dev` 中查阅；它们不成为重写的约束。现场报告与原始证据只保存于 ignored `.local/`。

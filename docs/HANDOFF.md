@@ -1,33 +1,27 @@
 # 开发交接
 
-本页提供可移植的维护入口。团队服务的安装与成员使用见[项目README](../README.md)，详细运行说明见[Web服务指南](guides/web-service.md)。
+本页是重写分支 `feature/rewrite` 的维护入口。分支从 `9ff43b5` 开始，按[重写目标设计](design/README.md)整体重写，完成后替换 `dev` 上的现有实现。分支规则见[分支、协作与发布规则](guides/development-workflow.md)的“重写分支”一节；当前目标、阶段和待办只在项目飞书群的 `botmux project` 持久状态中维护。
 
-开始修改前读取[分支、协作与发布规则](guides/development-workflow.md)：从 `dev` 建立单项分支和独立工作树，固定候选验收后才发布到 `master`/tag。当前开发计划使用项目飞书群的版本化记录，不依赖本地计划副本。
+## 需求与设计
 
-## 产品边界
+- 需求基线是[需求整理与审查](design/requirements-review.md)（审计稿）；00～15 模块文档是它的延伸设计。
+- 实践优先：实现中发现更好的做法或设计有问题时，先在[决策记录](design/14-decisions.md)记录，再同步修改模块文档。
+- 用户决定、待确认的冲突（删除范围、证据审计门、部署形态、CLI 地位、项目名）见决策记录第 0 节。冲突确认之前，不按任何一方擅自实现。
 
-受邀的可信团队通过浏览器提交、观察、比较和重跑实验；管理员在网页邀请账户、配置数据集、多提供商/key及容量。只有成员与管理员两种角色，保留个人提交身份，结果全团队共享，无开放注册、个人模型key模式或private实验。
+## 代码状态
 
-CLI/Web共用持久队列、记录和容量，保留幂等、取消与恢复。成员取消自己的任务，管理员可取消任何任务和删除合规终态产物；重跑归当前提交者。密钥明确绑定、加密存储，主密钥在数据库之外，秘密不回传前端或进入日志。
-
-有效零分、缺评分与执行失败分别展示；只有执行资源未确认释放才占用清理阻塞容量，单独审计异常限制相关证据展示。时长、并发和token观测不保证金额预算，未知费用保持unknown。
-
-Harbor按作者Dockerfile、Compose、镜像及网络定义执行；helper管理来源、调度、固定输入和结果。数据集作者参数独立版本化，提交冻结原生Job环境；修复后重试新建实验并保留父历史。新工具策略与等待倍率在受理时冻结。镜像/构建缓存日常清理须先核配置、冻结输入、活动任务与资源归属。
-
-## 源码与兼容策略
-
-职责和canonical路径见[源码结构](architecture/source-layout.md)。CLI位于`src/harbor_helper/commands/`，团队应用/API/数据位于`service/`，执行调度位于`execution/`，持久、安全、报告分别位于`persistence/`、`security/`、`results/`。
-
-前端使用Vite、React、shadcn/ui、Tailwind，构建到`src/harbor_helper/static/`，由同一可配置HTTP服务提供页面与相对API。HTTPS、代理、证书和域名由部署环境处理。
-
-项目尚无外部用户，不承诺向后兼容，只维护当前主干线：浏览器团队服务与基于机器API的远程CLI。旧本地CLI、旧持久Job类路径、旧镜像覆盖执行模式、旧附件上传与旧幂等键格式已放弃；旧state记录可以删除，不为其保留迁移、显示或回读分支。对外HTTP/CLI契约（含机器API v1）随主干线修改，不为旧客户端保留别名；机器API本身是远程CLI与后续MCP的基础，保留。
+- `src/`、`frontend/`、`tests/` 中尚未重写的部分是基线代码，行为见[Web服务指南](guides/web-service.md)和[源码职责](architecture/source-layout.md)。这些文档随模块重写而更新或删除。
+- 重写过程中允许无法部署。按模块替换，新模块就绪后直接删除对应的基线代码和测试，不保留新旧并行、转发层或兼容分支。
+- 不承诺向后兼容，不迁移旧 state，新实现从空实例初始化。对外 HTTP、SDK、CLI 契约随重写修改。
+- 可移植的基线与 `dev` 代码见[实施计划](design/13-testing-plan.md)第 2.3 节。移植时先读原代码，按新设计重写接口。
 
 ## 验证入口
 
-需要Linux、Python3.12–3.13和uv；实际执行另需Docker/Compose、可用作者依赖与Hub权限。依赖由`pyproject.toml`、`uv.lock`、`frontend/package-lock.json`记录。
+需要 Linux、Python 3.12–3.13 和 uv；实际执行另需 Docker/Compose、可用作者依赖与 Hub 权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
 - Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests`。
-- 前端：在`frontend/`执行`npm ci`、`npm run build`、`npm run lint`；`npm run test:ui`另需Playwright Chromium，使用拦截API的fixture。build会更新包内static。
-- 验证使用独立HOME/state/master，隔离Harbor/profile并清除继承的真实凭据环境。测试含本地子进程，不能默认没有副作用；真实Hub、Docker、模型请求与fixture验证分列，真实模型请求须核当前授权与预算。
+- 前端：在 `frontend/` 执行 `npm ci`、`npm run build`、`npm run lint`；build 会更新包内 static。
+- 验证使用独立 HOME、state 和主密钥，隔离 Harbor/profile，并清除继承的真实凭据环境。测试含本地子进程，不能默认没有副作用。真实 Hub、Docker、模型请求与 fixture 验证分开记录；真实模型请求须核对当前授权与预算。
+- 重写后的验收场景见[测试验收与实施计划](design/13-testing-plan.md)。验证命令和门禁随重写调整，以本页为准。
 
-[验收标准](reference/service-acceptance.md)定义通过条件，不代表当前环境或任意版本已经验证。现场报告与原始证据只保存到主仓 ignored `.local/`；Agent 提供的原件路径不构成入库要求。公开文档只留短的固定代码版本、实际覆盖与未覆盖范围摘要；历史设计和独立报告的结论只属于受审版本。集成后的 worktree/短期分支收尾与群新版入口归档按[协作规则](guides/development-workflow.md)执行。
+现场报告与原始证据只保存到主仓 ignored `.local/`；公开文档只留短的固定代码版本、实际覆盖与未覆盖范围摘要。集成后的 worktree 和短期分支按协作规则收尾。
