@@ -67,7 +67,7 @@ Worker 仍在服务进程内，负责领取、租约、取消、资源和结果�
 /opt/maestro/current -> versions/<platform-version>
 /opt/maestro/harbor/<harbor-version>/<runner-revision>/
   venv/                      精确锁定的 Harbor 与 Runner
-  compatibility.json         协议、Harbor、schema 与错误策略摘要
+  compatibility.json         协议、Harbor、schema 与异常映射摘要
 /etc/maestro/config.toml      部署配置
 /etc/maestro/secrets/master.key
 /var/lib/maestro/app.db
@@ -125,7 +125,7 @@ harbor run --dry-run --config job.yaml
 
 --dry-run 检查配置、Agent 参数、凭据和任务来源，不下载任务、不执行作业，因此不能证明镜像可构建或网络可用。平台预检仍包括内容固定、任务准入、已知内容阻塞、必要配置、资源与权限；本机缓存缺失仅形成运行恢复计划，不要求管理员重新建立准入。
 
-每次平台 ExecutionAttempt 生成一个明确任务、一个 Agent 的作业；显式设置 n_attempts=1、n_concurrent_trials=1、retry.max_retries=0。平台根据锁定 Harbor 的错误策略控制是否创建下一 ExecutionAttempt，避免两层重试相乘。字段路径按锁定版本导出的 schema 验证。
+每次平台 ExecutionAttempt 生成一个明确任务、一个 Agent 的作业；显式设置 n_attempts=1、n_concurrent_trials=1、retry.max_retries=0。平台根据自身错误策略控制是否创建下一 ExecutionAttempt，避免两层重试相乘。字段路径按锁定版本导出的 schema 验证。
 
 生产配置必须显式指定 Agent 和模型，不能因为 Harbor 的默认 Agent 为 oracle 而意外执行参考答案。Oracle 只用于测试模式，使用与模型评测不同的 execution_mode，不能混入模型能力比较。
 
@@ -143,7 +143,7 @@ Linux 使用独立进程组启动 Runner，建议通过 asyncio.create_subproces
 
 | 能力 | 核查结论 | 平台处理 |
 | --- | --- | --- |
-| 错误分类 | 官方 error_policy.py 是 retry / grade / reward_valid 的统一来源 | 导出锁定版本策略，按 [06](06-results-scoring.md) 映射并留版本 |
+| 错误分类 | 官方 error_policy.py 只在 main 与开发构建中存在，0.24.0 稳定版没有 | 平台自定策略（14 U-15）；Harbor 公开分类只作初值参考，适配器把锁定版本的异常类型映射到 [06](06-results-scoring.md) 并留版本 |
 | 分阶段网络 | Docker 支持 allowlist 与动态阶段切换，依赖 Linux nftables 内核能力 | 优先使用 Harbor 原生能力，不自建出口代理，见 [09](09-identity-security.md) |
 | Hub 引用 | datasets[].ref / tasks[].ref 支持标签、修订或 digest | 标签解析后固定 digest，区分上游摘要与本地材料摘要 |
 | Oracle | 默认 Agent 为 oracle，执行任务参考解法；solution 目录可选 | 选有参考解法且无需外部模型的任务作真实链路测试 |
@@ -181,7 +181,7 @@ Job config 中 install_only 只表示运行 Agent setup、跳过 Agent 执行与
 ## 11. 接入完成标准
 
 1. 服务端依赖锁、导入和运行时进程均不直接加载 Harbor。
-2. 可从锁定 Runner 导出 schema 和错误策略，记录版本与摘要。
+2. 可从锁定 Runner 导出 schema，适配器的异常映射有版本与摘要。
 3. 单次作业不在 Harbor 内隐式扩展重复试次或重试。
 4. Oracle 完成真实 Docker 准备、执行、验证、事件、产物和清理链路；另用假执行器覆盖错误。
 5. Agent 超时、提供商错误、非法奖励及取消映射与锁定策略一致。
@@ -199,7 +199,7 @@ Job config 中 install_only 只表示运行 Agent setup、跳过 Agent 执行与
 - [Release policy](https://docs.harborframework.com/contributing/release-policy.md)：稳定版通常双周发布，minor 可有破坏性变更。
 - [Job configs](https://docs.harborframework.com/jobs/configs.md)：schema、dry-run、retry、默认 oracle 与 Hub ref。
 - [Error classification](https://docs.harborframework.com/jobs/error-classification.md)：cause、retry、grade、reward_valid。
-- [错误策略源码](https://github.com/harbor-framework/harbor/blob/main/src/harbor/models/trial/error_policy.py)：核对时读取 main；不能当作发布版本的固定策略。
+- [错误策略源码](https://github.com/harbor-framework/harbor/blob/main/src/harbor/models/trial/error_policy.py)：核对时读取 main；只作平台策略初值的参考。
 - [Network policies](https://docs.harborframework.com/tasks/network-policies.md)：阶段、能力、nftables 条件与模型服务端工具边界。
 - [Datasets](https://docs.harborframework.com/datasets/datasets.md)：Hub、目录、Git 三类来源；平台首期仍仅 Hub。
 - [Task solution](https://docs.harborframework.com/tasks/solution.md)：Oracle 依赖可选的 solution 参考脚本。

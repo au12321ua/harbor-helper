@@ -6,11 +6,11 @@
 
 ## 1. 基本原则
 
-原始奖励、奖励有效性和平台评分状态分别记录。验证器实际产出的奖励可保存为 raw_score；没有输出时为 null。只有值合法且 Harbor 的 reward_valid=true 时，才能成为计入统计的 scored 结果。reward_valid=false 时即便产物中存在数值，也只作为诊断证据，不能计入均值或通过率。
+原始奖励、奖励有效性和平台评分状态分别记录。验证器实际产出的奖励可保存为 raw_score；没有输出时为 null。只有值合法且平台策略判定 reward_valid=true 时，才能成为计入统计的 scored 结果。reward_valid=false 时即便产物中存在数值，也只作为诊断证据，不能计入均值或通过率。
 
 有效零分为真实输出的 0，不能从“发生了异常”或“reward_valid=true 但无输出”推导出来。Harbor 的 Agent 超时、上下文 / 输出预算耗尽和拒绝任务仍可产生有效奖励；模型提供商错误则可能继续验证，但奖励仍无效。
 
-基线按 Harbor 策略过滤无效奖励并报告覆盖率。若团队另设“某错误计未通过”的口径，必须标为显式平台扩展、保存独立策略版本，不宣称与 Harbor 默认汇总相同，也不能伪造原始零分。
+基线按平台错误策略过滤无效奖励并报告覆盖率。若团队另设“某错误计未通过”的口径，必须标为显式平台扩展、保存独立策略版本，不宣称与默认汇总相同，也不能伪造原始零分。
 
 | 编号 | 要求 |
 | --- | --- |
@@ -28,17 +28,17 @@
 - metric_id、名称、单位、方向、值域与聚合方式。
 - 验证器版本及内容摘要，分数提取规则，何为合法输出。
 - passed 的显式来源或阈值；不能默认“分数大于 0 就通过”。
-- 锁定 Harbor 版本、error_policy 版本 / 摘要，以及 retry、grade、reward_valid 的映射。
+- 平台错误策略版本，执行器适配器的版本与映射摘要（含锁定的 Harbor 版本）。
 - grade 是否要求继续验证、验证的独立时限，以及用户取消 / 总时限的停止规则。
 - 有效奖励过滤规则；可选 aggregation_action=count_as_failure 为非默认扩展，须单列策略。
-- 平台自动重试次数与对 Harbor retry 建议的明确覆盖项。
+- 平台自动重试次数。
 - 多试次到任务级、任务到 bench 级的聚合规则及版本。
 
 作者没有提供完整契约时，平台给出建议模板，由管理员确认后才能受理正式评测。成员 / PAT 不通过任意临时字段覆盖作者基准；选择已发布且明确声明 verifier / scoring 影响的附件时，由解析器生成独立评分契约并展示差异，通过新提交或修改后运行固定，不能覆写已有运行或基准契约。
 
 ## 3. 结果状态与错误决策表
 
-本轮根据 [Harbor Error classification](https://docs.harborframework.com/jobs/error-classification.md) 更新基线。官方 error_policy.py 是异常类型到 cause、retry、grade、reward_valid 的单一来源；Runner 使用锁定版本导出的策略，不在平台复制一份随意演进的异常名称列表。
+错误策略由平台自定并带版本（[14](14-decisions.md) U-15），不依附某个执行器。下表的初值参考 [Harbor Error classification](https://docs.harborframework.com/jobs/error-classification.md)。执行器适配器负责把执行器的原生结果映射成下表的 cause 与奖励有效性：Harbor 适配器按锁定版本的异常类型和结果文件映射，Harbor 自身是否带有错误策略模块不影响平台口径。适配器无法识别的异常记为 unclassified；平台要求继续验证、执行器却跳过时，记录实际是否验证，不伪造评分。
 
 | cause / 场景 | reward_valid | retry 建议 | grade | 平台处理 |
 | --- | --- | --- | --- | --- |
@@ -51,18 +51,18 @@
 | model_provider_failed：认证、权限、模型不存在 | false | false | false | 阻塞并给凭据或模型修复入口 |
 | harbor_failed：框架 / 依赖能力不支持 | false | false | false | 排除并要求修复 Runner |
 | verifier_failed：超时、奖励文件缺失 / 为空 / 解析失败 | false | false | true | 无有效评分，不自动重新执行 Agent |
-| unclassified：包括 NonZeroAgentExitCodeError | false | true | true | 沿用锁定策略，记录原异常和未分类告警 |
+| unclassified：适配器未识别的异常 | false | true | true | 按本表处理，记录原异常和未分类告警，补充映射后升级策略版本 |
 | cancelled | false | false | false | 取消，不新增验证或重试 |
 
 grade 表示策略允许或要求验证路径，不是“遇到验证器失败后无限重试验证”的命令。reward_valid=true 仍需有合法实际奖励；缺失 / 解析失败按验证器错误处理，不能自动补 0。无效奖励可以非空，所以状态不能仅靠 raw_score 是否为 null 判断。
 
-平台额外记录未开始 USER_CANCELLED / RUN_DEADLINE_EXCEEDED、服务重启 SERVICE_RESTARTED、Runner 协议失败 RUNNER_PROTOCOL_ERROR 等管理原因，不伪造为 Harbor 原生 cause。平台取消、运行到期和服务中断优先阻止新增工作。
+平台额外记录未开始 USER_CANCELLED / RUN_DEADLINE_EXCEEDED、服务重启 SERVICE_RESTARTED、Runner 协议失败 RUNNER_PROTOCOL_ERROR 等管理原因，不伪造为执行器原生异常。平台取消、运行到期和服务中断优先阻止新增工作。
 
 错误记录至少包含 stage、code、exception_type、failure_cause、reward_valid、retry_recommended、grade_requested、policy_version、attempt_id、message、suggested_action。最终 trial.state 根据奖励有效性和管理状态确定，异常原文另保留。message 可变化，Agent 依据稳定字段处理。
 
 ### 平台准备错误
 
-以下为平台错误码，不冒充 Harbor 原生异常；统一保存 platform_policy_version。它们在 Agent 执行前失败，不运行验证，raw_score=null、reward_valid=false，耗尽重试后计入 excluded_error_trials。
+以下为平台错误码，不冒充执行器原生异常；统一保存 platform_policy_version。它们在 Agent 执行前失败，不运行验证，raw_score=null、reward_valid=false，耗尽重试后计入 excluded_error_trials。
 
 | code / 场景 | 重试与后续动作 | 对准入和其他试次的影响 |
 | --- | --- | --- |

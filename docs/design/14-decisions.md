@@ -24,12 +24,13 @@
 | U-12 | 2026-10-22 | C-05：项目改名为 Maestro | 13 第 2.1 节：新代码使用 `maestro` 包 |
 | U-13 | 2026-10-22 | C-03：部署采用设计中的系统级布局 | [12](12-operations.md)、[15](15-stack-harbor.md) 第 4 节，M8 |
 | U-14 | 2026-10-22 | 放弃 botmux 项目状态、进度卡与白板的协调方案 | `AGENTS.md`、交接与协作规则已删除相关要求 |
+| U-15 | 2026-10-22 | C-06：重写时跟进 Harbor 最新稳定版（当前 0.24.0）；错误策略由平台自定，执行器适配器负责与 Harbor 对接。可替换执行器是设计目标，不因首版只有 Harbor 而放弃 | 06 第 3 节、15 第 8 节、D-006、D-020、V-04 改为平台策略 + 适配器映射 |
 
 ### D-020 本阶段的运行级调度（设计建议，落实 U-05）
 
 - **工作单元暂为运行。** 一个运行由一个 Runner 子进程执行一个 Harbor Job：Job 内 `n_attempts` 取每任务计划试次数，`n_concurrent_trials` 取运行并发。05 第 2～3 节和 15 第 4、6 节中“一个执行尝试对应一个 Harbor 试次”的描述，在本阶段不适用。
 - **试次与执行尝试仍是持久记录。** 受理时按任务 × 计划试次数写入 trials；Runner 从 Job 内各试次的目录和结果上报阶段、结果与错因，映射为 execution_attempts。状态、评分、比较和部分重跑都基于这些记录，与将来改为试次粒度后一致。
-- **重试。** 本阶段使用 Job 内重试，按锁定 Harbor 的错误策略配置，平台不再叠加外层重试。每次 Harbor 内重试能否识别为独立的 ExecutionAttempt，见 V-12。
+- **重试。** 本阶段使用 Job 内重试，平台不再叠加外层重试。可否重试由平台错误策略决定（U-15），适配器把它翻译成锁定 Harbor 的 `RetryConfig` 异常名单并显式下发，不依赖 Harbor 默认名单。每次 Harbor 内重试能否识别为独立的 ExecutionAttempt，见 V-12。
 - **容量。** 运行按“并发 × 单试次资源”整体预留；提供商并发按各运行的并发之和计算。
 - **准备缓存。** 运行启动前确认该运行全部任务的缓存，缺失时加入共享恢复，等待者关联到运行。
 - **租约与取消。** 租约和迟到结果防护按运行的 Runner 进程实施；取消粒度为运行，不提供单试次取消。
@@ -46,7 +47,7 @@
 | C-03 | 部署形态 | `dev` 使用用户级 systemd，HTTP 与调度器为两个 unit；12、15 为 `/opt`、`/etc`、`/var` 加服务账号的系统级布局，Worker 在服务进程内 | 已定 U-13 |
 | C-04 | CLI 的地位 | 旧 `AGENTS.md` 写“通过 CLI 和 Web”，`dev` 已有远程 CLI 与 MCP；审计稿以网页与 SDK 为正式入口，CLI 是建议 C5 | 已定 U-11 |
 | C-05 | 项目名 | 设计稿称 Maestro，安装路径为 `/opt/maestro`；仓库与包名为 harbor-helper | 已定 U-12 |
-| C-06 | Harbor 锁定版本与错误策略来源 | 15 第 8 节、V-04、06 以 main 分支的 `error_policy.py`（retry / grade / reward_valid）为错误映射依据；M1 实测最新稳定版 0.24.0 没有该模块，Job 内重试只按 `RetryConfig` 的异常类型白 / 黑名单判断。2026-10-22 只有 0.24.1 开发构建包含该模块。M1 暂用 0.24.0 是 Agent 的选择 | 待用户确认：锁定哪个版本，以及错误映射用上游策略还是由平台自定 |
+| C-06 | Harbor 锁定版本与错误策略来源 | 15 第 8 节、V-04、06 以 main 分支的 `error_policy.py`（retry / grade / reward_valid）为错误映射依据；M1 实测最新稳定版 0.24.0 没有该模块，Job 内重试只按 `RetryConfig` 的异常类型白 / 黑名单判断。2026-10-22 只有 0.24.1 开发构建包含该模块。M1 暂用 0.24.0 是 Agent 的选择 | 已定 U-15 |
 
 ## 1. 决策状态
 
@@ -86,7 +87,7 @@
 | D-003 | 内容级快照、固定镜像 digest、附件 / Harness 版本不可变、凭据动态引用 | 可追溯，但无法冻结远端模型本身 | 设计建议，基于 A2 |
 | D-004 | 进程内 Worker 管理试次，独立 Runner 子进程执行；意外重启中断、不自动续跑 | 管理仍简单，Harbor 依赖与异常隔离 | 本轮设计基线，细化 A5 |
 | D-005 | 作者 → 团队 → 方案 → 覆盖；默认与硬约束分开，保留字段来源 | 既能覆盖资源建议，又能识别偏离基准 | 设计建议，基于 A6 |
-| D-006 | 以锁定 Harbor 的 retry / grade / reward_valid 为基线，平台最多重试 2 次，禁用 Harbor 内层重试 | Agent 超时仍可有效计分，无效诊断奖励不计统计；不双重重试 | 官方资料已核对；锁定版待验证，次数仍是建议 |
+| D-006 | 平台自定 cause / retry / grade / reward_valid 策略并保存策略版本，初值参考 Harbor 公开的错误分类；平台最多重试 2 次，不双层重试。原为“以锁定 Harbor 的策略为基线、禁用 Harbor 内层重试”，2026-10-22 按 U-15 改为平台策略，并按 D-020 由 Job 内重试执行 | Agent 超时仍可有效计分，无效诊断奖励不计统计；不双重重试；更换执行器时策略不变 | 用户已定（U-15）；映射待 V-04 验证，次数仍是建议 |
 | D-007 | 成组提交原子受理；PAT 按运行数扣额度；时限从受理计起 | 容易推理；排队也消耗总时限 | 设计建议，细化 B3 / C1 |
 | D-008 | 部分重跑按任务；合成分析取每任务最新完整重复组并记录来源 | 不跨运行挑最高分，保留原始运行 | 设计建议，细化 A4 |
 | D-009 | FastAPI 生成 OpenAPI；React 客户端与 httpx SDK 类型同源，CLI 为后续范围（U-11） | 契约一致，客户端不依赖服务端；暂不引入事件系统 | 本轮设计基线，基于 C2 / C5 / C6 |
@@ -110,7 +111,7 @@
 | V-01 | 文档已确认 ref 支持标签 / 修订 / digest；验证解析和下载摘要一致性 | 固定数据集样例、原引用与上游 / 本地摘要映射 | 无法固定上游 digest 则拒绝，不能只保存标签 |
 | V-02 | 已确认 schema / dry-run 命令；验证单任务配置、trial / job 映射和 Runner 结果解析 | 精确版本 schema 摘要、脱敏输入 / 输出 | 适配器内部转换，不改变业务模型 |
 | V-03 | Runner 进程组取消、Docker / 网络 / sidecar 清理 | 受控长任务取消与孤儿对账 | 标签清理兜底，未确认停止不重派 |
-| V-04 | 文档已确认错误策略；验证锁定版本的超时 / 拒绝 / 提供商错误与奖励有效性 | 锁定 error_policy 摘要、实际结果样例 | 不按 main 动态改分，版本不兼容拒绝 |
+| V-04 | 适配器把锁定 Harbor 的异常类型与结果映射到平台错误策略：超时 / 拒绝 / 提供商错误 / 验证器错误与奖励有效性；能否按策略要求继续验证 | 映射表及其摘要、各类异常的实际结果样例 | 未知异常类型记为 unclassified 并告警；无法满足 grade 要求的情形记录为执行器能力缺口 |
 | V-05 | TECH-03：独立准备、已准入冷缓存恢复、并发共享 / 独立取消、pin / 清理 | 不运行 Agent 即可准备；回收后同摘要恢复一次，多等待者共享；准入保持 | 在 Runner 包装 BaseEnvironment，不把 install_only 直接当可复用准备；未验证前不宣称恢复能力已实现 |
 | V-06 | 远端模型标识、usage、费用与请求幂等支持 | 提供商返回样例与能力清单 | 无法获得的值标未知，不承诺精确费用 |
 | V-07 | TECH-02：Harbor Docker nftables、动态阶段策略和强制收紧任务策略 | public / allowlist / no-network 任务及无能力主机验证 | 无法满足时拒绝，不退回 public 或把扩展字段当收紧 |
@@ -124,7 +125,7 @@
 
 ### M1 验证记录
 
-**2026-10-22，V-10 / TECH-01 与 V-12。** 范围：Harbor 0.24.0（暂选版本，见 C-06），独立 uv 环境，CPython 3.12.3，Docker 29.9.1，Linux 6.8 单机；原型 Runner 与自定义 Agent，2 个本地 ubuntu:22.04 任务 × 2 试次，正常、SIGTERM、SIGKILL、Runner 崩溃各一次。未涉及真实模型、Hub、网络策略、准备缓存与 bootstrap。
+**2026-10-22，V-10 / TECH-01 与 V-12。** 范围：Harbor 0.24.0（最新稳定版，U-15），独立 uv 环境，CPython 3.12.3，Docker 29.9.1，Linux 6.8 单机；原型 Runner 与自定义 Agent，2 个本地 ubuntu:22.04 任务 × 2 试次，正常、SIGTERM、SIGKILL、Runner 崩溃各一次。未涉及真实模型、Hub、网络策略、准备缓存与 bootstrap。
 
 - **V-10 / TECH-01：通过，有缺口。** `Job.add_hook` 的试次生命周期钩子能实时、有序地给出环境启动、Agent 开始 / 结束、验证开始、结束和取消，到达延迟不超过 0.1 秒。Runner 在导入 Harbor 前把 fd 1 留给协议、其余输出转到 stderr；在约 100 MB stderr 以及 Python 和子进程都写 stdout 的情况下，协议无污染、无死锁，前提是 Worker 持续读取 stderr。SIGTERM 协作取消后有最终状态，容器由 Harbor 回收；SIGKILL 或崩溃时只有退出码和最后事件，容器和网络会残留。缺口有四项：没有单独的收集事件和 agent setup 开始事件；结构化日志回调只在 Trial 上，不经 Job 暴露；被强杀后的残留只带 compose 标签，需要 Runner 用 `extra_docker_compose` 补平台标签（只能标到服务），或按 trial_name 推出 compose 项目名来清理。
 - **V-12：每次尝试可以识别。** Job 内重试沿用同一 trial_name，每次尝试的 TrialResult id 不同，且都会完整触发开始到结束的钩子。但是 Harbor 在重试前会删除失败尝试的试次目录，job 结果只保留重试总数，所以 Runner 必须在结束钩子里归档每次尝试；只靠最终结果文件对账会丢掉前几次尝试的证据。
@@ -168,7 +169,7 @@
 | --- | --- | --- |
 | A1 | 术语表、实体、Trial / ExecutionAttempt 分离 | [01](01-domain-model.md) |
 | A2 | Hub digest 固定、材料摘要分离、不可变发布、凭据引用与缓存验证 | [02](02-datasets-preparation.md)、[03](03-configuration-attachments.md) |
-| A3 | 锁定 Harbor cause / retry / grade / reward_valid 基线、分母、覆盖率与例子 | [06](06-results-scoring.md) |
+| A3 | 平台 cause / retry / grade / reward_valid 策略（U-15，参考 Harbor 错误分类）、分母、覆盖率与例子 | [06](06-results-scoring.md) |
 | A4 | 重跑 / 修改后新运行；冷缓存按原标识恢复，确切内容不可得才阻塞；正常权限 / 容量仍检查 | [02](02-datasets-preparation.md)、[04](04-plans-submission.md)、[08](08-collections-comparison.md) |
 | A5 | 进程内 Worker 接口、租约、重启对账、排空 | [05](05-scheduling-execution.md)、[12](12-operations.md) |
 | A6 | 分层合并、字段来源、硬约束与基准差异 | [03](03-configuration-attachments.md) |
