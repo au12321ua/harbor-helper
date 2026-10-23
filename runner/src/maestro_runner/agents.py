@@ -9,6 +9,15 @@ adapter's agent class hands them to the model client in memory.
 Terminus-2 is Harbor's own agent: the model is called from this process and only shell
 commands run in the task container, so the container needs no route to the model.
 
+OpenCode runs inside the task container and calls the model from there, so the agent
+phase may reach the model's host only (the executor's network plan). Its key is copied
+into a root-owned file in the container just before the agent runs and removed right
+after, before verification: never a command-line argument (``docker exec -e`` would show
+it to every host user) or an environment variable of the Runner. The agent process can
+read it while it works; that is what calling the model from the container means.
+OpenCode, Node and the provider package are installed in setup, through the setup proxy
+when one is configured, at the version the harness pins.
+
 Attachments (03 section 7) are installed by the same agent class during agent setup,
 before the agent's own setup: each package is copied into this trial's container with
 Harbor's file transfer (no host directory is mounted), compared file by file with the
@@ -53,11 +62,20 @@ TERMINUS_PARAMETERS = {
     "tmux_pane_height",
     "interleaved_thinking",
 }
+# OpenCode's npm version; a harness version may pin another. Never "latest": a run must
+# be reproducible from its snapshot.
+OPENCODE_VERSION = "1.18.35"
+OPENCODE_PARAMETERS = {"version"}
+OPENCODE_KEY = "/run/maestro/model-key"
 ADAPTERS = {
     "terminus-2": {
         "protocols": ("anthropic", "openai", "openai-compatible"),
         "parameters": TERMINUS_PARAMETERS,
-    }
+    },
+    "opencode": {
+        "protocols": ("anthropic", "openai", "openai-compatible"),
+        "parameters": OPENCODE_PARAMETERS,
+    },
 }
 
 
@@ -87,6 +105,8 @@ def agent_config(agent: dict) -> dict[str, Any]:
     unknown = set(params) - ADAPTERS[adapter]["parameters"]
     if unknown:
         raise InputError(f"unknown {adapter} parameters: {sorted(unknown)}")
+    if adapter == "opencode":
+        return _opencode_config(protocol, model, params)
     model_params = dict(model.get("params") or {})
     kwargs: dict[str, Any] = {
         **params,
@@ -253,6 +273,87 @@ async def install(agent, environment) -> None:
         report(trial_name, records)
 
 
+def _opencode_config(protocol: str, model: dict, params: dict) -> dict[str, Any]:
+    """OpenCode reads its provider from its own config: the endpoint and a key file, and
+    the model's parameters as provider options. Web tools stay off (no network for them)."""
+    version = params.get("version", OPENCODE_VERSION)
+    if not isinstance(version, str) or not version or version == "latest":
+        raise InputError("opencode needs a fixed version")
+    provider = {
+        "anthropic": "anthropic",
+        "openai": "openai",
+        "openai-compatible": "maestro",
+    }[protocol]
+    settings: dict[str, Any] = {
+        "options": {"baseURL": model["endpoint"], "apiKey": f"{{file:{OPENCODE_KEY}}}"},
+        "models": {model["model_id"]: {"options": dict(model.get("params") or {})}},
+    }
+    if provider == "maestro":
+        settings |= {"npm": "@ai-sdk/openai-compatible", "name": "maestro"}
+    return {
+        "import_path": "maestro_runner.agents:MaestroOpenCode",
+        "model_name": f"{provider}/{model['model_id']}",
+        "kwargs": {
+            "version": version,
+            "disable_web_search": True,
+            "opencode_config": {"provider": {provider: settings}},
+        },
+    }
+
+
+async def _setup_with_attachments(agent, environment, setup) -> None:
+    """Attachments first, then the agent's own setup; both through the setup proxy."""
+    with environment.scoped_exec_env(INSTALL["env"]):
+        if ATTACHMENTS:
+            await install(agent, environment)
+        await setup(environment)
+
+
+@functools.cache
+def _opencode():
+    import os
+    import tempfile
+
+    from harbor.agents.installed.opencode import OpenCode
+
+    class MaestroOpenCode(OpenCode):
+        """OpenCode with the model key in a file for the length of the agent run, and
+        nothing from the Runner's own environment."""
+
+        def _env_sources(self):
+            return (self._extra_env,)
+
+        async def install(self, environment) -> None:
+            """Kept when the image already has the pinned version; installed otherwise."""
+            found = await environment.exec(command=self.get_version_command() or "false")
+            if found.return_code == 0 and (found.stdout or "").strip().endswith(self._version):
+                return
+            await super().install(environment)
+
+        async def setup(self, environment) -> None:
+            await _setup_with_attachments(self, environment, super().setup)
+
+        async def run(self, instruction, environment, context) -> None:
+            fd, local = tempfile.mkstemp(prefix=".key-")
+            try:
+                with os.fdopen(fd, "w") as handle:
+                    handle.write(SECRETS.get("model_api_key", ""))
+                await environment.exec(f"mkdir -p {os.path.dirname(OPENCODE_KEY)}", user="root")
+                await environment.upload_file(local, OPENCODE_KEY)
+            finally:
+                os.unlink(local)
+            user = environment.default_user
+            owner = f"chown {shlex.quote(str(user))} {OPENCODE_KEY} && " if user is not None else ""
+            await environment.exec(f"{owner}chmod 400 {OPENCODE_KEY}", user="root")
+            try:
+                await super().run(instruction, environment, context)
+            finally:
+                # Gone before verification: the verifier runs in this container.
+                await environment.exec(f"rm -f {OPENCODE_KEY}", user="root")
+
+    return MaestroOpenCode
+
+
 @functools.cache
 def _terminus():
     from harbor.agents.terminus_2.terminus_2 import Terminus2
@@ -262,9 +363,7 @@ def _terminus():
         the run's attachments before its own setup."""
 
         async def setup(self, environment) -> None:
-            if ATTACHMENTS:
-                await install(self, environment)
-            await super().setup(environment)
+            await _setup_with_attachments(self, environment, super().setup)
 
         def _init_llm(self, *args, **kwargs):
             key = SECRETS.get("model_api_key")
@@ -279,8 +378,14 @@ def _terminus():
     return MaestroTerminus2
 
 
+def agent_class(adapter: str):
+    return {"terminus-2": _terminus, "opencode": _opencode}[adapter]()
+
+
 def __getattr__(name: str):
     # Harbor loads the class by import path; build it only then, after Harbor imports.
     if name == "MaestroTerminus2":
         return _terminus()
+    if name == "MaestroOpenCode":
+        return _opencode()
     raise AttributeError(name)

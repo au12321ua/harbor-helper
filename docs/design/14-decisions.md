@@ -428,6 +428,28 @@
 
 验证：服务测试新增配置检查、构建参数、执行器只在有附件时下发、Runner 安装器把代理交给安装脚本而不交给复制与比对步骤；真实 Docker 测试可设 `MAESTRO_TEST_SETUP_PROXY` 用本机代理跑——安装脚本拿到代理，Agent 阶段明确指定该代理、验证阶段经该代理都连不上外网（2026-10-23 在本机 `http://172.17.0.1:7890` 下通过，不设时也通过）。
 
+### M5 实施记录（补充：OpenCode 适配）
+
+**2026-10-24。** 用户要求至少试一下 OpenCode（U-25 中的第二个 Harness）。以下为实现选择，未经用户逐条确认。
+
+| 事项 | 做法 | 理由 |
+| --- | --- | --- |
+| 适配器 | Harbor 0.24.0 自带的 OpenCode，由平台子类包装；支持三种协议：OpenAI 兼容走 `@ai-sdk/openai-compatible`（OpenCode 自带，运行时不下载），OpenAI Responses 与 Anthropic 走 OpenCode 的原生 provider；endpoint 写进 OpenCode 自己的配置。模型参数作为 provider 选项传入。网页搜索与抓取工具关闭 | 与 Terminus-2 共用平台的模型配置 |
+| 版本 | OpenCode 默认固定 1.18.35（2026-10-06 发布），Harness 版本可用参数 `version` 改，拒绝 `latest`。镜像里已有同一版本时跳过安装，否则在 setup 中安装（走准备代理） | 结果要能按快照复现；每个试次装 Node 和 OpenCode 经代理要十分钟以上 |
+| 网络 | OpenCode 在容器里调模型：Agent 阶段只放行模型主机（allowlist），验证阶段断网 | U-18 |
+| key | 不走 OpenCode 默认的环境变量：Harbor 用 `docker compose exec -e KEY=值` 传环境变量，key 会出现在宿主的进程列表里，所有本机用户可见。改为 Agent 运行前把 key 复制成容器内 root 所有、属主为 Agent 用户、权限 400 的文件（`/run/maestro/model-key`），OpenCode 配置写 `{file:...}` 引用；运行结束（含出错）立即删除，验证器看不到；宿主上的临时副本复制完即删。Agent 子类也不读取 Runner 进程的环境变量 | 在容器里调模型，Agent 进程运行期间能读到 key，这一点无法避免；能做的是不进命令行、Harbor 配置、证据和验证阶段 |
+| 可读性 | OpenCode 把事件流写到 `agent/opencode.txt`；Runner 只取完整的行，实时整理成 `--- step N ---`、模型的文字、`$ 命令` 与输出，作为日志 `agent/opencode`（原文件照常归档，原始 JSON 不再重复进实时日志）。结束后 Harbor 另存 ATIF 轨迹 | 用户要求 Harness 可读性高 |
+| 准备代理的范围 | 从“仅附件安装”扩展为“模型运行的整个 setup”（Harness 自己的安装与附件脚本），Oracle 不下发 | OpenCode、Terminus-2 的安装都在 setup 里 |
+| 过期的配置解析 | 维护循环删除过期超过一天的配置解析记录 | 第二阶段的遗留：它们不预留任何东西，运行自己保存了请求 |
+
+验证：服务测试 489 项通过，新增 OpenCode 配置（版本、key 只以文件引用出现、未知参数与 `latest` 被拒）、Agent 阶段只放行模型主机的网络计划、key 文件只在 Agent 运行期间存在（出错也删除、不进命令）、事件流的实时整理。真实模型冒烟（2026-10-24，默认跳过）：经用户中转站调用 `gpt-6-luna`，OpenCode 1.18.35 在预装镜像 `maestro-test/ubuntu-opencode:22.04`（Dockerfile 在 `tests/maestro/fixtures/images/opencode`）里一个试次完成任务，评分 1.0；Agent 阶段生效策略为只放行中转站主机，Agent 与验证阶段访问 example.com 都失败；实时日志显示两步命令；key 不在任何保存的文件里；用量 14,233 输入（4,608 缓存）/ 76 输出 token；全过程约 33 秒，无 Docker 残留。离线时 OpenCode 取模型目录失败只记一条错误，不影响运行；连不上模型时会自行重试，由 Agent 时限兜底。
+
+未覆盖：OpenCode 在 setup 中现装（版本不符时的路径）没有在真实 Docker 里跑；OpenAI Responses 与 Anthropic 两种协议的真实调用；OpenCode 对“标题”等辅助请求也用同一模型，费用略高于单纯的任务对话；MCP 与 skills 未接。
+
+### M5 收尾时尚未完成的事项（2026-10-24）
+
+受理时的网络能力预检（目前在 Runner 启动时拒绝）；Anthropic 与 OpenAI Responses 的真实调用；云元数据、IPv6、DNS / ICMP 外传等网络缺口（M1 已列）；等待恢复缓存期间仍占着提供商并发名额（M4 记录）；Harbor `--dry-run` 校验作业配置（03 第 5 节）；不能出网的主机上为 Terminus-2 提供 tmux；附件以非 root 用户安装与作者基线断网时的安装（未真实运行）；批次的组合展开、按单个试次补跑、方案修订历史；需要执行时联网的任务的开放策略（待用户决定）。
+
 ## 5. 可配置数值建议
 
 除原稿已经明确的值外，下表均为建议初值，所有限制通过 capability 和管理配置返回实际生效值。其中与机器和磁盘有关的项已在 `config.toml`（U-21，见 [12](12-operations.md) 第 3 节），团队策略类已进数据库并带修订（见“M5 实施记录（第一阶段）”）。

@@ -42,6 +42,9 @@ TASKS = Path(__file__).with_name("fixtures") / "harbor-tasks"
 # Agent tasks need tmux in the image (Terminus-2): build ``maestro-test/ubuntu-tmux:22.04``
 # once, see the test docstring.
 AGENT_TASKS = Path(__file__).with_name("fixtures") / "agent-tasks"
+# OpenCode tasks need Node and the pinned OpenCode in the image: build
+# ``maestro-test/ubuntu-opencode:22.04`` from fixtures/images/opencode once.
+OPENCODE_TASKS = Path(__file__).with_name("fixtures") / "opencode-tasks"
 RUNNER = Path(os.environ.get("MAESTRO_RUNNER_PYTHON", ROOT / "runner/.venv/bin/python"))
 # Optional: the deployment's setup proxy (e.g. http://172.17.0.1:7890), for hosts that need
 # one to build images and install attachments. Tests then also check its boundaries.
@@ -1008,4 +1011,106 @@ def test_terminus_with_a_real_model(agent_service):
     )
     assert key.encode() not in stored
     assert operation["status"] == "succeeded", trials
+    assert labelled(service.worker.instance_id) == []
+
+
+@pytest.mark.skipif(
+    os.environ.get("MAESTRO_MODEL_TESTS") != "1" or not all(map(os.environ.get, MODEL_ENV)),
+    reason="real model smoke: set MAESTRO_MODEL_TESTS=1 and " + ", ".join(MODEL_ENV),
+)
+def test_opencode_with_a_real_model(settings):
+    """OpenCode calls the model from inside the container: the agent phase may reach the
+    model's host and nothing else, the verifier nothing; the key is a file only while the
+    agent runs and is in no stored file; the event stream reads as steps. One trial, a
+    trivial task: this spends real tokens, run it deliberately."""
+    present = subprocess.run(
+        ["docker", "image", "inspect", "maestro-test/ubuntu-opencode:22.04"],
+        capture_output=True,
+        check=False,
+    )
+    if present.returncode:
+        pytest.skip("build maestro-test/ubuntu-opencode:22.04 first (fixtures/images/opencode)")
+    key = Path(os.environ["MAESTRO_MODEL_KEY_FILE"]).expanduser().read_text().strip()
+    endpoint = os.environ["MAESTRO_MODEL_ENDPOINT"]
+    with harbor(settings, OPENCODE_TASKS, "opencode") as service, running(service) as client:
+        admin = setup_admin(service, client)
+        credential = admin.post(
+            "/api/v1/admin/credentials",
+            json={"name": "live", "kind": "model_api_key", "provider": "live", "value": key},
+            expect=201,
+        ).json()["data"]
+        model_id = admin.post(
+            "/api/v1/admin/model-configs",
+            json={
+                "name": "live",
+                "provider": "live",
+                "protocol": "openai-compatible",
+                "endpoint": endpoint,
+                "model_id": os.environ["MAESTRO_MODEL_ID"],
+                "credential_id": credential["id"],
+            },
+            expect=201,
+        ).json()["data"]["id"]
+        harness_id = admin.post(
+            "/api/v1/admin/harness-versions",
+            json={
+                "name": "opencode",
+                "version": "1.18.35",
+                "agent": "opencode",
+                "protocols": ["openai-compatible"],
+                "parameter_schema": {
+                    "parameters": {"version": {"type": "string", "default": "1.18.35"}}
+                },
+            },
+            expect=201,
+        ).json()["data"]["id"]
+        pat = create_pat(admin)
+        accepted = submit(
+            pat,
+            service.version_id,
+            ["opencode-pass"],
+            execution_mode="agent",
+            model_config_id=model_id,
+            harness_version_id=harness_id,
+            timeouts={"agent_sec": 300},
+        )
+        operation = wait_operation(pat, accepted["operation_id"], timeout=900)
+        run_id = accepted["run_id"]
+        trials = pat.get(f"/api/v1/runs/{run_id}/trials", expect=200).json()["data"]
+        artifacts = pat.get(f"/api/v1/runs/{run_id}/artifacts", expect=200).json()["data"]
+        summary = pat.get(f"/api/v1/runs/{run_id}/summary", expect=200).json()["data"]
+
+        def download(path, trial=True):
+            found = next(
+                a
+                for a in artifacts
+                if a["relative_path"] == path and (a["trial_id"] is not None) == trial
+            )
+            return pat.get(f"/api/v1/artifacts/{found['id']}/download", expect=200).text
+
+        print("\nOPERATION", operation["status"], "USAGE", summary.get("usage"))
+        print(
+            "TRIALS",
+            [(t["state"], t["result"], [a["error"] for a in t["attempts"]]) for t in trials],
+        )
+        if any(a["relative_path"] == "agent/opencode" for a in artifacts):
+            print("LIVE (head)\n" + download("agent/opencode")[:3000])
+        if operation["status"] != "succeeded":
+            print(download("runner/stderr.log", trial=False)[-4000:])
+        assert operation["status"] == "succeeded", trials
+        plan = json.loads(download("runner/network-plan.json", trial=False))
+        host = endpoint.split("://", 1)[1].split("/", 1)[0]
+        assert plan["opencode-pass"]["agent"]["effective"] == {
+            "network_mode": "allowlist",
+            "allowed_hosts": [host],
+        }
+        assert plan["opencode-pass"]["verifier"]["effective"]["network_mode"] == "no-network"
+        # The model's host was reachable (the run scored); everything else was not.
+        assert download("agent/probe.txt").split()[0] == "NET_CLOSED"
+        assert download("verifier/probe.txt").split()[0] == "NET_CLOSED"
+        assert "$ echo ok > /app/answer" in download("agent/opencode")
+    stored = b"".join(
+        p.read_bytes() for p in Path(service.settings.artifacts_dir).rglob("*") if p.is_file()
+    )
+    assert key.encode() not in stored
     assert labelled(service.worker.instance_id) == []

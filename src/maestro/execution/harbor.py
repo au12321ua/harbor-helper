@@ -142,6 +142,7 @@ class HarborExecutor:
     # The Runner's adapters (maestro_runner.agents.ADAPTERS; a test keeps them in step).
     harness_adapters: ClassVar[dict[str, tuple[str, ...]]] = {
         "terminus-2": ("anthropic", "openai", "openai-compatible"),
+        "opencode": ("anthropic", "openai", "openai-compatible"),
     }
     harness_parameters: ClassVar[dict[str, frozenset[str]]] = {
         "terminus-2": frozenset(
@@ -156,10 +157,14 @@ class HarborExecutor:
                 "interleaved_thinking",
             }
         ),
+        "opencode": frozenset({"version"}),
     }
     # Where each adapter calls the model from. Terminus-2 calls it from the Runner, so the
     # task container needs no network at all while the agent works.
-    model_called_from: ClassVar[dict[str, str]] = {"terminus-2": "runner"}
+    model_called_from: ClassVar[dict[str, str]] = {
+        "terminus-2": "runner",
+        "opencode": "container",
+    }
 
     def __init__(
         self,
@@ -351,7 +356,8 @@ class HarborExecutor:
             "task_env": self._task_env(spec),
             "attachments": attachments,
             "bootstrap_timeout_sec": spec.effective_config.get("bootstrap_timeout_sec"),
-            "setup_env": self.setup_env if attachments else {},
+            # Setup work only (harness install, attachment scripts); Oracle has none.
+            "setup_env": self.setup_env if spec.effective_config.get("harness") else {},
             "n_concurrent_trials": spec.concurrency,
             "retry": harbor_retry_config(),
             "tasks": list(tasks.values()),

@@ -11,6 +11,7 @@ host file), only regular files are read, and the size limits apply while copying
 
 import asyncio
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -41,6 +42,8 @@ MESSAGE_LIMIT = 4000
 # Agents that keep an ATIF trajectory (Terminus-2 rewrites it after every turn) are
 # followed live by turning new steps into readable log text (U-07).
 TRAJECTORY = "agent/trajectory.json"
+# OpenCode streams JSON events to this file; they are shown as readable text instead.
+EVENTS = "agent/opencode.txt"
 TRAJECTORY_MAX_BYTES = 32 * 1024 * 1024
 STEP_PART_CHARS = 20000
 
@@ -50,6 +53,38 @@ def _text(value) -> str:
     if isinstance(value, list):
         return "\n".join(str(part.get("text", "")) for part in value if isinstance(part, dict))
     return "" if value is None else str(value)
+
+
+def _render_event(event: dict, state: dict) -> str:
+    """One OpenCode event as text (``state`` counts the steps of this attempt)."""
+
+    def cut(text: str) -> str:
+        if len(text) <= STEP_PART_CHARS:
+            return text
+        return text[:STEP_PART_CHARS] + f"\n[... {len(text) - STEP_PART_CHARS} characters ...]"
+
+    kind = event.get("type")
+    part = event.get("part") if isinstance(event.get("part"), dict) else {}
+    if kind == "step_start":
+        state["step"] = state.get("step", 0) + 1
+        return f"--- step {state['step']} · agent ---\n"
+    if kind in {"text", "reasoning"} and (text := _text(part.get("text")).strip()):
+        return cut(text if kind == "text" else f"(thinking) {text}") + "\n"
+    if kind == "tool_use":
+        tool = part.get("state") if isinstance(part.get("state"), dict) else {}
+        given = tool.get("input") if isinstance(tool.get("input"), dict) else {}
+        command = given.get("command")
+        lines = [
+            cut(f"$ {command.rstrip()}")
+            if isinstance(command, str)
+            else cut(f"> {part.get('tool')} {json.dumps(given, ensure_ascii=False)}")
+        ]
+        if output := _text(tool.get("output")).strip():
+            lines.append(cut(output))
+        return "\n".join(lines) + "\n"
+    if kind == "error":
+        return cut(f"! error: {json.dumps(event.get('error'), ensure_ascii=False)}") + "\n"
+    return ""
 
 
 def _render_step(step: dict) -> str:
@@ -274,6 +309,7 @@ class Execution:
         self.log_bytes: dict[tuple[str, int], int] = defaultdict(int)
         self.trajectory_steps: dict[Path, int] = {}
         self.trajectory_seen: dict[Path, tuple] = {}
+        self.event_state: dict[Path, dict] = {}
         # Harbor trial name -> the current attempt's attachment install records.
         self.installs: dict[str, list] = {}
         self.finished = 0
@@ -343,12 +379,15 @@ class Execution:
             # Harbor's default agent is oracle; never fall back to it implicitly (15 section 6).
             raise Rejected("RUNNER_INPUT_INVALID", "agent must be explicit")
         agent = {**agent, "override_timeout_sec": overrides.get("agent_timeout_sec")}
+        # The harness's own install and attachment scripts run in setup, through the
+        # deployment's setup proxy when it has one.
+        agents.INSTALL["env"] = dict(self.spec.get("setup_env") or {})
         if self.spec.get("attachments"):
             if not self.spec["agent"].get("adapter"):
                 raise Rejected("RUNNER_INPUT_INVALID", "attachments need a harness agent")
             self._attachments()
             agent["override_setup_timeout_sec"] = agents.setup_timeout(
-                agents._terminus().DEFAULT_SETUP_TIMEOUT_SEC
+                agents.agent_class(self.spec["agent"]["adapter"]).DEFAULT_SETUP_TIMEOUT_SEC
             )
         return JobConfig(
             job_name="job",
@@ -393,9 +432,7 @@ class Execution:
             loaded.append({**attachment, "files": files})
         agents.ATTACHMENTS[:] = loaded
         agents.INSTALL.update(
-            timeout_sec=self.spec.get("bootstrap_timeout_sec"),
-            report=self._installed,
-            env=dict(self.spec.get("setup_env") or {}),
+            timeout_sec=self.spec.get("bootstrap_timeout_sec"), report=self._installed
         )
 
     def _installed(self, name: str, records: list | None) -> None:
@@ -523,6 +560,8 @@ class Execution:
                 for path, info in _entries(root / directory):
                     if path.suffix not in LOG_SUFFIXES or stat.S_ISLNK(info.st_mode):
                         continue
+                    if path == root / EVENTS:
+                        continue  # rendered by _tail_events
                     start = self.offsets.get(path, 0)
                     size = info.st_size
                     if size < start:
@@ -549,11 +588,11 @@ class Execution:
                         truncated=self.log_bytes[(trial_id, attempt)] >= cap,
                     )
             self._tail_trajectory(root, trial_id, attempt, cap)
+            self._tail_events(root, trial_id, attempt, cap)
 
     def _tail_trajectory(self, root: Path, trial_id: str, attempt: int, cap: int) -> None:
         """New steps of the agent's trajectory as text. The file is rewritten whole each
         turn (and anew on a retry), so steps are counted rather than bytes."""
-        import json
 
         path = root / TRAJECTORY
         try:
@@ -592,6 +631,54 @@ class Execution:
             attempt=attempt,
             source="agent/trajectory",
             text=data.decode("utf-8", "replace"),
+            truncated=self.log_bytes[(trial_id, attempt)] >= cap,
+        )
+
+    def _tail_events(self, root: Path, trial_id: str, attempt: int, cap: int) -> None:
+        """New complete lines of OpenCode's event stream as readable text."""
+        path = root / EVENTS
+        try:
+            info = path.lstat()
+        except OSError:
+            return
+        if not stat.S_ISREG(info.st_mode):
+            return
+        start = self.offsets.get(path, 0)
+        if info.st_size < start:  # a retry started a new stream
+            start = 0
+            self.event_state.pop(path, None)
+        if info.st_size == start:
+            return
+        handle = _open_below(path, root)
+        if handle is None:
+            return
+        with handle:
+            handle.seek(start)
+            data = handle.read(min(info.st_size - start, TRAJECTORY_MAX_BYTES))
+        complete = data[: data.rfind(b"\n") + 1]
+        if not complete:
+            return  # a line still being written
+        self.offsets[path] = start + len(complete)
+        state = self.event_state.setdefault(path, {})
+        text = ""
+        for line in complete.decode("utf-8", "replace").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                text += _render_event(event, state)
+        used = self.log_bytes[(trial_id, attempt)]
+        if not text or used >= cap:
+            return
+        out = text.encode()[: cap - used]
+        self.log_bytes[(trial_id, attempt)] += len(out)
+        emit(
+            "log",
+            trial_id=trial_id,
+            attempt=attempt,
+            source="agent/opencode",
+            text=out.decode("utf-8", "replace"),
             truncated=self.log_bytes[(trial_id, attempt)] >= cap,
         )
 

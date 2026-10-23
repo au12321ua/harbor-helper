@@ -136,7 +136,7 @@ class Maestro:
             artifacts=artifacts,
             exports=exports,
             recycle=Recycle(db, store, materials, exports, environment, attachment_store),
-            maintenance=Maintenance(artifacts, exports, attachment_store),
+            maintenance=Maintenance(artifacts, exports, attachment_store, runs),
             disk=disk,
             capacity=Capacity(db, host),
             store=store,

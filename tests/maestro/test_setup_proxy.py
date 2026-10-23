@@ -13,6 +13,9 @@ from test_harbor_executor import (
     execute,
     make_executor,
 )
+from test_harbor_executor import (
+    make_spec as run_spec,
+)
 
 from maestro.config import Settings
 from maestro.core.errors import MaestroError
@@ -81,10 +84,13 @@ def test_install_scripts_get_the_proxy_and_nothing_else_does(runner_python, mate
     # Not in the agent's or the task's environment.
     assert "PROXY" not in json.dumps(request["agent"]).upper()
     assert all("proxy" not in k.lower() for k in request["task_env"])
-    # A run without attachments installs nothing, so it is not sent at all.
+    # A model run's harness installs itself in setup too; Oracle has no setup work.
     execute(executor, agent_spec(materials, tmp_path), RecordingSink())
     request = json.loads((tmp_path / "work" / "request.json").read_text())
-    assert request["setup_env"] == {}
+    assert request["setup_env"] == env
+    execute(executor, run_spec(materials, tmp_path, "ok", trials=1), RecordingSink())
+    request = json.loads((tmp_path / "work" / "request.json").read_text())
+    assert request["agent"] == {"name": "oracle"} and request["setup_env"] == {}
     # A password in the proxy address is redacted like any known secret.
     assert executor.setup_env["HTTP_PROXY"] == secret
 

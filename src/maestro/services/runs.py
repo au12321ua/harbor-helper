@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from sqlalchemy import Connection, func, insert, select, update
+from sqlalchemy import Connection, delete, func, insert, select, update
 
 from maestro.core import clock
 from maestro.core.digests import digest_json
@@ -299,6 +299,15 @@ class Runs:
         with self.db.write() as conn:
             conn.execute(insert(t.config_resolutions).values(**row))
         return public_resolution(row)
+
+    def sweep_resolutions(self) -> int:
+        """Drop resolutions a day past their expiry: they reserve nothing, and accepted
+        runs keep the request and the resolution's id in their own snapshot."""
+        cutoff = clock.to_text(clock.now() - clock.timedelta(days=1))
+        with self.db.write() as conn:
+            return conn.execute(
+                delete(t.config_resolutions).where(t.config_resolutions.c.expires_at < cutoff)
+            ).rowcount
 
     def get_resolution(self, principal: Principal, resolution_id: str) -> dict:
         with self.db.read() as conn:

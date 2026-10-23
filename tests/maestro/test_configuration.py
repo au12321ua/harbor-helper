@@ -614,3 +614,20 @@ def test_a_credential_disabled_after_acceptance_stops_the_run_before_it_starts(
         ("execution_error", "CREDENTIAL_UNAVAILABLE")
     }
     assert executor.cleaned == [] or all(x["attempts"] == [] for x in trials)
+
+
+def test_expired_resolutions_are_swept_a_day_later(service, version_id):
+    with running(service, run_worker=False) as client:
+        admin = setup_admin(service, client)
+        old = resolve(admin, version_id)["resolution_id"]
+        fresh = resolve(admin, version_id)["resolution_id"]
+    with service.db.write() as conn:
+        conn.execute(
+            update(t.config_resolutions)
+            .where(t.config_resolutions.c.id == old)
+            .values(expires_at="2026-01-01T00:00:00.000000Z")
+        )
+    assert service.maintenance.upkeep()["resolutions_removed"] == 1
+    with service.db.read() as conn:
+        left = set(conn.execute(select(t.config_resolutions.c.id)).scalars())
+    assert left == {fresh}

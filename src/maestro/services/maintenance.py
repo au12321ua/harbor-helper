@@ -23,6 +23,7 @@ class Maintenance:
         artifacts: Artifacts,
         exports: Exports,
         attachments: AttachmentStore | None = None,
+        runs=None,
         *,
         poll_seconds: float = 1.0,
         sweep_seconds: float = SWEEP_SECONDS,
@@ -31,6 +32,7 @@ class Maintenance:
         self.artifacts = artifacts
         self.exports = exports
         self.attachments = attachments
+        self.runs = runs
         self.poll_seconds = poll_seconds
         self.sweep_seconds = sweep_seconds
         self.unindexed_seconds = unindexed_seconds
@@ -54,6 +56,8 @@ class Maintenance:
         """Reclaim what has expired. Every step has its own failure handling: one that
         keeps failing must not stop the others."""
         steps = [("artifacts", self.artifacts.sweep), ("exports_expired", self.exports.expire)]
+        if self.runs is not None:
+            steps.append(("resolutions_removed", self.runs.sweep_resolutions))
         # Walking the whole store is the costly step, so it runs less often.
         if time.monotonic() - self._last_unindexed >= self.unindexed_seconds:
             self._last_unindexed = time.monotonic()

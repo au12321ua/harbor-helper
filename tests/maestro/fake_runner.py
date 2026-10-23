@@ -14,6 +14,8 @@ from pathlib import Path
 spec = json.loads(sys.stdin.read())
 out = Path(spec["output_dir"])
 mode = spec["tasks"][0]["task_key"]
+# What arrived, for tests that check the request.
+(out.parent / "request.json").write_text(json.dumps(spec))
 sequence = 0
 
 
