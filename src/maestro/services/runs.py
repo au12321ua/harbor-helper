@@ -48,6 +48,7 @@ from maestro.services.configuration import (
     differences,
     pinned_request,
 )
+from maestro.services.plans import Plans
 from maestro.services.principal import (
     Channel,
     Principal,
@@ -162,6 +163,8 @@ def public_run(
         "pat_id": row["pat_id"],
         "relation": row["relation"],
         "source_run_id": row["source_run_id"],
+        "plan_id": row["plan_id"],
+        "plan_revision": row["plan_revision"],
         "dataset_version_id": row["dataset_version_id"],
         "operation_id": row["operation_id"],
         "client_request_id": row["client_request_id"],
@@ -263,6 +266,8 @@ class Runs:
     def resolve(self, principal: Principal, body: dict) -> dict:
         """Resolve and keep the result for confirmation; nothing is reserved. Readers may
         look too: a read PAT sees what a submission would do but cannot submit it."""
+        with self.db.read() as conn:
+            body = Plans.apply(conn, body)
         request = check_request(body)
         with self.db.read() as conn:
             res = self.resolver.resolve(conn, request)
@@ -337,7 +342,8 @@ class Runs:
             request = None
             hashed = run
         else:
-            request = check_request(body)
+            with self.db.read() as conn:
+                request = check_request(Plans.apply(conn, body))
             hashed = {**request, **run}
         req_hash = idempotency.request_hash(hashed)
         with self.db.read() as conn:
@@ -675,6 +681,8 @@ class Runs:
                 owner_id=principal.user_id,
                 pat_id=principal.pat_id,
                 relation=(source or {}).get("relation", "modified" if source else "initial"),
+                plan_id=(res.request.get("plan") or {}).get("plan_id"),
+                plan_revision=(res.request.get("plan") or {}).get("revision"),
                 source_run_id=source["run_id"] if source else None,
                 dataset_version_id=res.version["id"],
                 model_config_id=model.get("config_id"),
@@ -849,6 +857,7 @@ class Runs:
         model_config_id: str | None = None,
         harness_version_id: str | None = None,
         attachment_version_id: str | None = None,
+        plan_id: str | None = None,
     ) -> tuple[list, str | None]:
         """Deleted runs are hidden; the recycle bin lists them."""
         limit = pagination.check_limit(limit)
@@ -875,6 +884,7 @@ class Runs:
             "model_config_id": model_config_id,
             "harness_version_id": harness_version_id,
             "attachment_version_id": attachment_version_id,
+            "plan_id": plan_id,
             "client_request_id": client_request_id,
             "accepted_after": accepted_after,
             "accepted_before": accepted_before,
@@ -886,6 +896,7 @@ class Runs:
             (t.runs.c.dataset_version_id, dataset_version_id),
             (t.runs.c.model_config_id, model_config_id),
             (t.runs.c.harness_version_id, harness_version_id),
+            (t.runs.c.plan_id, plan_id),
             (t.runs.c.client_request_id, client_request_id),
         ):
             if value is not None:

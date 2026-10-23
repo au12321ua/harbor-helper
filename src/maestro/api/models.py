@@ -482,6 +482,12 @@ class RunConfigFields(Model):
     """A run configuration request (03). Unset fields are inherited: author values for
     task resources, timeouts and parameters, the team policy for the rest."""
 
+    plan_id: str | None = Field(
+        None, description="An experiment plan; fields set here win, the plan fills in the rest"
+    )
+    plan_revision: int | None = Field(
+        None, description="Refuse unless the plan is still at this revision"
+    )
     task_selection: TaskSelection = TaskSelection()
     model_config_id: str | None = None
     model_revision: int | None = Field(
@@ -503,10 +509,12 @@ class RunConfigFields(Model):
 
 
 class ConfigRequest(RunConfigFields):
-    dataset_version_id: str
-    execution_mode: Literal["agent", "oracle"] = Field(
+    dataset_version_id: str | None = Field(None, description="Required unless the plan has it")
+    execution_mode: Literal["agent", "oracle"] | None = Field(
+        None,
         description="agent: a model through a harness; oracle: each task's reference "
-        "solution, a test mode never compared with model results"
+        "solution, a test mode never compared with model results. Required unless the "
+        "plan has it",
     )
 
 
@@ -523,6 +531,45 @@ class RunCreate(RunConfigFields):
         description="Makes this a modified run of that run: its differences are recorded "
         "(start from GET /runs/{run_id}/request)",
     )
+
+
+class PlanCreate(Model):
+    name: str
+    description: str = ""
+    template: dict[str, Any] = Field(
+        {}, description="Fields of a configuration request (see ConfigRequest)"
+    )
+
+
+class PlanUpdate(Model):
+    expected_revision: int
+    name: str | None = None
+    description: str | None = None
+    template: dict[str, Any] | None = None
+
+
+class PlanCopy(Model):
+    name: str | None = None
+
+
+class PlanArchive(Model):
+    archived: bool
+
+
+class Plan(Model):
+    id: str
+    name: str
+    description: str
+    owner_id: str
+    owner_username: str | None
+    revision: int
+    template: dict[str, Any]
+    copied_from: str | None
+    created_at: str
+    updated_at: str
+    archived_at: str | None
+    allowed_actions: list[str]
+    deletion: dict[str, Any] | None = None
 
 
 class RerunSelection(Model):
@@ -786,6 +833,8 @@ class Run(Model):
     pat_id: str | None
     relation: Literal["initial", "rerun", "modified"]
     source_run_id: str | None
+    plan_id: str | None = None
+    plan_revision: int | None = None
     dataset_version_id: str
     operation_id: str
     client_request_id: str | None
@@ -1027,6 +1076,7 @@ ObjectType = Literal[
     "model_config",
     "harness_version",
     "attachment_version",
+    "experiment_plan",
 ]
 
 

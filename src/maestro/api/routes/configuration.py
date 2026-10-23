@@ -72,7 +72,8 @@ def team_policy(request: Request, who: Principal = Depends(principal)):
 def resolve(body: ConfigRequest, request: Request, who: Principal = Depends(principal)):
     """Effective configuration, where each value came from, and what blocks it. Valid
     for a few minutes; submit it with ``resolution_id``. Reserves nothing."""
-    return ok(request, maestro(request).runs.resolve(who, body.model_dump()))
+    # Unset fields stay absent: an experiment plan may fill them in.
+    return ok(request, maestro(request).runs.resolve(who, body.model_dump(exclude_unset=True)))
 
 
 @router.get("/config-resolutions/{resolution_id}", response_model=Envelope[ConfigResolution])

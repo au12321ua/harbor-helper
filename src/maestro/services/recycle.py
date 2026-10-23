@@ -581,6 +581,30 @@ class AttachmentHandler(Handler):
         )
 
 
+class PlanHandler(Handler):
+    """Runs keep their own values; purging empties the template, the row stays."""
+
+    object_type = "experiment_plan"
+    table = t.experiment_plans
+
+    def label(self, conn, row):
+        return row["name"]
+
+    def owner(self, row):
+        return row["owner_id"]
+
+    def authorize(self, principal, row):
+        require_manage_owned(principal, row["owner_id"])
+
+    def purge(self, conn, row, service, actor_id):
+        conn.execute(
+            update(t.experiment_plans)
+            .where(t.experiment_plans.c.id == row["id"])
+            .values(template_json={}, description="")
+        )
+        return Purged()
+
+
 HANDLERS: dict[str, Handler] = {
     h.object_type: h
     for h in (
@@ -594,6 +618,7 @@ HANDLERS: dict[str, Handler] = {
         ModelConfigHandler(),
         HarnessHandler(),
         AttachmentHandler(),
+        PlanHandler(),
     )
 }
 

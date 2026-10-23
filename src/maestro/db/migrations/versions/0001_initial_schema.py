@@ -149,14 +149,20 @@ def upgrade() -> None:
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('owner_id', sa.String(length=40), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
+    sa.Column('description', sa.String(length=1024), nullable=False),
     sa.Column('revision', sa.Integer(), nullable=False),
     sa.Column('template_json', sa.JSON(), nullable=False),
+    sa.Column('copied_from', sa.String(length=40), nullable=True),
     sa.Column('created_at', sa.String(length=32), nullable=False),
     sa.Column('updated_at', sa.String(length=32), nullable=False),
     sa.Column('archived_at', sa.String(length=32), nullable=True),
+    sa.ForeignKeyConstraint(['copied_from'], ['experiment_plans.id'], name=op.f('fk_experiment_plans_copied_from_experiment_plans')),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_experiment_plans_owner_id_users')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_experiment_plans'))
     )
+    with op.batch_alter_table('experiment_plans', schema=None) as batch_op:
+        batch_op.create_index('ix_experiment_plans_name', ['name'], unique=False)
+
     op.create_table('harness_versions',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
@@ -804,6 +810,9 @@ def downgrade() -> None:
         batch_op.drop_index('ix_harness_versions_name_version')
 
     op.drop_table('harness_versions')
+    with op.batch_alter_table('experiment_plans', schema=None) as batch_op:
+        batch_op.drop_index('ix_experiment_plans_name')
+
     op.drop_table('experiment_plans')
     with op.batch_alter_table('deletions', schema=None) as batch_op:
         batch_op.drop_index('ix_deletions_state_deleted')

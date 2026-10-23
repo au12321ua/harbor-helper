@@ -423,17 +423,22 @@ config_resolutions = Table(
 
 # --- Plans, submission and execution (04, 05) --------------------------------
 
+# A saved, partial configuration request (04 section 1). The creator edits it, the team
+# reads and copies it; a run records the revision it used and keeps its own values.
 experiment_plans = Table(
     "experiment_plans",
     metadata,
     _id(),
     _ref("owner_id", "users"),
     Column("name", String(128), nullable=False),
+    Column("description", String(1024), nullable=False),
     Column("revision", Integer, nullable=False),
     _json("template_json"),
+    _ref("copied_from", "experiment_plans", nullable=True),
     _time("created_at"),
     _time("updated_at"),
     _time("archived_at", nullable=True),
+    Index("ix_experiment_plans_name", "name"),
 )
 
 idempotency_records = Table(

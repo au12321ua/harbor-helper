@@ -59,6 +59,59 @@ def _number(value) -> bool:
     return not isinstance(value, bool) and isinstance(value, int | float) and math.isfinite(value)
 
 
+# The fields of a configuration request; an experiment plan holds any of them.
+REQUEST_FIELDS = (
+    "dataset_version_id",
+    "task_selection",
+    "execution_mode",
+    "model_config_id",
+    "model_revision",
+    "harness_version_id",
+    "harness_params",
+    "attachments",
+    "repetitions",
+    "concurrency",
+    "run_deadline_hours",
+    "resources",
+    "timeouts",
+    "parameters",
+)
+NESTED_FIELDS = ("resources", "timeouts", "parameters", "harness_params")
+
+
+def check_template(template) -> dict:
+    """A partial request (an experiment plan): the same checks as a request, on the
+    fields it has; nothing is required."""
+    if not isinstance(template, dict):
+        raise _validation([FieldError("/template", "TYPE", "an object")])
+    unknown = sorted(set(template) - set(REQUEST_FIELDS))
+    if unknown:
+        raise _validation([FieldError(f"/template/{k}", "UNKNOWN_FIELD") for k in unknown])
+    template = {k: v for k, v in template.items() if v is not None}
+    agent = any(k in template for k in ("model_config_id", "harness_version_id", "attachments"))
+    probe = {
+        "dataset_version_id": "-",
+        "execution_mode": "agent" if agent else "oracle",
+        **template,
+    }
+    if probe["execution_mode"] == "agent":
+        probe.setdefault("model_config_id", "-")
+        probe.setdefault("harness_version_id", "-")
+    try:
+        checked = check_request(probe)
+    except MaestroError as error:
+        for found in error.field_errors:
+            found.path = "/template" + found.path
+        raise
+    found = {}
+    for key, value in template.items():
+        if key in NESTED_FIELDS:
+            found[key] = {k: v for k, v in checked[key].items() if k in value}
+        else:
+            found[key] = checked[key]
+    return found
+
+
 def check_request(body: dict) -> dict:
     """Shape and type checks; limits are blockers of the resolution. Absent and null
     both mean "not set here": the field is inherited from the layer below (03 rule 1)."""
@@ -151,7 +204,10 @@ def check_request(body: dict) -> dict:
             )
     if errors:
         raise _validation(errors)
+    plan = body.get("plan")
     return {
+        # Set by the service when an experiment plan filled fields in (never by a client).
+        **({"plan": plan} if isinstance(plan, dict) else {}),
         "dataset_version_id": version_id,
         "task_selection": {"mode": mode, **({"task_ids": sorted(task_ids)} if task_ids else {})},
         "execution_mode": execution_mode,
@@ -349,7 +405,24 @@ class Resolver:
         if res.tasks:
             self._size_and_capacity(conn, team, effective, res)
         res.effective = effective
+        if request.get("plan"):
+            self._plan_sources(request["plan"], res)
         return res
+
+    @staticmethod
+    def _plan_sources(plan: dict, res: Resolution) -> None:
+        """Values the plan filled in come from the plan layer, not this request."""
+        res.references["plan"] = {"id": plan["plan_id"], "revision": plan["revision"]}
+        source = {"layer": "plan", "source_id": plan["plan_id"], "revision": plan["revision"]}
+        renamed = {
+            "/model_config_id": "/model",
+            "/model_revision": "/model",
+            "/harness_version_id": "/harness",
+        }
+        for pointer in plan["fields"]:
+            path = renamed.get(pointer) or pointer.replace("/harness_params/", "/harness/params/")
+            if res.field_sources.get(path, {}).get("layer") == "override":
+                res.field_sources[path] = dict(source)
 
     # --- dataset ------------------------------------------------------------------
 

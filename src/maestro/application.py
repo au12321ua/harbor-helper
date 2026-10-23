@@ -26,6 +26,7 @@ from maestro.services.maintenance import Maintenance
 from maestro.services.model_configs import ModelConfigs
 from maestro.services.operations import Operations
 from maestro.services.pats import Pats
+from maestro.services.plans import Plans
 from maestro.services.policy import Policies
 from maestro.services.preparation import Preparer
 from maestro.services.recycle import Recycle
@@ -48,6 +49,7 @@ class Maestro:
     policies: Policies
     models: ModelConfigs
     attachments: Attachments
+    plans: Plans
     artifacts: Artifacts
     exports: Exports
     recycle: Recycle
@@ -130,6 +132,7 @@ class Maestro:
                 dict(getattr(executor, "harness_parameters", {}) or {}),
             ),
             attachments=Attachments(db, attachment_store, adapters),
+            plans=Plans(db),
             artifacts=artifacts,
             exports=exports,
             recycle=Recycle(db, store, materials, exports, environment, attachment_store),

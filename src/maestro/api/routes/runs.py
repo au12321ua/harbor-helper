@@ -67,7 +67,10 @@ def submit(
             stage="acceptance",
             retryable=True,
         )
-    status, data, replayed = service.runs.submit(who, idempotency_key, body.model_dump())
+    # Unset fields stay absent: an experiment plan may fill them in.
+    status, data, replayed = service.runs.submit(
+        who, idempotency_key, body.model_dump(exclude_unset=True)
+    )
     service.worker.wake()
     # A replay returns the original response; the header lets clients tell them apart.
     headers = {"Idempotent-Replayed": "true"} if replayed else {}
@@ -83,6 +86,7 @@ def list_runs(
     model_config_id: str | None = None,
     harness_version_id: str | None = None,
     attachment_version_id: str | None = None,
+    plan_id: str | None = None,
     client_request_id: str | None = None,
     accepted_after: str | None = None,
     accepted_before: str | None = None,
@@ -99,6 +103,7 @@ def list_runs(
         model_config_id=model_config_id,
         harness_version_id=harness_version_id,
         attachment_version_id=attachment_version_id,
+        plan_id=plan_id,
         client_request_id=client_request_id,
         accepted_after=accepted_after,
         accepted_before=accepted_before,
