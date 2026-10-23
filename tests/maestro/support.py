@@ -102,7 +102,12 @@ def wait_operation(api: Api, operation_id: str, timeout=10.0) -> dict:
 
 
 def submit(api: Api, version_id, key=None, **body) -> dict:
-    payload = {"name": "baseline", "dataset_version_id": version_id, **body}
+    payload = {
+        "name": "baseline",
+        "dataset_version_id": version_id,
+        "execution_mode": "oracle",
+        **body,
+    }
     response = api.post(
         "/api/v1/runs", json=payload, headers={"Idempotency-Key": key or uuid.uuid4().hex}
     )

@@ -245,7 +245,11 @@ def test_live_runner_log_text_is_redacted_before_it_is_stored(service, version_i
             )
         )
     owner = Principal("usr_owner", "owner", Role.MEMBER, Channel.WEB_SESSION, session_id="s")
-    service.runs.submit(owner, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version_id})
+    service.runs.submit(
+        owner,
+        uuid.uuid4().hex,
+        {"name": "r", "dataset_version_id": version_id, "execution_mode": "oracle"},
+    )
     service.worker.start_epoch()
     run_id, lease, spec = service.worker._claim()
     sink = RunSink(service.worker, run_id, lease)

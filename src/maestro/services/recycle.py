@@ -482,6 +482,60 @@ class PatHandler(Handler):
         return Purged()
 
 
+class ModelConfigHandler(Handler):
+    """Accepted runs keep a copy of what they used; deleting stops new choices."""
+
+    object_type = "model_config"
+    table = t.model_configs
+
+    def label(self, conn, row):
+        return row["name"]
+
+    def check_delete(self, conn, principal, row):
+        _refuse_active(
+            _active_runs(conn, t.runs.c.model_config_id == row["id"]),
+            "MODEL_CONFIG_IN_USE",
+            "Queued or running runs use this model configuration; cancel them or wait",
+            "cancel_runs",
+        )
+
+    def purge(self, conn, row, service, actor_id):
+        # Endpoints and parameters go; the row stays as the receipt runs point at.
+        count = conn.execute(
+            delete(t.model_revisions).where(t.model_revisions.c.model_config_id == row["id"])
+        ).rowcount
+        conn.execute(
+            update(t.model_configs)
+            .where(t.model_configs.c.id == row["id"])
+            .values(description="", enabled=False)
+        )
+        return Purged(detail={"revisions": count})
+
+
+class HarnessHandler(Handler):
+    object_type = "harness_version"
+    table = t.harness_versions
+
+    def label(self, conn, row):
+        return f"{row['name']} {row['version']}"
+
+    def check_delete(self, conn, principal, row):
+        _refuse_active(
+            _active_runs(conn, t.runs.c.harness_version_id == row["id"]),
+            "HARNESS_IN_USE",
+            "Queued or running runs use this harness version; cancel them or wait",
+            "cancel_runs",
+        )
+
+    def purge(self, conn, row, service, actor_id):
+        conn.execute(
+            update(t.harness_versions)
+            .where(t.harness_versions.c.id == row["id"])
+            .values(description="", enabled=False)
+        )
+        return Purged()
+
+
 HANDLERS: dict[str, Handler] = {
     h.object_type: h
     for h in (
@@ -492,6 +546,8 @@ HANDLERS: dict[str, Handler] = {
         CredentialHandler(),
         UserHandler(),
         PatHandler(),
+        ModelConfigHandler(),
+        HarnessHandler(),
     )
 }
 

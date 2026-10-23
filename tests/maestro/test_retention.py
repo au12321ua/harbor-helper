@@ -61,7 +61,9 @@ def make_owner(service) -> Principal:
 
 def run(service, owner, version_id, **body) -> str:
     _, data, _ = service.runs.submit(
-        owner, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version_id, **body}
+        owner,
+        uuid.uuid4().hex,
+        {"name": "r", "dataset_version_id": version_id, "execution_mode": "oracle", **body},
     )
     asyncio.run(service.worker.drain())
     return data["run_id"]
@@ -265,11 +267,17 @@ def test_storage_watermarks_pause_acceptance_then_dispatch(local, settings):
     service.runs.disk = watch
     service.worker.disk = watch
     _, queued, _ = service.runs.submit(
-        owner, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version}
+        owner,
+        uuid.uuid4().hex,
+        {"name": "r", "dataset_version_id": version, "execution_mode": "oracle"},
     )
     free["bytes"] = 15 * GIB
     with pytest.raises(MaestroError) as error:
-        service.runs.submit(owner, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version})
+        service.runs.submit(
+            owner,
+            uuid.uuid4().hex,
+            {"name": "r", "dataset_version_id": version, "execution_mode": "oracle"},
+        )
     assert error.value.code == "STORAGE_LOW" and error.value.status == 503
     free["bytes"] = 5 * GIB
     asyncio.run(service.worker.tick())

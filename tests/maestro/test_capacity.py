@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 from conftest import import_version
-from sqlalchemy import update
+from sqlalchemy import select, update
 from support import Api, running, setup_admin
 
 from maestro.db import schema as t
@@ -35,7 +35,9 @@ def owner(service):
 
 def accept(service, owner, version_id, **body):
     _, data, _ = service.runs.submit(
-        owner, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version_id, **body}
+        owner,
+        uuid.uuid4().hex,
+        {"name": "r", "dataset_version_id": version_id, "execution_mode": "oracle", **body},
     )
     return data
 
@@ -49,10 +51,13 @@ def use(service, slots, cpus=64.0, memory_mb=1 << 20):
 
 def set_provider(service, run_id, provider):
     with service.db.write() as conn:
+        effective = conn.execute(
+            select(t.run_snapshots.c.effective_json).where(t.run_snapshots.c.run_id == run_id)
+        ).scalar()
         conn.execute(
             update(t.run_snapshots)
             .where(t.run_snapshots.c.run_id == run_id)
-            .values(effective_json={"model": {"provider": provider}})
+            .values(effective_json={**effective, "model": {"provider": provider}})
         )
 
 

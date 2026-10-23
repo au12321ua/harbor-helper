@@ -278,6 +278,9 @@ function RunDetailView({ runId }: { runId: string }) {
           <Info label="结束时间" value={fmtTime(run.finished_at)} />
           <Info label="总时限" value={fmtTime(run.deadline_at)} />
           <Info label="执行方式" value={<ExecutionMode mode={run.snapshot.effective.execution_mode} />} />
+          {run.snapshot.effective.model != null && (
+            <Info label="模型与 Harness" value={<AgentSummary snapshot={run.snapshot} />} />
+          )}
           {run.state === "queued" && run.queue_reason && (
             <Info
               label="等待原因"
@@ -384,7 +387,24 @@ function ExecutionMode({ mode }: { mode: unknown }) {
       </span>
     );
   }
+  if (mode === "agent") return <span>模型实验</span>;
   return <span>{mode ? String(mode) : "—"}</span>;
+}
+
+/** The model and harness this run froze at acceptance; later edits do not change it. */
+function AgentSummary({ snapshot }: { snapshot: RunDetail["snapshot"] }) {
+  const model = snapshot.effective.model as
+    | { model_id: string; provider: string; protocol: string; revision: number }
+    | undefined;
+  const harness = snapshot.effective.harness as { name: string; version: string } | undefined;
+  const labels = (snapshot.provenance.labels ?? {}) as Record<string, string>;
+  if (!model) return <span>—</span>;
+  return (
+    <span>
+      {labels.model ?? model.model_id}（<code>{model.model_id}</code>，{model.provider}，修订{" "}
+      {model.revision}）· {harness ? `${harness.name} ${harness.version}` : "—"}
+    </span>
+  );
 }
 
 function Info({ label, value }: { label: string; value: ReactNode }) {

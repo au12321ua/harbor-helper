@@ -22,7 +22,7 @@ from maestro.db.engine import Database
 from maestro.domain import limits
 from maestro.domain.states import PatScope, Role, UserStatus
 from maestro.security import passwords, tokens
-from maestro.services import audit, deleted
+from maestro.services import audit, deleted, policy
 from maestro.services.principal import Channel, Principal, require_admin_session
 
 USERNAME = re.compile(r"[a-z][a-z0-9_.-]{1,31}")
@@ -137,6 +137,7 @@ class Accounts:
         self.setup_token_file = setup_token_file
         self.session_hours = session_hours
         self.limiter = RateLimiter(limits.LOGIN_ATTEMPTS_PER_MINUTE)
+        self.policies = policy.Policies(db)
 
     # --- setup -------------------------------------------------------------
 
@@ -365,7 +366,7 @@ class Accounts:
         target_user_id: str | None = None,
     ) -> dict:
         require_admin_session(principal)
-        hours = hours or limits.INVITATION_HOURS
+        hours = hours or self.policies.current().invitation_hours
         if not 1 <= hours <= 24 * 30:
             raise MaestroError("INVITATION_TTL_INVALID", "Validity must be 1-720 hours", 422)
         if not isinstance(note, str) or len(note) > 256:
@@ -580,6 +581,8 @@ class Accounts:
         # Only failures count. The account bucket includes the address, so a stranger
         # guessing from elsewhere cannot lock the real owner out.
         by_source, by_account = f"login:{source}", f"login-user:{username}@{source}"
+        # The team policy sets the limit; a change applies from the next attempt.
+        self.limiter.per_minute = self.policies.current().login_attempts_per_minute
         self.limiter.check(by_source, self.limiter.per_minute * SOURCE_FAILURE_FACTOR)
         self.limiter.check(by_account)
         with self.db.read() as conn:

@@ -28,7 +28,7 @@ from maestro.testing.fakes import failed, scored
 def run_to_end(api, version_id, **body) -> str:
     accepted = api.post(
         "/api/v1/runs",
-        json={"name": "r", "dataset_version_id": version_id, **body},
+        json={"name": "r", "dataset_version_id": version_id, "execution_mode": "oracle", **body},
         headers={"Idempotency-Key": uuid.uuid4().hex},
         expect=202,
     ).json()["data"]

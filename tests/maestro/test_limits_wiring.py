@@ -11,6 +11,7 @@ from test_harbor_executor import Cancel, RecordingDocker, RecordingSink, make_sp
 from maestro import cli
 from maestro.application import Maestro
 from maestro.config import MIB, Settings
+from maestro.db import migrate
 from maestro.execution import harbor
 from maestro.execution.harbor import HarborExecutor
 from maestro.execution.hub import HubSource
@@ -166,6 +167,7 @@ def test_capabilities_report_the_limits_in_force(tmp_path, environment):
     for name in ("data", "cache", "keys"):
         (tmp_path / name).mkdir(mode=0o700)
     service = Maestro.build(settings, environment=environment)
+    migrate.upgrade(service.db)
     try:
         with running(service, run_worker=False) as client:
             limits = client.get("/api/v1/capabilities").json()["data"]["limits"]
@@ -176,5 +178,5 @@ def test_capabilities_report_the_limits_in_force(tmp_path, environment):
     assert limits["artifact_file_max_bytes"] == 8 * MIB
     assert limits["artifact_attempt_max_bytes"] == 80 * MIB
     assert limits["build_timeout_max_sec"] == 900 and limits["hub_runner_slots"] == 3
-    # The team policies are still the fixed ones, next to the deployment limits.
+    # The team policy in force (revision 0, the built-in values), next to the deployment limits.
     assert limits["run_max_tasks"] == 1000 and limits["artifact_ttl_days"] == 7

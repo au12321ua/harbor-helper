@@ -214,6 +214,7 @@ export interface Task {
   resources: Record<string, unknown>;
   timeouts: Record<string, unknown>;
   parameters: AuthorParameter[];
+  required_parameters: string[];
   instruction: string;
   can_submit: boolean;
   blockers: TaskBlocker[];
@@ -265,13 +266,130 @@ export interface SourceVersionDetail {
   existing_version_id: string | null;
 }
 
+export type ExecutionMode = "agent" | "oracle";
+export type ParameterValue = string | { credential_id: string };
+
+/** A run configuration request (03): unset fields are inherited from the layer below. */
+export interface ConfigRequest {
+  dataset_version_id: string;
+  execution_mode: ExecutionMode;
+  task_selection: { mode: "all_eligible" | "explicit"; task_ids?: string[] | null };
+  model_config_id?: string | null;
+  harness_version_id?: string | null;
+  harness_params?: Record<string, unknown>;
+  repetitions?: number | null;
+  concurrency?: number | null;
+  run_deadline_hours?: number | null;
+  resources?: { cpus?: number | null; memory_mb?: number | null };
+  timeouts?: { agent_sec?: number | null; verifier_sec?: number | null };
+  parameters?: Record<string, ParameterValue>;
+}
+
 export interface RunCreate {
   name: string;
-  dataset_version_id: string;
-  task_selection: { mode: "all_eligible" | "explicit"; task_ids?: string[] | null };
-  repetitions: number;
-  concurrency: number;
+  resolution_id: string;
   client_request_id?: string | null;
+}
+
+export interface ConfigBlocker {
+  code: string;
+  path: string;
+  message: string;
+  [extra: string]: unknown;
+}
+
+export interface FieldSource {
+  layer: "author" | "team" | "plan" | "override" | "harness";
+  source_id?: string;
+  revision?: number;
+}
+
+export interface ConfigResolution {
+  resolution_id: string;
+  created_at: string;
+  expires_at: string;
+  request: ConfigRequest;
+  effective_config: Record<string, unknown> & {
+    tasks?: { task_key: string; cpus: number; memory_mb: number; agent_timeout_sec: number | null }[];
+    repetitions?: number;
+    concurrency?: number;
+    run_deadline_hours?: number;
+    parameters?: Record<string, { value?: string; credential_id?: string }>;
+  } | null;
+  field_sources: Record<string, FieldSource>;
+  baseline_differences: { path: string; value: number; tasks_lower: number; tasks_higher: number }[];
+  excluded_tasks: { task_id: string; task_key: string; blockers: TaskBlocker[] }[];
+  required_preparation: { task_key: string; action: string; spec_digest: string }[];
+  cache_observations: { task_key: string; cache_state: string; action: string | null }[];
+  warnings: { code: string; path: string; message: string }[];
+  blockers: ConfigBlocker[];
+  config_digest: string | null;
+  reference_revisions: Record<string, unknown>;
+  labels: Record<string, string>;
+  planned_trials: number;
+}
+
+export type ModelProtocol = "openai-compatible" | "openai" | "anthropic";
+
+export interface ModelConfig {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  revision: number;
+  provider: string;
+  protocol: ModelProtocol;
+  endpoint: string;
+  model_id: string;
+  params: Record<string, unknown>;
+  credential_bound: boolean;
+  credential_problem: string | null;
+  credential_id?: string | null;
+  credential_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HarnessParameterSpec {
+  type: "string" | "integer" | "number" | "boolean";
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+  minimum?: number;
+  maximum?: number;
+}
+
+export interface Harness {
+  id: string;
+  name: string;
+  version: string;
+  agent: string;
+  description: string;
+  protocols: ModelProtocol[];
+  parameter_schema: { parameters: Record<string, HarnessParameterSpec> };
+  content_digest: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface HarnessAdapter {
+  agent: string;
+  protocols: ModelProtocol[];
+}
+
+export interface PolicySetting {
+  name: string;
+  group: "runs" | "access" | "retention";
+  description: string;
+  built_in: number;
+  min: number;
+  max: number;
+}
+
+export interface TeamPolicy {
+  revision: number;
+  values: Record<string, number>;
+  settings: PolicySetting[];
 }
 
 export interface RunAccepted {
@@ -531,7 +649,9 @@ export type RecycleObjectType =
   | "dataset_version"
   | "credential"
   | "user"
-  | "pat";
+  | "pat"
+  | "model_config"
+  | "harness_version";
 
 export interface RecycleEntry {
   id: string;
@@ -569,6 +689,7 @@ export interface Capabilities {
   schema_revision: string;
   features: Record<string, boolean>;
   limits: Record<string, number>;
+  team_policy_revision: number;
   auth: Record<string, unknown>;
   actions: Record<string, Record<string, unknown>>;
   execution: Record<string, unknown>;

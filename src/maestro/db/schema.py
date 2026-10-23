@@ -304,14 +304,31 @@ preparation_pins = Table(
 
 # --- Configuration (03) ---------------------------------------------------------
 
+# Team policy (03 section 2, U-21): defaults and hard limits as numbered revisions. The
+# newest revision is in force; runs record the revision their configuration used.
+team_policies = Table(
+    "team_policies",
+    metadata,
+    _id(),
+    Column("revision", Integer, nullable=False, unique=True),
+    _json("values_json"),
+    _ref("created_by", "users"),
+    _time("created_at"),
+)
+
 model_configs = Table(
     "model_configs",
     metadata,
     _id(),
-    Column("name", String(128), nullable=False, unique=True),
+    # Not unique: a purged configuration frees its name (its row stays as the receipt).
+    Column("name", String(128), nullable=False),
+    Column("description", String(512), nullable=False),
     Column("enabled", Boolean, nullable=False),
     Column("current_revision", Integer, nullable=False),
+    _ref("created_by", "users"),
     _time("created_at"),
+    _time("updated_at"),
+    Index("ix_model_configs_name", "name"),
 )
 
 model_revisions = Table(
@@ -320,12 +337,17 @@ model_revisions = Table(
     _id(),
     _ref("model_config_id", "model_configs"),
     Column("revision", Integer, nullable=False),
+    # Provider name for concurrency limits; protocol and endpoint say how it is called.
     Column("provider", String(64), nullable=False),
+    Column("protocol", String(32), nullable=False),
+    Column("endpoint", String(512), nullable=False),
     Column("model_id", String(256), nullable=False),
     _json("params_json"),
     _ref("credential_id", "credentials", nullable=True),
+    _ref("created_by", "users"),
     _time("created_at"),
     UniqueConstraint("model_config_id", "revision"),
+    CheckConstraint("protocol IN ('openai-compatible','openai','anthropic')", name="protocol"),
 )
 
 harness_versions = Table(
@@ -334,11 +356,18 @@ harness_versions = Table(
     _id(),
     Column("name", String(128), nullable=False),
     Column("version", String(64), nullable=False),
-    Column("content_digest", String(80), nullable=False),
+    # Executor adapter that installs and drives this harness (e.g. Harbor's opencode).
+    Column("agent", String(64), nullable=False),
+    Column("description", String(512), nullable=False),
+    # Model protocols it can speak, and the schema of its parameters.
+    _json("protocols_json"),
     _json("schema_json"),
+    Column("content_digest", String(80), nullable=False),
     Column("enabled", Boolean, nullable=False),
+    _ref("created_by", "users"),
     _time("created_at"),
-    UniqueConstraint("name", "version"),
+    # Not unique for the same reason as model configurations.
+    Index("ix_harness_versions_name_version", "name", "version"),
 )
 
 attachment_versions = Table(
@@ -353,6 +382,22 @@ attachment_versions = Table(
     Column("enabled", Boolean, nullable=False),
     _time("created_at"),
     UniqueConstraint("owner_id", "name", "version"),
+)
+
+# A resolved configuration offered for confirmation (03 section 4). It reserves nothing;
+# acceptance resolves the stored request again and refuses when the result changed.
+config_resolutions = Table(
+    "config_resolutions",
+    metadata,
+    _id(),
+    _ref("owner_id", "users"),
+    _ref("pat_id", "pats", nullable=True),
+    _json("request_json"),
+    _json("result_json"),
+    Column("config_digest", String(80), nullable=True),
+    _time("created_at"),
+    _time("expires_at"),
+    Index("ix_config_resolutions_expires", "expires_at"),
 )
 
 # --- Plans, submission and execution (04, 05) --------------------------------
@@ -410,6 +455,9 @@ runs = Table(
     _ref("source_run_id", "runs", nullable=True),
     Column("relation", String(16), nullable=False),
     _ref("dataset_version_id", "dataset_versions"),
+    # Model configuration and harness of an agent run, for filters (null for Oracle).
+    _ref("model_config_id", "model_configs", nullable=True),
+    _ref("harness_version_id", "harness_versions", nullable=True),
     _ref("operation_id", "operations"),
     Column("state", String(16), nullable=False),
     Column("stop_requested", Boolean, nullable=False),
@@ -430,6 +478,7 @@ runs = Table(
     _time("deadline_at"),
     Index("ix_runs_owner_accepted", "owner_id", "accepted_at", "id"),
     Index("ix_runs_dataset_accepted", "dataset_version_id", "accepted_at", "id"),
+    Index("ix_runs_model_accepted", "model_config_id", "accepted_at", "id"),
     Index("ix_runs_accepted", "accepted_at", "id"),
     Index("ix_runs_owner_client", "owner_id", "client_request_id"),
     Index("ix_runs_state", "state"),

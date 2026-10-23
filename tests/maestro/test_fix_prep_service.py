@@ -319,7 +319,9 @@ def test_an_accepted_run_restores_after_its_admission_was_revoked(
     """Revoking admission stops new work; a run accepted earlier still brings the
     recorded image back, also where this location has no cache record yet."""
     _, accepted, _ = service.runs.submit(
-        admin, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version_id}
+        admin,
+        uuid.uuid4().hex,
+        {"name": "r", "dataset_version_id": version_id, "execution_mode": "oracle"},
     )
     assert accepted["planned_trials"] == 3
     with service.db.read() as conn:

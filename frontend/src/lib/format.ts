@@ -129,6 +129,37 @@ const BLOCKER: Record<string, string> = {
   RESOURCE_CONTENT_UNAVAILABLE: "固定内容已不可得",
   CONFIG_REQUIRED_MISSING: "缺少必填作者参数",
   AUTHOR_PARAMETERS_UNRESOLVED: "作者参数无法确定",
+  TEAM_LIMIT_EXCEEDED: "作者要求超过团队上限",
+};
+
+/** Run-configuration blockers and where values came from (03). */
+export const CONFIG_BLOCKER: Record<string, string> = {
+  LIMIT_EXCEEDED: "超过团队上限",
+  AUTHOR_CONSTRAINT_UNCONFIRMED: "低于作者给的资源，且作者是否硬性要求未经确认",
+  HARNESS_PROTOCOL_UNSUPPORTED: "Harness 不支持该模型的调用协议",
+  EXECUTOR_UNSUPPORTED: "执行器不支持该 Harness 与协议的组合",
+  CREDENTIAL_UNAVAILABLE: "凭据不可用，需要管理员处理",
+  DISABLED: "已停用",
+  DELETED: "已删除",
+  NOT_FOUND: "不存在",
+  UNKNOWN_PARAMETER: "没有这个参数",
+  SENSITIVE_PARAMETER_LITERAL: "秘密参数只能引用凭据，不能直接填值",
+  RESERVED_NAME: "平台保留的名字",
+  TASKS_NOT_SUBMITTABLE: "所选任务中有不存在或被阻止的",
+  NO_SUBMITTABLE_TASKS: "这个版本没有可以提交的任务",
+  RUN_TOO_LARGE: "任务数或试次数超过上限",
+  CAPACITY_SLOTS: "并发超过主机试次槽位，永远无法开始",
+  CAPACITY_CPU: "CPU 需求超过主机总量，永远无法开始",
+  CAPACITY_MEMORY: "内存需求超过主机总量，永远无法开始",
+  PROVIDER_LIMIT: "并发超过该提供商的上限，永远无法开始",
+};
+
+export const SOURCE_LAYER: Record<string, string> = {
+  author: "作者",
+  team: "团队默认",
+  plan: "实验方案",
+  override: "本次填写",
+  harness: "Harness 默认",
 };
 
 export function blockerText(blocker: TaskBlocker): string {
@@ -210,6 +241,8 @@ export const RECYCLE_TYPE: Record<string, string> = {
   credential: "凭据",
   user: "成员",
   pat: "访问令牌",
+  model_config: "模型配置",
+  harness_version: "Harness 版本",
 };
 
 export const STORAGE_LEVEL: Labels = {

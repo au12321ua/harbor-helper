@@ -1,10 +1,11 @@
 """E2E-RUN-01 with the fake executor: an agent uses only a PAT and the HTTP API.
 
-Covered here: capabilities, catalog, idempotent submit, Operation polling,
-per-trial scores and attempts, artifact download with digest check, and that
-a client disconnect does not cancel the run. Configuration resolution (M5),
-models/Harness/credentials binding and the generated SDK (M7) are not yet part
-of the flow.
+The administrator prepares a model configuration bound to a team credential and a
+harness version beforehand (as the scenario's precondition says). The agent then reads
+capabilities, the catalog, models and harnesses, resolves the configuration, checks the
+blockers, submits the resolution idempotently, polls the Operation, reads per-trial
+scores and attempts, and downloads an artifact with a digest check. The generated SDK
+(M7) is not yet part of the flow.
 """
 
 import hashlib
@@ -14,6 +15,50 @@ from conftest import import_version
 from support import create_pat, running, setup_admin, wait_operation
 
 from maestro.testing.fakes import scored
+
+
+def prepare_model(admin) -> tuple[str, str]:
+    """The administrator's part: a credential, a model bound to it, a harness version."""
+    credential = admin.post(
+        "/api/v1/admin/credentials",
+        json={
+            "name": "demo-key",
+            "kind": "model_api_key",
+            "provider": "demo",
+            "value": "sk-demo-not-a-real-key-0000",
+        },
+        expect=201,
+    ).json()["data"]
+    model = admin.post(
+        "/api/v1/admin/model-configs",
+        json={
+            "name": "demo",
+            "provider": "demo",
+            "protocol": "openai-compatible",
+            "endpoint": "https://models.example.test/v1",
+            "model_id": "demo-model",
+            "params": {"temperature": 0},
+            "credential_id": credential["id"],
+        },
+        expect=201,
+    ).json()["data"]
+    harness = admin.post(
+        "/api/v1/admin/harness-versions",
+        json={
+            "name": "fake-harness",
+            "version": "1.0.0",
+            "agent": "fake-agent",
+            "protocols": ["openai-compatible"],
+        },
+        expect=201,
+    ).json()["data"]
+    return model["id"], harness["id"]
+
+
+def credential_of(admin, model_id: str) -> str:
+    return admin.get(f"/api/v1/model-configs/{model_id}", expect=200).json()["data"][
+        "credential_id"
+    ]
 
 
 def test_agent_runs_a_complete_experiment_with_only_a_pat(service, version_id, executor):
@@ -31,11 +76,35 @@ def test_agent_runs_a_complete_experiment_with_only_a_pat(service, version_id, e
         tasks = agent.get(f"/api/v1/dataset-versions/{version['id']}/tasks").json()["data"]
         assert all(task["can_submit"] for task in tasks)
 
+        model_id, harness_id = prepare_model(admin)
+        models = agent.get("/api/v1/model-configs", expect=200).json()["data"]
+        assert [m["id"] for m in models] == [model_id]
+        assert models[0]["credential_bound"] and models[0]["credential_id"] is None
+        harnesses = agent.get("/api/v1/harness-versions", expect=200).json()["data"]
+        assert [h["id"] for h in harnesses] == [harness_id]
+
+        resolution = agent.post(
+            "/api/v1/config-resolutions",
+            json={
+                "dataset_version_id": version["id"],
+                "execution_mode": "agent",
+                "model_config_id": model_id,
+                "harness_version_id": harness_id,
+                "repetitions": 2,
+            },
+            expect=201,
+        ).json()["data"]
+        assert resolution["blockers"] == [] and resolution["planned_trials"] == 6
+        effective = resolution["effective_config"]
+        assert effective["model"]["model_id"] == "demo-model"
+        assert effective["harness"]["name"] == "fake-harness"
+        assert resolution["field_sources"]["/repetitions"] == {"layer": "override"}
+        assert resolution["field_sources"]["/concurrency"]["layer"] == "team"
+
         key = uuid.uuid4().hex
         body = {
             "name": "baseline",
-            "dataset_version_id": version["id"],
-            "repetitions": 2,
+            "resolution_id": resolution["resolution_id"],
             "client_request_id": "agent-round-1",
         }
         accepted = agent.post(
@@ -55,6 +124,10 @@ def test_agent_runs_a_complete_experiment_with_only_a_pat(service, version_id, e
         assert run["state"] == "finished" and run["result_completeness"] == "complete"
         assert run["artifact_state"] == "complete" and run["cleanup_state"] == "complete"
         assert run["snapshot"]["config_digest"] == accepted["config_digest"]
+        assert accepted["config_digest"] == resolution["config_digest"]
+        provenance = run["snapshot"]["provenance"]
+        assert provenance["resolution_id"] == resolution["resolution_id"]
+        assert provenance["credential_ids"] == [credential_of(admin, model_id)]
         assert run["pat_id"] is not None
 
         trials = agent.get(f"/api/v1/runs/{accepted['run_id']}/trials").json()["data"]
@@ -90,7 +163,7 @@ def test_service_without_executor_refuses_runs_honestly(settings, source, enviro
         assert client.get("/health/ready").json()["accepting_runs"] is False
         response = admin.post(
             "/api/v1/runs",
-            json={"name": "x", "dataset_version_id": version},
+            json={"name": "x", "dataset_version_id": version, "execution_mode": "oracle"},
             headers={"Idempotency-Key": uuid.uuid4().hex},
         )
         assert response.status_code == 503

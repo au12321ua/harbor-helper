@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Model(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
 
 class Meta(Model):
@@ -348,6 +348,7 @@ class Task(Model):
     resources: dict[str, Any]
     timeouts: dict[str, Any]
     parameters: list[AuthorParameter]
+    required_parameters: list[str] = []
     instruction: str
     can_submit: bool
     blockers: list[TaskBlocker]
@@ -460,20 +461,194 @@ class TaskSelection(Model):
     task_ids: list[str] | None = None
 
 
-class RunCreate(Model):
-    """M2 direct configuration; M5 replaces it with a configuration resolution."""
+class CredentialRef(Model):
+    credential_id: str
+
+
+class ResourceOverrides(Model):
+    cpus: float | None = None
+    memory_mb: int | None = None
+
+
+class TimeoutOverrides(Model):
+    agent_sec: float | None = None
+    verifier_sec: float | None = None
+
+
+class RunConfigFields(Model):
+    """A run configuration request (03). Unset fields are inherited: author values for
+    task resources, timeouts and parameters, the team policy for the rest."""
+
+    task_selection: TaskSelection = TaskSelection()
+    model_config_id: str | None = None
+    harness_version_id: str | None = None
+    harness_params: dict[str, Any] = {}
+    repetitions: int | None = None
+    concurrency: int | None = None
+    run_deadline_hours: int | None = None
+    resources: ResourceOverrides = ResourceOverrides()
+    timeouts: TimeoutOverrides = TimeoutOverrides()
+    parameters: dict[str, str | CredentialRef] = Field(
+        {}, description="Author parameter values; secret ones as a credential reference"
+    )
+
+
+class ConfigRequest(RunConfigFields):
+    dataset_version_id: str
+    execution_mode: Literal["agent", "oracle"] = Field(
+        description="agent: a model through a harness; oracle: each task's reference "
+        "solution, a test mode never compared with model results"
+    )
+
+
+class RunCreate(RunConfigFields):
+    """Either ``resolution_id`` of a resolution made before, or the configuration inline."""
 
     name: str
-    dataset_version_id: str
-    task_selection: TaskSelection = TaskSelection()
-    repetitions: int = 1
-    concurrency: int = 4
-    execution_mode: Literal["oracle"] = Field(
-        "oracle",
-        description="Until model configuration exists only the Oracle test mode runs: each "
-        "task's reference solution, never compared with model results",
-    )
+    resolution_id: str | None = None
+    dataset_version_id: str | None = None
+    execution_mode: Literal["agent", "oracle"] | None = None
     client_request_id: str | None = None
+
+
+class ConfigBlocker(Model):
+    model_config = ConfigDict(extra="allow")
+    code: str
+    path: str
+    message: str
+
+
+class ConfigResolution(Model):
+    resolution_id: str
+    created_at: str
+    expires_at: str
+    request: dict[str, Any]
+    effective_config: dict[str, Any] | None
+    field_sources: dict[str, dict[str, Any]]
+    baseline_differences: list[dict[str, Any]]
+    excluded_tasks: list[dict[str, Any]]
+    required_preparation: list[dict[str, Any]]
+    cache_observations: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    blockers: list[ConfigBlocker]
+    config_digest: str | None
+    reference_revisions: dict[str, Any]
+    labels: dict[str, str]
+    planned_trials: int
+
+
+Protocol = Literal["openai-compatible", "openai", "anthropic"]
+
+
+class ModelConfigFields(Model):
+    provider: str = Field(description="Provider name; concurrency limits apply per provider")
+    protocol: Protocol
+    endpoint: str = Field(description="http(s) base URL, no credentials or query")
+    model_id: str
+    params: dict[str, Any] = {}
+    credential_id: str | None = None
+    description: str = ""
+
+
+class ModelConfigCreate(ModelConfigFields):
+    name: str
+
+
+class ModelConfigRevise(ModelConfigFields):
+    expected_revision: int
+
+
+class ModelRevision(Model):
+    revision: int
+    provider: str
+    protocol: str
+    endpoint: str
+    model_id: str
+    params: dict[str, Any]
+    credential_bound: bool
+    credential_id: str | None = None
+    created_at: str
+
+
+class ModelConfig(Model):
+    id: str
+    name: str
+    description: str
+    enabled: bool
+    revision: int
+    provider: str
+    protocol: str
+    endpoint: str
+    model_id: str
+    params: dict[str, Any]
+    credential_bound: bool
+    credential_problem: str | None
+    credential_id: str | None = Field(None, description="Administrators only")
+    credential_name: str | None = Field(None, description="Administrators only")
+    created_at: str
+    updated_at: str
+    deletion: dict[str, Any] | None = None
+    revisions: list[ModelRevision] | None = None
+
+
+class HarnessCreate(Model):
+    name: str
+    version: str
+    agent: str = Field(description="Executor adapter; see /admin/harness-adapters")
+    protocols: list[Protocol]
+    parameter_schema: dict[str, Any] = {"parameters": {}}
+    description: str = ""
+
+
+class Harness(Model):
+    id: str
+    name: str
+    version: str
+    agent: str
+    description: str
+    protocols: list[str]
+    parameter_schema: dict[str, Any]
+    content_digest: str
+    enabled: bool
+    created_at: str
+    deletion: dict[str, Any] | None = None
+
+
+class HarnessAdapter(Model):
+    agent: str
+    protocols: list[str]
+
+
+class EnabledChange(Model):
+    enabled: bool
+
+
+class PolicySetting(Model):
+    name: str
+    group: str
+    description: str
+    built_in: int
+    min: int
+    max: int
+
+
+class TeamPolicy(Model):
+    revision: int
+    values: dict[str, int]
+    settings: list[PolicySetting]
+
+
+class TeamPolicyUpdate(Model):
+    values: dict[str, int]
+    expected_revision: int
+
+
+class TeamPolicyRevision(Model):
+    revision: int
+    values: dict[str, int]
+    created_by: str
+    created_by_username: str
+    created_at: str
 
 
 class RunAccepted(Model):
@@ -765,7 +940,17 @@ class Export(Model):
 
 # --- deletion and recycle bin ---------------------------------------------------------
 
-ObjectType = Literal["run", "artifact", "dataset", "dataset_version", "credential", "user", "pat"]
+ObjectType = Literal[
+    "run",
+    "artifact",
+    "dataset",
+    "dataset_version",
+    "credential",
+    "user",
+    "pat",
+    "model_config",
+    "harness_version",
+]
 
 
 class RecycleEntry(Model):
@@ -831,6 +1016,7 @@ class Capabilities(Model):
     schema_revision: str
     features: dict[str, bool]
     limits: dict[str, int]
+    team_policy_revision: int
     auth: dict[str, Any]
     actions: dict[str, dict[str, Any]]
     execution: dict[str, Any]

@@ -243,8 +243,9 @@ def test_author_parameters_unsupported_tasks_and_revocation(service, source):
         assert tasks["needs-key"]["resources"]["cpus"] == 2
         assert tasks["needs-key"]["resources"]["constraint_strength"] == "unknown"
         assert tasks["needs-key"]["admission"]["state"] == "admitted"
-        (blocker,) = tasks["needs-key"]["blockers"]
-        assert (blocker["code"], blocker["parameters"]) == ("CONFIG_REQUIRED_MISSING", ["REGION"])
+        # A required parameter is a value the run must give, not a blocker of the task.
+        assert tasks["needs-key"]["blockers"] == []
+        assert tasks["needs-key"]["required_parameters"] == ["REGION"]
         assert tasks["gpu"]["admission"]["state"] == "first_failed"
         error = tasks["gpu"]["blockers"][0]["first_preparation_error"]
         assert error["code"] == "PREPARATION_UNSUPPORTED" and "gpus" in error["message"]

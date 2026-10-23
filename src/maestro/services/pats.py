@@ -12,10 +12,9 @@ from maestro.core.errors import FieldError, MaestroError, not_found
 from maestro.core.ids import new_id
 from maestro.db import schema as t
 from maestro.db.engine import Database
-from maestro.domain import limits
 from maestro.domain.states import PatScope
 from maestro.security import tokens
-from maestro.services import audit, deleted
+from maestro.services import audit, deleted, policy
 from maestro.services.principal import Principal, require_web_session
 
 
@@ -47,6 +46,7 @@ def public_pat(row) -> dict:
 class Pats:
     def __init__(self, db: Database):
         self.db = db
+        self.policies = policy.Policies(db)
 
     def create(
         self,
@@ -57,19 +57,16 @@ class Pats:
         run_limit: int | None,
     ) -> dict:
         require_web_session(principal)
-        days = limits.PAT_DEFAULT_DAYS if expires_in_days is None else expires_in_days
-        run_limit = limits.PAT_DEFAULT_RUN_LIMIT if run_limit is None else run_limit
+        team = self.policies.current()
+        days = team.pat_default_days if expires_in_days is None else expires_in_days
+        run_limit = team.pat_default_run_limit if run_limit is None else run_limit
         errors = []
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 128:
             errors.append(FieldError("/name", "LENGTH", "1-128 characters"))
-        if not 1 <= days <= limits.PAT_MAX_DAYS:
-            errors.append(
-                FieldError("/expires_in_days", "LIMIT_EXCEEDED", limit=limits.PAT_MAX_DAYS)
-            )
-        if not 0 <= run_limit <= limits.PAT_MAX_RUN_LIMIT:
-            errors.append(
-                FieldError("/run_limit", "LIMIT_EXCEEDED", limit=limits.PAT_MAX_RUN_LIMIT)
-            )
+        if not 1 <= days <= team.pat_max_days:
+            errors.append(FieldError("/expires_in_days", "LIMIT_EXCEEDED", limit=team.pat_max_days))
+        if not 0 <= run_limit <= team.pat_max_run_limit:
+            errors.append(FieldError("/run_limit", "LIMIT_EXCEEDED", limit=team.pat_max_run_limit))
         if errors:
             raise MaestroError("PAT_INVALID", "Invalid token settings", 422, field_errors=errors)
         token = tokens.generate("pat")

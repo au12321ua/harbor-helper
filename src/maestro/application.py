@@ -15,13 +15,16 @@ from maestro.services.accounts import Accounts
 from maestro.services.artifacts import Artifacts
 from maestro.services.capacity import Capacity, HostCapacity
 from maestro.services.catalog import Catalog
+from maestro.services.configuration import Resolver
 from maestro.services.credentials import Credentials
 from maestro.services.datasets import Datasets
 from maestro.services.disk import DiskWatch
 from maestro.services.exports import Exports
 from maestro.services.maintenance import Maintenance
+from maestro.services.model_configs import ModelConfigs
 from maestro.services.operations import Operations
 from maestro.services.pats import Pats
+from maestro.services.policy import Policies
 from maestro.services.preparation import Preparer
 from maestro.services.recycle import Recycle
 from maestro.services.runs import Runs
@@ -40,6 +43,8 @@ class Maestro:
     catalog: Catalog
     datasets: Datasets
     runs: Runs
+    policies: Policies
+    models: ModelConfigs
     artifacts: Artifacts
     exports: Exports
     recycle: Recycle
@@ -92,7 +97,13 @@ class Maestro:
             else None
         )
         location = environment.location_id if environment is not None else "local-docker"
-        runs = Runs(db, host, disk)
+        adapters = dict(executor.harness_adapters) if executor is not None else None
+        resolver = Resolver(
+            host,
+            adapters_of=lambda: adapters,
+            executor_id=executor.executor_id if executor is not None else None,
+        )
+        runs = Runs(db, host, disk, resolver)
         artifacts = Artifacts(db, store)
         exports = Exports(
             db, store, settings.exports_dir, runs, disk, max_bytes=settings.export_max_bytes
@@ -108,6 +119,8 @@ class Maestro:
             catalog=Catalog(db, location),
             datasets=Datasets(db, sources, credentials),
             runs=runs,
+            policies=Policies(db),
+            models=ModelConfigs(db, adapters),
             artifacts=artifacts,
             exports=exports,
             recycle=Recycle(db, store, materials, exports, environment),

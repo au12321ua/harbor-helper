@@ -37,7 +37,9 @@ def accept(service, owner, version_id, **body):
     import uuid
 
     _, data, _ = service.runs.submit(
-        owner, uuid.uuid4().hex, {"name": "r", "dataset_version_id": version_id, **body}
+        owner,
+        uuid.uuid4().hex,
+        {"name": "r", "dataset_version_id": version_id, "execution_mode": "oracle", **body},
     )
     return data
 

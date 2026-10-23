@@ -6,7 +6,7 @@ from sqlalchemy import func, select, update
 from support import create_pat, invite_member, running, setup_admin, submit
 
 from maestro.db import schema as t
-from maestro.services.runs import Runs
+from maestro.services.configuration import Resolver
 
 
 def count(service, table):
@@ -122,22 +122,22 @@ def test_blocked_tasks_are_excluded_or_rejected_before_acceptance(service, versi
 
 def test_admission_revoked_between_expansion_and_acceptance(service, version_id, monkeypatch):
     """F-26: the write transaction re-checks admission and charges nothing on failure."""
-    original = Runs._expand
+    original = Resolver.resolve
 
     def expand_then_revoke(self, conn, request):
-        plan = original(self, conn, request)
+        resolved = original(self, conn, request)
         with service.db.write() as other:
             other.execute(
                 update(t.task_admissions)
-                .where(t.task_admissions.c.id == plan["tasks"][0]["admission_id"])
+                .where(t.task_admissions.c.id == resolved.tasks[0]["admission_id"])
                 .values(state="revoked", revision=2)
             )
-        return plan
+        return resolved
 
     with running(service, run_worker=False) as client:
         admin = setup_admin(service, client)
         pat = create_pat(admin, run_limit=3)
-        monkeypatch.setattr(Runs, "_expand", expand_then_revoke)
+        monkeypatch.setattr(Resolver, "resolve", expand_then_revoke)
         response = submit(pat, version_id)
         assert response.status_code == 409
         assert response.json()["error"]["code"] == "ADMISSION_CHANGED"

@@ -11,7 +11,7 @@ from maestro.core.errors import not_found
 from maestro.db import schema as t
 from maestro.db.engine import Database
 from maestro.domain import scoring
-from maestro.execution.materials import configuration_blockers
+from maestro.execution.materials import configuration_blockers, required_parameters
 from maestro.services import deleted, pagination
 
 ADMITTED = "admitted"
@@ -155,6 +155,8 @@ def task_view(task, admission, availability: dict, preparation, location_id: str
         "resources": definition.get("resources") or {},
         "timeouts": definition.get("timeouts") or {},
         "parameters": definition.get("parameters") or [],
+        # Values a run must supply (03); not a blocker of the task itself.
+        "required_parameters": required_parameters(definition),
         "instruction": definition.get("instruction") or "",
         "can_submit": not blockers,
         "blockers": blockers,

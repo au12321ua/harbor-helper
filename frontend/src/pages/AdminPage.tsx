@@ -34,6 +34,7 @@ import {
   shortId,
 } from "@/lib/format";
 import { limit, useLoad, useSession } from "@/lib/hooks";
+import { HarnessesTab, ModelsTab, PolicyTab } from "@/pages/admin/ConfigurationTabs";
 import type {
   AuditEvent,
   CapacityOverview,
@@ -61,6 +62,9 @@ export function AdminPage() {
           <TabsTrigger value="members">成员</TabsTrigger>
           <TabsTrigger value="invitations">邀请</TabsTrigger>
           <TabsTrigger value="credentials">凭据</TabsTrigger>
+          <TabsTrigger value="models">模型</TabsTrigger>
+          <TabsTrigger value="harnesses">Harness</TabsTrigger>
+          <TabsTrigger value="policy">团队策略</TabsTrigger>
           <TabsTrigger value="capacity">容量</TabsTrigger>
           <TabsTrigger value="master-key">主密钥</TabsTrigger>
           <TabsTrigger value="recycle-bin">回收站</TabsTrigger>
@@ -74,6 +78,15 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="credentials">
           <CredentialsTab />
+        </TabsContent>
+        <TabsContent value="models">
+          <ModelsTab />
+        </TabsContent>
+        <TabsContent value="harnesses">
+          <HarnessesTab />
+        </TabsContent>
+        <TabsContent value="policy">
+          <PolicyTab />
         </TabsContent>
         <TabsContent value="capacity">
           <CapacityTab />

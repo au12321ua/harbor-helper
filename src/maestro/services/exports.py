@@ -30,7 +30,7 @@ from maestro.db.engine import Database
 from maestro.domain import limits
 from maestro.domain.states import OperationStatus
 from maestro.execution.policy import MAPPING_ID, POLICY_VERSION
-from maestro.services import audit, deleted, operations, pagination
+from maestro.services import audit, deleted, operations, pagination, policy
 from maestro.services.principal import Principal, require_admin_session
 
 log = logging.getLogger(__name__)
@@ -77,16 +77,16 @@ def public_export(row) -> dict:
     }
 
 
-def _check_request(body: dict) -> dict:
+def _check_request(body: dict, team: policy.Policy) -> dict:
     errors = []
     run_ids = body.get("run_ids")
     if (
         not isinstance(run_ids, list)
-        or not 1 <= len(run_ids) <= limits.EXPORT_MAX_RUNS
+        or not 1 <= len(run_ids) <= team.export_max_runs
         or not all(isinstance(x, str) for x in run_ids)
         or len(set(run_ids)) != len(run_ids)
     ):
-        errors.append(FieldError("/run_ids", "INVALID", limit=limits.EXPORT_MAX_RUNS))
+        errors.append(FieldError("/run_ids", "INVALID", limit=team.export_max_runs))
     include = body.get("include_artifacts", True)
     if not isinstance(include, bool):
         errors.append(FieldError("/include_artifacts", "TYPE"))
@@ -95,7 +95,7 @@ def _check_request(body: dict) -> dict:
         value = body.get(name)
         if value is not None and (
             not isinstance(value, list)
-            or not 1 <= len(value) <= limits.RUN_MAX_TASKS
+            or not 1 <= len(value) <= team.run_max_tasks
             or not all(isinstance(x, str) and 1 <= len(x) <= 256 for x in value)
         ):
             errors.append(FieldError(f"/{name}", "INVALID"))
@@ -129,7 +129,8 @@ class Exports:
         """Exporting reads team-shared results, so a read PAT may export too. A package
         can take up to ``max_bytes``, so creation is limited per user and, like
         new runs, paused while free disk space is low."""
-        request = _check_request(body)
+        team = policy.Policies(self.db).current()
+        request = _check_request(body, team)
         if self.disk:
             self.disk.refuse_if_low("exports")
         export_id = new_id("exp")
@@ -140,10 +141,10 @@ class Exports:
                     t.exports.c.state.in_(["queued", "building"]),
                 )
             ).scalar()
-            if active >= limits.EXPORT_MAX_ACTIVE_PER_USER:
+            if active >= team.export_max_active_per_user:
                 raise MaestroError(
                     "EXPORT_LIMIT_REACHED",
-                    f"At most {limits.EXPORT_MAX_ACTIVE_PER_USER} of your exports can be "
+                    f"At most {team.export_max_active_per_user} of your exports can be "
                     "queued or building at once; wait for one to finish",
                     429,
                     retryable=True,
@@ -610,7 +611,9 @@ class Exports:
                     summary_json=summary,
                     error_json=error,
                     finished_at=at,
-                    expires_at=clock.to_text(now + clock.timedelta(hours=limits.EXPORT_TTL_HOURS)),
+                    expires_at=clock.to_text(
+                        now + clock.timedelta(hours=policy.current(conn).export_ttl_hours)
+                    ),
                 )
             )
             operations.advance(

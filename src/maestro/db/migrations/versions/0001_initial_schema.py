@@ -27,17 +27,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_content_availability')),
     sa.UniqueConstraint('content_digest', 'resource_kind', name=op.f('uq_content_availability_content_digest_resource_kind'))
     )
-    op.create_table('harness_versions',
-    sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('name', sa.String(length=128), nullable=False),
-    sa.Column('version', sa.String(length=64), nullable=False),
-    sa.Column('content_digest', sa.String(length=80), nullable=False),
-    sa.Column('schema_json', sa.JSON(), nullable=False),
-    sa.Column('enabled', sa.Boolean(), nullable=False),
-    sa.Column('created_at', sa.String(length=32), nullable=False),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_harness_versions')),
-    sa.UniqueConstraint('name', 'version', name=op.f('uq_harness_versions_name_version'))
-    )
     op.create_table('idempotency_records',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('principal_id', sa.String(length=40), nullable=False),
@@ -70,15 +59,6 @@ def upgrade() -> None:
     sa.CheckConstraint('generation >= 1', name=op.f('ck_master_key_state_generation')),
     sa.CheckConstraint('singleton = 1', name=op.f('ck_master_key_state_singleton')),
     sa.PrimaryKeyConstraint('singleton', name=op.f('pk_master_key_state'))
-    )
-    op.create_table('model_configs',
-    sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('name', sa.String(length=128), nullable=False),
-    sa.Column('enabled', sa.Boolean(), nullable=False),
-    sa.Column('current_revision', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.String(length=32), nullable=False),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_model_configs')),
-    sa.UniqueConstraint('name', name=op.f('uq_model_configs_name'))
     )
     op.create_table('service_epochs',
     sa.Column('id', sa.String(length=40), nullable=False),
@@ -170,6 +150,24 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_experiment_plans_owner_id_users')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_experiment_plans'))
     )
+    op.create_table('harness_versions',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('name', sa.String(length=128), nullable=False),
+    sa.Column('version', sa.String(length=64), nullable=False),
+    sa.Column('agent', sa.String(length=64), nullable=False),
+    sa.Column('description', sa.String(length=512), nullable=False),
+    sa.Column('protocols_json', sa.JSON(), nullable=False),
+    sa.Column('schema_json', sa.JSON(), nullable=False),
+    sa.Column('content_digest', sa.String(length=80), nullable=False),
+    sa.Column('enabled', sa.Boolean(), nullable=False),
+    sa.Column('created_by', sa.String(length=40), nullable=False),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_harness_versions_created_by_users')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_harness_versions'))
+    )
+    with op.batch_alter_table('harness_versions', schema=None) as batch_op:
+        batch_op.create_index('ix_harness_versions_name_version', ['name', 'version'], unique=False)
+
     op.create_table('invitations',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('token_hash', sa.String(length=80), nullable=False),
@@ -189,6 +187,21 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_invitations')),
     sa.UniqueConstraint('token_hash', name=op.f('uq_invitations_token_hash'))
     )
+    op.create_table('model_configs',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('name', sa.String(length=128), nullable=False),
+    sa.Column('description', sa.String(length=512), nullable=False),
+    sa.Column('enabled', sa.Boolean(), nullable=False),
+    sa.Column('current_revision', sa.Integer(), nullable=False),
+    sa.Column('created_by', sa.String(length=40), nullable=False),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.Column('updated_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_model_configs_created_by_users')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_model_configs'))
+    )
+    with op.batch_alter_table('model_configs', schema=None) as batch_op:
+        batch_op.create_index('ix_model_configs_name', ['name'], unique=False)
+
     op.create_table('pats',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('owner_id', sa.String(length=40), nullable=False),
@@ -237,6 +250,16 @@ def upgrade() -> None:
     with op.batch_alter_table('sessions', schema=None) as batch_op:
         batch_op.create_index('ix_sessions_user', ['user_id'], unique=False)
 
+    op.create_table('team_policies',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('revision', sa.Integer(), nullable=False),
+    sa.Column('values_json', sa.JSON(), nullable=False),
+    sa.Column('created_by', sa.String(length=40), nullable=False),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_team_policies_created_by_users')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_team_policies')),
+    sa.UniqueConstraint('revision', name=op.f('uq_team_policies_revision'))
+    )
     op.create_table('audit_events',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('actor_user_id', sa.String(length=40), nullable=True),
@@ -256,6 +279,22 @@ def upgrade() -> None:
     with op.batch_alter_table('audit_events', schema=None) as batch_op:
         batch_op.create_index('ix_audit_created', ['created_at', 'id'], unique=False)
         batch_op.create_index('ix_audit_object', ['object_type', 'object_id', 'created_at'], unique=False)
+
+    op.create_table('config_resolutions',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('owner_id', sa.String(length=40), nullable=False),
+    sa.Column('pat_id', sa.String(length=40), nullable=True),
+    sa.Column('request_json', sa.JSON(), nullable=False),
+    sa.Column('result_json', sa.JSON(), nullable=False),
+    sa.Column('config_digest', sa.String(length=80), nullable=True),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.Column('expires_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_config_resolutions_owner_id_users')),
+    sa.ForeignKeyConstraint(['pat_id'], ['pats.id'], name=op.f('fk_config_resolutions_pat_id_pats')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_config_resolutions'))
+    )
+    with op.batch_alter_table('config_resolutions', schema=None) as batch_op:
+        batch_op.create_index('ix_config_resolutions_expires', ['expires_at'], unique=False)
 
     op.create_table('datasets',
     sa.Column('id', sa.String(length=40), nullable=False),
@@ -277,10 +316,15 @@ def upgrade() -> None:
     sa.Column('model_config_id', sa.String(length=40), nullable=False),
     sa.Column('revision', sa.Integer(), nullable=False),
     sa.Column('provider', sa.String(length=64), nullable=False),
+    sa.Column('protocol', sa.String(length=32), nullable=False),
+    sa.Column('endpoint', sa.String(length=512), nullable=False),
     sa.Column('model_id', sa.String(length=256), nullable=False),
     sa.Column('params_json', sa.JSON(), nullable=False),
     sa.Column('credential_id', sa.String(length=40), nullable=True),
+    sa.Column('created_by', sa.String(length=40), nullable=False),
     sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.CheckConstraint("protocol IN ('openai-compatible','openai','anthropic')", name=op.f('ck_model_revisions_protocol')),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_model_revisions_created_by_users')),
     sa.ForeignKeyConstraint(['credential_id'], ['credentials.id'], name=op.f('fk_model_revisions_credential_id_credentials')),
     sa.ForeignKeyConstraint(['model_config_id'], ['model_configs.id'], name=op.f('fk_model_revisions_model_config_id_model_configs')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_model_revisions')),
@@ -383,6 +427,8 @@ def upgrade() -> None:
     sa.Column('source_run_id', sa.String(length=40), nullable=True),
     sa.Column('relation', sa.String(length=16), nullable=False),
     sa.Column('dataset_version_id', sa.String(length=40), nullable=False),
+    sa.Column('model_config_id', sa.String(length=40), nullable=True),
+    sa.Column('harness_version_id', sa.String(length=40), nullable=True),
     sa.Column('operation_id', sa.String(length=40), nullable=False),
     sa.Column('state', sa.String(length=16), nullable=False),
     sa.Column('stop_requested', sa.Boolean(), nullable=False),
@@ -405,6 +451,8 @@ def upgrade() -> None:
     sa.CheckConstraint("state IN ('queued','preparing','running','finalizing','finished','cancelled','interrupted')", name=op.f('ck_runs_state')),
     sa.ForeignKeyConstraint(['batch_id'], ['submission_batches.id'], name=op.f('fk_runs_batch_id_submission_batches')),
     sa.ForeignKeyConstraint(['dataset_version_id'], ['dataset_versions.id'], name=op.f('fk_runs_dataset_version_id_dataset_versions')),
+    sa.ForeignKeyConstraint(['harness_version_id'], ['harness_versions.id'], name=op.f('fk_runs_harness_version_id_harness_versions')),
+    sa.ForeignKeyConstraint(['model_config_id'], ['model_configs.id'], name=op.f('fk_runs_model_config_id_model_configs')),
     sa.ForeignKeyConstraint(['operation_id'], ['operations.id'], name=op.f('fk_runs_operation_id_operations')),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_runs_owner_id_users')),
     sa.ForeignKeyConstraint(['pat_id'], ['pats.id'], name=op.f('fk_runs_pat_id_pats')),
@@ -415,6 +463,7 @@ def upgrade() -> None:
     with op.batch_alter_table('runs', schema=None) as batch_op:
         batch_op.create_index('ix_runs_accepted', ['accepted_at', 'id'], unique=False)
         batch_op.create_index('ix_runs_dataset_accepted', ['dataset_version_id', 'accepted_at', 'id'], unique=False)
+        batch_op.create_index('ix_runs_model_accepted', ['model_config_id', 'accepted_at', 'id'], unique=False)
         batch_op.create_index('ix_runs_owner_accepted', ['owner_id', 'accepted_at', 'id'], unique=False)
         batch_op.create_index('ix_runs_owner_client', ['owner_id', 'client_request_id'], unique=False)
         batch_op.create_index('ix_runs_state', ['state'], unique=False)
@@ -679,6 +728,7 @@ def downgrade() -> None:
         batch_op.drop_index('ix_runs_state')
         batch_op.drop_index('ix_runs_owner_client')
         batch_op.drop_index('ix_runs_owner_accepted')
+        batch_op.drop_index('ix_runs_model_accepted')
         batch_op.drop_index('ix_runs_dataset_accepted')
         batch_op.drop_index('ix_runs_accepted')
 
@@ -704,11 +754,16 @@ def downgrade() -> None:
         batch_op.drop_index('ix_datasets_identity')
 
     op.drop_table('datasets')
+    with op.batch_alter_table('config_resolutions', schema=None) as batch_op:
+        batch_op.drop_index('ix_config_resolutions_expires')
+
+    op.drop_table('config_resolutions')
     with op.batch_alter_table('audit_events', schema=None) as batch_op:
         batch_op.drop_index('ix_audit_object')
         batch_op.drop_index('ix_audit_created')
 
     op.drop_table('audit_events')
+    op.drop_table('team_policies')
     with op.batch_alter_table('sessions', schema=None) as batch_op:
         batch_op.drop_index('ix_sessions_user')
 
@@ -718,7 +773,15 @@ def downgrade() -> None:
         batch_op.drop_index('ix_pats_owner')
 
     op.drop_table('pats')
+    with op.batch_alter_table('model_configs', schema=None) as batch_op:
+        batch_op.drop_index('ix_model_configs_name')
+
+    op.drop_table('model_configs')
     op.drop_table('invitations')
+    with op.batch_alter_table('harness_versions', schema=None) as batch_op:
+        batch_op.drop_index('ix_harness_versions_name_version')
+
+    op.drop_table('harness_versions')
     op.drop_table('experiment_plans')
     with op.batch_alter_table('deletions', schema=None) as batch_op:
         batch_op.drop_index('ix_deletions_state_deleted')
@@ -728,13 +791,11 @@ def downgrade() -> None:
     op.drop_table('attachment_versions')
     op.drop_table('users')
     op.drop_table('service_epochs')
-    op.drop_table('model_configs')
     op.drop_table('master_key_state')
     op.drop_table('instance')
     with op.batch_alter_table('idempotency_records', schema=None) as batch_op:
         batch_op.drop_index('ix_idempotency_expires')
 
     op.drop_table('idempotency_records')
-    op.drop_table('harness_versions')
     op.drop_table('content_availability')
     # ### end Alembic commands ###

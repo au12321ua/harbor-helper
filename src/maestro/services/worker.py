@@ -14,7 +14,7 @@ import os
 import secrets
 from dataclasses import replace
 
-from sqlalchemy import insert, null, select, update
+from sqlalchemy import func, insert, null, select, update
 
 from maestro.boundaries.executor import (
     STEPS,
@@ -907,22 +907,19 @@ class Worker:
 
     @staticmethod
     def _reservation(conn, run_id: str, concurrency: int) -> dict:
-        definitions = (
-            conn.execute(
-                select(t.tasks.c.definition_json)
-                .where(
-                    t.tasks.c.id.in_(select(t.trials.c.task_id).where(t.trials.c.run_id == run_id))
-                )
-                .distinct()
-            )
-            .scalars()
-            .all()
-        )
-        trial_count = conn.execute(select(t.trials.c.id).where(t.trials.c.run_id == run_id)).all()
+        """From the snapshot: each task's effective resources, as resolved (03)."""
+        trial_count = conn.execute(
+            select(func.count()).select_from(t.trials).where(t.trials.c.run_id == run_id)
+        ).scalar()
         effective = conn.execute(
             select(t.run_snapshots.c.effective_json).where(t.run_snapshots.c.run_id == run_id)
         ).scalar()
-        return reservation(concurrency, definitions, provider_of(effective), len(trial_count))
+        return reservation(
+            concurrency,
+            [{"resources": task} for task in effective["tasks"]],
+            provider_of(effective),
+            trial_count,
+        )
 
     async def _execute(self, run_id: str, lease: str, spec: RunSpec, cancel: _Cancel) -> None:
         sink = RunSink(self, run_id, lease)

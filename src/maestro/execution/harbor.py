@@ -16,6 +16,7 @@ import shutil
 import signal
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from maestro.boundaries.environment import CleanupReport
 from maestro.boundaries.executor import (
@@ -132,6 +133,8 @@ class _StderrTail:
 
 class HarborExecutor:
     executor_id = f"harbor-{HARBOR_VERSION}"
+    # Model harnesses arrive with the agent adapters of the Runner (M5 stage 2).
+    harness_adapters: ClassVar[dict[str, tuple[str, ...]]] = {}
 
     def __init__(
         self,

@@ -388,23 +388,21 @@ def inspect_task(
     return definition
 
 
-def configuration_blockers(definition: dict) -> list[dict]:
-    """Required configuration the platform cannot supply yet. Values for author
-    parameters arrive with run configuration (M5); until then a required parameter
-    without a default blocks submission and names what is missing."""
-    missing = [
+def required_parameters(definition: dict) -> list[str]:
+    """Author parameters a run configuration must give a value for: required, or
+    sensitive, and without a default (03). The resolver blocks a task until it has one."""
+    return [
         p["name"]
         for p in definition.get("parameters") or []
         if p["default"] is None and (p["required"] or p["sensitive"])
     ]
-    blockers = []
-    if missing:
-        blockers.append({"code": "CONFIG_REQUIRED_MISSING", "parameters": missing})
+
+
+def configuration_blockers(definition: dict) -> list[dict]:
+    """What blocks a task whatever the run configuration says."""
     if definition.get("parameter_issues"):
-        blockers.append(
-            {"code": "AUTHOR_PARAMETERS_UNRESOLVED", "issues": definition["parameter_issues"]}
-        )
-    return blockers
+        return [{"code": "AUTHOR_PARAMETERS_UNRESOLVED", "issues": definition["parameter_issues"]}]
+    return []
 
 
 class LocalTaskSource:

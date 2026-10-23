@@ -174,6 +174,10 @@ class FakeExecutor:
     max_attempts: int = 3
     step_delay: float = 0.0
     executor_id: str = "fake"
+    # A stand-in harness that speaks every model protocol and calls nothing.
+    harness_adapters: dict = field(
+        default_factory=lambda: {"fake-agent": ("anthropic", "openai", "openai-compatible")}
+    )
     started: asyncio.Event = field(default_factory=asyncio.Event)
     on_trial: Callable | None = None
     cleaned: list = field(default_factory=list)

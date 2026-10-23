@@ -251,3 +251,20 @@ class Credentials:
             )
 
         return self.keys.rotate(expected_generation, on_commit)
+
+
+def credential_problem(conn, cred_id: str, kinds: tuple[str, ...]) -> str | None:
+    """Why a credential cannot be bound or used now, or None. Bindings keep only the
+    reference, so this is checked when configuring and again when accepting a run."""
+    row = conn.execute(
+        select(t.credentials.c.kind, t.credentials.c.enabled).where(t.credentials.c.id == cred_id)
+    ).first()
+    if row is None:
+        return "NOT_FOUND"
+    if deleted.state(conn, "credential", cred_id):
+        return "DELETED"
+    if row.kind not in kinds:
+        return "WRONG_KIND"
+    if not row.enabled:
+        return "DISABLED"
+    return None

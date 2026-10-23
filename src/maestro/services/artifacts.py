@@ -19,9 +19,8 @@ from maestro.core import clock
 from maestro.core.errors import MaestroError, not_found
 from maestro.db import schema as t
 from maestro.db.engine import Database
-from maestro.domain import limits
 from maestro.domain.states import ArtifactState
-from maestro.services import deleted
+from maestro.services import deleted, policy
 
 log = logging.getLogger(__name__)
 SWEEP_BATCH = 500
@@ -52,10 +51,12 @@ def public_artifact(row) -> dict:
     }
 
 
-def expiry_after(ended_at: str | None) -> str | None:
+def expiry_after(conn: Connection, ended_at: str | None) -> str | None:
+    """TTL of the team policy in force when the file's owner ended (07 section 2)."""
     if ended_at is None:
         return None
-    return clock.to_text(clock.from_text(ended_at) + clock.timedelta(days=limits.ARTIFACT_TTL_DAYS))
+    days = policy.current(conn).artifact_ttl_days
+    return clock.to_text(clock.from_text(ended_at) + clock.timedelta(days=days))
 
 
 def expiry_for(conn: Connection, run_id: str, trial_id: str | None) -> str | None:
@@ -66,7 +67,7 @@ def expiry_for(conn: Connection, run_id: str, trial_id: str | None) -> str | Non
         ).scalar()
     else:
         ended = conn.execute(select(t.runs.c.finished_at).where(t.runs.c.id == run_id)).scalar()
-    return expiry_after(ended)
+    return expiry_after(conn, ended)
 
 
 def stamp_expiry(conn: Connection, run_id: str, trial_id: str | None = None) -> None:
@@ -80,7 +81,7 @@ def stamp_expiry(conn: Connection, run_id: str, trial_id: str | None = None) -> 
         conn.execute(
             update(t.artifacts)
             .where(t.artifacts.c.trial_id == owner, t.artifacts.c.expires_at.is_(None))
-            .values(expires_at=expiry_after(ended))
+            .values(expires_at=expiry_after(conn, ended))
         )
     if trial_id is None:
         finished = conn.execute(select(t.runs.c.finished_at).where(t.runs.c.id == run_id)).scalar()
@@ -92,7 +93,7 @@ def stamp_expiry(conn: Connection, run_id: str, trial_id: str | None = None) -> 
                     t.artifacts.c.trial_id.is_(None),
                     t.artifacts.c.expires_at.is_(None),
                 )
-                .values(expires_at=expiry_after(finished))
+                .values(expires_at=expiry_after(conn, finished))
             )
 
 

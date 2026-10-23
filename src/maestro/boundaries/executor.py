@@ -126,6 +126,9 @@ class Leftover:
 
 class Executor(Protocol):
     executor_id: str
+    harness_adapters: dict[str, tuple[str, ...]]
+    """Harness adapters this executor runs, each with the model protocols it can call
+    (03 section 2). Oracle is the test mode and needs no adapter."""
 
     async def execute(
         self, spec: RunSpec, sink: ExecutionSink, cancel: CancelToken
