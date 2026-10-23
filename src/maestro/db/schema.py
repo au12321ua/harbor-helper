@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     MetaData,
+    PrimaryKeyConstraint,
     String,
     Table,
     Text,
@@ -370,6 +371,9 @@ harness_versions = Table(
     Index("ix_harness_versions_name_version", "name", "version"),
 )
 
+# A published attachment package (03 section 6); its files are stored by content digest
+# and never change. Name and version are unique among versions not purged (checked in
+# the publishing transaction, so a purged version's receipt keeps its name).
 attachment_versions = Table(
     "attachment_versions",
     metadata,
@@ -377,11 +381,28 @@ attachment_versions = Table(
     _ref("owner_id", "users"),
     Column("name", String(128), nullable=False),
     Column("version", String(64), nullable=False),
+    Column("description", String(512), nullable=False),
     Column("content_digest", String(80), nullable=False),
     _json("manifest_json"),
+    # [{path, size, sha256, executable}] in path order.
+    _json("files_json"),
+    Column("file_count", Integer, nullable=False),
+    Column("size_bytes", Integer, nullable=False),
+    Column("has_bootstrap", Boolean, nullable=False),
     Column("enabled", Boolean, nullable=False),
     _time("created_at"),
-    UniqueConstraint("owner_id", "name", "version"),
+    Index("ix_attachment_versions_name_version", "name", "version"),
+)
+
+# Which attachment versions a run loads, in load order; finds the runs using one.
+run_attachments = Table(
+    "run_attachments",
+    metadata,
+    _ref("run_id", "runs"),
+    Column("position", Integer, nullable=False),
+    _ref("attachment_version_id", "attachment_versions"),
+    PrimaryKeyConstraint("run_id", "position"),
+    Index("ix_run_attachments_version", "attachment_version_id"),
 )
 
 # A resolved configuration offered for confirmation (03 section 4). It reserves nothing;

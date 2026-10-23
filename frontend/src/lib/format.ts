@@ -85,6 +85,7 @@ export const ATTEMPT_STATE: Labels = {
 export const STEP_LABEL: Record<string, string> = {
   starting: "启动",
   environment: "准备环境",
+  installing: "安装附件",
   agent: "Agent 执行",
   collecting: "收集产物",
   verifying: "验证",
@@ -152,6 +153,16 @@ export const CONFIG_BLOCKER: Record<string, string> = {
   CAPACITY_CPU: "CPU 需求超过主机总量，永远无法开始",
   CAPACITY_MEMORY: "内存需求超过主机总量，永远无法开始",
   PROVIDER_LIMIT: "并发超过该提供商的上限，永远无法开始",
+  ATTACHMENT_INCOMPATIBLE: "附件不支持所选 Harness",
+  ATTACHMENT_CONFLICT: "两个附件提供了同名的工具、环境变量或包",
+};
+
+export const ATTACHMENT_EFFECT: Record<string, string> = {
+  model_call: "模型调用",
+  agent_tools: "Agent 工具",
+  task_environment: "任务环境",
+  verifier: "验证器",
+  scoring: "评分",
 };
 
 export const SOURCE_LAYER: Record<string, string> = {
@@ -243,6 +254,7 @@ export const RECYCLE_TYPE: Record<string, string> = {
   pat: "访问令牌",
   model_config: "模型配置",
   harness_version: "Harness 版本",
+  attachment_version: "附件",
 };
 
 export const STORAGE_LEVEL: Labels = {

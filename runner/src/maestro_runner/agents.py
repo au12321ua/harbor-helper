@@ -8,12 +8,36 @@ adapter's agent class hands them to the model client in memory.
 
 Terminus-2 is Harbor's own agent: the model is called from this process and only shell
 commands run in the task container, so the container needs no route to the model.
+
+Attachments (03 section 7) are installed by the same agent class during agent setup,
+before the agent's own setup: each package is copied into this trial's container with
+Harbor's file transfer (no host directory is mounted), compared file by file with the
+published content, and its ``bootstrap.sh`` runs under a time limit enforced inside the
+container (Harbor's exec timeout only stops the local client, M1). Setup runs as the
+task's agent user with the environment's setup network; the agent and verification
+phases switch to the platform's restrictions afterwards, so nothing can be fetched late.
+A failure ends this trial only.
 """
 
 import functools
+import hashlib
+import json
+import math
+import shlex
+import time
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 SECRETS: dict[str, str] = {}
+# Set by the job: packages in load order ({name, version, content_digest, path, bootstrap,
+# files}), the install time limit of one trial, and the callback the job reports through.
+ATTACHMENTS: list[dict] = []
+INSTALL: dict[str, Any] = {"timeout_sec": None, "report": None}
+TARGET = "/opt/maestro/attachments"
+LOG_DIR = "/logs/agent/attachments"
+# Time to copy and check one package, on top of the install time limit.
+TRANSFER_SEC = 120
 
 # Model configuration parameters Terminus-2 takes as its own options; the rest go to
 # every model call (litellm drops what a provider does not support).
@@ -79,12 +103,166 @@ def agent_config(agent: dict) -> dict[str, Any]:
     }
 
 
+class AttachmentInstallFailed(RuntimeError):
+    pass
+
+
+class AttachmentInstallTimeout(RuntimeError):
+    pass
+
+
+class AttachmentTransferFailed(RuntimeError):
+    pass
+
+
+def describe(root: Path) -> list[list]:
+    """[[path, sha256, executable]] in path order, as the service digests a package."""
+    found = []
+    for path in sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix()):
+        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+            raise ValueError(f"not a regular file: {path.relative_to(root)}")
+        if path.is_file():
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                while chunk := handle.read(1 << 20):
+                    digest.update(chunk)
+            found.append(
+                [
+                    path.relative_to(root).as_posix(),
+                    digest.hexdigest(),
+                    bool(path.stat().st_mode & 0o100),
+                ]
+            )
+    return found
+
+
+def content_digest(files: list[list]) -> str:
+    """The service's ``digest_json`` of the file list (canonical JSON of plain values)."""
+    text = json.dumps(files, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
+
+
+def setup_timeout(default_sec: float) -> float | None:
+    """Harbor's limit for the whole agent setup when attachments are installed in it."""
+    if not ATTACHMENTS:
+        return None
+    return default_sec + (INSTALL["timeout_sec"] or 0) + TRANSFER_SEC * len(ATTACHMENTS)
+
+
+def _in_container(output: str) -> list[list]:
+    """Parse ``sha256sum`` lines, a separator, then the executable paths."""
+    sums, _, executables = output.partition("--maestro--\n")
+    marked = {line.removeprefix("./") for line in executables.splitlines() if line}
+    found = []
+    for line in sums.splitlines():
+        digest, _, name = line.partition("  ")
+        name = name.removeprefix("./")
+        found.append([name, digest, name in marked])
+    return sorted(found)
+
+
+async def install(agent, environment) -> None:
+    """Copy, check and install every attachment in this trial's container."""
+    trial_name = Path(agent.logs_dir).parent.name
+    report: Callable = INSTALL["report"] or (lambda *args, **kwargs: None)
+    # The limit covers the install scripts together; copying has its own allowance
+    # (``TRANSFER_SEC`` in Harbor's setup limit), so a slow copy does not eat it.
+    limit = float(INSTALL["timeout_sec"] or 0)
+    spent = 0.0
+    user = environment.default_user
+    records: list[dict] = []
+    report(trial_name, None)
+    try:
+        await environment.exec(
+            f"mkdir -p {TARGET} {LOG_DIR}"
+            + (f" && chown {shlex.quote(str(user))} {LOG_DIR}" if user is not None else ""),
+            user="root",
+        )
+        for index, attachment in enumerate(ATTACHMENTS):
+            target = f"{TARGET}/{index:02d}-{attachment['name']}"
+            record = {
+                "name": attachment["name"],
+                "version": attachment["version"],
+                "content_digest": attachment["content_digest"],
+                "target": target,
+                "user": None if user is None else str(user),
+                "status": "copying",
+            }
+            records.append(record)
+            started = time.monotonic()
+            await environment.exec(f"mkdir -p {target}", user="root")
+            await environment.upload_dir(attachment["path"], target)
+            check = await environment.exec(
+                f"cd {target} && find . -type f -print0 | xargs -0 -r sha256sum"
+                " && echo --maestro-- && find . -type f -perm -u=x",
+                user="root",
+            )
+            if check.return_code != 0 or _in_container(check.stdout or "") != sorted(
+                attachment["files"]
+            ):
+                record["status"] = "transfer_mismatch"
+                raise AttachmentTransferFailed(
+                    f"the copy of {attachment['name']} in the container differs from the package"
+                )
+            if user is not None:
+                await environment.exec(f"chown -R {shlex.quote(str(user))} {target}", user="root")
+            record["copy_seconds"] = round(time.monotonic() - started, 2)
+            if not attachment["bootstrap"]:
+                record["status"] = "ok"
+                continue
+            remaining = math.ceil(limit - spent)
+            log = f"{LOG_DIR}/{index:02d}-{attachment['name']}.log"
+            record.update(status="installing", log=log)
+            if remaining < 1:
+                record["status"] = "timeout"
+                raise AttachmentInstallTimeout(f"no install time left for {attachment['name']}")
+            started = time.monotonic()
+            result = await environment.exec(
+                f"timeout -k 5 {remaining} bash bootstrap.sh > {log} 2>&1",
+                cwd=target,
+                env={"MAESTRO_ATTACHMENT_DIR": target},
+                timeout_sec=remaining + 30,
+            )
+            spent += time.monotonic() - started
+            record["install_seconds"] = round(time.monotonic() - started, 2)
+            record["exit_code"] = result.return_code
+            # timeout(1) exits 124 on the limit, 137 when it had to kill.
+            record["status"] = {0: "ok", 124: "timeout", 137: "timeout"}.get(
+                result.return_code, "failed"
+            )
+            if record["status"] == "timeout":
+                raise AttachmentInstallTimeout(
+                    f"{attachment['name']} did not finish installing in {limit:g}s"
+                )
+            if record["status"] == "failed":
+                raise AttachmentInstallFailed(
+                    f"bootstrap.sh of {attachment['name']} exited with {result.return_code}"
+                )
+    except (AttachmentInstallFailed, AttachmentInstallTimeout, AttachmentTransferFailed):
+        raise
+    except Exception as error:
+        if records and records[-1]["status"] == "installing":
+            records[-1]["status"] = "failed"
+            raise AttachmentInstallFailed(f"install could not run: {error}") from error
+        if records:
+            records[-1]["status"] = "transfer_failed"
+        raise AttachmentTransferFailed(f"attachment transfer failed: {error}") from error
+    finally:
+        report(trial_name, records)
+
+
 @functools.cache
 def _terminus():
     from harbor.agents.terminus_2.terminus_2 import Terminus2
 
     class MaestroTerminus2(Terminus2):
-        """Terminus-2 whose model client gets the API key from memory."""
+        """Terminus-2 whose model client gets the API key from memory, and which installs
+        the run's attachments before its own setup."""
+
+        async def setup(self, environment) -> None:
+            if ATTACHMENTS:
+                await install(self, environment)
+            await super().setup(environment)
 
         def _init_llm(self, *args, **kwargs):
             key = SECRETS.get("model_api_key")

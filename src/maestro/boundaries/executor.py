@@ -19,6 +19,8 @@ STEPS = {
     # Platform cache restore before the executor starts (02 section 7); never from Harbor.
     "cache": "preparing",
     "environment": "preparing",
+    # Attachments copied in and installed during agent setup (03 section 7).
+    "installing": "preparing",
     "agent": "executing",
     "collecting": "executing",
     "verifying": "verifying",

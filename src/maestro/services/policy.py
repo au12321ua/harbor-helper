@@ -59,6 +59,13 @@ SETTINGS: dict[str, Setting] = {
     "agent_timeout_sec_max": _s(
         "agent_timeout_sec_max", 1, 7 * 24 * 3600, "runs", "Longest agent time of one trial"
     ),
+    "bootstrap_timeout_sec": _s(
+        "bootstrap_timeout_sec", 1, 7 * 24 * 3600, "runs", "Attachment install time of one trial"
+    ),
+    "bootstrap_timeout_sec_max": _s(
+        "bootstrap_timeout_sec_max", 1, 7 * 24 * 3600, "runs", "Longest attachment install time"
+    ),
+    "run_max_attachments": _s("run_max_attachments", 0, 64, "runs", "Most attachments in a run"),
     "batch_max_runs": _s("batch_max_runs", 1, 10000, "runs", "Most runs in one batch"),
     "batch_max_trials": _s("batch_max_trials", 1, 1000000, "runs", "Most trials in one batch"),
     "pat_default_days": _s("pat_default_days", 1, 3650, "access", "Token validity (days)"),
@@ -85,6 +92,7 @@ PAIRS = (
     ("repetitions_default", "repetitions_max"),
     ("run_default_concurrency", "run_max_concurrency"),
     ("run_deadline_hours", "run_deadline_hours_max"),
+    ("bootstrap_timeout_sec", "bootstrap_timeout_sec_max"),
     ("pat_default_days", "pat_max_days"),
     ("pat_default_run_limit", "pat_max_run_limit"),
 )

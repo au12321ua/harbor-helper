@@ -5,6 +5,7 @@ import asyncio
 import logging
 import time
 
+from maestro.execution.attachments import AttachmentStore
 from maestro.services.artifacts import Artifacts
 from maestro.services.exports import Exports
 
@@ -21,6 +22,7 @@ class Maintenance:
         self,
         artifacts: Artifacts,
         exports: Exports,
+        attachments: AttachmentStore | None = None,
         *,
         poll_seconds: float = 1.0,
         sweep_seconds: float = SWEEP_SECONDS,
@@ -28,6 +30,7 @@ class Maintenance:
     ):
         self.artifacts = artifacts
         self.exports = exports
+        self.attachments = attachments
         self.poll_seconds = poll_seconds
         self.sweep_seconds = sweep_seconds
         self.unindexed_seconds = unindexed_seconds
@@ -41,6 +44,9 @@ class Maintenance:
         report = {
             "storage": self.artifacts.reconcile(),
             "exports_requeued": self.exports.recover(),
+            "attachment_staging_removed": (
+                self.attachments.discard_partial() if self.attachments else 0
+            ),
         }
         return report
 

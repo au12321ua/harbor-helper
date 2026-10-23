@@ -24,12 +24,13 @@ from pathlib import Path
 import httpx
 import pytest
 from sqlalchemy import select
-from support import Api, create_pat, running, setup_admin, wait_operation
+from support import Api, create_pat, invite_member, running, setup_admin, wait_operation
 
 from maestro.application import Maestro
 from maestro.boundaries.storage import LocalArtifactStore
 from maestro.db import migrate
 from maestro.db import schema as t
+from maestro.execution.attachments import AttachmentStore
 from maestro.execution.docker import DockerResources
 from maestro.execution.harbor import HarborExecutor
 from maestro.execution.materials import LocalTaskSource, TaskMaterials
@@ -101,6 +102,7 @@ def harbor(settings, tasks: Path, name: str):
         TaskMaterials(settings.cache_dir),
         DockerResources(),
         term_grace=30,
+        attachments=AttachmentStore(settings.data_dir),
     )
     environment = DockerEnvironment(settings.preparation_dir)
     built = Maestro.build(
@@ -622,6 +624,45 @@ class ScriptedModel:
         self.server.shutdown()
 
 
+def scripted_model(admin: Api, model: ScriptedModel) -> tuple[str, str]:
+    """The administrator's part: the local model behind a credential, and Terminus-2."""
+    credential = admin.post(
+        "/api/v1/admin/credentials",
+        json={"name": "local", "kind": "model_api_key", "provider": "local", "value": model.KEY},
+        expect=201,
+    ).json()["data"]
+    model_id = admin.post(
+        "/api/v1/admin/model-configs",
+        json={
+            "name": "scripted",
+            "provider": "local",
+            "protocol": "openai-compatible",
+            "endpoint": model.endpoint,
+            "model_id": "scripted",
+            "credential_id": credential["id"],
+        },
+        expect=201,
+    ).json()["data"]["id"]
+    harness_id = admin.post(
+        "/api/v1/admin/harness-versions",
+        json={
+            "name": "terminus-2",
+            "version": "harbor-0.24.0",
+            "agent": "terminus-2",
+            "protocols": ["openai-compatible"],
+            "parameter_schema": {
+                "parameters": {
+                    "max_turns": {"type": "integer", "default": 5},
+                    # asciinema cannot be installed without a network
+                    "record_terminal_session": {"type": "boolean", "default": False},
+                }
+            },
+        },
+        expect=201,
+    ).json()["data"]["id"]
+    return model_id, harness_id
+
+
 @pytest.fixture
 def agent_service(settings):
     present = subprocess.run(
@@ -653,45 +694,7 @@ def test_terminus_runs_with_the_container_offline(agent_service, monkeypatch):
         stack.callback(model.close)
         with running(service) as client:
             admin = setup_admin(service, client)
-            credential = admin.post(
-                "/api/v1/admin/credentials",
-                json={
-                    "name": "local",
-                    "kind": "model_api_key",
-                    "provider": "local",
-                    "value": model.KEY,
-                },
-                expect=201,
-            ).json()["data"]
-            model_id = admin.post(
-                "/api/v1/admin/model-configs",
-                json={
-                    "name": "scripted",
-                    "provider": "local",
-                    "protocol": "openai-compatible",
-                    "endpoint": model.endpoint,
-                    "model_id": "scripted",
-                    "credential_id": credential["id"],
-                },
-                expect=201,
-            ).json()["data"]["id"]
-            harness_id = admin.post(
-                "/api/v1/admin/harness-versions",
-                json={
-                    "name": "terminus-2",
-                    "version": "harbor-0.24.0",
-                    "agent": "terminus-2",
-                    "protocols": ["openai-compatible"],
-                    "parameter_schema": {
-                        "parameters": {
-                            "max_turns": {"type": "integer", "default": 5},
-                            # asciinema cannot be installed without a network
-                            "record_terminal_session": {"type": "boolean", "default": False},
-                        }
-                    },
-                },
-                expect=201,
-            ).json()["data"]["id"]
+            model_id, harness_id = scripted_model(admin, model)
             pat = create_pat(admin)
             control = submit(pat, service.version_id, ["agent-pass"])
             assert wait_operation(pat, control["operation_id"], timeout=300)["status"] == (
@@ -769,6 +772,141 @@ def test_terminus_runs_with_the_container_offline(agent_service, monkeypatch):
             p.read_bytes() for p in Path(service.settings.artifacts_dir).rglob("*") if p.is_file()
         )
         assert model.KEY.encode() not in stored
+        assert labelled(service.worker.instance_id) == []
+
+
+# Records, in this trial's container, where it ran, whether setup could reach the
+# internet, which install markers exist (only its own) and what is mounted.
+PROBE_BOOTSTRAP = """#!/bin/bash
+set -e
+out=/logs/agent/attachments
+net-probe > $out/setup-probe.txt
+touch /opt/maestro/installed-$(hostname)
+ls /opt/maestro/installed-* | wc -l > $out/markers.txt
+cat /proc/self/mountinfo > $out/mountinfo.txt
+echo "dir=$MAESTRO_ATTACHMENT_DIR pwd=$(pwd) host=$(hostname)"
+"""
+# Kernel and container file systems; anything else in mountinfo comes from the host.
+VIRTUAL_FS = {"overlay", "proc", "sysfs", "tmpfs", "devpts", "mqueue", "cgroup", "cgroup2"}
+ALLOWED_HOST_MOUNTS = {
+    "/etc/hostname",
+    "/etc/hosts",
+    "/etc/resolv.conf",
+    "/logs/agent",
+    "/logs/verifier",
+    "/logs/artifacts",
+    # Docker's init binary, read-only, for the platform's ``init: true`` (zombie reaping).
+    "/usr/sbin/docker-init",
+}
+
+
+def test_attachments_install_in_each_trial_container(agent_service, monkeypatch):
+    """E2E-RUN-04 / TECH-04: a member's PAT publishes packages and submits; each trial
+    installs in its own container during setup (with the setup network), the agent and
+    verifier phases are then offline, and a failing or slow install ends only its trials,
+    as an attachment failure rather than a score. Uses the local scripted model."""
+    from test_attachments import package, publish
+
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    service = agent_service
+    with contextlib.ExitStack() as stack:
+        model = ScriptedModel()
+        stack.callback(model.close)
+        with running(service) as client:
+            admin = setup_admin(service, client)
+            model_id, harness_id = scripted_model(admin, model)
+            member = invite_member(service, admin, "member")
+            pat = create_pat(member)
+
+            def published(name, script):
+                data = package(
+                    name,
+                    bootstrap=False,
+                    extra_files={"bootstrap.sh": (script.encode(), 0o755)},
+                    compatible_harnesses=["terminus-2"],
+                )
+                return publish(pat, data, expect=201).json()["data"]["id"]
+
+            probe_tools = published("probe-tools", PROBE_BOOTSTRAP)
+            broken = published("broken", "#!/bin/bash\necho broken >&2\nexit 3\n")
+            slow = published("slow", "#!/bin/bash\nsleep 120\n")
+
+            def run(attachment, **body):
+                accepted = submit(
+                    pat,
+                    service.version_id,
+                    ["agent-pass"],
+                    execution_mode="agent",
+                    model_config_id=model_id,
+                    harness_version_id=harness_id,
+                    attachments=[attachment],
+                    repetitions=2,
+                    **body,
+                )
+                started = time.monotonic()
+                operation = wait_operation(pat, accepted["operation_id"], timeout=600)
+                run_id = accepted["run_id"]
+                trials = pat.get(f"/api/v1/runs/{run_id}/trials", expect=200).json()["data"]
+                files = pat.get(f"/api/v1/runs/{run_id}/artifacts", expect=200).json()["data"]
+                return operation, trials, files, time.monotonic() - started
+
+            def read(files, trial_id, path):
+                found = next(
+                    a for a in files if a["trial_id"] == trial_id and a["relative_path"] == path
+                )
+                return pat.get(f"/api/v1/artifacts/{found['id']}/download", expect=200).text
+
+            operation, trials, files, _ = run(probe_tools)
+            if operation["status"] != "succeeded":
+                raise AssertionError([a["error"] for t in trials for a in t["attempts"]])
+            assert [t["result"]["score"] for t in trials] == [1.0, 1.0]
+            hosts = set()
+            for trial in trials:
+                tid = trial["id"]
+                records = json.loads(read(files, tid, "maestro/attachments.json"))
+                assert [(r["name"], r["status"], r["exit_code"]) for r in records] == [
+                    ("probe-tools", "ok", 0)
+                ]
+                assert "installing" in [s["step"] for s in trial["attempts"][0]["steps"]]
+                log = read(files, tid, "agent/attachments/00-probe-tools.log")
+                assert "dir=/opt/maestro/attachments/00-probe-tools" in log
+                # Setup had the author's network; the agent and verifier phases had none.
+                assert read(files, tid, "agent/attachments/setup-probe.txt").strip() == "NET_OPEN"
+                assert read(files, tid, "agent/probe.txt").strip() == "NET_CLOSED"
+                assert read(files, tid, "verifier/probe.txt").strip() == "NET_CLOSED"
+                # Only this trial's own install marker: no shared install layer.
+                assert read(files, tid, "agent/attachments/markers.txt").strip() == "1"
+                mounts = set()
+                for line in read(files, tid, "agent/attachments/mountinfo.txt").splitlines():
+                    fields, _, rest = line.partition(" - ")
+                    if rest.split()[0] not in VIRTUAL_FS:
+                        mounts.add(fields.split()[4])
+                assert mounts <= ALLOWED_HOST_MOUNTS, mounts
+                assert not any(m.startswith("/opt") for m in mounts)
+                hosts.add(log)
+            assert len(hosts) == 2
+
+            calls = len(model.calls)
+            operation, trials, files, _ = run(broken)
+            assert operation["status"] == "failed"
+            for trial in trials:
+                (attempt,) = trial["attempts"]
+                assert trial["state"] == "execution_error"
+                assert (trial["result"] or {}).get("score") is None
+                assert attempt["error"]["failure_cause"] == "attachment_failed"
+                assert attempt["error"]["detail"]["exit_code"] == 3
+                log = read(files, trial["id"], "agent/attachments/00-broken.log")
+                assert log.strip() == "broken"
+            assert len(model.calls) == calls, "the agent must not start after a failed install"
+
+            operation, trials, files, seconds = run(slow, timeouts={"bootstrap_sec": 5})
+            assert operation["status"] == "failed" and seconds < 240
+            for trial in trials:
+                error = trial["attempts"][0]["error"]
+                assert error["failure_cause"] == "attachment_failed"
+                assert error["exception_type"] == "AttachmentInstallTimeout"
+            assert len(model.calls) == calls
         assert labelled(service.worker.instance_id) == []
 
 

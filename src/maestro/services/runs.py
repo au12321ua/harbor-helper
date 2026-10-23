@@ -489,6 +489,14 @@ class Runs:
             )
         )
         operations.set_resource(conn, op_id, "run", run_id)
+        for position, attachment in enumerate(effective.get("attachments") or []):
+            conn.execute(
+                insert(t.run_attachments).values(
+                    run_id=run_id,
+                    position=position,
+                    attachment_version_id=attachment["version_id"],
+                )
+            )
         provenance = {
             "submitted_via": principal.channel.value,
             "resolution_id": run["resolution_id"],
@@ -632,6 +640,7 @@ class Runs:
         accepted_before: str | None = None,
         model_config_id: str | None = None,
         harness_version_id: str | None = None,
+        attachment_version_id: str | None = None,
     ) -> tuple[list, str | None]:
         """Deleted runs are hidden; the recycle bin lists them."""
         limit = pagination.check_limit(limit)
@@ -657,6 +666,7 @@ class Runs:
             "dataset_version_id": dataset_version_id,
             "model_config_id": model_config_id,
             "harness_version_id": harness_version_id,
+            "attachment_version_id": attachment_version_id,
             "client_request_id": client_request_id,
             "accepted_after": accepted_after,
             "accepted_before": accepted_before,
@@ -672,6 +682,14 @@ class Runs:
         ):
             if value is not None:
                 query = query.where(column == value)
+        if attachment_version_id is not None:
+            query = query.where(
+                t.runs.c.id.in_(
+                    select(t.run_attachments.c.run_id).where(
+                        t.run_attachments.c.attachment_version_id == attachment_version_id
+                    )
+                )
+            )
         if accepted_after is not None:
             query = query.where(t.runs.c.accepted_at >= accepted_after)
         if accepted_before is not None:

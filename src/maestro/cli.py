@@ -128,6 +128,7 @@ def cmd_serve(args) -> int:
 
 
 def _harbor_executor(settings):
+    from maestro.execution.attachments import AttachmentStore
     from maestro.execution.docker import DockerResources
     from maestro.execution.harbor import HarborExecutor
     from maestro.execution.materials import TaskMaterials
@@ -146,6 +147,7 @@ def _harbor_executor(settings):
         silence_limit=settings.runner_silence_sec,
         heartbeat_sec=settings.runner_heartbeat_sec,
         artifact_limits=settings.artifact_limits(),
+        attachments=AttachmentStore(settings.data_dir),
     )
 
 

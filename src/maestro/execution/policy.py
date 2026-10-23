@@ -31,6 +31,9 @@ RULES = {
     "provider_permanent": Rule("model_provider_failed", False, False, True),
     "provider_auth": Rule("model_provider_failed", False, False, False),
     "harbor_failed": Rule("harbor_failed", False, False, False),
+    # An attachment's install script failed or ran out of time (03 section 7): neither a
+    # model result nor a zero, and running it again in a clean container would not help.
+    "attachment_failed": Rule("attachment_failed", False, False, False),
     "verifier_failed": Rule("verifier_failed", False, False, True),
     "unclassified": Rule("unclassified", False, True, True),
     "cancelled": Rule("cancelled", False, False, False),
@@ -71,6 +74,12 @@ HARBOR_EXCEPTIONS = {
     "AddTestsDirError": "verifier_failed",
     "DownloadVerifierDirError": "verifier_failed",
     "CancelledError": "cancelled",
+    # Raised by the Runner's attachment installer (maestro_runner.agents); a copy that
+    # does not match is a transfer fault and gets a clean container.
+    "AttachmentInstallFailed": "attachment_failed",
+    "AttachmentInstallTimeout": "attachment_failed",
+    "AttachmentContentMissing": "attachment_failed",
+    "AttachmentTransferFailed": "sandbox_failed",
     # Model client errors Terminus-2 lets through after its own three tries per call
     # (litellm exception class names; Terminus-2 calls the model from the Runner).
     "AuthenticationError": "provider_auth",

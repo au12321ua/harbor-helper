@@ -13,6 +13,7 @@ import { RunListPage } from "@/pages/RunListPage";
 import { NewRunPage } from "@/pages/NewRunPage";
 import { RunDetailPage } from "@/pages/RunDetailPage";
 import { DatasetsPage } from "@/pages/DatasetsPage";
+import { AttachmentsPage } from "@/pages/AttachmentsPage";
 import { ExportsPage } from "@/pages/ExportsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AdminPage } from "@/pages/AdminPage";
@@ -173,6 +174,7 @@ function SignedIn({
           <Route path="/runs/new" element={<NewRunPage />} />
           <Route path="/runs/:runId" element={<RunDetailPage />} />
           <Route path="/datasets" element={<DatasetsPage />} />
+          <Route path="/attachments" element={<AttachmentsPage />} />
           <Route path="/exports" element={<ExportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route
@@ -210,6 +212,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const links = [
     { to: "/runs", label: "运行" },
     { to: "/datasets", label: "数据集" },
+    { to: "/attachments", label: "附件" },
     { to: "/exports", label: "导出" },
     { to: "/settings", label: "个人设置" },
     ...(me.role === "admin" ? [{ to: "/admin", label: "管理" }] : []),

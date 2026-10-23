@@ -274,6 +274,8 @@ class Execution:
         self.log_bytes: dict[tuple[str, int], int] = defaultdict(int)
         self.trajectory_steps: dict[Path, int] = {}
         self.trajectory_seen: dict[Path, tuple] = {}
+        # Harbor trial name -> the current attempt's attachment install records.
+        self.installs: dict[str, list] = {}
         self.finished = 0
 
     # --- configuration -----------------------------------------------------------
@@ -341,6 +343,13 @@ class Execution:
             # Harbor's default agent is oracle; never fall back to it implicitly (15 section 6).
             raise Rejected("RUNNER_INPUT_INVALID", "agent must be explicit")
         agent = {**agent, "override_timeout_sec": overrides.get("agent_timeout_sec")}
+        if self.spec.get("attachments"):
+            if not self.spec["agent"].get("adapter"):
+                raise Rejected("RUNNER_INPUT_INVALID", "attachments need a harness agent")
+            self._attachments()
+            agent["override_setup_timeout_sec"] = agents.setup_timeout(
+                agents._terminus().DEFAULT_SETUP_TIMEOUT_SEC
+            )
         return JobConfig(
             job_name="job",
             jobs_dir=self.jobs_dir,
@@ -366,6 +375,41 @@ class Execution:
             agents=[AgentConfig(**agent)],
             tasks=[TaskConfig(path=path) for path in task_dirs],
         )
+
+    def _attachments(self) -> None:
+        """Hand the packages to the agent wrapper, each checked against its digest here
+        too: the Runner never installs content other than what was published."""
+        loaded = []
+        for attachment in self.spec["attachments"]:
+            try:
+                files = agents.describe(Path(attachment["path"]))
+            except (OSError, ValueError) as error:
+                raise Rejected("ATTACHMENT_CONTENT_MISMATCH", str(error)) from None
+            if agents.content_digest(files) != attachment["content_digest"]:
+                raise Rejected(
+                    "ATTACHMENT_CONTENT_MISMATCH",
+                    f"{attachment['name']} differs from its published content",
+                )
+            loaded.append({**attachment, "files": files})
+        agents.ATTACHMENTS[:] = loaded
+        agents.INSTALL.update(
+            timeout_sec=self.spec.get("bootstrap_timeout_sec"), report=self._installed
+        )
+
+    def _installed(self, name: str, records: list | None) -> None:
+        """From the agent wrapper: None when installing starts, then the records."""
+        trial_id = self.bound.get(name)
+        if trial_id is None:
+            return
+        if records is None:
+            emit(
+                "phase_changed",
+                trial_id=trial_id,
+                attempt=self.attempt[name],
+                step="installing",
+            )
+        else:
+            self.installs[name] = [dict(r) for r in records]
 
     def _will_retry(self, exception_type: str | None, attempt: int) -> bool:
         """Mirror of Harbor 0.24.0 TrialQueue retry rules for the settings we pass."""
@@ -397,6 +441,7 @@ class Execution:
         if kind == "start":
             self.attempt[name] += 1
             self.live.add(name)
+            self.installs.pop(name, None)
             emit(
                 "attempt_started",
                 trial_id=trial_id,
@@ -442,6 +487,7 @@ class Execution:
             archive=archive.relative_to(self.out).as_posix() if archived else None,
             files=files,
             skipped_unlisted=unlisted,
+            attachments=self.installs.pop(name, None),
             usage=(
                 {
                     "input_tokens": context.n_input_tokens,
@@ -641,6 +687,20 @@ def check_spec(spec: dict) -> None:
             isinstance(k, str) and k.isidentifier() and isinstance(v, str) for k, v in value.items()
         ):
             raise Rejected("RUNNER_INPUT_INVALID", f"{name} must map names to strings")
+    attachments = spec.get("attachments") or []
+    fields = {"name": str, "version": str, "content_digest": str, "path": str, "bootstrap": bool}
+    if not isinstance(attachments, list) or not all(
+        isinstance(a, dict)
+        and set(a) == set(fields)
+        and all(isinstance(a[k], kind) for k, kind in fields.items())
+        for a in attachments
+    ):
+        raise Rejected("RUNNER_INPUT_INVALID", f"attachments need exactly {sorted(fields)}")
+    limit = spec.get("bootstrap_timeout_sec")
+    if any(a["bootstrap"] for a in attachments) and (
+        isinstance(limit, bool) or not isinstance(limit, int | float) or limit <= 0
+    ):
+        raise Rejected("RUNNER_INPUT_INVALID", "bootstrap_timeout_sec must be a positive number")
     overrides = spec.get("overrides") or {}
     kinds = {
         "cpus": int,

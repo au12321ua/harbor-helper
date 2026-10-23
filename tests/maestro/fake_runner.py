@@ -178,5 +178,36 @@ elif mode == "agent":
         timing={},
     )
     emit("completed", status="completed")
+elif mode == "attachments":
+    # One trial installs and scores; the other's install script fails.
+    (out.parent / "request.json").write_text(json.dumps(spec))
+    record = {
+        "name": spec["attachments"][0]["name"],
+        "version": spec["attachments"][0]["version"],
+        "content_digest": spec["attachments"][0]["content_digest"],
+        "target": "/opt/maestro/attachments/00-tools",
+    }
+    for index, trial_id in enumerate(trials):
+        emit("attempt_started", trial_id=trial_id, attempt=1)
+        emit("phase_changed", trial_id=trial_id, attempt=1, step="environment")
+        emit("phase_changed", trial_id=trial_id, attempt=1, step="installing")
+        failed = index == 1
+        emit(
+            "attempt_finished",
+            trial_id=trial_id,
+            attempt=1,
+            exception_type="AttachmentInstallFailed" if failed else None,
+            exception_message="bootstrap.sh of tools exited with 3" if failed else None,
+            rewards=None if failed else {"reward": 1.0},
+            verifier_ran=not failed,
+            will_retry=False,
+            archive=None,
+            files=[],
+            attachments=[
+                {**record, "status": "failed" if failed else "ok", "exit_code": 3 if failed else 0}
+            ],
+            timing={},
+        )
+    emit("completed", status="completed")
 elif mode == "rejected":
     emit("completed", status="rejected", code="TASK_MATERIAL_MISSING", message="no task.toml")

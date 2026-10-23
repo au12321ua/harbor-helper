@@ -36,6 +36,7 @@ import {
 } from "@/lib/format";
 import { limit, useLoad, useSession } from "@/lib/hooks";
 import type {
+  Attachment,
   ConfigRequest,
   ConfigResolution,
   CredentialName,
@@ -74,6 +75,11 @@ export function NewRunPage() {
   );
   const credentials = useLoad(
     async () => (await api.get<CredentialName[]>("credentials")).data,
+  );
+  const attachments = useLoad(
+    async () =>
+      (await api.get<Attachment[]>("attachments", { include_disabled: "false" }))
+        .data,
   );
   const versions = useMemo(
     () =>
@@ -116,9 +122,12 @@ export function NewRunPage() {
     concurrency: "",
     run_deadline_hours: "",
     agent_sec: "",
+    bootstrap_sec: "",
     cpus: "",
     memory_mb: "",
   });
+  // Attachment version ids in load order.
+  const [chosenAttachments, setChosenAttachments] = useState<string[]>([]);
   const [parameters, setParameters] = useState<
     Record<string, { value: string; secret: boolean }>
   >({});
@@ -137,6 +146,23 @@ export function NewRunPage() {
   );
   const harness = compatible.find((h) => h.id === harnessId) ?? compatible[0];
   const eligible = (tasks.data ?? []).filter((t) => t.can_submit);
+  const attachmentById = new Map((attachments.data ?? []).map((a) => [a.id, a]));
+  const addable = (attachments.data ?? []).filter(
+    (a) =>
+      !chosenAttachments.includes(a.id) &&
+      (!harness ||
+        a.compatible_harnesses.includes("*") ||
+        a.compatible_harnesses.includes(harness.agent)),
+  );
+  const installs = chosenAttachments.some(
+    (id) => attachmentById.get(id)?.has_bootstrap,
+  );
+  const moveAttachment = (index: number, step: number) => {
+    const next = [...chosenAttachments];
+    const [item] = next.splice(index, 1);
+    next.splice(index + step, 0, item);
+    changed(setChosenAttachments)(next);
+  };
   // Author parameters declared by this version's tasks; required ones need a value.
   const declared = useMemo(() => {
     const found = new Map<
@@ -203,6 +229,7 @@ export function NewRunPage() {
             model_config_id: model?.id ?? null,
             harness_version_id: harness?.id ?? null,
             harness_params: typedHarnessParams,
+            attachments: chosenAttachments,
           }
         : {}),
       repetitions: numberOrNull(overrides.repetitions),
@@ -212,7 +239,11 @@ export function NewRunPage() {
         cpus: numberOrNull(overrides.cpus),
         memory_mb: numberOrNull(overrides.memory_mb),
       },
-      timeouts: { agent_sec: numberOrNull(overrides.agent_sec) },
+      timeouts: {
+        agent_sec: numberOrNull(overrides.agent_sec),
+        bootstrap_sec:
+          executionMode === "agent" ? numberOrNull(overrides.bootstrap_sec) : null,
+      },
       parameters: params,
     };
   };
@@ -447,6 +478,91 @@ export function NewRunPage() {
                       />
                     ),
                   )}
+                <div className="grid gap-2 md:col-span-2">
+                  <p className="text-sm font-medium">附件（按加载顺序）</p>
+                  <p className="text-xs text-muted-foreground">
+                    每个试次在自己的容器里依次复制并安装这些附件，然后才开始 Agent。附件由成员在
+                    <Link to="/attachments" className="mx-1 underline">
+                      附件页
+                    </Link>
+                    发布。
+                  </p>
+                  {chosenAttachments.length > 0 && (
+                    <ol className="grid gap-1 text-sm">
+                      {chosenAttachments.map((id, index) => {
+                        const a = attachmentById.get(id);
+                        return (
+                          <li key={id} className="flex flex-wrap items-center gap-2">
+                            <span className="w-5 text-right text-xs text-muted-foreground">
+                              {index + 1}.
+                            </span>
+                            <span className="font-medium">{a?.name ?? id}</span>
+                            <span className="font-mono text-xs">{a?.version}</span>
+                            {a?.has_bootstrap && <Pill tone="info">安装脚本</Pill>}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={index === 0}
+                              onClick={() => moveAttachment(index, -1)}
+                            >
+                              上移
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={index === chosenAttachments.length - 1}
+                              onClick={() => moveAttachment(index, 1)}
+                            >
+                              下移
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                changed(setChosenAttachments)(
+                                  chosenAttachments.filter((x) => x !== id),
+                                )
+                              }
+                            >
+                              移除
+                            </Button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  )}
+                  {addable.length > 0 && (
+                    <SelectField
+                      id="run-attachment-add"
+                      label="添加附件"
+                      value=""
+                      onChange={(e) =>
+                        e.target.value &&
+                        changed(setChosenAttachments)([
+                          ...chosenAttachments,
+                          e.target.value,
+                        ])
+                      }
+                      error={fieldErr("attachments")}
+                    >
+                      <option value="">选择要加载的附件</option>
+                      {addable.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name} {a.version}（{a.owner_username ?? "—"}）
+                        </option>
+                      ))}
+                    </SelectField>
+                  )}
+                  {installs &&
+                    override(
+                      "bootstrap_sec",
+                      "附件安装时限（秒，每试次）",
+                      `团队默认 ${limit(capabilities, "bootstrap_timeout_sec", 600)}，上限 ${limit(capabilities, "bootstrap_timeout_sec_max", 3600)}`,
+                    )}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -675,6 +791,8 @@ const FIELD_LABEL: Record<string, string> = {
   "/timeouts/verifier_sec": "验证时限（秒）",
   "/model": "模型",
   "/harness": "Harness",
+  "/attachments": "附件",
+  "/timeouts/bootstrap_sec": "附件安装时限（秒）",
 };
 
 const TASK_FIELD: Record<string, string> = {
@@ -702,6 +820,9 @@ function ResolutionReview({
     if (!effective) return "—";
     if (path === "/model") return resolution.labels.model ?? "—";
     if (path === "/harness") return resolution.labels.harness ?? "—";
+    if (path === "/attachments") return resolution.labels.attachments || "—";
+    if (path === "/timeouts/bootstrap_sec")
+      return String(effective.bootstrap_timeout_sec ?? "—");
     const taskField = TASK_FIELD[path];
     if (taskField) {
       // Per-task values: one value when all tasks agree, otherwise the distinct ones.

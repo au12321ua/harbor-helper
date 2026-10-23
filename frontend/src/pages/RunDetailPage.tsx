@@ -59,6 +59,7 @@ import {
 import { useInterval, useSession } from "@/lib/hooks";
 import type {
   Artifact,
+  EffectiveAttachment,
   Attempt,
   DeletionState,
   Export,
@@ -392,17 +393,44 @@ function ExecutionMode({ mode }: { mode: unknown }) {
 }
 
 /** The model and harness this run froze at acceptance; later edits do not change it. */
+const INSTALL_STATUS: Record<string, string> = {
+  failed: "安装脚本失败",
+  timeout: "安装超时",
+  transfer_mismatch: "复制后内容不符",
+  transfer_failed: "复制失败",
+};
+
+function isAttachmentFailure(
+  detail: unknown,
+): detail is { attachment: string; version?: string; status?: string; exit_code?: number | null } {
+  return typeof detail === "object" && detail !== null && "attachment" in detail;
+}
+
 function AgentSummary({ snapshot }: { snapshot: RunDetail["snapshot"] }) {
   const model = snapshot.effective.model as
     | { model_id: string; provider: string; protocol: string; revision: number }
     | undefined;
   const harness = snapshot.effective.harness as { name: string; version: string } | undefined;
   const labels = (snapshot.provenance.labels ?? {}) as Record<string, string>;
+  const attachments = (snapshot.effective.attachments ?? []) as EffectiveAttachment[];
+  const installSec = snapshot.effective.bootstrap_timeout_sec as number | null | undefined;
   if (!model) return <span>—</span>;
   return (
     <span>
       {labels.model ?? model.model_id}（<code>{model.model_id}</code>，{model.provider}，修订{" "}
       {model.revision}）· {harness ? `${harness.name} ${harness.version}` : "—"}
+      {attachments.length > 0 && (
+        <span className="block text-xs">
+          附件：
+          {attachments.map((a, i) => (
+            <span key={a.version_id} title={a.content_digest}>
+              {i > 0 && " → "}
+              {a.name} <code>{a.version}</code>
+            </span>
+          ))}
+          {installSec != null && `（每试次安装时限 ${installSec} 秒）`}
+        </span>
+      )}
     </span>
   );
 }
@@ -617,7 +645,12 @@ function duration(attempt: Attempt): string {
 }
 
 /** Which live logs belong to a step: Harbor writes agent and verifier output separately. */
-const STEP_LOG_PREFIX: Record<string, string> = { agent: "agent/", verifying: "verifier/" };
+const STEP_LOG_PREFIX: Record<string, string> = {
+  installing: "agent/attachments/",
+  agent: "agent/",
+  verifying: "verifier/",
+};
+const INSTALL_LOGS = STEP_LOG_PREFIX.installing;
 const ENDED_BADLY = new Set(["failed", "interrupted", "cancelled"]);
 
 function AttemptSteps({
@@ -656,6 +689,10 @@ function AttemptSteps({
                 {String(err.code ?? "ERROR")}
                 {err.exception_type ? ` · ${String(err.exception_type)}` : ""}
                 {err.message ? `：${String(err.message)}` : ""}
+                {isAttachmentFailure(err.detail) &&
+                  `（附件 ${err.detail.attachment} ${err.detail.version ?? ""}：${
+                    INSTALL_STATUS[err.detail.status ?? ""] ?? err.detail.status
+                  }${err.detail.exit_code != null ? `，退出码 ${err.detail.exit_code}` : ""}）`}
               </div>
             )}
           </li>
@@ -687,7 +724,13 @@ function StepList({
         const failed = last && ENDED_BADLY.has(attempt.state);
         const prefix = STEP_LOG_PREFIX[step.step];
         const logs = prefix
-          ? artifacts.filter((a) => a.relative_path.startsWith(prefix) && /\.(txt|log)$/.test(a.relative_path))
+          ? artifacts.filter(
+              (a) =>
+                a.relative_path.startsWith(prefix) &&
+                /\.(txt|log)$/.test(a.relative_path) &&
+                // Attachment install logs belong to their own step, not the agent's.
+                (step.step === "installing" || !a.relative_path.startsWith(INSTALL_LOGS)),
+            )
           : [];
         const key = `${step.step}-${index}`;
         const expanded = open === key;

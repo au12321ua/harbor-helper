@@ -116,6 +116,8 @@ config_digest 是完整生效配置摘要，不包含运行身份、准入证明
 
 以下是平台建议的包结构，需由 Harbor 适配器实现转换，不假设 Harbor 已原生支持。
 
+> M5 第三阶段的实际做法（P0 支持的 manifest 字段、只收普通文件、影响评分的包暂拒绝、安装位置与时限、三处内容核对）见 [14](14-decisions.md)“M5 实施记录（第三阶段）”。
+
 ~~~text
 attachment/
   manifest.json

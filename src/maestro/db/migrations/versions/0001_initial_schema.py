@@ -89,14 +89,21 @@ def upgrade() -> None:
     sa.Column('owner_id', sa.String(length=40), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
     sa.Column('version', sa.String(length=64), nullable=False),
+    sa.Column('description', sa.String(length=512), nullable=False),
     sa.Column('content_digest', sa.String(length=80), nullable=False),
     sa.Column('manifest_json', sa.JSON(), nullable=False),
+    sa.Column('files_json', sa.JSON(), nullable=False),
+    sa.Column('file_count', sa.Integer(), nullable=False),
+    sa.Column('size_bytes', sa.Integer(), nullable=False),
+    sa.Column('has_bootstrap', sa.Boolean(), nullable=False),
     sa.Column('enabled', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.String(length=32), nullable=False),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_attachment_versions_owner_id_users')),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_attachment_versions')),
-    sa.UniqueConstraint('owner_id', 'name', 'version', name=op.f('uq_attachment_versions_owner_id_name_version'))
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_attachment_versions'))
     )
+    with op.batch_alter_table('attachment_versions', schema=None) as batch_op:
+        batch_op.create_index('ix_attachment_versions_name_version', ['name', 'version'], unique=False)
+
     op.create_table('credentials',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
@@ -506,6 +513,17 @@ def upgrade() -> None:
     with op.batch_alter_table('preparations', schema=None) as batch_op:
         batch_op.create_index('ix_preparations_state_used', ['cache_state', 'last_used_at'], unique=False)
 
+    op.create_table('run_attachments',
+    sa.Column('run_id', sa.String(length=40), nullable=False),
+    sa.Column('position', sa.Integer(), nullable=False),
+    sa.Column('attachment_version_id', sa.String(length=40), nullable=False),
+    sa.ForeignKeyConstraint(['attachment_version_id'], ['attachment_versions.id'], name=op.f('fk_run_attachments_attachment_version_id_attachment_versions')),
+    sa.ForeignKeyConstraint(['run_id'], ['runs.id'], name=op.f('fk_run_attachments_run_id_runs')),
+    sa.PrimaryKeyConstraint('run_id', 'position', name=op.f('pk_run_attachments'))
+    )
+    with op.batch_alter_table('run_attachments', schema=None) as batch_op:
+        batch_op.create_index('ix_run_attachments_version', ['attachment_version_id'], unique=False)
+
     op.create_table('run_snapshots',
     sa.Column('run_id', sa.String(length=40), nullable=False),
     sa.Column('schema_version', sa.Integer(), nullable=False),
@@ -716,6 +734,10 @@ def downgrade() -> None:
 
     op.drop_table('task_admissions')
     op.drop_table('run_snapshots')
+    with op.batch_alter_table('run_attachments', schema=None) as batch_op:
+        batch_op.drop_index('ix_run_attachments_version')
+
+    op.drop_table('run_attachments')
     with op.batch_alter_table('preparations', schema=None) as batch_op:
         batch_op.drop_index('ix_preparations_state_used')
 
@@ -788,6 +810,9 @@ def downgrade() -> None:
 
     op.drop_table('deletions')
     op.drop_table('credentials')
+    with op.batch_alter_table('attachment_versions', schema=None) as batch_op:
+        batch_op.drop_index('ix_attachment_versions_name_version')
+
     op.drop_table('attachment_versions')
     op.drop_table('users')
     op.drop_table('service_epochs')

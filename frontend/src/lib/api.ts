@@ -54,6 +54,8 @@ type Method = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
 interface RequestOptions {
   body?: unknown;
+  /** Sent as is (a file upload) instead of JSON. */
+  raw?: Blob;
   headers?: Record<string, string>;
   query?: Record<string, string | number | null | undefined>;
 }
@@ -65,6 +67,7 @@ export async function request<T>(
 ): Promise<Page<T>> {
   const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.raw !== undefined) headers["Content-Type"] ??= options.raw.type || "application/octet-stream";
   if (method !== "GET" && csrfToken) headers["X-CSRF-Token"] = csrfToken;
   let url = path.startsWith("/") ? path : `${API}/${path}`;
   if (options.query) {
@@ -81,7 +84,7 @@ export async function request<T>(
       method,
       headers,
       credentials: "same-origin",
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.raw ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
     });
   } catch (error) {
     throw new ApiError(
@@ -131,6 +134,8 @@ export const api = {
     request<T>("POST", path, { body: body ?? {}, headers }),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, { body: body ?? {} }),
   del: <T>(path: string) => request<T>("DELETE", path),
+  upload: <T>(path: string, file: Blob, contentType?: string) =>
+    request<T>("POST", path, { raw: file, headers: contentType ? { "Content-Type": contentType } : {} }),
 };
 
 export function errorText(error: unknown): string {

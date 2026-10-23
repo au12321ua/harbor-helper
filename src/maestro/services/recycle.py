@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -536,6 +537,50 @@ class HarnessHandler(Handler):
         return Purged()
 
 
+class AttachmentHandler(Handler):
+    """Accepted runs keep the version's digest; purging removes the files, so a rerun of
+    such a run is refused rather than loading other content."""
+
+    object_type = "attachment_version"
+    table = t.attachment_versions
+
+    def label(self, conn, row):
+        return f"{row['name']} {row['version']}"
+
+    def owner(self, row):
+        return row["owner_id"]
+
+    def authorize(self, principal, row):
+        require_manage_owned(principal, row["owner_id"])
+
+    def check_delete(self, conn, principal, row):
+        _refuse_active(
+            _active_runs(
+                conn,
+                t.runs.c.id.in_(
+                    select(t.run_attachments.c.run_id).where(
+                        t.run_attachments.c.attachment_version_id == row["id"]
+                    )
+                ),
+            ),
+            "ATTACHMENT_IN_USE",
+            "Queued or running runs use this attachment; cancel them or wait",
+            "cancel_runs",
+        )
+
+    def purge(self, conn, row, service, actor_id):
+        conn.execute(
+            update(t.attachment_versions)
+            .where(t.attachment_versions.c.id == row["id"])
+            .values(description="", files_json=[], enabled=False)
+        )
+        digest = row["content_digest"]
+        return Purged(
+            {"files": row["file_count"]},
+            [lambda: service.remove_attachment_files(digest)],
+        )
+
+
 HANDLERS: dict[str, Handler] = {
     h.object_type: h
     for h in (
@@ -548,6 +593,7 @@ HANDLERS: dict[str, Handler] = {
         PatHandler(),
         ModelConfigHandler(),
         HarnessHandler(),
+        AttachmentHandler(),
     )
 }
 
@@ -571,12 +617,15 @@ def public_entry(row) -> dict:
 
 
 class Recycle:
-    def __init__(self, db: Database, store, materials=None, exports=None, environment=None):
+    def __init__(
+        self, db: Database, store, materials=None, exports=None, environment=None, attachments=None
+    ):
         self.db = db
         self.store = store
         self.materials = materials
         self.exports = exports
         self.environment = environment
+        self.attachments = attachments
 
     @staticmethod
     def _handler(object_type: str) -> Handler:
@@ -837,6 +886,33 @@ class Recycle:
                 log.exception("task material %s could not be removed after a purge", digest)
                 failed += 1
         return {"materials_failed": failed} if failed else None
+
+    def remove_attachment_files(self, content_digest: str) -> dict | None:
+        """Unless another version still holds the same content. Checked and moved away
+        under the write lock, so a publish of this content in between keeps its files."""
+        if self.attachments is None:
+            return None
+        try:
+            with self.db.write() as conn:
+                used = conn.execute(
+                    select(t.attachment_versions.c.id).where(
+                        t.attachment_versions.c.content_digest == content_digest,
+                        t.attachment_versions.c.id.not_in(
+                            select(t.deletions.c.object_id).where(
+                                t.deletions.c.object_type == "attachment_version",
+                                t.deletions.c.state == deleted.PURGED,
+                            )
+                        ),
+                    )
+                ).first()
+                # Only the rename happens under the lock; deleting can take a while.
+                retired = self.attachments.retire(content_digest) if used is None else None
+            if retired is not None:
+                shutil.rmtree(retired, ignore_errors=True)
+        except Exception:
+            log.exception("attachment files %s could not be removed", content_digest)
+            return {"attachment_files_failed": content_digest}
+        return None
 
     def discard_preparations(self, outputs: list[tuple[str, dict]]) -> dict | None:
         """Local images and their originals; runs from a request thread after commit.

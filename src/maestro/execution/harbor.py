@@ -30,6 +30,7 @@ from maestro.boundaries.executor import (
 )
 from maestro.execution import process
 from maestro.execution.agents import endpoint_host
+from maestro.execution.attachments import AttachmentStore
 from maestro.execution.docker import DockerResources
 from maestro.execution.materials import TaskMaterials
 from maestro.execution.policy import HARBOR_VERSION, MAPPING_ID, harbor_outcome, harbor_retry_config
@@ -173,8 +174,10 @@ class HarborExecutor:
         tail_interval_sec: float = 0.5,
         log_cap_bytes: int = 1024 * 1024,
         artifact_limits: dict[str, int] = DEFAULT_ARTIFACT_LIMITS,
+        attachments: AttachmentStore | None = None,
     ):
         self.artifact_limits = dict(artifact_limits)
+        self.attachments = attachments
         self.runner_python = runner_python
         self.work_root = work_root
         self.materials = materials
@@ -238,6 +241,30 @@ class HarborExecutor:
             phase = {"mode": "allowlist", "hosts": [endpoint_host(effective["model"]["endpoint"])]}
         return {"agent": phase, "verifier": {"mode": "no-network"}}
 
+    async def _attachments(self, spec: RunSpec) -> tuple[list[dict], str | None]:
+        """Stored packages in load order, each checked against its digest just before the
+        Runner copies it; the name of the first one missing or changed, if any."""
+        found = []
+        for entry in spec.effective_config.get("attachments") or []:
+            path = (
+                await asyncio.to_thread(self.attachments.verified, entry["content_digest"])
+                if self.attachments is not None
+                else None
+            )
+            label = f"{entry['name']} {entry['version']}"
+            if path is None:
+                return [], label
+            found.append(
+                {
+                    "name": entry["name"],
+                    "version": entry["version"],
+                    "content_digest": entry["content_digest"],
+                    "path": str(path),
+                    "bootstrap": entry["has_bootstrap"],
+                }
+            )
+        return found, None
+
     @staticmethod
     def _task_env(spec: RunSpec) -> dict[str, str]:
         """Author parameter values; secret ones were read from their credential."""
@@ -275,6 +302,11 @@ class HarborExecutor:
                 },
             )
             entry["trial_ids"].append(trial.trial_id)
+        attachments, lost = await self._attachments(spec)
+        if lost:
+            # A purged or damaged package: never install other content in its place.
+            missing = list(spec.trials)
+            tasks = {}
         for trial in missing:
             # The worker restores material before execution; losing it after that
             # fails the trial instead of running unverified files.
@@ -285,9 +317,13 @@ class HarborExecutor:
                 AttemptOutcome(
                     raw_score=None,
                     reward_valid=False,
-                    failure_cause="sandbox_failed",
-                    exception_type="TaskMaterialMissing",
-                    message="Task content is not in the local cache",
+                    failure_cause="attachment_failed" if lost else "sandbox_failed",
+                    exception_type="AttachmentContentMissing" if lost else "TaskMaterialMissing",
+                    message=(
+                        f"Attachment {lost} is no longer stored with its published content"
+                        if lost
+                        else "Task content is not in the local cache"
+                    ),
                     grade_requested=False,
                     verifier_status="not_run",
                 ),
@@ -310,6 +346,8 @@ class HarborExecutor:
                 else {}
             ),
             "task_env": self._task_env(spec),
+            "attachments": attachments,
+            "bootstrap_timeout_sec": spec.effective_config.get("bootstrap_timeout_sec"),
             "n_concurrent_trials": spec.concurrency,
             "retry": harbor_retry_config(),
             "tasks": list(tasks.values()),
@@ -546,6 +584,29 @@ class HarborExecutor:
         )
         if isinstance(p.get("usage"), dict):
             outcome = replace(outcome, usage=p["usage"])
+        installs = p.get("attachments")
+        if isinstance(installs, list) and installs:
+            # The Runner's own record (not a file the container could have written).
+            await sink.artifact(
+                trial_id,
+                attempt,
+                "trial",
+                "maestro/attachments.json",
+                json.dumps(installs, indent=2, sort_keys=True).encode(),
+            )
+            failed = next(
+                (i for i in installs if isinstance(i, dict) and i.get("status") != "ok"), None
+            )
+            if failed is not None:
+                outcome = replace(
+                    outcome,
+                    detail={
+                        "attachment": failed.get("name"),
+                        "version": failed.get("version"),
+                        "status": failed.get("status"),
+                        "exit_code": failed.get("exit_code"),
+                    },
+                )
         session.open_attempts.discard((trial_id, attempt))
         await sink.attempt_finished(trial_id, attempt, outcome, final=not p.get("will_retry"))
 

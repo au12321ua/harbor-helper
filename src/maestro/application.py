@@ -9,10 +9,12 @@ from maestro.boundaries.storage import ArtifactStore, LocalArtifactStore
 from maestro.config import Settings
 from maestro.db import migrate
 from maestro.db.engine import Database
+from maestro.execution.attachments import AttachmentStore
 from maestro.execution.materials import TaskMaterials
 from maestro.security.master_key import MasterKeys
 from maestro.services.accounts import Accounts
 from maestro.services.artifacts import Artifacts
+from maestro.services.attachments import Attachments
 from maestro.services.capacity import Capacity, HostCapacity
 from maestro.services.catalog import Catalog
 from maestro.services.configuration import Resolver
@@ -45,6 +47,7 @@ class Maestro:
     runs: Runs
     policies: Policies
     models: ModelConfigs
+    attachments: Attachments
     artifacts: Artifacts
     exports: Exports
     recycle: Recycle
@@ -78,6 +81,7 @@ class Maestro:
         )
         disk = DiskWatch(settings.data_dir, settings)
         materials = TaskMaterials(settings.cache_dir)
+        attachment_store = AttachmentStore(settings.data_dir)
         preparer = (
             Preparer(
                 db,
@@ -125,10 +129,11 @@ class Maestro:
                 adapters,
                 dict(getattr(executor, "harness_parameters", {}) or {}),
             ),
+            attachments=Attachments(db, attachment_store, adapters),
             artifacts=artifacts,
             exports=exports,
-            recycle=Recycle(db, store, materials, exports, environment),
-            maintenance=Maintenance(artifacts, exports),
+            recycle=Recycle(db, store, materials, exports, environment, attachment_store),
+            maintenance=Maintenance(artifacts, exports, attachment_store),
             disk=disk,
             capacity=Capacity(db, host),
             store=store,

@@ -473,6 +473,9 @@ class ResourceOverrides(Model):
 class TimeoutOverrides(Model):
     agent_sec: float | None = None
     verifier_sec: float | None = None
+    bootstrap_sec: float | None = Field(
+        None, description="Time for each trial to install all attachments (team default)"
+    )
 
 
 class RunConfigFields(Model):
@@ -483,6 +486,9 @@ class RunConfigFields(Model):
     model_config_id: str | None = None
     harness_version_id: str | None = None
     harness_params: dict[str, Any] = {}
+    attachments: list[str] = Field(
+        [], description="Attachment version ids in load order (model runs only)"
+    )
     repetitions: int | None = None
     concurrency: int | None = None
     run_deadline_hours: int | None = None
@@ -634,6 +640,38 @@ class HarnessAdapter(Model):
 
 class EnabledChange(Model):
     enabled: bool
+
+
+class AttachmentProvides(Model):
+    tools: list[str]
+    env: list[str]
+
+
+class AttachmentFile(Model):
+    path: str
+    size: int
+    sha256: str
+    executable: bool
+
+
+class Attachment(Model):
+    id: str
+    name: str
+    version: str
+    description: str
+    owner_id: str
+    owner_username: str | None
+    content_digest: str = Field(description="Covers every file's path, SHA-256 and mode")
+    effects: list[str]
+    compatible_harnesses: list[str] = Field(description='Harness agents, or ["*"] for any')
+    provides: AttachmentProvides
+    has_bootstrap: bool = Field(description="Has bootstrap.sh, run in each trial's setup")
+    file_count: int
+    size_bytes: int
+    enabled: bool
+    created_at: str
+    files: list[AttachmentFile] | None = None
+    deletion: dict[str, Any] | None = None
 
 
 class PolicySetting(Model):
@@ -963,6 +1001,7 @@ ObjectType = Literal[
     "pat",
     "model_config",
     "harness_version",
+    "attachment_version",
 ]
 
 

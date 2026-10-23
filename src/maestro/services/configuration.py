@@ -92,6 +92,17 @@ def check_request(body: dict) -> dict:
     elif execution_mode == "oracle" and (model_id or harness_id or harness_params):
         # Oracle runs the task's reference solution; it never calls a model (15 section 6).
         errors.append(FieldError("/execution_mode", "ORACLE_HAS_NO_MODEL"))
+    attachments = body.get("attachments") or []
+    if (
+        not isinstance(attachments, list)
+        or not all(isinstance(x, str) for x in attachments)
+        or len(set(attachments)) != len(attachments)
+    ):
+        errors.append(FieldError("/attachments", "INVALID", "distinct attachment version ids"))
+        attachments = []
+    elif attachments and execution_mode == "oracle":
+        # Attachments are installed by the harness wrapper around a model agent (03 section 7).
+        errors.append(FieldError("/attachments", "ORACLE_HAS_NO_ATTACHMENTS"))
     if not isinstance(harness_params, dict):
         errors.append(FieldError("/harness_params", "TYPE"))
         harness_params = {}
@@ -110,7 +121,7 @@ def check_request(body: dict) -> dict:
         errors.append(FieldError("/resources/cpus", "TYPE", "a positive integer"))
     if memory is not None and (type(memory) is not int or memory < 1):
         errors.append(FieldError("/resources/memory_mb", "TYPE", "a positive integer"))
-    for name in ("agent_sec", "verifier_sec"):
+    for name in ("agent_sec", "verifier_sec", "bootstrap_sec"):
         value = timeouts.get(name)
         if value is not None and (not _number(value) or value <= 0):
             errors.append(FieldError(f"/timeouts/{name}", "TYPE", "a positive number"))
@@ -144,11 +155,13 @@ def check_request(body: dict) -> dict:
         "model_config_id": model_id if execution_mode == "agent" else None,
         "harness_version_id": harness_id if execution_mode == "agent" else None,
         "harness_params": dict(sorted(harness_params.items())),
+        # In load order: the order is part of the configuration (03 section 7).
+        "attachments": attachments,
         "repetitions": body.get("repetitions"),
         "concurrency": body.get("concurrency"),
         "run_deadline_hours": body.get("run_deadline_hours"),
         "resources": {"cpus": cpus, "memory_mb": memory},
-        "timeouts": {k: timeouts.get(k) for k in ("agent_sec", "verifier_sec")},
+        "timeouts": {k: timeouts.get(k) for k in ("agent_sec", "verifier_sec", "bootstrap_sec")},
         "parameters": dict(sorted(clean_parameters.items())),
     }
 
@@ -244,6 +257,10 @@ def comparison_view(effective: dict) -> dict:
         }
     if effective.get("harness"):
         view["harness"] = {k: v for k, v in effective["harness"].items() if k != "version_id"}
+    view["attachments"] = [
+        {k: v for k, v in a.items() if k != "version_id"}
+        for a in effective.get("attachments") or []
+    ]
     # Parameter values are compared; which credential holds a secret is not.
     view["parameters"] = {
         name: value.get("value", "<secret>")
@@ -300,6 +317,7 @@ class Resolver:
         }
         self._run_fields(team, request, effective, res)
         self._agent(conn, request, effective, res)
+        self._attachments(conn, team, request, effective, res)
         self._tasks(conn, team, request, version, effective, res)
         if res.tasks:
             self._size_and_capacity(conn, team, effective, res)
@@ -541,6 +559,124 @@ class Resolver:
             "schema": row["schema_json"],
             "content_digest": row["content_digest"],
         }
+
+    # --- attachments -----------------------------------------------------------------
+
+    def _attachments(self, conn: Connection, team, request, effective, res: Resolution) -> None:
+        """Ordered packages, each compatible with the harness; two packages may not claim
+        the same name, tool or environment variable (03 section 7: no "last one wins")."""
+        ids = request["attachments"]
+        effective["attachments"] = []
+        effective["bootstrap_timeout_sec"] = None
+        if not ids:
+            if request["timeouts"]["bootstrap_sec"] is not None:
+                res.warnings.append(
+                    {
+                        "code": "BOOTSTRAP_TIMEOUT_UNUSED",
+                        "path": "/timeouts/bootstrap_sec",
+                        "message": "No attachment installs anything in this run",
+                    }
+                )
+            return
+        if len(ids) > team.run_max_attachments:
+            res.blockers.append(
+                Blocker(
+                    "LIMIT_EXCEEDED",
+                    "/attachments",
+                    f"{len(ids)} attachments is over the team limit {team.run_max_attachments}",
+                    extra={"limit": team.run_max_attachments},
+                )
+            )
+        rows = {
+            r["id"]: r
+            for r in conn.execute(
+                select(t.attachment_versions).where(t.attachment_versions.c.id.in_(ids))
+            ).mappings()
+        }
+        gone = deleted.states(conn, "attachment_version", ids)
+        agent = (effective.get("harness") or {}).get("agent")
+        claimed: dict[tuple[str, str], str] = {}
+        for index, attachment_id in enumerate(ids):
+            path = f"/attachments/{index}"
+            row = rows.get(attachment_id)
+            if row is None:
+                res.blockers.append(Blocker("NOT_FOUND", path, "Attachment not found"))
+                continue
+            label = f"{row['name']} {row['version']}"
+            if attachment_id in gone:
+                res.blockers.append(
+                    Blocker("DELETED", path, f"{label} was deleted", error="CONFIG_UNAVAILABLE")
+                )
+                continue
+            if not row["enabled"]:
+                res.blockers.append(
+                    Blocker("DISABLED", path, f"{label} is disabled", error="CONFIG_UNAVAILABLE")
+                )
+            manifest = row["manifest_json"]
+            harnesses = manifest["compatible_harnesses"]
+            if agent and "*" not in harnesses and agent not in harnesses:
+                res.blockers.append(
+                    Blocker(
+                        "ATTACHMENT_INCOMPATIBLE",
+                        path,
+                        f"{label} does not support the {agent} harness",
+                        error="CONFIG_INCOMPATIBLE",
+                    )
+                )
+            claims = [("name", row["name"])] + [
+                (kind, name) for kind in ("tools", "env") for name in manifest["provides"][kind]
+            ]
+            for claim in claims:
+                if claim in claimed:
+                    res.blockers.append(
+                        Blocker(
+                            "ATTACHMENT_CONFLICT",
+                            path,
+                            f"{label} and {claimed[claim]} both provide {claim[0]} {claim[1]!r}",
+                            error="ATTACHMENT_CONFLICT",
+                            extra={"kind": claim[0], "name": claim[1]},
+                        )
+                    )
+                else:
+                    claimed[claim] = label
+            effective["attachments"].append(
+                {
+                    "version_id": attachment_id,
+                    "name": row["name"],
+                    "version": row["version"],
+                    "content_digest": row["content_digest"],
+                    "effects": manifest["effects"],
+                    "provides": manifest["provides"],
+                    "has_bootstrap": row["has_bootstrap"],
+                }
+            )
+        res.field_sources["/attachments"] = {"layer": "override"}
+        res.references["attachments"] = list(ids)
+        res.labels["attachments"] = ", ".join(
+            f"{a['name']} {a['version']}" for a in effective["attachments"]
+        )
+        if not any(a["has_bootstrap"] for a in effective["attachments"]):
+            return
+        value = request["timeouts"]["bootstrap_sec"]
+        if value is None:
+            value = team.bootstrap_timeout_sec
+            res.field_sources["/timeouts/bootstrap_sec"] = {
+                "layer": "team",
+                "source_id": "team_policy",
+                "revision": team.revision,
+            }
+        else:
+            res.field_sources["/timeouts/bootstrap_sec"] = {"layer": "override"}
+        if value > team.bootstrap_timeout_sec_max:
+            res.blockers.append(
+                Blocker(
+                    "LIMIT_EXCEEDED",
+                    "/timeouts/bootstrap_sec",
+                    f"{value} is over the team limit {team.bootstrap_timeout_sec_max}",
+                    extra={"limit": team.bootstrap_timeout_sec_max},
+                )
+            )
+        effective["bootstrap_timeout_sec"] = value
 
     # --- tasks ---------------------------------------------------------------------
 
@@ -933,6 +1069,19 @@ class Resolver:
             ).scalar()
             if not enabled or deleted.state(conn, "harness_version", harness["version_id"]):
                 changed.append("/harness")
+        attachments = [a["version_id"] for a in (res.effective or {}).get("attachments") or []]
+        if attachments:
+            enabled = dict(
+                conn.execute(
+                    select(t.attachment_versions.c.id, t.attachment_versions.c.enabled).where(
+                        t.attachment_versions.c.id.in_(attachments)
+                    )
+                ).all()
+            )
+            gone = deleted.states(conn, "attachment_version", attachments)
+            for index, attachment_id in enumerate(attachments):
+                if not enabled.get(attachment_id) or attachment_id in gone:
+                    changed.append(f"/attachments/{index}")
         for credential_id in res.credential_ids:
             if credential_problem(conn, credential_id, SECRET_KINDS):
                 changed.append(f"/credentials/{credential_id}")

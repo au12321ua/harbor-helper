@@ -277,11 +277,13 @@ export interface ConfigRequest {
   model_config_id?: string | null;
   harness_version_id?: string | null;
   harness_params?: Record<string, unknown>;
+  /** Attachment version ids in load order (model runs only). */
+  attachments?: string[];
   repetitions?: number | null;
   concurrency?: number | null;
   run_deadline_hours?: number | null;
   resources?: { cpus?: number | null; memory_mb?: number | null };
-  timeouts?: { agent_sec?: number | null; verifier_sec?: number | null };
+  timeouts?: { agent_sec?: number | null; verifier_sec?: number | null; bootstrap_sec?: number | null };
   parameters?: Record<string, ParameterValue>;
 }
 
@@ -315,6 +317,8 @@ export interface ConfigResolution {
     concurrency?: number;
     run_deadline_hours?: number;
     parameters?: Record<string, { value?: string; credential_id?: string }>;
+    attachments?: EffectiveAttachment[];
+    bootstrap_timeout_sec?: number | null;
   } | null;
   field_sources: Record<string, FieldSource>;
   baseline_differences: { path: string; value: number; tasks_lower: number; tasks_higher: number }[];
@@ -379,6 +383,44 @@ export interface Harness {
   content_digest: string;
   enabled: boolean;
   created_at: string;
+}
+
+export interface AttachmentFile {
+  path: string;
+  size: number;
+  sha256: string;
+  executable: boolean;
+}
+
+/** A published attachment package (03 section 6); its content never changes. */
+export interface Attachment {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  owner_id: string;
+  owner_username: string | null;
+  content_digest: string;
+  effects: string[];
+  compatible_harnesses: string[];
+  provides: { tools: string[]; env: string[] };
+  has_bootstrap: boolean;
+  file_count: number;
+  size_bytes: number;
+  enabled: boolean;
+  created_at: string;
+  files?: AttachmentFile[] | null;
+}
+
+/** An attachment as a run configuration fixes it. */
+export interface EffectiveAttachment {
+  version_id: string;
+  name: string;
+  version: string;
+  content_digest: string;
+  effects: string[];
+  provides: { tools: string[]; env: string[] };
+  has_bootstrap: boolean;
 }
 
 export interface HarnessAdapter {
