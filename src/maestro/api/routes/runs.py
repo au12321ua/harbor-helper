@@ -1,17 +1,21 @@
-"""Runs, trials, artifacts and Operations."""
+"""Runs, trials, result summaries, artifacts, exports and Operations."""
 
-from fastapi import APIRouter, Depends, Header, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, Header, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from maestro.api.deps import maestro, ok, principal
 from maestro.api.models import (
     Artifact,
     Envelope,
+    Export,
+    ExportCreate,
     Operation,
+    RecycleEntry,
     Run,
     RunAccepted,
     RunCreate,
     RunDetail,
+    RunSummary,
     Trial,
 )
 from maestro.core.errors import MaestroError
@@ -50,16 +54,21 @@ def list_runs(
     state: str | None = None,
     dataset_version_id: str | None = None,
     client_request_id: str | None = None,
+    accepted_after: str | None = None,
+    accepted_before: str | None = None,
     cursor: str | None = None,
     limit: int | None = None,
     who: Principal = Depends(principal),
 ):
+    """Newest first; deleted runs are hidden. Times are RFC 3339 UTC, ``after`` inclusive."""
     items, next_cursor = maestro(request).runs.list(
         who,
         owner_id=owner_id,
         state=state,
         dataset_version_id=dataset_version_id,
         client_request_id=client_request_id,
+        accepted_after=accepted_after,
+        accepted_before=accepted_before,
         cursor=cursor,
         limit=limit,
     )
@@ -69,6 +78,18 @@ def list_runs(
 @router.get("/runs/{run_id}", response_model=Envelope[RunDetail], tags=["runs"])
 def get_run(run_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).runs.get(who, run_id))
+
+
+@router.get("/runs/{run_id}/summary", response_model=Envelope[RunSummary], tags=["runs"])
+def summary(run_id: str, request: Request, _: Principal = Depends(principal)):
+    """Counts, coverage and statistics; web pages and exports use the same computation."""
+    return ok(request, maestro(request).runs.summary(run_id))
+
+
+@router.delete("/runs/{run_id}", response_model=Envelope[RecycleEntry], tags=["runs"])
+def delete_run(run_id: str, request: Request, who: Principal = Depends(principal)):
+    """Moves a finished run to the recycle bin; queued or running runs are refused."""
+    return ok(request, maestro(request).recycle.delete(who, "run", run_id))
 
 
 @router.get("/runs/{run_id}/trials", response_model=Envelope[list[Trial]], tags=["runs"])
@@ -97,16 +118,85 @@ def artifacts(
     tags=["artifacts"],
     responses={200: {"content": {"application/octet-stream": {}}}},
 )
-def download(artifact_id: str, request: Request, _: Principal = Depends(principal)):
-    meta, data = maestro(request).artifacts.read(artifact_id)
-    name = meta["relative_path"].rsplit("/", 1)[-1]
-    return Response(
-        content=data,
+def download(
+    artifact_id: str,
+    request: Request,
+    offset: int = 0,
+    length: int | None = None,
+    _: Principal = Depends(principal),
+):
+    """Whole file, or a bounded slice with ``offset`` and ``length`` (at most 1 MiB) for
+    paging logs. X-Total-Size reports the file size."""
+    meta, reader, count, total = maestro(request).artifacts.open(artifact_id, offset, length)
+
+    def chunks():
+        with reader:
+            left = count
+            while left > 0:
+                chunk = reader.read(min(left, 1 << 16))
+                if not chunk:
+                    return
+                left -= len(chunk)
+                yield chunk
+
+    name = meta["relative_path"].rsplit("/", 1)[-1].replace('"', "")
+    return StreamingResponse(
+        chunks(),
         media_type="application/octet-stream",
         headers={
             "Content-Disposition": f'attachment; filename="{name}"',
+            "Content-Length": str(count),
             "X-Content-Digest": meta["digest"] or "",
+            "X-Total-Size": str(total),
         },
+    )
+
+
+@router.delete(
+    "/artifacts/{artifact_id}", response_model=Envelope[RecycleEntry], tags=["artifacts"]
+)
+def delete_artifact(artifact_id: str, request: Request, who: Principal = Depends(principal)):
+    """Administrators only, e.g. for a confirmed leak; the index entry stays."""
+    return ok(request, maestro(request).recycle.delete(who, "artifact", artifact_id))
+
+
+@router.post("/exports", response_model=Envelope[Export], status_code=202, tags=["exports"])
+def create_export(body: ExportCreate, request: Request, who: Principal = Depends(principal)):
+    """Accepted as an Operation; poll it or the export, then download within 24 hours."""
+    service = maestro(request)
+    export = service.exports.create(who, body.model_dump())
+    service.maintenance.wake()
+    return JSONResponse(status_code=202, content=ok(request, export))
+
+
+@router.get("/exports", response_model=Envelope[list[Export]], tags=["exports"])
+def list_exports(
+    request: Request,
+    cursor: str | None = None,
+    limit: int | None = None,
+    who: Principal = Depends(principal),
+):
+    items, next_cursor = maestro(request).exports.list(who, cursor, limit)
+    return ok(request, items, next_cursor)
+
+
+@router.get("/exports/{export_id}", response_model=Envelope[Export], tags=["exports"])
+def get_export(export_id: str, request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).exports.get(who, export_id))
+
+
+@router.get(
+    "/exports/{export_id}/download",
+    tags=["exports"],
+    responses={200: {"content": {"application/zip": {}}}},
+)
+def download_export(export_id: str, request: Request, who: Principal = Depends(principal)):
+    meta, path = maestro(request).exports.archive(who, export_id)
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename=f"export-{export_id}.zip",
+        headers={"X-Content-Digest": meta["digest"] or ""},
     )
 
 

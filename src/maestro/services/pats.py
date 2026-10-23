@@ -15,7 +15,7 @@ from maestro.db.engine import Database
 from maestro.domain import limits
 from maestro.domain.states import PatScope
 from maestro.security import tokens
-from maestro.services import audit
+from maestro.services import audit, deleted
 from maestro.services.principal import Principal, require_web_session
 
 
@@ -107,7 +107,7 @@ class Pats:
         with self.db.read() as conn:
             rows = conn.execute(
                 select(t.pats)
-                .where(t.pats.c.owner_id == principal.user_id)
+                .where(t.pats.c.owner_id == principal.user_id, deleted.visible(t.pats.c.id, "pat"))
                 .order_by(t.pats.c.created_at.desc())
             )
             return [public_pat(r) for r in rows.mappings().all()]

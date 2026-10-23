@@ -22,7 +22,7 @@ from maestro.db.engine import Database
 from maestro.domain import limits
 from maestro.domain.states import PatScope, Role, UserStatus
 from maestro.security import passwords, tokens
-from maestro.services import audit
+from maestro.services import audit, deleted
 from maestro.services.principal import Channel, Principal, require_admin_session
 
 USERNAME = re.compile(r"[a-z][a-z0-9_.-]{1,31}")
@@ -171,6 +171,13 @@ class Accounts:
         return row
 
     @staticmethod
+    def _refuse_deleted(conn: Connection, user_id: str) -> None:
+        if deleted.state(conn, "user", user_id):
+            raise MaestroError(
+                "USER_DELETED", "Account was deleted; restore it from the recycle bin", 409
+            )
+
+    @staticmethod
     def _insert_user(conn, username, display_name, role, password_hash, created_by) -> str:
         if conn.execute(select(t.users.c.id).where(t.users.c.username == username)).first():
             raise MaestroError(
@@ -200,7 +207,15 @@ class Accounts:
     def list_members(self, principal: Principal) -> list[dict]:
         require_admin_session(principal)
         with self.db.read() as conn:
-            rows = conn.execute(select(t.users).order_by(t.users.c.created_at)).mappings().all()
+            rows = (
+                conn.execute(
+                    select(t.users)
+                    .where(deleted.visible(t.users.c.id, "user"))
+                    .order_by(t.users.c.created_at)
+                )
+                .mappings()
+                .all()
+            )
         return [public_user(r) for r in rows]
 
     def set_status(
@@ -209,6 +224,7 @@ class Accounts:
         require_admin_session(principal)
         with self.db.write() as conn:
             user = self._user(conn, user_id)
+            self._refuse_deleted(conn, user_id)
             if user["revision"] != expected_revision:
                 raise MaestroError("REVISION_CONFLICT", "Account changed; refresh", 409)
             if status == user["status"]:
@@ -302,6 +318,7 @@ class Accounts:
         with self.db.write() as conn:
             if target_user_id is not None:
                 target = self._user(conn, target_user_id)
+                self._refuse_deleted(conn, target_user_id)
                 role = Role(target["role"])
             conn.execute(
                 insert(t.invitations).values(

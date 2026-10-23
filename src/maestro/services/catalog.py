@@ -13,7 +13,7 @@ from maestro.core.errors import not_found
 from maestro.core.ids import new_id
 from maestro.db import schema as t
 from maestro.db.engine import Database
-from maestro.services import pagination
+from maestro.services import deleted, pagination
 
 ADMITTED = "admitted"
 
@@ -134,7 +134,9 @@ class Catalog:
     def list_datasets(self, cursor: str | None, limit: int | None) -> tuple[list, str | None]:
         limit = pagination.check_limit(limit)
         query = pagination.page(
-            select(t.datasets).where(t.datasets.c.enabled.is_(True)),
+            select(t.datasets).where(
+                t.datasets.c.enabled.is_(True), deleted.visible(t.datasets.c.id, "dataset")
+            ),
             t.datasets.c.created_at,
             t.datasets.c.id,
             cursor,
@@ -148,7 +150,10 @@ class Catalog:
             for row in rows:
                 versions = conn.execute(
                     select(t.dataset_versions)
-                    .where(t.dataset_versions.c.dataset_id == row["id"])
+                    .where(
+                        t.dataset_versions.c.dataset_id == row["id"],
+                        deleted.visible(t.dataset_versions.c.id, "dataset_version"),
+                    )
                     .order_by(t.dataset_versions.c.created_at.desc())
                 ).mappings()
                 result.append(
@@ -187,8 +192,11 @@ class Catalog:
             if row is None:
                 raise not_found("Dataset version")
             tasks = self._tasks(conn, version_id)
+            # Deleted versions still resolve for runs that reference them (07 section 8).
+            deletion = deleted.version_state(conn, version_id)
         return {
             **self._version(row),
+            "deletion": deletion,
             "task_count": len(tasks),
             "admitted_task_count": sum(
                 1 for x in tasks if x["admission"] and x["admission"]["state"] == ADMITTED

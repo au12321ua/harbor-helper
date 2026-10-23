@@ -161,6 +161,28 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_dataset_versions')),
     sa.UniqueConstraint('dataset_id', 'resolved_digest', name=op.f('uq_dataset_versions_dataset_id_resolved_digest'))
     )
+    op.create_table('deletions',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('object_type', sa.String(length=32), nullable=False),
+    sa.Column('object_id', sa.String(length=40), nullable=False),
+    sa.Column('label', sa.String(length=256), nullable=False),
+    sa.Column('owner_id', sa.String(length=40), nullable=True),
+    sa.Column('state', sa.String(length=16), nullable=False),
+    sa.Column('deleted_by', sa.String(length=40), nullable=False),
+    sa.Column('deleted_at', sa.String(length=32), nullable=False),
+    sa.Column('purged_by', sa.String(length=40), nullable=True),
+    sa.Column('purged_at', sa.String(length=32), nullable=True),
+    sa.Column('detail_json', sa.JSON(), nullable=False),
+    sa.CheckConstraint("state IN ('recycled','purged')", name=op.f('ck_deletions_state')),
+    sa.ForeignKeyConstraint(['deleted_by'], ['users.id'], name=op.f('fk_deletions_deleted_by_users')),
+    sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_deletions_owner_id_users')),
+    sa.ForeignKeyConstraint(['purged_by'], ['users.id'], name=op.f('fk_deletions_purged_by_users')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_deletions')),
+    sa.UniqueConstraint('object_type', 'object_id', name=op.f('uq_deletions_object_type_object_id'))
+    )
+    with op.batch_alter_table('deletions', schema=None) as batch_op:
+        batch_op.create_index('ix_deletions_state_deleted', ['state', 'deleted_at', 'id'], unique=False)
+
     op.create_table('experiment_plans',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('owner_id', sa.String(length=40), nullable=False),
@@ -314,6 +336,30 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_tasks')),
     sa.UniqueConstraint('dataset_version_id', 'task_key', name=op.f('uq_tasks_dataset_version_id_task_key'))
     )
+    op.create_table('exports',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('owner_id', sa.String(length=40), nullable=False),
+    sa.Column('pat_id', sa.String(length=40), nullable=True),
+    sa.Column('operation_id', sa.String(length=40), nullable=False),
+    sa.Column('request_json', sa.JSON(), nullable=False),
+    sa.Column('state', sa.String(length=16), nullable=False),
+    sa.Column('size_bytes', sa.Integer(), nullable=True),
+    sa.Column('digest', sa.String(length=80), nullable=True),
+    sa.Column('summary_json', sa.JSON(), nullable=True),
+    sa.Column('error_json', sa.JSON(), nullable=True),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.Column('finished_at', sa.String(length=32), nullable=True),
+    sa.Column('expires_at', sa.String(length=32), nullable=True),
+    sa.CheckConstraint("state IN ('queued','building','ready','failed','expired')", name=op.f('ck_exports_state')),
+    sa.ForeignKeyConstraint(['operation_id'], ['operations.id'], name=op.f('fk_exports_operation_id_operations')),
+    sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_exports_owner_id_users')),
+    sa.ForeignKeyConstraint(['pat_id'], ['pats.id'], name=op.f('fk_exports_pat_id_pats')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_exports'))
+    )
+    with op.batch_alter_table('exports', schema=None) as batch_op:
+        batch_op.create_index('ix_exports_owner_created', ['owner_id', 'created_at', 'id'], unique=False)
+        batch_op.create_index('ix_exports_state', ['state'], unique=False)
+
     op.create_table('preparations',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('task_id', sa.String(length=40), nullable=False),
@@ -501,9 +547,10 @@ def upgrade() -> None:
     sa.Column('digest', sa.String(length=80), nullable=True),
     sa.Column('size_bytes', sa.Integer(), nullable=True),
     sa.Column('status', sa.String(length=16), nullable=False),
+    sa.Column('status_reason', sa.String(length=64), nullable=True),
     sa.Column('created_at', sa.String(length=32), nullable=False),
     sa.Column('expires_at', sa.String(length=32), nullable=True),
-    sa.CheckConstraint("status IN ('pending','available','failed','expired','unavailable')", name=op.f('ck_artifacts_status')),
+    sa.CheckConstraint("status IN ('pending','available','failed','deleting','expired','unavailable','deleted')", name=op.f('ck_artifacts_status')),
     sa.ForeignKeyConstraint(['attempt_id'], ['execution_attempts.id'], name=op.f('fk_artifacts_attempt_id_execution_attempts')),
     sa.ForeignKeyConstraint(['run_id'], ['runs.id'], name=op.f('fk_artifacts_run_id_runs')),
     sa.ForeignKeyConstraint(['trial_id'], ['trials.id'], name=op.f('fk_artifacts_trial_id_trials')),
@@ -550,11 +597,28 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['trial_id'], ['trials.id'], name=op.f('fk_trial_results_trial_id_trials')),
     sa.PrimaryKeyConstraint('trial_id', name=op.f('pk_trial_results'))
     )
+    op.create_table('artifact_pins',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('artifact_id', sa.String(length=40), nullable=False),
+    sa.Column('holder_kind', sa.String(length=16), nullable=False),
+    sa.Column('holder_id', sa.String(length=40), nullable=False),
+    sa.Column('expires_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['artifact_id'], ['artifacts.id'], name=op.f('fk_artifact_pins_artifact_id_artifacts')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_artifact_pins')),
+    sa.UniqueConstraint('artifact_id', 'holder_kind', 'holder_id', name=op.f('uq_artifact_pins_artifact_id_holder_kind_holder_id'))
+    )
+    with op.batch_alter_table('artifact_pins', schema=None) as batch_op:
+        batch_op.create_index('ix_artifact_pins_holder', ['holder_kind', 'holder_id'], unique=False)
+
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
+    with op.batch_alter_table('artifact_pins', schema=None) as batch_op:
+        batch_op.drop_index('ix_artifact_pins_holder')
+
+    op.drop_table('artifact_pins')
     op.drop_table('trial_results')
     with op.batch_alter_table('preparation_waiters', schema=None) as batch_op:
         batch_op.drop_index('ix_preparation_waiters_op_state')
@@ -593,6 +657,11 @@ def downgrade() -> None:
         batch_op.drop_index('ix_preparations_state_used')
 
     op.drop_table('preparations')
+    with op.batch_alter_table('exports', schema=None) as batch_op:
+        batch_op.drop_index('ix_exports_state')
+        batch_op.drop_index('ix_exports_owner_created')
+
+    op.drop_table('exports')
     op.drop_table('tasks')
     with op.batch_alter_table('operations', schema=None) as batch_op:
         batch_op.drop_index('ix_operations_resource')
@@ -617,6 +686,10 @@ def downgrade() -> None:
     op.drop_table('pats')
     op.drop_table('invitations')
     op.drop_table('experiment_plans')
+    with op.batch_alter_table('deletions', schema=None) as batch_op:
+        batch_op.drop_index('ix_deletions_state_deleted')
+
+    op.drop_table('deletions')
     op.drop_table('dataset_versions')
     op.drop_table('credentials')
     op.drop_table('attachment_versions')

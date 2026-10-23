@@ -221,7 +221,18 @@ class DatasetVersion(Model):
     created_at: str
 
 
+class DeletionState(Model):
+    state: Literal["recycled", "purged"] = Field(
+        description="recycled: in the recycle bin; purged: content gone, receipt kept"
+    )
+    deleted_at: str
+    purged_at: str | None
+
+
 class DatasetVersionDetail(DatasetVersion):
+    deletion: DeletionState | None = Field(
+        description="Set when the version or its dataset was deleted; it still resolves"
+    )
     task_count: int
     admitted_task_count: int
     submittable_task_count: int
@@ -318,6 +329,23 @@ RunStateName = Literal[
 class Owner(Model):
     username: str
     display_name: str
+    deleted: bool = Field(description="The account was deleted; history keeps its name")
+
+
+class RunScoring(Model):
+    """Run-list subset of the summary: a mean is never shown without its coverage."""
+
+    metric_id: str
+    planned_trials: int
+    scored_trials: int
+    excluded_error_trials: int
+    unfinished_trials: int
+    passed_trials: int | None
+    mean: float | None = Field(description="Mean of valid scores only; null with no sample")
+    stddev: float | None = Field(description="Sample standard deviation; null below 2 samples")
+    pass_rate: float | None
+    scored_coverage: float | None = Field(description="scored_trials / planned_trials")
+    bench_score: float | None = Field(description="Macro mean of per-task means")
 
 
 class Run(Model):
@@ -343,6 +371,9 @@ class Run(Model):
     )
     heartbeat_at: str | None = Field(description="Last sign of life from the run's Runner")
     counts: RunCounts
+    scoring: RunScoring | None
+    deletion: DeletionState | None = Field(description="Set when the run is in the recycle bin")
+    dataset_version_deletion: DeletionState | None
     accepted_at: str
     started_at: str | None
     finished_at: str | None
@@ -363,6 +394,71 @@ class RunSnapshot(Model):
 
 class RunDetail(Run):
     snapshot: RunSnapshot
+
+
+class ScoringContract(Model):
+    model_config = ConfigDict(extra="allow")
+
+    contract_version: int
+    source: Literal["platform_default", "dataset_version"]
+    metric_id: str
+    name: str
+    unit: str | None
+    direction: Literal["higher_is_better", "lower_is_better"]
+    passed: dict[str, Any] | None = Field(description="Explicit pass rule; null: no pass rate")
+    task_aggregation: str
+    bench_aggregation: str
+    count_as_failure: list[str]
+
+
+class TaskSummary(Model):
+    task_key: str
+    planned_trials: int
+    scored_trials: int
+    mean: float | None
+    stddev: float | None
+    passed_trials: int | None
+    partial: bool = Field(description="Some planned repetitions have no valid score")
+    excluded_trials: int
+    failure_causes: list[str]
+
+
+class UsageSummary(Model):
+    known_trials: int
+    unknown_trials: int = Field(description="Started trials that reported no usage")
+    known_totals: dict[str, float]
+
+
+class RunSummary(Model):
+    """06 section 5. At a terminal run planned = scored + count_as_failure + excluded +
+    unfinished; while running, active and queued make up the rest."""
+
+    run_id: str
+    contract: ScoringContract
+    planned_trials: int
+    scored_trials: int
+    count_as_failure_trials: int
+    excluded_error_trials: int
+    unfinished_trials: int
+    active_trials: int
+    queued_trials: int
+    passed_trials: int | None
+    mean: float | None
+    stddev: float | None
+    pass_rate: float | None
+    scored_coverage: float | None
+    evaluation_coverage: float | None
+    bench_task_coverage: float | None = Field(description="Run tasks / tasks in the version")
+    bench_score: float | None
+    bench_scored_tasks: int
+    task_count: int
+    result_completeness: Literal["none", "partial", "complete"]
+    excluded_by_cause: dict[str, int]
+    attempts: int
+    retried_trials: int
+    retry_count: int = Field(description="Extra attempts beyond the first, over all trials")
+    usage: UsageSummary
+    tasks: list[TaskSummary]
 
 
 class TrialResult(Model):
@@ -404,6 +500,12 @@ class Attempt(Model):
     error: dict[str, Any] | None
 
 
+class ArtifactCounts(Model):
+    available: int
+    failed: int = Field(description="Not saved, or found missing from storage")
+    expired: int
+
+
 class Trial(Model):
     id: str
     task_id: str
@@ -423,6 +525,7 @@ class Trial(Model):
     phase: str | None
     reason_code: str | None
     artifact_state: Literal["pending", "saving", "complete", "partial", "failed", "expired"]
+    artifact_counts: ArtifactCounts
     cleanup_state: Literal["pending", "running", "complete", "failed", "not_required"]
     result: TrialResult | None
     attempts: list[Attempt]
@@ -437,9 +540,73 @@ class Artifact(Model):
     relative_path: str
     digest: str | None
     size_bytes: int | None
-    status: Literal["pending", "available", "failed", "expired", "unavailable"]
+    status: Literal[
+        "pending", "available", "failed", "deleting", "expired", "unavailable", "deleted"
+    ]
+    status_reason: str | None = Field(
+        description="e.g. STORAGE_WRITE_FAILED, STORAGE_CONTENT_MISSING, RETENTION_EXPIRED"
+    )
     created_at: str
+    expires_at: str | None = Field(
+        description="When the file is reclaimed: trial (or run) end + TTL; null until it ends"
+    )
+
+
+class ExportCreate(Model):
+    run_ids: list[str]
+    include_artifacts: bool = True
+    artifact_kinds: list[str] | None = None
+    task_keys: list[str] | None = None
+
+
+class ExportRequest(Model):
+    run_ids: list[str]
+    include_artifacts: bool
+    artifact_kinds: list[str] | None
+    task_keys: list[str] | None
+
+
+class Export(Model):
+    id: str
+    owner_id: str
+    operation_id: str
+    state: Literal["queued", "building", "ready", "failed", "expired"]
+    request: ExportRequest
+    size_bytes: int | None
+    digest: str | None
+    summary: dict[str, Any] | None = Field(
+        description="runs, files, missing, warnings, size_bytes and digest of the package"
+    )
+    error: dict[str, Any] | None
+    created_at: str
+    finished_at: str | None
     expires_at: str | None
+    links: dict[str, str]
+
+
+# --- deletion and recycle bin ---------------------------------------------------------
+
+ObjectType = Literal["run", "artifact", "dataset", "dataset_version", "credential", "user", "pat"]
+
+
+class RecycleEntry(Model):
+    id: str
+    object_type: ObjectType
+    object_id: str
+    label: str = Field(description="The object's name when it was deleted")
+    owner_id: str | None
+    owner_username: str | None
+    state: Literal["recycled", "purged", "restored"]
+    deleted_by: str
+    deleted_by_username: str | None
+    deleted_at: str
+    purged_by: str | None
+    purged_at: str | None
+    detail: dict[str, Any]
+
+
+class PurgeRequest(Model):
+    confirm_object_id: str = Field(description="Repeat the object id: purging is irreversible")
 
 
 class OperationResource(Model):

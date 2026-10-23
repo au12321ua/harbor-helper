@@ -162,9 +162,14 @@ def test_pat_lifecycle_shown_once_and_revocation(service):
         assert "token" not in listed[0] and listed[0]["remaining_runs"] == 5
         pat = Api(TestClient(client.app), token=issued["token"])
         assert pat.get("/api/v1/me").json()["data"]["auth_channel"] == "pat"
-        admin.delete(f"/api/v1/me/pats/{issued['id']}", expect=200)
+        admin.post(f"/api/v1/me/pats/{issued['id']}/revoke", expect=200)
         denied = pat.get("/api/v1/me")
         assert denied.status_code == 401 and denied.json()["error"]["code"] == "PAT_REVOKED"
+        assert admin.get("/api/v1/me/pats").json()["data"][0]["state"] == "revoked"
+        # Deleting a token removes it from the list (and would revoke a live one).
+        entry = admin.delete(f"/api/v1/me/pats/{issued['id']}", expect=200).json()["data"]
+        assert entry["object_type"] == "pat" and entry["state"] == "recycled"
+        assert admin.get("/api/v1/me/pats").json()["data"] == []
         invalid = admin.post(
             "/api/v1/me/pats", json={"name": "x", "scope": "read", "expires_in_days": 9999}
         )

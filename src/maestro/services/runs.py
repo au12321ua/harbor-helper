@@ -17,7 +17,9 @@ from maestro.core.ids import new_id
 from maestro.db import schema as t
 from maestro.db.engine import Database
 from maestro.domain import limits
+from maestro.domain.scoring import compact, contract_for
 from maestro.domain.states import (
+    AGGREGATION_VERSION,
     RUN_TERMINAL,
     TRIAL_TERMINAL,
     ArtifactState,
@@ -31,7 +33,8 @@ from maestro.domain.states import (
     trial_counts,
 )
 from maestro.execution.policy import POLICY_VERSION
-from maestro.services import audit, idempotency, operations, pagination
+from maestro.services import audit, deleted, idempotency, operations, pagination, results
+from maestro.services.artifacts import stamp_expiry
 from maestro.services.capacity import (
     HostCapacity,
     provider_of,
@@ -110,22 +113,32 @@ def _check_request(body: dict) -> dict:
     }
 
 
-def public_run(row, counts: dict, principal: Principal | None) -> dict:
+def public_run(
+    row,
+    counts: dict,
+    principal: Principal | None,
+    summary: dict | None = None,
+    deletions: dict | None = None,
+) -> dict:
+    """``deletions`` maps 'run', 'owner' and 'dataset_version' to deletion states."""
+    deletions = deletions or {}
     allowed = ["view"]
-    if (
-        principal
-        and row["state"] not in RUN_TERMINAL
-        and not row["stop_requested"]
-        and can_manage_owned(principal, row["owner_id"])
-    ):
+    manage = principal is not None and can_manage_owned(principal, row["owner_id"])
+    if manage and row["state"] not in RUN_TERMINAL and not row["stop_requested"]:
         allowed.append("cancel")
+    if manage and row["state"] in RUN_TERMINAL and not deletions.get("run"):
+        allowed.append("delete")
     state = RunState(row["state"])
     return {
         "id": row["id"],
         "name": row["name"],
         "owner_id": row["owner_id"],
         # Submitter names are team-visible: results are shared, identity is kept.
-        "owner": {"username": row["owner_username"], "display_name": row["owner_display_name"]},
+        "owner": {
+            "username": row["owner_username"],
+            "display_name": row["owner_display_name"],
+            "deleted": deletions.get("owner") is not None,
+        },
         "pat_id": row["pat_id"],
         "relation": row["relation"],
         "source_run_id": row["source_run_id"],
@@ -141,6 +154,9 @@ def public_run(row, counts: dict, principal: Principal | None) -> dict:
         "queue_reason": row["queue_reason"],
         "heartbeat_at": row["heartbeat_at"],
         "counts": counts,
+        "scoring": compact(summary) if summary else None,
+        "deletion": deletions.get("run"),
+        "dataset_version_deletion": deletions.get("dataset_version"),
         "accepted_at": row["accepted_at"],
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
@@ -149,6 +165,8 @@ def public_run(row, counts: dict, principal: Principal | None) -> dict:
         "links": {
             "self": f"/api/v1/runs/{row['id']}",
             "trials": f"/api/v1/runs/{row['id']}/trials",
+            "summary": f"/api/v1/runs/{row['id']}/summary",
+            "artifacts": f"/api/v1/runs/{row['id']}/artifacts",
             "operation": f"/api/v1/operations/{row['operation_id']}",
         },
     }
@@ -160,6 +178,21 @@ def runs_with_owner():
         t.users.c.username.label("owner_username"),
         t.users.c.display_name.label("owner_display_name"),
     ).join(t.users, t.users.c.id == t.runs.c.owner_id)
+
+
+def run_deletions(conn: Connection, rows) -> dict[str, dict]:
+    """Per run id: its own, its owner's and its dataset version's deletion state."""
+    runs = deleted.states(conn, "run", [r["id"] for r in rows])
+    owners = deleted.states(conn, "user", [r["owner_id"] for r in rows])
+    versions = {v: deleted.version_state(conn, v) for v in {r["dataset_version_id"] for r in rows}}
+    return {
+        r["id"]: {
+            "run": runs.get(r["id"]),
+            "owner": owners.get(r["owner_id"]),
+            "dataset_version": versions.get(r["dataset_version_id"]),
+        }
+        for r in rows
+    }
 
 
 def run_counts(conn: Connection, run_id: str) -> tuple[dict, list[str]]:
@@ -193,9 +226,10 @@ def refresh_operation(conn: Connection, run_id: str) -> None:
 
 
 class Runs:
-    def __init__(self, db: Database, capacity: HostCapacity | None = None):
+    def __init__(self, db: Database, capacity: HostCapacity | None = None, disk=None):
         self.db = db
         self.capacity = capacity
+        self.disk = disk
 
     # --- acceptance ------------------------------------------------------------
 
@@ -212,6 +246,8 @@ class Runs:
             )
         if stored:
             return stored.status_code, stored.response, True
+        if self.disk:
+            self.disk.refuse_if_low()
         # Expand outside the write transaction; revisions are re-checked inside.
         with self.db.read() as conn:
             plan = self._expand(conn, request)
@@ -222,6 +258,7 @@ class Runs:
             if stored:
                 return stored.status_code, stored.response, True
             self._recheck_principal(conn, principal)
+            self._refuse_deleted_version(conn, request["dataset_version_id"])
             self._recheck_tasks(conn, plan)
             if self.capacity:
                 refuse_if_never_fits(conn, self.capacity, plan["reservation"])
@@ -264,6 +301,7 @@ class Runs:
                 stage="preflight",
                 field_errors=[FieldError("/dataset_version_id", "NOT_FOUND")],
             )
+        self._refuse_deleted_version(conn, version["id"])
         rows = (
             conn.execute(
                 select(
@@ -370,6 +408,18 @@ class Runs:
                 len(tasks) * request["repetitions"],
             ),
         }
+
+    @staticmethod
+    def _refuse_deleted_version(conn: Connection, version_id: str) -> None:
+        """Deleted datasets and versions cannot be newly referenced (07 section 8)."""
+        if deleted.version_state(conn, version_id):
+            raise MaestroError(
+                "DATASET_VERSION_DELETED",
+                "This dataset version was deleted",
+                422,
+                stage="preflight",
+                field_errors=[FieldError("/dataset_version_id", "DELETED")],
+            )
 
     @staticmethod
     def _recheck_principal(conn: Connection, principal: Principal) -> None:
@@ -497,7 +547,11 @@ class Runs:
                 for x in plan["tasks"]
             ],
         }
-        policy = {"aggregation_version": 1, "policy_version": POLICY_VERSION}
+        policy = {
+            "aggregation_version": AGGREGATION_VERSION,
+            "policy_version": POLICY_VERSION,
+            "scoring": contract_for(plan["version"]["manifest_json"]),
+        }
         config_digest = digest_json(effective)
         conn.execute(
             insert(t.run_snapshots).values(
@@ -562,17 +616,25 @@ class Runs:
             raise not_found("Run")
         return row
 
+    def _live_row(self, conn: Connection, run_id: str):
+        """A run whose content still exists; a purged run answers 410."""
+        row = self._row(conn, run_id)
+        deleted.refuse_purged(conn, "run", run_id, "Run")
+        return row
+
     def get(self, principal: Principal, run_id: str) -> dict:
         with self.db.read() as conn:
-            row = self._row(conn, run_id)
+            row = self._live_row(conn, run_id)
             counts, _ = run_counts(conn, run_id)
+            summary = results.summaries(conn, [run_id])[run_id]
+            marks = run_deletions(conn, [row])[run_id]
             snapshot = (
                 conn.execute(select(t.run_snapshots).where(t.run_snapshots.c.run_id == run_id))
                 .mappings()
                 .one()
             )
         return {
-            **public_run(row, counts, principal),
+            **public_run(row, counts, principal, summary, marks),
             "snapshot": {
                 "schema_version": snapshot["schema_version"],
                 "effective": snapshot["effective_json"],
@@ -594,15 +656,33 @@ class Runs:
         client_request_id: str | None,
         cursor: str | None,
         limit: int | None,
+        accepted_after: str | None = None,
+        accepted_before: str | None = None,
     ) -> tuple[list, str | None]:
+        """Deleted runs are hidden; the recycle bin lists them."""
         limit = pagination.check_limit(limit)
+        for name, value in (
+            ("accepted_after", accepted_after),
+            ("accepted_before", accepted_before),
+        ):
+            if value is not None:
+                try:
+                    clock.from_text(value)
+                except ValueError:
+                    raise MaestroError(
+                        "INVALID_TIME",
+                        f"{name} must be RFC 3339 UTC like {clock.to_text(clock.now())}",
+                        400,
+                    ) from None
         filters = {
             "owner_id": owner_id,
             "state": state,
             "dataset_version_id": dataset_version_id,
             "client_request_id": client_request_id,
+            "accepted_after": accepted_after,
+            "accepted_before": accepted_before,
         }
-        query = runs_with_owner()
+        query = runs_with_owner().where(deleted.visible(t.runs.c.id, "run"))
         for column, value in (
             (t.runs.c.owner_id, owner_id),
             (t.runs.c.state, state),
@@ -611,16 +691,41 @@ class Runs:
         ):
             if value is not None:
                 query = query.where(column == value)
+        if accepted_after is not None:
+            query = query.where(t.runs.c.accepted_at >= accepted_after)
+        if accepted_before is not None:
+            query = query.where(t.runs.c.accepted_at < accepted_before)
         query = pagination.page(query, t.runs.c.accepted_at, t.runs.c.id, cursor, limit, filters)
         with self.db.read() as conn:
             rows = list(conn.execute(query).mappings().all())
             rows, next_cursor = pagination.split(rows, limit, "accepted_at", filters)
-            items = [public_run(r, run_counts(conn, r["id"])[0], principal) for r in rows]
+            ids = [r["id"] for r in rows]
+            summary = results.summaries(conn, ids)
+            marks = run_deletions(conn, rows)
+            items = [
+                public_run(
+                    r, run_counts(conn, r["id"])[0], principal, summary[r["id"]], marks[r["id"]]
+                )
+                for r in rows
+            ]
         return items, next_cursor
+
+    def summary(self, run_id: str) -> dict:
+        """06 section 5 for one run, with per-task statistics."""
+        with self.db.read() as conn:
+            self._live_row(conn, run_id)
+            return {"run_id": run_id, **results.summaries(conn, [run_id])[run_id]}
 
     def trials(self, run_id: str) -> list[dict]:
         with self.db.read() as conn:
-            self._row(conn, run_id)
+            self._live_row(conn, run_id)
+            stored: dict[str, dict] = {}
+            for trial_id, status, n in conn.execute(
+                select(t.artifacts.c.trial_id, t.artifacts.c.status, func.count())
+                .where(t.artifacts.c.run_id == run_id, t.artifacts.c.trial_id.is_not(None))
+                .group_by(t.artifacts.c.trial_id, t.artifacts.c.status)
+            ).all():
+                stored.setdefault(trial_id, {})[status] = n
             rows = (
                 conn.execute(
                     select(
@@ -672,6 +777,13 @@ class Runs:
                 "phase": r["phase"],
                 "reason_code": r["reason_code"],
                 "artifact_state": r["artifact_state"],
+                "artifact_counts": {
+                    "available": stored.get(r["id"], {}).get("available", 0),
+                    "failed": stored.get(r["id"], {}).get("failed", 0)
+                    + stored.get(r["id"], {}).get("unavailable", 0),
+                    "expired": stored.get(r["id"], {}).get("expired", 0)
+                    + stored.get(r["id"], {}).get("deleting", 0),
+                },
                 "cleanup_state": r["cleanup_state"],
                 "result": None
                 if r["result_attempt_id"] is None
@@ -778,6 +890,7 @@ def finalize(conn: Connection, run_id: str, stop_reason: str | None, cleanup: Cl
             queue_reason=None,
         )
     )
+    stamp_expiry(conn, run_id)
     status = operation_status_for(state, counts)
     operations.advance(
         conn,

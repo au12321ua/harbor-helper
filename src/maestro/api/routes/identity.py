@@ -21,6 +21,7 @@ from maestro.api.models import (
     PasswordChange,
     Pat,
     PatCreate,
+    RecycleEntry,
     SessionInfo,
     SetupRequest,
     SetupStatus,
@@ -121,6 +122,12 @@ def create_pat(body: PatCreate, request: Request, who: Principal = Depends(princ
     return ok(request, pat)
 
 
-@router.delete("/me/pats/{pat_id}", response_model=Envelope[Pat], tags=["me"])
+@router.post("/me/pats/{pat_id}/revoke", response_model=Envelope[Pat], tags=["me"])
 def revoke_pat(pat_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).pats.revoke(who, pat_id))
+
+
+@router.delete("/me/pats/{pat_id}", response_model=Envelope[RecycleEntry], tags=["me"])
+def delete_pat(pat_id: str, request: Request, who: Principal = Depends(principal)):
+    """Revokes the token at once and removes it from the list."""
+    return ok(request, maestro(request).recycle.delete(who, "pat", pat_id))

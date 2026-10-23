@@ -13,7 +13,17 @@ def settings(tmp_path):
     data, cache, keys = tmp_path / "data", tmp_path / "cache", tmp_path / "keys"
     for path in (data, cache, keys):
         path.mkdir(mode=0o700)
-    return Settings(data_dir=data, cache_dir=cache, master_key_dir=keys, cookie_secure=False)
+    # Watermarks off: tests must not depend on the host's free space (test_disk sets them).
+    return Settings(
+        data_dir=data,
+        cache_dir=cache,
+        master_key_dir=keys,
+        cookie_secure=False,
+        storage_accept_min_free_gb=0,
+        storage_accept_min_free_percent=0,
+        storage_dispatch_min_free_gb=0,
+        storage_dispatch_min_free_percent=0,
+    )
 
 
 @pytest.fixture

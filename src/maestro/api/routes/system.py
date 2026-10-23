@@ -20,10 +20,14 @@ def readiness(request: Request) -> dict:
     worker_task = getattr(request.app.state, "worker_task", None)
     executing = worker_task is not None and not worker_task.done()
     ready = schema["compatible"]
+    storage = service.disk.status()
     return {
         "status": "ready" if ready else "maintenance",
-        "accepting_runs": bool(ready and keys["available"] and executing),
+        "accepting_runs": bool(
+            ready and keys["available"] and executing and storage["level"] == "ok"
+        ),
         "detail": {
+            "storage": storage,
             "schema": schema,
             "master_key_available": keys["available"],
             "executor": service.executor.executor_id if service.executor else None,
@@ -69,7 +73,8 @@ def capabilities(request: Request):
                 "configuration_resolution": False,
                 "plans": False,
                 "attachments": False,
-                "exports": False,
+                "exports": True,
+                "deletion": True,
                 "collections": False,
                 "dataset_import": False,
             },
@@ -84,6 +89,11 @@ def capabilities(request: Request):
                 "runs.submit": experiment,
                 "runs.cancel_own": experiment,
                 "runs.cancel_any": admin,
+                "runs.delete_own": experiment,
+                "runs.delete_any": admin,
+                "exports.create": read,
+                "artifacts.delete": admin,
+                "admin.recycle_bin": admin,
                 "catalog.read": read,
                 "operations.read": read,
                 "pats.manage_own": {"web_session": True, "pat_scopes": []},

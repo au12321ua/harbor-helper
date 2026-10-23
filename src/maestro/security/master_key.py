@@ -223,7 +223,14 @@ class MasterKeys:
                 basename = f"master-{generation}-{secrets.token_hex(16)}.key"
                 new_key, inode = self._create(fd, basename)
                 created = (basename, inode)
-                rows = conn.execute(select(t.credentials)).mappings().all()
+                # Purged credentials have no value left to re-encrypt.
+                rows = (
+                    conn.execute(
+                        select(t.credentials).where(t.credentials.c.encrypted_payload != b"")
+                    )
+                    .mappings()
+                    .all()
+                )
                 for row in rows:
                     aad = credential_aad(row["id"], row["revision"])
                     plaintext = decrypt(old_key, row["nonce"], row["encrypted_payload"], aad)

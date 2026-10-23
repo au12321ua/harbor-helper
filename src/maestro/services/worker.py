@@ -30,7 +30,6 @@ from maestro.core.errors import MaestroError
 from maestro.core.ids import new_id
 from maestro.db import schema as t
 from maestro.db.engine import Database
-from maestro.domain import limits
 from maestro.domain.states import (
     RUN_TERMINAL,
     TRIAL_ACTIVE,
@@ -45,6 +44,7 @@ from maestro.domain.states import (
 from maestro.execution.docker import LABEL_INSTANCE, LABEL_RUN
 from maestro.execution.policy import POLICY_VERSION, legal_score
 from maestro.security.redaction import redact
+from maestro.services.artifacts import expiry_for, stamp_expiry
 from maestro.services.capacity import HostCapacity, provider_of, reservation, waiting_reason
 from maestro.services.instance import instance_id
 from maestro.services.runs import finalize, finish_unstarted, refresh_operation
@@ -249,7 +249,12 @@ class RunSink:
             existing = conn.execute(
                 select(t.artifacts.c.id).where(t.artifacts.c.storage_key == key)
             ).scalar()
-            values = {"digest": digest, "size_bytes": size, "status": status}
+            values = {
+                "digest": digest,
+                "size_bytes": size,
+                "status": status,
+                "status_reason": None if status == "available" else "STORAGE_WRITE_FAILED",
+            }
             if existing:
                 conn.execute(
                     update(t.artifacts).where(t.artifacts.c.id == existing).values(**values)
@@ -264,9 +269,7 @@ class RunSink:
                         relative_path=relative_path,
                         storage_key=key,
                         created_at=clock.to_text(now),
-                        expires_at=clock.to_text(
-                            now + clock.timedelta(days=limits.ARTIFACT_TTL_DAYS)
-                        ),
+                        expires_at=expiry_for(conn, self.run_id, owner["trial_id"]),
                         **owner,
                         **values,
                     )
@@ -328,7 +331,7 @@ class RunSink:
                 "attempt_id": attempt_id,
                 "raw_score": outcome.raw_score,
                 "reward_valid": outcome.reward_valid,
-                "failure_cause": outcome.failure_cause,
+                "failure_cause": cause,
             }
             result_digest = digest_json(result)
             existing = conn.execute(
@@ -348,7 +351,7 @@ class RunSink:
                     raw_score=outcome.raw_score,
                     metrics_json=outcome.metrics,
                     verifier_status=outcome.verifier_status,
-                    failure_cause=outcome.failure_cause,
+                    failure_cause=cause,
                     exception_type=outcome.exception_type,
                     reward_valid=outcome.reward_valid,
                     grade_requested=outcome.grade_requested,
@@ -376,6 +379,7 @@ class RunSink:
                 result_revision=trial["result_revision"] + 1,
                 artifact_state=artifact,
             )
+            stamp_expiry(conn, self.run_id, trial_id)
             refresh_operation(conn, self.run_id)
 
 
@@ -389,7 +393,9 @@ class Worker:
         *,
         poll_seconds: float = 0.5,
         cleanup_retry_seconds: float = CLEANUP_RETRY_SECONDS,
+        disk=None,
     ):
+        self.disk = disk
         self.db = db
         self.executor = executor
         self.store = store
@@ -706,6 +712,18 @@ class Worker:
         """First queued run that fits current capacity; later small runs may pass a
         large one that does not fit yet (05 section 3). Waiting runs show why."""
         lease = secrets.token_urlsafe(24)
+        if self.disk and not self.disk.dispatching():
+            with self.db.write() as conn:
+                conn.execute(
+                    update(t.runs)
+                    .where(
+                        t.runs.c.state == RunState.QUEUED,
+                        t.runs.c.lease_token.is_(None),
+                        t.runs.c.queue_reason.is_distinct_from("STORAGE_LOW"),
+                    )
+                    .values(queue_reason="STORAGE_LOW")
+                )
+            return None
         with self.db.write() as conn:
             queued = (
                 conn.execute(

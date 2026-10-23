@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import io
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -194,3 +195,12 @@ class MemoryArtifactStore:
 
     def exists(self, key: str) -> bool:
         return key in self.files
+
+    def open(self, key: str):
+        return io.BytesIO(self.files[key])
+
+    def keys(self):
+        return iter(list(self.files))
+
+    def discard_partial(self) -> int:
+        return 0

@@ -48,6 +48,15 @@ class TaskMaterials:
         path = self.root / value
         return path if (path / "task.toml").is_file() else None
 
+    def remove(self, content_digest: str) -> None:
+        """Retire a task's material: renamed away first so no reader sees half a tree."""
+        path = self.path_for(content_digest)
+        if path is None:
+            return
+        retired = Path(tempfile.mkdtemp(prefix=".remove-", dir=self.root))
+        os.rename(path, retired / "task")
+        shutil.rmtree(retired, ignore_errors=True)
+
     def install(self, source: Path) -> str:
         """Copy a task directory in, verified by digest, published by an atomic rename."""
         content_digest = tree_digest(source)

@@ -18,7 +18,7 @@ from maestro.db import schema as t
 from maestro.db.engine import Database
 from maestro.security import master_key
 from maestro.security.master_key import MasterKeys
-from maestro.services import audit
+from maestro.services import audit, deleted
 from maestro.services.principal import Principal, require_admin_session
 
 KINDS = ("model_api_key", "hub_token", "generic_secret")
@@ -65,7 +65,11 @@ class Credentials:
     def list(self, principal: Principal) -> list[dict]:
         require_admin_session(principal)
         with self.db.read() as conn:
-            rows = conn.execute(select(t.credentials).order_by(t.credentials.c.name))
+            rows = conn.execute(
+                select(t.credentials)
+                .where(deleted.visible(t.credentials.c.id, "credential"))
+                .order_by(t.credentials.c.name)
+            )
             return [public_credential(r) for r in rows.mappings().all()]
 
     def create(
@@ -133,11 +137,19 @@ class Credentials:
             raise not_found("Credential")
         return row
 
+    @classmethod
+    def _live(cls, conn, cred_id):
+        """A deleted credential cannot be changed, enabled or used (07 section 8)."""
+        row = cls._row(conn, cred_id)
+        if deleted.state(conn, "credential", cred_id):
+            raise MaestroError("CREDENTIAL_DELETED", "Credential was deleted", 409)
+        return row
+
     def replace_value(self, principal: Principal, cred_id: str, value, expected_revision: int):
         require_admin_session(principal)
         value = check_value(value)
         with self.db.write() as conn:
-            row = self._row(conn, cred_id)
+            row = self._live(conn, cred_id)
             if row["revision"] != expected_revision:
                 raise MaestroError("REVISION_CONFLICT", "Credential changed; refresh", 409)
             revision = row["revision"] + 1
@@ -169,7 +181,7 @@ class Credentials:
     def set_enabled(self, principal: Principal, cred_id: str, enabled: bool, expected_revision):
         require_admin_session(principal)
         with self.db.write() as conn:
-            row = self._row(conn, cred_id)
+            row = self._live(conn, cred_id)
             if row["revision"] != expected_revision:
                 raise MaestroError("REVISION_CONFLICT", "Credential changed; refresh", 409)
             if row["enabled"] != enabled:
@@ -194,7 +206,7 @@ class Credentials:
     def resolve_value(self, cred_id: str) -> tuple[str, int]:
         """Internal use by executors only; never exposed through the API."""
         with self.db.read() as conn:
-            row = self._row(conn, cred_id)
+            row = self._live(conn, cred_id)
             if not row["enabled"]:
                 raise MaestroError("CREDENTIAL_DISABLED", "Credential is disabled", 409)
             key = self.keys.key_for(conn, row["key_version"])

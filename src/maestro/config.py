@@ -32,6 +32,13 @@ class Settings:
     runner_python: Path | None = None
     runner_term_grace_sec: float = 30
     cleanup_timeout_sec: float = 120
+    # Free space under data_dir (07 section 7, D-011 initial values; tune per disk):
+    # below either "accept" threshold new runs are refused, below either "dispatch"
+    # threshold queued runs wait. Queries, cancellation and downloads keep working.
+    storage_accept_min_free_gb: float = 20
+    storage_accept_min_free_percent: float = 15
+    storage_dispatch_min_free_gb: float = 10
+    storage_dispatch_min_free_percent: float = 8
 
     @property
     def database(self) -> Path:
@@ -40,6 +47,10 @@ class Settings:
     @property
     def artifacts_dir(self) -> Path:
         return self.data_dir / "artifacts"
+
+    @property
+    def exports_dir(self) -> Path:
+        return self.data_dir / "exports"
 
     @property
     def work_dir(self) -> Path:

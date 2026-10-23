@@ -48,10 +48,12 @@ def error_response(error: MaestroError, request_id: str) -> JSONResponse:
 def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        task = None
-        if maestro.worker is not None and run_worker:
-            state = maestro.schema_state()
-            if state["compatible"]:
+        task = upkeep = None
+        if run_worker and maestro.schema_state()["compatible"]:
+            # Reconcile stored files before anything can write new ones.
+            maestro.maintenance.start()
+            upkeep = asyncio.create_task(maestro.maintenance.run_forever())
+            if maestro.worker is not None:
                 report = maestro.worker.start_epoch()
                 if report["interrupted_runs"]:
                     log.warning("interrupted runs after restart: %s", report["interrupted_runs"])
@@ -62,9 +64,14 @@ def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
         finally:
             if task is not None:
                 await maestro.worker.stop()
-                task.cancel()
+            if upkeep is not None:
+                await maestro.maintenance.stop()
+            for running in (task, upkeep):
+                if running is None:
+                    continue
+                running.cancel()
                 try:
-                    await task
+                    await running
                 except asyncio.CancelledError:
                     pass
 

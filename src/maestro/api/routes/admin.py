@@ -1,5 +1,5 @@
 """Administrator web-session endpoints: members, invitations, credentials, master key,
-execution capacity."""
+execution capacity, deletion of team objects and the recycle bin."""
 
 from fastapi import APIRouter, Depends, Request
 
@@ -16,7 +16,10 @@ from maestro.api.models import (
     IssuedInvitation,
     MasterKeyRotation,
     MasterKeyStatus,
+    ObjectType,
     ProviderLimit,
+    PurgeRequest,
+    RecycleEntry,
     StatusChange,
     User,
 )
@@ -160,3 +163,58 @@ def provider_limit(
 ):
     service = maestro(request).capacity
     return ok(request, service.set_provider_limit(who, provider, body.max_concurrent_trials))
+
+
+# --- deletion (07 section 8) ------------------------------------------------------------
+
+
+@router.delete("/members/{user_id}", response_model=Envelope[RecycleEntry])
+def delete_member(user_id: str, request: Request, who: Principal = Depends(principal)):
+    """Sessions and access tokens stop working at once; history keeps the name."""
+    return ok(request, maestro(request).recycle.delete(who, "user", user_id))
+
+
+@router.delete("/credentials/{credential_id}", response_model=Envelope[RecycleEntry])
+def delete_credential(credential_id: str, request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).recycle.delete(who, "credential", credential_id))
+
+
+@router.delete("/datasets/{dataset_id}", response_model=Envelope[RecycleEntry])
+def delete_dataset(dataset_id: str, request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).recycle.delete(who, "dataset", dataset_id))
+
+
+@router.delete("/dataset-versions/{version_id}", response_model=Envelope[RecycleEntry])
+def delete_dataset_version(version_id: str, request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).recycle.delete(who, "dataset_version", version_id))
+
+
+@router.delete("/pats/{pat_id}", response_model=Envelope[RecycleEntry])
+def delete_pat(pat_id: str, request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).recycle.delete(who, "pat", pat_id))
+
+
+@router.get("/recycle-bin", response_model=Envelope[list[RecycleEntry]])
+def recycle_bin(
+    request: Request,
+    state: str = "recycled",
+    object_type: ObjectType | None = None,
+    cursor: str | None = None,
+    limit: int | None = None,
+    who: Principal = Depends(principal),
+):
+    """state=recycled lists the bin; state=purged lists deletion receipts."""
+    items, next_cursor = maestro(request).recycle.list(who, state, object_type, cursor, limit)
+    return ok(request, items, next_cursor)
+
+
+@router.post("/recycle-bin/{entry_id}/restore", response_model=Envelope[RecycleEntry])
+def restore(entry_id: str, request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).recycle.restore(who, entry_id))
+
+
+@router.post("/recycle-bin/{entry_id}/purge", response_model=Envelope[RecycleEntry])
+def purge(entry_id: str, body: PurgeRequest, request: Request, who: Principal = Depends(principal)):
+    """Irreversible: removes content and files; the entry stays as the receipt."""
+    service = maestro(request)
+    return ok(request, service.recycle.purge(who, entry_id, body.confirm_object_id))

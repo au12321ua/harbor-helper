@@ -543,13 +543,74 @@ artifacts = Table(
     Column("digest", String(80), nullable=True),
     Column("size_bytes", Integer, nullable=True),
     Column("status", String(16), nullable=False),
+    # Why content is not downloadable, e.g. STORAGE_CONTENT_MISSING or DELETED.
+    Column("status_reason", String(64), nullable=True),
     _time("created_at"),
+    # Trial (or run) execution end + TTL; null until that end is known (07 section 2).
     _time("expires_at", nullable=True),
     Index("ix_artifacts_status_expires", "status", "expires_at"),
     Index("ix_artifacts_run", "run_id", "trial_id"),
     CheckConstraint(
-        "status IN ('pending','available','failed','expired','unavailable')", name="status"
+        "status IN ('pending','available','failed','deleting','expired','unavailable','deleted')",
+        name="status",
     ),
+)
+
+# Bounded read protection: retention skips pinned artifacts until the pin expires.
+artifact_pins = Table(
+    "artifact_pins",
+    metadata,
+    _id(),
+    _ref("artifact_id", "artifacts"),
+    Column("holder_kind", String(16), nullable=False),
+    Column("holder_id", String(40), nullable=False),
+    _time("expires_at"),
+    UniqueConstraint("artifact_id", "holder_kind", "holder_id"),
+    Index("ix_artifact_pins_holder", "holder_kind", "holder_id"),
+)
+
+exports = Table(
+    "exports",
+    metadata,
+    _id(),
+    _ref("owner_id", "users"),
+    _ref("pat_id", "pats", nullable=True),
+    _ref("operation_id", "operations"),
+    _json("request_json"),
+    Column("state", String(16), nullable=False),
+    Column("size_bytes", Integer, nullable=True),
+    Column("digest", String(80), nullable=True),
+    _json("summary_json", nullable=True),
+    _json("error_json", nullable=True),
+    _time("created_at"),
+    _time("finished_at", nullable=True),
+    _time("expires_at", nullable=True),
+    Index("ix_exports_owner_created", "owner_id", "created_at", "id"),
+    Index("ix_exports_state", "state"),
+    CheckConstraint("state IN ('queued','building','ready','failed','expired')", name="state"),
+)
+
+# --- Deletion (07 section 8, U-08 / U-19) ------------------------------------------
+# One row per deleted object: 'recycled' hides it and blocks new references; 'purged'
+# means content and files are gone and the row is the deletion receipt. Restoring
+# removes the row; the audit log keeps the history.
+deletions = Table(
+    "deletions",
+    metadata,
+    _id(),
+    Column("object_type", String(32), nullable=False),
+    Column("object_id", String(40), nullable=False),
+    Column("label", String(256), nullable=False),
+    _ref("owner_id", "users", nullable=True),
+    Column("state", String(16), nullable=False),
+    _ref("deleted_by", "users"),
+    _time("deleted_at"),
+    _ref("purged_by", "users", nullable=True),
+    _time("purged_at", nullable=True),
+    _json("detail_json"),
+    UniqueConstraint("object_type", "object_id"),
+    Index("ix_deletions_state_deleted", "state", "deleted_at", "id"),
+    CheckConstraint("state IN ('recycled','purged')", name="state"),
 )
 
 audit_events = Table(
