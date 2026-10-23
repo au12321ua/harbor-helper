@@ -23,10 +23,12 @@ sys.path.insert(0, sys.argv[1])
 from maestro_runner import job
 
 spec = json.loads(sys.argv[2])
-for name, value in spec.get("limits", {}).items():
+for name, value in spec.get("constants", {}).items():
     setattr(job, name, value)
+limits = {"max_files": 500, "max_file_bytes": 64 << 20, "max_total_bytes": 1 << 30}
+limits.update(spec.get("limits", {}))
 ex = job.Execution({"output_dir": spec["out"], "retry": {"max_retries": 0, "exclude_exceptions": []},
-                    "log_cap_bytes": spec.get("cap", 1 << 20)})
+                    "log_cap_bytes": spec.get("cap", 1 << 20), "artifact_limits": limits})
 ex.bound["t1"] = "TRIAL_X"
 ex.live.add("t1")
 ex.attempt["t1"] = 1
@@ -180,7 +182,7 @@ def test_archive_enforces_size_count_and_total_limits_while_copying(trial):
         ("d.bin", 10),
     ):
         (directory / "agent" / name).write_bytes(b"x" * size)
-    limits = {"MAX_FILES": 3, "MAX_FILE_BYTES": 100, "MAX_TOTAL_BYTES": 1000}
+    limits = {"max_files": 3, "max_file_bytes": 100, "max_total_bytes": 1000}
     (finished,) = [
         e for e in drive(out, [["finish"]], limits=limits) if e["_type"] == "attempt_finished"
     ]
@@ -195,7 +197,7 @@ def test_archive_enforces_size_count_and_total_limits_while_copying(trial):
     (out2 / "jobs" / "job" / "t1" / "agent").mkdir(parents=True)
     for name in ("a.bin", "b.bin", "c.bin"):
         (out2 / "jobs" / "job" / "t1" / "agent" / name).write_bytes(b"y" * 80)
-    limits = {"MAX_FILES": 500, "MAX_FILE_BYTES": 100, "MAX_TOTAL_BYTES": 200}
+    limits = {"max_files": 500, "max_file_bytes": 100, "max_total_bytes": 200}
     (finished,) = [
         e for e in drive(out2, [["finish"]], limits=limits) if e["_type"] == "attempt_finished"
     ]
@@ -210,11 +212,84 @@ def test_a_huge_number_of_skipped_entries_stays_a_small_manifest(trial):
     out, directory, _, _ = trial
     for index in range(30):
         (directory / "agent" / f"f{index:02}.bin").write_bytes(b"z")
-    limits = {"MAX_FILES": 2, "MAX_LISTED_SKIPS": 5}
     (finished,) = [
-        e for e in drive(out, [["finish"]], limits=limits) if e["_type"] == "attempt_finished"
+        e
+        for e in drive(
+            out,
+            [["finish"]],
+            limits={"max_files": 2},
+            constants={"MAX_LISTED_SKIPS": 5},
+        )
+        if e["_type"] == "attempt_finished"
     ]
     kept = [f for f in finished["files"] if not f.get("skipped")]
     listed = [f for f in finished["files"] if f.get("skipped")]
     assert len(kept) == 2 and len(listed) == 5
     assert finished["skipped_unlisted"] == 30 - 2 - 5
+
+
+SPEC_DRIVER = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from maestro_runner import job
+
+base = json.loads(sys.argv[2])
+outcomes = []
+for limits in json.loads(sys.argv[3]):
+    spec = dict(base)
+    if limits != "MISSING":
+        spec["artifact_limits"] = limits
+    try:
+        job.check_spec(spec)
+        outcomes.append("ok")
+    except job.Rejected as error:
+        outcomes.append(error.code)
+job.emit("probe", outcomes=outcomes)
+"""
+
+GOOD = {"max_files": 500, "max_file_bytes": 64 << 20, "max_total_bytes": 1 << 30}
+
+
+def test_the_runner_insists_on_sane_artifact_limits():
+    base = {
+        "protocol_version": 1,
+        "command": "execute",
+        "run_id": "run_x",
+        "output_dir": "/tmp/x",
+        "agent": {"name": "oracle"},
+        "tasks": [],
+        "labels": {},
+        "retry": {},
+        "n_concurrent_trials": 1,
+        "log_cap_bytes": 1,
+        "heartbeat_sec": 1,
+        "tail_interval_sec": 1,
+    }
+    variants = [
+        GOOD,
+        "MISSING",
+        {**GOOD, "max_files": 0},
+        {**GOOD, "max_file_bytes": -1},
+        {**GOOD, "max_total_bytes": True},
+        {**GOOD, "max_files": "500"},
+        {"max_files": 5, "max_file_bytes": 5},
+        {**GOOD, "max_file_bytes": 2 << 30},  # one file may not exceed the whole attempt
+    ]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            SPEC_DRIVER,
+            str(RUNNER_SRC),
+            json.dumps(base),
+            json.dumps(variants),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    (probe,) = [json.loads(line)["payload"] for line in result.stdout.splitlines()]
+    assert probe["outcomes"] == ["ok"] + ["RUNNER_INPUT_INVALID"] * 7

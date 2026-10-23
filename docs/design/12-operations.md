@@ -57,9 +57,17 @@ journald                          服务标准输出 / 错误与结构化日志
 | enabled_adapters / runner_id | 与发布兼容清单一致，精确锁定 Harbor 与协议 | 重启；不原地替换活动环境 |
 | update_source | 管理员指定来源与版本 | 下次显式检查 |
 | storage_thresholds | 见 D-011，实际值可查询 | 实时 |
+| artifact_max_files / artifact_file_max_mb / artifact_attempt_max_mb | 500 / 64 / 1024：每次执行尝试保留的证据上限，Runner 归档时强制，超限的文件在清单中标为跳过；单文件上限不能大于单次尝试总量 | 重启，对之后开始的运行生效 |
+| export_max_gb | 10：单个导出包上限，受理时按所选文件预检；高于停止派发水位时启动日志提醒 | 重启 |
+| build_timeout_default_sec / build_timeout_max_sec | 600 / 3600：任务没有声明时的构建时限；任务自己声明的时限不超过上限，每次构建都按当前上限截取；默认不能超过上限 | 重启 |
+| pull_timeout_sec / save_timeout_sec | 1800 / 1800：拉取镜像，导出与载入准备原件的时限 | 重启 |
+| restore_slots / hub_runner_slots | 2 / 4：同时进行的准备或恢复数；同时运行的 Hub 一次性 Runner 进程数 | 重启 |
+| runner_heartbeat_sec / runner_silence_sec | 10 / 120：Runner 心跳间隔；多久没有任何事件就视为失联并停止，至少是心跳间隔的 3 倍。归档大目录会阻塞心跳，在慢盘上调大单次尝试上限时应同时调大静默时限 | 重启 |
 | 团队默认 / 硬上限 / 提供商限速 | 数据库存储，带修订 | 新提交；实时调度限制另行解释 |
 | retention_policy | 原始产物默认 7 天 | 新产物；缩短既有到期需显式维护动作 |
 | credential_refs | 普通配置仅引用 | 下次使用解析；撤销立即阻止新调用 |
+
+上表中带数值的 `config.toml` 项都是整数，启动时检查范围和相互关系，写错、越界或拼错的键会拒绝启动并指出是哪一项；生效值可在 `/api/v1/capabilities` 的 `limits` 里查到（U-21）。
 
 管理员可查看脱敏后的实际配置、来源、修订和需重启项。源于快照的值不能被热更新覆盖；安全停用与资源减少通过阻塞或取消表达。
 

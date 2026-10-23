@@ -74,7 +74,15 @@ class Maestro:
         disk = DiskWatch(settings.data_dir, settings)
         materials = TaskMaterials(settings.cache_dir)
         preparer = (
-            Preparer(db, environment, sources, materials, credentials)
+            Preparer(
+                db,
+                environment,
+                sources,
+                materials,
+                credentials,
+                restore_slots=settings.restore_slots,
+                build_timeout_max=settings.build_timeout_max_sec,
+            )
             if environment is not None
             else None
         )
@@ -86,7 +94,9 @@ class Maestro:
         location = environment.location_id if environment is not None else "local-docker"
         runs = Runs(db, host, disk)
         artifacts = Artifacts(db, store)
-        exports = Exports(db, store, settings.exports_dir, runs, disk)
+        exports = Exports(
+            db, store, settings.exports_dir, runs, disk, max_bytes=settings.export_max_bytes
+        )
         return cls(
             settings=settings,
             db=db,

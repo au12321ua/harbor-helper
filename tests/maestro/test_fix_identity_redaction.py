@@ -201,26 +201,29 @@ def test_hub_stderr_in_the_log_never_carries_the_credential(monkeypatch, tmp_pat
 # --- collected artifacts ----------------------------------------------------------
 
 
+LIMIT = 1 << 20  # the per-file artifact limit a test executor is configured with
+
+
 def test_any_text_is_redacted_whatever_the_file_is_called():
     # Names like trajectory.out, reward or out.csv were skipped by the old suffix list.
     data = b"line one\nOPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx\nthe end\n"
-    out = harbor._redacted(data)
+    out = harbor._redacted(data, LIMIT)
     assert b"sk-abcdef" not in out and b"line one\n" in out and b"the end\n" in out
 
 
 def test_text_with_stray_bytes_is_redacted_and_the_stray_bytes_survive():
     # A stderr tail is cut at byte offsets: the cut may split a multi-byte character.
     data = "caf\u00e9 sk-abcdefghijklmnopqrstuvwx ok".encode()[:-1] + b" \xe2\x82"
-    out = harbor._redacted(data)
+    out = harbor._redacted(data, LIMIT)
     assert b"sk-abcdef" not in out and out.endswith(b" \xe2\x82") and "caf\u00e9".encode() in out
 
 
 def test_binary_and_oversized_files_stay_untouched():
     secret = b"sk-abcdefghijklmnopqrstuvwx"
     with_nul = b"\x89PNG\r\n\x00\x00" + secret
-    assert harbor._redacted(with_nul) == with_nul
-    big = secret + b"\n" + b"x" * harbor.REDACT_MAX_BYTES
-    assert harbor._redacted(big) == big
+    assert harbor._redacted(with_nul, LIMIT) == with_nul
+    big = secret + b"\n" + b"x" * LIMIT
+    assert harbor._redacted(big, LIMIT) == big
 
 
 # --- live Runner logs -------------------------------------------------------------

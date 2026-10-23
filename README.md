@@ -44,6 +44,19 @@ uv run maestro --config "$root/config.toml" serve --port 8420
 
 数据目录所在磁盘的可用空间低于 20 GiB 或 15% 时不再受理新运行，低于 10 GiB 或 8% 时排队运行不再启动。小磁盘上试用可在 `config.toml` 调低 `storage_accept_min_free_gb`、`storage_accept_min_free_percent`、`storage_dispatch_min_free_gb`、`storage_dispatch_min_free_percent`。
 
+与机器和磁盘有关的其他上限也在 `config.toml`，都是整数，默认值适合一台普通开发机，启动时会检查范围，写错或拼错的键会拒绝启动并指出是哪一项：
+
+| 键 | 默认 | 含义 |
+| --- | --- | --- |
+| `artifact_max_files` / `artifact_file_max_mb` / `artifact_attempt_max_mb` | 500 / 64 / 1024 | 每次执行尝试保留的证据：文件数、单个文件、总量；超出的文件在运行页标为跳过 |
+| `export_max_gb` | 10 | 单个批量导出包的上限；小磁盘上应同时调低 |
+| `build_timeout_default_sec` / `build_timeout_max_sec` | 600 / 3600 | 准备环境时 docker 构建的时限：任务没有声明时用默认，任务自己声明的不超过上限 |
+| `pull_timeout_sec` / `save_timeout_sec` | 1800 / 1800 | 拉取镜像、导出与载入准备原件的时限 |
+| `restore_slots` / `hub_runner_slots` | 2 / 4 | 同时进行的准备或恢复数；同时运行的 Hub 检索与下载进程数 |
+| `runner_heartbeat_sec` / `runner_silence_sec` | 10 / 120 | Runner 的心跳间隔，以及多久没有任何动静就视为失联；归档很大的目录会阻塞心跳，在慢盘上调大归档上限时请同时调大静默时限 |
+
+实际生效的值可在 `/api/v1/capabilities` 的 `limits` 里查到。PAT 期限、单次运行的规模、保留天数等团队策略目前是固定值，随 M5 移入数据库由管理员在网页上调整。
+
 ## 文档
 
 - [文档导航](docs/README.md)、[开发交接](docs/HANDOFF.md)、[源码职责](docs/architecture/source-layout.md)。

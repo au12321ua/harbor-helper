@@ -192,7 +192,7 @@ def test_export_fails_rather_than_holding_pins_too_long(service, version_id, mon
         with service.db.read() as conn:
             assert conn.execute(t.artifact_pins.select()).first() is None
         monkeypatch.setattr(limits, "EXPORT_PIN_MINUTES", 60)
-        monkeypatch.setattr(limits, "EXPORT_MAX_BYTES", 1)
+        monkeypatch.setattr(service.exports, "max_bytes", 1)
         too_big = export(admin, run_ids=[run_id])
         assert too_big["error"]["code"] == "EXPORT_TOO_LARGE"
 

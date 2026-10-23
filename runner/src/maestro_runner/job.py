@@ -32,9 +32,8 @@ STEPS = {
 }
 LOG_DIRS = ("agent", "verifier")
 LOG_SUFFIXES = (".txt", ".log")
-MAX_FILES = 500
-MAX_FILE_BYTES = 64 * 1024 * 1024
-MAX_TOTAL_BYTES = 1024 * 1024 * 1024
+# The per-attempt file count, per-file size and total size limits come with every run
+# (``artifact_limits`` in the request, from the service's configuration).
 # Skipped entries are listed so the evidence gap is visible, but a runaway task cannot
 # grow the manifest (one protocol line) without bound; the rest is only counted.
 MAX_LISTED_SKIPS = 200
@@ -156,9 +155,10 @@ def _copy(handle, target: Path, limit: int) -> tuple[str, int] | None:
     return digest.hexdigest(), size
 
 
-def _archive(source: Path, target: Path) -> tuple[list[dict], int]:
+def _archive(source: Path, target: Path, limits: dict) -> tuple[list[dict], int]:
     """Copy a trial directory's regular files and describe them: the manifest entries and
-    how many skipped entries were left off the list.
+    how many skipped entries were left off the list. ``limits`` holds ``max_files``,
+    ``max_file_bytes`` and ``max_total_bytes``.
 
     Nothing is followed or copied as a link, and the limits apply on the way, so a runaway
     task cannot fill the disk a second time. Skipped files stay in the manifest, with a
@@ -178,11 +178,11 @@ def _archive(source: Path, target: Path) -> tuple[list[dict], int]:
         relative = path.relative_to(source).as_posix()
         if stat.S_ISLNK(info.st_mode):
             skip(relative, 0, "SYMLINK")
-        elif copied >= MAX_FILES:
+        elif copied >= limits["max_files"]:
             skip(relative, info.st_size, "TOO_MANY_FILES")
-        elif info.st_size > MAX_FILE_BYTES:
+        elif info.st_size > limits["max_file_bytes"]:
             skip(relative, info.st_size, "TOO_LARGE")
-        elif total + info.st_size > MAX_TOTAL_BYTES:
+        elif total + info.st_size > limits["max_total_bytes"]:
             skip(relative, info.st_size, "TOTAL_LIMIT")
         elif (handle := _open_below(path, source)) is None:
             skip(relative, info.st_size, "UNREADABLE")
@@ -192,7 +192,7 @@ def _archive(source: Path, target: Path) -> tuple[list[dict], int]:
                     done = _copy(
                         handle,
                         target / relative,
-                        min(MAX_FILE_BYTES, MAX_TOTAL_BYTES - total),
+                        min(limits["max_file_bytes"], limits["max_total_bytes"] - total),
                     )
             except OSError:
                 (target / relative).unlink(missing_ok=True)
@@ -224,6 +224,7 @@ class Execution:
         self.jobs_dir = self.out / "jobs"
         self.attempts_dir = self.out / "attempts"
         self.retry = spec["retry"]
+        self.limits = spec["artifact_limits"]
         self.cancelling = False
         # Harbor trial name -> platform trial id; retries keep the trial name (V-12).
         self.bound: dict[str, str] = {}
@@ -346,7 +347,7 @@ class Execution:
         trial_dir = self.jobs_dir / "job" / name
         archive = self.attempts_dir / trial_id / str(attempt)
         archived = trial_dir.is_dir()
-        files, unlisted = _archive(trial_dir, archive) if archived else ([], 0)
+        files, unlisted = _archive(trial_dir, archive, self.limits) if archived else ([], 0)
         exc = result.exception_info
         exception_type = exc.exception_type if exc else None
         rewards = result.verifier_result.rewards if result.verifier_result else None
@@ -477,7 +478,22 @@ def check_spec(spec: dict) -> None:
         "log_cap_bytes",
         "heartbeat_sec",
         "tail_interval_sec",
+        "artifact_limits",
     )
     missing = [key for key in required if key not in spec]
     if missing:
         raise Rejected("RUNNER_INPUT_INVALID", f"missing fields: {missing}")
+    limits = spec["artifact_limits"]
+    names = ("max_files", "max_file_bytes", "max_total_bytes")
+    if not isinstance(limits, dict) or set(limits) != set(names):
+        raise Rejected("RUNNER_INPUT_INVALID", f"artifact_limits needs exactly {list(names)}")
+    for name in names:
+        value = limits[name]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise Rejected(
+                "RUNNER_INPUT_INVALID", f"artifact_limits.{name} must be a positive integer"
+            )
+    if limits["max_file_bytes"] > limits["max_total_bytes"]:
+        raise Rejected(
+            "RUNNER_INPUT_INVALID", "a single file cannot be allowed more than the total"
+        )

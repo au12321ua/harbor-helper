@@ -1,5 +1,9 @@
-"""D-011 initial values. Team-adjustable policies move to the database with M5;
-capabilities always report the values actually in force."""
+"""D-011 initial values of the team policies. They move to the database with M5 (admin
+page, revisions, frozen into each run's snapshot); until then they are fixed here.
+
+Limits that depend on the machine and its disk (artifact caps, export size, build, pull
+and save time, restore slots, Hub concurrency, Runner liveness) are not here: they are
+set in ``config.toml`` (``maestro.config``). Capabilities report both kinds as in force."""
 
 PAT_DEFAULT_DAYS = 30
 PAT_MAX_DAYS = 365
@@ -20,7 +24,6 @@ ARTIFACT_TTL_DAYS = 7
 EXPORT_MAX_RUNS = 100
 EXPORT_TTL_HOURS = 24
 EXPORT_PIN_MINUTES = 60
-EXPORT_MAX_BYTES = 10 * 1024**3
 EXPORT_MAX_ACTIVE_PER_USER = 2
 LOGIN_ATTEMPTS_PER_MINUTE = 10
 

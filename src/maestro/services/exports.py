@@ -36,6 +36,8 @@ from maestro.services.principal import Principal, require_admin_session
 log = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 ARCHIVE = "export.zip"
+# Default largest export (``export_max_gb`` in config.toml).
+DEFAULT_MAX_BYTES = 10 * 1024**3
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -104,18 +106,28 @@ def _check_request(body: dict) -> dict:
 
 
 class Exports:
-    def __init__(self, db: Database, store: ArtifactStore, directory: Path, runs, disk=None):
+    def __init__(
+        self,
+        db: Database,
+        store: ArtifactStore,
+        directory: Path,
+        runs,
+        disk=None,
+        *,
+        max_bytes: int = DEFAULT_MAX_BYTES,
+    ):
         self.db = db
         self.store = store
         self.directory = directory
         self.runs = runs
         self.disk = disk
+        self.max_bytes = max_bytes
 
     # --- requests ----------------------------------------------------------------
 
     def create(self, principal: Principal, body: dict) -> dict:
         """Exporting reads team-shared results, so a read PAT may export too. A package
-        can take up to ``EXPORT_MAX_BYTES``, so creation is limited per user and, like
+        can take up to ``max_bytes``, so creation is limited per user and, like
         new runs, paused while free disk space is low."""
         request = _check_request(body)
         if self.disk:
@@ -321,10 +333,10 @@ class Exports:
             )
         target = self.directory / export_id
         try:
-            if sum(a["size_bytes"] or 0 for a in pinned) > limits.EXPORT_MAX_BYTES:
+            if sum(a["size_bytes"] or 0 for a in pinned) > self.max_bytes:
                 raise ExportFailed(
                     "EXPORT_TOO_LARGE",
-                    f"Selected files exceed {limits.EXPORT_MAX_BYTES} bytes; narrow the export",
+                    f"Selected files exceed {self.max_bytes} bytes; narrow the export",
                 )
             target.mkdir(parents=True, exist_ok=True)
             summary = self._write(export_id, request, selected, target, pin_until)

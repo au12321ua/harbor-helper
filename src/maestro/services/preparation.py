@@ -40,6 +40,7 @@ from maestro.db import schema as t
 from maestro.db.engine import Database
 from maestro.domain.states import OPERATION_TERMINAL, OperationStatus
 from maestro.execution.materials import (
+    MAX_BUILD_TIMEOUT,
     PREPARATION_METHOD_DIGEST,
     TaskMaterials,
     inspect_task,
@@ -257,8 +258,10 @@ class Preparer:
         credentials,
         *,
         restore_slots: int = RESTORE_SLOTS,
+        build_timeout_max: float = MAX_BUILD_TIMEOUT,
         job_slots: int = 2,
     ):
+        self.build_timeout_max = build_timeout_max
         self.db = db
         self.environment = environment
         self.sources = sources
@@ -574,7 +577,7 @@ class Preparer:
                 material = await self._fetch(source, task, credential)
                 path = self.materials.path_for(task.content_digest)
                 definition = await asyncio.to_thread(
-                    inspect_task, path, task.content_digest, material
+                    inspect_task, path, task.content_digest, material, self.build_timeout_max
                 )
             except SourceError as error:
                 if error.kind != src.UNSUPPORTED:

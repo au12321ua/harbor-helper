@@ -78,7 +78,7 @@ def capabilities(request: Request):
                 "collections": False,
                 "dataset_import": True,
             },
-            "limits": limits.as_dict(),
+            "limits": {**limits.as_dict(), **service.settings.effective_limits()},
             "auth": {
                 "pat_header": "Authorization: Bearer <token>",
                 "session_cookie": True,

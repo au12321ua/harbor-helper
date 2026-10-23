@@ -86,6 +86,8 @@ def cmd_serve(args) -> int:
 
     settings = _settings(args)
     _private_database(settings)
+    for note in settings.advice():
+        print(f"WARNING: {note}", file=sys.stderr)
     executor = environment = None
     sources = {}
     if settings.runner_python and not args.demo_executor:
@@ -141,15 +143,31 @@ def _harbor_executor(settings):
         TaskMaterials(settings.cache_dir),
         DockerResources(timeout=settings.cleanup_timeout_sec),
         term_grace=settings.runner_term_grace_sec,
+        silence_limit=settings.runner_silence_sec,
+        heartbeat_sec=settings.runner_heartbeat_sec,
+        artifact_limits=settings.artifact_limits(),
+    )
+
+
+def _docker_environment(settings):
+    from maestro.execution.preparation import DockerEnvironment
+
+    return DockerEnvironment(
+        settings.preparation_dir,
+        build_timeout=settings.build_timeout_default_sec,
+        build_timeout_max=settings.build_timeout_max_sec,
+        pull_timeout=settings.pull_timeout_sec,
+        save_timeout=settings.save_timeout_sec,
     )
 
 
 def _preparation(settings):
     from maestro.execution.hub import HubSource
-    from maestro.execution.preparation import DockerEnvironment
 
-    environment = DockerEnvironment(settings.preparation_dir)
-    return environment, {"hub": HubSource(settings.runner_python, settings.work_dir)}
+    hub = HubSource(
+        settings.runner_python, settings.work_dir, max_runners=settings.hub_runner_slots
+    )
+    return _docker_environment(settings), {"hub": hub}
 
 
 def cmd_local_dataset(args) -> int:
@@ -160,7 +178,6 @@ def cmd_local_dataset(args) -> int:
     from maestro.application import Maestro
     from maestro.core.lock import InstanceLock
     from maestro.execution.materials import LocalTaskSource
-    from maestro.execution.preparation import DockerEnvironment
     from maestro.services.instance import instance_id
 
     settings = _settings(args)
@@ -168,7 +185,7 @@ def cmd_local_dataset(args) -> int:
     source = LocalTaskSource(Path(args.directory).resolve())
     service = Maestro.build(
         settings,
-        environment=DockerEnvironment(settings.preparation_dir),
+        environment=_docker_environment(settings),
         sources={"local": source},
     )
 

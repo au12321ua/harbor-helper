@@ -34,9 +34,9 @@ from maestro.core.digests import digest_json
 DEFAULT_CPUS = 1
 DEFAULT_MEMORY_MB = 2048
 INSTRUCTION_CHARS = 4000
-# Upper bound for a task's own build_timeout_sec. The design names no build limit (14
-# section 5), and Harbor's default is 600 s; an hour covers large images while one
-# build cannot hold one of the two restore slots for longer.
+# Default upper bound for a task's own build_timeout_sec (``build_timeout_max_sec`` in
+# config.toml). The design names no build limit (14 section 5), and Harbor's default is
+# 600 s; an hour covers large images while one build cannot hold a restore slot for longer.
 MAX_BUILD_TIMEOUT = 3600.0
 
 # How the platform prepares an environment. A change here is a new preparation
@@ -105,15 +105,15 @@ def tree_digest(root: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
-def build_timeout(value) -> float | None:
+def build_timeout(value, cap: float = MAX_BUILD_TIMEOUT) -> float | None:
     """The author's build time limit when it is usable, else None (the platform default
     applies). A build holds one of the few restore slots for as long as it runs, so a
-    task may not ask for ``inf`` or for days: the limit is capped."""
+    task may not ask for ``inf`` or for days: the limit is capped at ``cap``."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     if not math.isfinite(value) or value <= 0:
         return None
-    return min(float(value), MAX_BUILD_TIMEOUT)
+    return min(float(value), cap)
 
 
 def _hex(content_digest: str) -> str | None:
@@ -310,8 +310,14 @@ def _parameters(config: dict, task_dir: Path) -> tuple[list[dict], list[dict]]:
     return sorted(found.values(), key=lambda p: p["name"]), issues
 
 
-def inspect_task(task_dir: Path, content_digest: str, material_digest: str) -> dict:
-    """The task definition the platform stores (02 section 3 step 3)."""
+def inspect_task(
+    task_dir: Path,
+    content_digest: str,
+    material_digest: str,
+    build_timeout_max: float = MAX_BUILD_TIMEOUT,
+) -> dict:
+    """The task definition the platform stores (02 section 3 step 3). The build limit it
+    records is the task's own, capped at ``build_timeout_max``."""
     try:
         config = tomllib.loads((task_dir / "task.toml").read_text())
     except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
@@ -335,7 +341,7 @@ def inspect_task(task_dir: Path, content_digest: str, material_digest: str) -> d
         kind = None
         unsupported.append("no_environment_definition")
     parameters, issues = _parameters(config, task_dir)
-    build_limit = build_timeout(environment.get("build_timeout_sec"))
+    build_limit = build_timeout(environment.get("build_timeout_sec"), build_timeout_max)
     instruction = task_dir / "instruction.md"
     definition = {
         "instruction": (

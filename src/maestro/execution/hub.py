@@ -30,24 +30,33 @@ from maestro.security.redaction import redact, redact_json
 
 log = logging.getLogger(__name__)
 KINDS = {"auth", "transient", "not_found", "mismatch", "unsupported"}
-# One-shot Runner processes alive at once; the rest wait their turn.
+# Default for the one-shot Runner processes alive at once (``hub_runner_slots`` in
+# config.toml); the rest wait their turn.
 MAX_RUNNERS = 4
 
 
 class HubSource:
     kind = "hub"
 
-    def __init__(self, runner_python: Path, work_root: Path, *, timeout: float = 600.0):
+    def __init__(
+        self,
+        runner_python: Path,
+        work_root: Path,
+        *,
+        timeout: float = 600.0,
+        max_runners: int = MAX_RUNNERS,
+    ):
         self.runner_python = runner_python
         self.work_root = work_root
         self.timeout = timeout
+        self.max_runners = max_runners
         self._slots: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
 
     def _runner_slots(self) -> asyncio.Semaphore:
         """Bound to the running loop, like the preparation restore slots."""
         loop = asyncio.get_running_loop()
         if self._slots is None or self._slots[0] is not loop:
-            self._slots = (loop, asyncio.Semaphore(MAX_RUNNERS))
+            self._slots = (loop, asyncio.Semaphore(self.max_runners))
         return self._slots[1]
 
     async def _call(self, op: str, payload: dict, credential: str | None, timeout=None):

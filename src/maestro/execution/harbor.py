@@ -63,10 +63,14 @@ ENV_KEEP = (
     "no_proxy",
     "SSL_CERT_FILE",
 )
-# Redaction scans every text file up to the Runner's own per-file limit (job.MAX_FILE_BYTES):
-# a larger file is not collected at all, so no collected text file goes unscanned.
-REDACT_MAX_BYTES = 64 * 1024 * 1024
 STDERR_KEEP = 256 * 1024
+# Evidence limits per execution attempt, enforced by the Runner while it archives (the
+# same numbers as the configuration's defaults; a test keeps the two in step).
+DEFAULT_ARTIFACT_LIMITS = {
+    "max_files": 500,
+    "max_file_bytes": 64 * 1024 * 1024,
+    "max_total_bytes": 1024 * 1024 * 1024,
+}
 
 
 class ProtocolError(Exception):
@@ -78,13 +82,14 @@ def artifact_kind(relative_path: str) -> str:
     return {"agent": "agent", "verifier": "verifier", "artifacts": "output"}.get(top, "trial")
 
 
-def _redacted(data: bytes) -> bytes:
+def _redacted(data: bytes, limit: int) -> bytes:
     """Logs and products are shown after basic redaction (U-10, 09 section 5).
 
     Any file that reads as text is redacted, whatever its name: a NUL byte marks binary,
     which stays untouched. Bytes that are not valid UTF-8 (a stderr tail cut mid-character)
-    pass through unchanged around the redacted text."""
-    if len(data) > REDACT_MAX_BYTES or b"\0" in data:
+    pass through unchanged around the redacted text. ``limit`` is the per-file artifact
+    limit: the Runner collects nothing larger, so no collected text file goes unscanned."""
+    if len(data) > limit or b"\0" in data:
         return data
     return redact(data.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
 
@@ -140,7 +145,9 @@ class HarborExecutor:
         heartbeat_sec: float = 10.0,
         tail_interval_sec: float = 0.5,
         log_cap_bytes: int = 1024 * 1024,
+        artifact_limits: dict[str, int] = DEFAULT_ARTIFACT_LIMITS,
     ):
+        self.artifact_limits = dict(artifact_limits)
         self.runner_python = runner_python
         self.work_root = work_root
         self.materials = materials
@@ -242,6 +249,7 @@ class HarborExecutor:
             "tasks": list(tasks.values()),
             "labels": spec.labels,
             "log_cap_bytes": self.log_cap_bytes,
+            "artifact_limits": self.artifact_limits,
             "heartbeat_sec": self.heartbeat_sec,
             "tail_interval_sec": self.tail_interval_sec,
         }
@@ -302,7 +310,9 @@ class HarborExecutor:
         spec = session.spec
         if stderr.total:
             with contextlib.suppress(Exception):
-                shown = await asyncio.to_thread(_redacted, stderr.render())
+                shown = await asyncio.to_thread(
+                    _redacted, stderr.render(), self.artifact_limits["max_file_bytes"]
+                )
                 await sink.run_artifact("runner", "runner/stderr.log", shown)
         completed = session.completed or {}
         failure = session.failure
@@ -438,7 +448,9 @@ class HarborExecutor:
                     attempt,
                     artifact_kind(entry["path"]),
                     entry["path"],
-                    await asyncio.to_thread(_redacted, data),
+                    await asyncio.to_thread(
+                        _redacted, data, self.artifact_limits["max_file_bytes"]
+                    ),
                 )
         outcome = harbor_outcome(
             p.get("exception_type"),

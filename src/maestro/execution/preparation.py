@@ -36,7 +36,7 @@ from maestro.boundaries.environment import (
     PreparedOutput,
     Progress,
 )
-from maestro.execution.materials import build_timeout
+from maestro.execution.materials import MAX_BUILD_TIMEOUT, build_timeout
 
 log = logging.getLogger(__name__)
 
@@ -100,10 +100,25 @@ def _file_digest(path: Path) -> str:
 class DockerEnvironment:
     location_id = "local-docker"
 
-    def __init__(self, archive_dir: Path, docker: str | None = None):
+    def __init__(
+        self,
+        archive_dir: Path,
+        docker: str | None = None,
+        *,
+        build_timeout: float = DEFAULT_BUILD_TIMEOUT,
+        build_timeout_max: float = MAX_BUILD_TIMEOUT,
+        pull_timeout: float = PULL_TIMEOUT,
+        save_timeout: float = SAVE_TIMEOUT,
+    ):
         self.archive_dir = archive_dir
         self.docker = docker or shutil.which("docker") or "docker"
         self.repository: str | None = None
+        # A task's own build time is capped at ``build_timeout_max`` every time it builds,
+        # so lowering the maximum also reaches versions imported earlier.
+        self.build_timeout = build_timeout
+        self.build_timeout_max = build_timeout_max
+        self.pull_timeout = pull_timeout
+        self.save_timeout = save_timeout
 
     def bind(self, instance_id: str) -> None:
         """Images live under a per-instance repository, so instances never collide."""
@@ -155,7 +170,9 @@ class DockerEnvironment:
         if not (env_dir / "Dockerfile").is_file():
             raise PreparationError(UNSUPPORTED, "the task has no environment/Dockerfile")
         await progress("building")
-        timeout = build_timeout(spec.spec["environment"].get("build_timeout_sec"))
+        timeout = build_timeout(
+            spec.spec["environment"].get("build_timeout_sec"), self.build_timeout_max
+        )
         code, _, err = await self._run(
             "buildx",
             "build",
@@ -169,7 +186,7 @@ class DockerEnvironment:
             "-f",
             str(env_dir / "Dockerfile"),
             str(env_dir),
-            timeout=timeout or DEFAULT_BUILD_TIMEOUT,
+            timeout=timeout or self.build_timeout,
         )
         if code:
             raise PreparationError(
@@ -179,7 +196,7 @@ class DockerEnvironment:
 
     async def _pull(self, reference: str, tag: str, progress: Progress) -> dict:
         await progress("pulling")
-        code, _, err = await self._run("pull", "--quiet", reference, timeout=PULL_TIMEOUT)
+        code, _, err = await self._run("pull", "--quiet", reference, timeout=self.pull_timeout)
         if code:
             # Docker reports "repository does not exist" and "login required" alike, so
             # a refused pull is AUTH; only a digest that is missing is "exactly gone".
@@ -233,7 +250,9 @@ class DockerEnvironment:
         name = spec_digest.split(":", 1)[1] + ".tar"
         temporary = self.archive_dir / f".{name}.{secrets.token_hex(4)}.tmp"
         try:
-            code, _, err = await self._run("save", "-o", str(temporary), ref, timeout=SAVE_TIMEOUT)
+            code, _, err = await self._run(
+                "save", "-o", str(temporary), ref, timeout=self.save_timeout
+            )
             if code:
                 raise PreparationError(
                     TRANSIENT, "exporting the image failed", {"stderr": err[-500:]}
@@ -266,7 +285,9 @@ class DockerEnvironment:
         if await asyncio.to_thread(_file_digest, path) != archive.get("digest"):
             log.warning("preparation original %s is damaged", path.name)
             return False
-        code, _, err = await self._run("load", "--quiet", "-i", str(path), timeout=SAVE_TIMEOUT)
+        code, _, err = await self._run(
+            "load", "--quiet", "-i", str(path), timeout=self.save_timeout
+        )
         if code:
             raise PreparationError(TRANSIENT, "loading the original failed", {"stderr": err[-500:]})
         return await self.check(expected)
