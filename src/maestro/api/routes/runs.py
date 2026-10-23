@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from maestro.api.deps import maestro, ok, principal
 from maestro.api.models import (
     Artifact,
+    ConfigRequest,
     Envelope,
     Export,
     ExportCreate,
@@ -19,6 +20,7 @@ from maestro.api.models import (
     RunAccepted,
     RunCreate,
     RunDetail,
+    RunRerun,
     RunSummary,
     Trial,
 )
@@ -126,6 +128,35 @@ def delete_run(run_id: str, request: Request, who: Principal = Depends(principal
 @router.get("/runs/{run_id}/trials", response_model=Envelope[list[Trial]], tags=["runs"])
 def trials(run_id: str, request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).runs.trials(run_id))
+
+
+@router.post(
+    "/runs/{run_id}/rerun", response_model=Envelope[RunAccepted], status_code=202, tags=["runs"]
+)
+def rerun(
+    run_id: str,
+    body: RunRerun,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    who: Principal = Depends(principal),
+):
+    """Same configuration (CFG-06): team defaults and the model revision of the source;
+    the current credential value. Refused when anything but the task set would differ."""
+    service = maestro(request)
+    if service.worker is None:
+        raise MaestroError(
+            "EXECUTION_UNAVAILABLE", "No executor is configured", 503, stage="acceptance"
+        )
+    status, data, replayed = service.runs.rerun(who, idempotency_key, run_id, body.model_dump())
+    service.worker.wake()
+    headers = {"Idempotent-Replayed": "true"} if replayed else {}
+    return JSONResponse(status_code=status, content=ok(request, data), headers=headers)
+
+
+@router.get("/runs/{run_id}/request", response_model=Envelope[ConfigRequest], tags=["runs"])
+def run_request(run_id: str, request: Request, who: Principal = Depends(principal)):
+    """The configuration request that reproduces this run, to edit into a modified run."""
+    return ok(request, maestro(request).runs.request_of(who, run_id))
 
 
 @router.post("/runs/{run_id}/cancel", response_model=Envelope[Run], tags=["runs"])

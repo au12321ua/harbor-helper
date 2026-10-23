@@ -26,6 +26,7 @@ from maestro.domain.states import (
     ArtifactState,
     CleanupState,
     OperationStatus,
+    PatScope,
     RunState,
     TrialState,
     UserStatus,
@@ -45,6 +46,7 @@ from maestro.services.configuration import (
     check_request,
     comparison_view,
     differences,
+    pinned_request,
 )
 from maestro.services.principal import (
     Channel,
@@ -57,6 +59,8 @@ from maestro.services.principal import (
 SNAPSHOT_SCHEMA = 2
 ACTION_SUBMIT = "runs.submit"
 ACTION_CANCEL = "runs.cancel"
+ACTION_RERUN = "runs.rerun"
+RERUN_MODES = ("all", "unfinished", "explicit")
 __all__ = ["EXECUTION_MODES", "Runs"]
 
 
@@ -74,6 +78,9 @@ def _check_run_fields(body: dict) -> dict:
     resolution_id = body.get("resolution_id")
     if resolution_id is not None and not isinstance(resolution_id, str):
         errors.append(FieldError("/resolution_id", "TYPE"))
+    source_run_id = body.get("source_run_id")
+    if source_run_id is not None and not isinstance(source_run_id, str):
+        errors.append(FieldError("/source_run_id", "TYPE"))
     if errors:
         raise MaestroError(
             "CONFIG_VALIDATION_FAILED",
@@ -86,7 +93,28 @@ def _check_run_fields(body: dict) -> dict:
         "name": name.strip(),
         "client_request_id": client_request_id,
         "resolution_id": resolution_id,
+        "source_run_id": source_run_id,
     }
+
+
+def _source_provenance(source: dict | None) -> dict | None:
+    """Where a rerun or modified run came from, and how it differs (RUN-06)."""
+    if source is None:
+        return None
+    found = {
+        "run_id": source["run_id"],
+        "relation": source.get("relation", "modified"),
+        "snapshot_digest": source["snapshot_digest"],
+        "config_digest": source["config_digest"],
+    }
+    if "differences" in source:
+        found["differences"] = source["differences"]
+    if "task_causes" in source:
+        found["task_causes"] = source["task_causes"]
+    if source.get("field_sources") is not None:
+        # A rerun keeps the meaning of its values: they came from the source's layers.
+        found["source_field_sources"] = source["field_sources"]
+    return found
 
 
 def public_resolution(row, result: dict | None = None) -> dict:
@@ -114,6 +142,12 @@ def public_run(
         allowed.append("cancel")
     if manage and row["state"] in RUN_TERMINAL and not deletions.get("run"):
         allowed.append("delete")
+    # New runs from this one belong to whoever starts them (U-08: reruns are the caller's).
+    experiment = principal is not None and (
+        principal.channel != Channel.PAT or principal.pat_scope == PatScope.EXPERIMENT
+    )
+    if experiment and not deletions.get("run"):
+        allowed += ["rerun", "modify"]
     state = RunState(row["state"])
     return {
         "id": row["id"],
@@ -321,9 +355,19 @@ class Runs:
             else:
                 res = self.resolver.resolve(conn, request)
                 res.raise_if_blocked()
+        source = None
+        if run["source_run_id"]:
+            # A modified run: any valid change, with its differences to the source kept.
+            with self.db.read() as conn:
+                source = self._source(conn, run["source_run_id"])
+            source["differences"] = differences(source["effective"], res.effective)
+        return self._accept(principal, ACTION_SUBMIT, key, req_hash, run, res, source)
+
+    def _accept(self, principal, action, key, req_hash, run, res, source=None):
+        """The acceptance transaction shared by submissions and reruns (04 section 3)."""
         with self.db.write() as conn:
             stored = idempotency.lookup(
-                conn, principal.idempotency_principal, ACTION_SUBMIT, key, req_hash
+                conn, principal.idempotency_principal, action, key, req_hash
             )
             if stored:
                 return stored.status_code, stored.response, True
@@ -344,19 +388,174 @@ class Runs:
                 refuse_if_never_fits(conn, self.capacity, res.reservation)
             if principal.channel == Channel.PAT:
                 self._charge_pat(conn, principal.pat_id)
-            response = self._insert_run(conn, principal, run, res)
+            response = self._insert_run(conn, principal, run, res, source)
             idempotency.store(
-                conn, principal.idempotency_principal, ACTION_SUBMIT, key, req_hash, 202, response
+                conn, principal.idempotency_principal, action, key, req_hash, 202, response
             )
             audit.record(
                 conn,
                 principal,
-                "run.submit",
+                "run.rerun" if action == ACTION_RERUN else "run.submit",
                 object_type="run",
                 object_id=response["run_id"],
-                detail={"trials": response["planned_trials"]},
+                detail={
+                    "trials": response["planned_trials"],
+                    **({"source_run_id": source["run_id"]} if source else {}),
+                },
             )
         return 202, response, False
+
+    # --- reruns and modified runs (04 section 7) ------------------------------------
+
+    def _source(self, conn: Connection, run_id: str) -> dict:
+        """A run new work may start from: it exists and is not deleted."""
+        row = self._row(conn, run_id)
+        state = deleted.state(conn, "run", run_id)
+        if state:
+            raise MaestroError(
+                "SOURCE_RUN_DELETED",
+                "The source run was deleted; restore it before starting from it",
+                409 if state["state"] == deleted.RECYCLED else 410,
+            )
+        snapshot = (
+            conn.execute(select(t.run_snapshots).where(t.run_snapshots.c.run_id == run_id))
+            .mappings()
+            .one()
+        )
+        request = snapshot["provenance_json"].get("request")
+        if request is None:
+            raise MaestroError(
+                "SOURCE_RUN_UNSUPPORTED", "This run predates reruns and cannot be a source", 422
+            )
+        return {
+            "run_id": run_id,
+            "name": row["name"],
+            "effective": snapshot["effective_json"],
+            "provenance": snapshot["provenance_json"],
+            "policy": snapshot["policy_json"],
+            "snapshot_digest": snapshot["snapshot_digest"],
+            "config_digest": snapshot["config_digest"],
+            "request": request,
+            "terminal": row["state"] in RUN_TERMINAL,
+        }
+
+    def request_of(self, principal: Principal, run_id: str) -> dict:
+        """The configuration request that reproduces a run, to edit for a modified run:
+        team defaults and the model revision are pinned to what the run used."""
+        with self.db.read() as conn:
+            source = self._source(conn, run_id)
+        return pinned_request(source["request"], source["effective"])
+
+    def rerun(
+        self, principal: Principal, idempotency_key: str, run_id: str, body: dict
+    ) -> tuple[int, dict, bool]:
+        """A new run from the source's snapshot, optionally on fewer tasks. Nothing may
+        differ but the task set: a change (a disabled model, a revoked admission, a
+        tighter team limit) refuses instead of running something else."""
+        require_experiment(principal)
+        key = idempotency.check_key(idempotency_key)
+        selection = body.get("task_selection") or {"mode": "all"}
+        mode = selection.get("mode") if isinstance(selection, dict) else None
+        if mode not in RERUN_MODES:
+            raise MaestroError(
+                "CONFIG_VALIDATION_FAILED",
+                "Invalid rerun request",
+                422,
+                field_errors=[FieldError("/task_selection/mode", "ENUM", ", ".join(RERUN_MODES))],
+            )
+        with self.db.read() as conn:
+            source = self._source(conn, run_id)
+            trials = conn.execute(
+                select(t.trials.c.task_id, t.trials.c.state, t.trials.c.reason_code).where(
+                    t.trials.c.run_id == run_id
+                )
+            ).all()
+        tasks: dict[str, list] = {}
+        for trial in trials:
+            tasks.setdefault(trial.task_id, []).append(trial)
+        if mode == "explicit":
+            chosen = selection.get("task_ids")
+            if (
+                not isinstance(chosen, list)
+                or not chosen
+                or not all(isinstance(x, str) for x in chosen)
+                or set(chosen) - set(tasks)
+            ):
+                raise MaestroError(
+                    "CONFIG_VALIDATION_FAILED",
+                    "Choose tasks of the source run",
+                    422,
+                    field_errors=[FieldError("/task_selection/task_ids", "NOT_IN_SOURCE")],
+                )
+            chosen = set(chosen)
+        elif mode == "unfinished":
+            if not source["terminal"]:
+                raise MaestroError(
+                    "RUN_NOT_FINISHED",
+                    "Wait for the source run to end, or cancel it, before rerunning what "
+                    "did not finish",
+                    409,
+                )
+            # A task with any trial not scored is rerun whole (04 section 7).
+            chosen = {
+                task_id
+                for task_id, rows in tasks.items()
+                if any(r.state != TrialState.SCORED for r in rows)
+            }
+            if not chosen:
+                raise MaestroError(
+                    "NOTHING_TO_RERUN", "Every trial of the source run was scored", 422
+                )
+        else:
+            chosen = set(tasks)
+        run = _check_run_fields(
+            {
+                "name": body.get("name") or f"{source['name']} (rerun)",
+                "client_request_id": body.get("client_request_id"),
+            }
+        )
+        request = pinned_request(source["request"], source["effective"])
+        request["task_selection"] = {"mode": "explicit", "task_ids": sorted(chosen)}
+        req_hash = idempotency.request_hash({"source_run_id": run_id, **request, **run})
+        with self.db.read() as conn:
+            stored = idempotency.lookup(
+                conn, principal.idempotency_principal, ACTION_RERUN, key, req_hash
+            )
+            if stored:
+                return stored.status_code, stored.response, True
+            res = self.resolver.resolve(conn, request)
+        res.raise_if_blocked()
+        keys = {x["task_key"] for x in res.tasks}
+        effective = source["effective"]
+        # Parameters and the baseline flag are worked out over the chosen tasks only.
+        expected = {
+            **effective,
+            "tasks": [x for x in effective["tasks"] if x["task_key"] in keys],
+            "parameters": {
+                k: v
+                for k, v in (effective.get("parameters") or {}).items()
+                if k in (res.effective.get("parameters") or {})
+            },
+            "deviates_from_author_baseline": res.effective.get("deviates_from_author_baseline"),
+        }
+        changed = differences(expected, res.effective)
+        if changed:
+            raise MaestroError(
+                "RERUN_CONFIG_CHANGED",
+                "The source configuration can no longer be reproduced exactly; start a "
+                "modified run instead",
+                409,
+                stage="preflight",
+                field_errors=[FieldError(d["path"], "CHANGED") for d in changed[:50]],
+                suggested_actions=[{"type": "modified_run", "source_run_id": run_id}],
+            )
+        source["relation"] = "rerun"
+        source["field_sources"] = source["provenance"].get("field_sources")
+        source["task_causes"] = {
+            task_id: sorted({r.reason_code or r.state for r in tasks[task_id]})
+            for task_id in sorted(chosen)
+        }
+        return self._accept(principal, ACTION_RERUN, key, req_hash, run, res, source)
 
     @staticmethod
     def _refuse_deleted_version(conn: Connection, version_id: str) -> None:
@@ -447,7 +646,12 @@ class Runs:
         )
 
     def _insert_run(
-        self, conn: Connection, principal: Principal, run: dict, res: Resolution
+        self,
+        conn: Connection,
+        principal: Principal,
+        run: dict,
+        res: Resolution,
+        source: dict | None = None,
     ) -> dict:
         now = clock.now()
         at = clock.to_text(now)
@@ -470,7 +674,8 @@ class Runs:
                 name=run["name"],
                 owner_id=principal.user_id,
                 pat_id=principal.pat_id,
-                relation="initial",
+                relation=(source or {}).get("relation", "modified" if source else "initial"),
+                source_run_id=source["run_id"] if source else None,
                 dataset_version_id=res.version["id"],
                 model_config_id=model.get("config_id"),
                 harness_version_id=harness.get("version_id"),
@@ -499,13 +704,16 @@ class Runs:
             )
         provenance = {
             "submitted_via": principal.channel.value,
-            "resolution_id": run["resolution_id"],
+            "resolution_id": run.get("resolution_id"),
+            # The normalized request, so the run can be reproduced or edited (04 section 7).
+            "request": res.request,
             "task_selection": res.request["task_selection"],
             "excluded_tasks": res.excluded,
             "field_sources": res.field_sources,
             "baseline_differences": res.baseline_differences,
             "reference_revisions": res.references,
             "labels": res.labels,
+            "source": _source_provenance(source),
             # Bound credentials, by reference only; values are read at execution.
             "credential_ids": sorted(set(res.credential_ids)),
             "admissions": [

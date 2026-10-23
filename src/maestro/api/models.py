@@ -484,6 +484,9 @@ class RunConfigFields(Model):
 
     task_selection: TaskSelection = TaskSelection()
     model_config_id: str | None = None
+    model_revision: int | None = Field(
+        None, description="An earlier revision of the model configuration; unset: current"
+    )
     harness_version_id: str | None = None
     harness_params: dict[str, Any] = {}
     attachments: list[str] = Field(
@@ -514,6 +517,28 @@ class RunCreate(RunConfigFields):
     resolution_id: str | None = None
     dataset_version_id: str | None = None
     execution_mode: Literal["agent", "oracle"] | None = None
+    client_request_id: str | None = None
+    source_run_id: str | None = Field(
+        None,
+        description="Makes this a modified run of that run: its differences are recorded "
+        "(start from GET /runs/{run_id}/request)",
+    )
+
+
+class RerunSelection(Model):
+    mode: Literal["all", "unfinished", "explicit"] = Field(
+        "all",
+        description="unfinished: every task with a trial not scored (the source must "
+        "have ended); explicit: task_ids of the source run",
+    )
+    task_ids: list[str] | None = None
+
+
+class RunRerun(Model):
+    """A new run from the source run's snapshot; only the task set may shrink."""
+
+    name: str | None = None
+    task_selection: RerunSelection = RerunSelection()
     client_request_id: str | None = None
 
 

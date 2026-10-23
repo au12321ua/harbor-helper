@@ -145,7 +145,7 @@ def test_cancel_running_keeps_scores(service, owner, version_id, executor):
             raise AssertionError(states)
         stopping = service.runs.cancel(owner, data["run_id"])
         # Stop requested but not yet finished: cancel is no longer offered.
-        assert stopping["stop_requested"] and stopping["allowed_actions"] == ["view"]
+        assert stopping["stop_requested"] and "cancel" not in stopping["allowed_actions"]
         await worker.drain()
 
     asyncio.run(scenario())

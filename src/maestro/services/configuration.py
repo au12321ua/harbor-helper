@@ -82,6 +82,9 @@ def check_request(body: dict) -> dict:
     if execution_mode not in EXECUTION_MODES:
         errors.append(FieldError("/execution_mode", "ENUM", "agent or oracle"))
     model_id = body.get("model_config_id")
+    model_revision = body.get("model_revision")
+    if model_revision is not None and (type(model_revision) is not int or model_revision < 1):
+        errors.append(FieldError("/model_revision", "TYPE", "a positive integer"))
     harness_id = body.get("harness_version_id")
     harness_params = body.get("harness_params") or {}
     if execution_mode == "agent":
@@ -153,6 +156,8 @@ def check_request(body: dict) -> dict:
         "task_selection": {"mode": mode, **({"task_ids": sorted(task_ids)} if task_ids else {})},
         "execution_mode": execution_mode,
         "model_config_id": model_id if execution_mode == "agent" else None,
+        # Pins an earlier revision (reruns use the source's); unset means the current one.
+        "model_revision": model_revision if execution_mode == "agent" else None,
         "harness_version_id": harness_id if execution_mode == "agent" else None,
         "harness_params": dict(sorted(harness_params.items())),
         # In load order: the order is part of the configuration (03 section 7).
@@ -291,6 +296,28 @@ def differences(old: dict | None, new: dict | None, path: str = "") -> list[dict
     return [{"path": path or "/", "before": old, "after": new}]
 
 
+def pinned_request(request: dict, effective: dict) -> dict:
+    """The request that resolves to ``effective`` again (03 section 5, CFG-06): fields the
+    team policy filled in are pinned to the values the run used, and so is the model
+    revision, so later team defaults or model revisions change nothing. Author values
+    stay inherited: they come from the same immutable dataset version."""
+    pinned = {
+        **request,
+        "resources": dict(request["resources"]),
+        "timeouts": dict(request["timeouts"]),
+        "parameters": dict(request["parameters"]),
+        "harness_params": dict(request["harness_params"]),
+        "attachments": list(request.get("attachments") or []),
+    }
+    for name in ("repetitions", "concurrency", "run_deadline_hours"):
+        pinned[name] = effective[name]
+    if effective.get("bootstrap_timeout_sec") is not None:
+        pinned["timeouts"]["bootstrap_sec"] = effective["bootstrap_timeout_sec"]
+    if effective.get("model"):
+        pinned["model_revision"] = effective["model"]["revision"]
+    return pinned
+
+
 class Resolver:
     def __init__(self, capacity=None, adapters_of=None, executor_id=None):
         self.capacity = capacity
@@ -395,7 +422,7 @@ class Resolver:
         effective["model"] = effective["harness"] = None
         if request["execution_mode"] != "agent":
             return
-        model = self._model(conn, request["model_config_id"], res)
+        model = self._model(conn, request["model_config_id"], request.get("model_revision"), res)
         harness = self._harness(conn, request["harness_version_id"], res)
         if model is None or harness is None:
             return
@@ -475,14 +502,19 @@ class Resolver:
         if model["credential_id"]:
             res.credential_ids.append(model["credential_id"])
 
-    def _model(self, conn: Connection, config_id: str, res: Resolution) -> dict | None:
+    def _model(
+        self, conn: Connection, config_id: str, revision: int | None, res: Resolution
+    ) -> dict | None:
         row = (
             conn.execute(
                 select(t.model_configs, t.model_revisions)
                 .join(
                     t.model_revisions,
                     (t.model_revisions.c.model_config_id == t.model_configs.c.id)
-                    & (t.model_revisions.c.revision == t.model_configs.c.current_revision),
+                    & (
+                        t.model_revisions.c.revision
+                        == (revision or t.model_configs.c.current_revision)
+                    ),
                 )
                 .where(t.model_configs.c.id == config_id)
             )
@@ -491,7 +523,8 @@ class Resolver:
         )
         path = "/model_config_id"
         if row is None:
-            res.blockers.append(Blocker("NOT_FOUND", path, "Model configuration not found"))
+            found = "Model configuration" + (f" revision {revision}" if revision else "")
+            res.blockers.append(Blocker("NOT_FOUND", path, f"{found} not found"))
             return None
         if deleted.state(conn, "model_config", config_id):
             res.blockers.append(
@@ -522,7 +555,7 @@ class Resolver:
         return {
             "config_id": config_id,
             "name": row["name"],
-            "revision": row["current_revision"],
+            "revision": row["revision"],
             "provider": row["provider"],
             "protocol": row["protocol"],
             "endpoint": row["endpoint"],
@@ -1053,10 +1086,11 @@ class Resolver:
                     t.model_configs.c.id == model["config_id"]
                 )
             ).first()
+            pinned = res.request.get("model_revision") is not None
             if (
                 row is None
                 or not row.enabled
-                or row.current_revision != model["revision"]
+                or (not pinned and row.current_revision != model["revision"])
                 or deleted.state(conn, "model_config", model["config_id"])
             ):
                 changed.append("/model")
