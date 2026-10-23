@@ -579,8 +579,9 @@ class ScriptedModel:
                         "plan": "One command.",
                         "commands": [
                             {
-                                "keystrokes": "echo ok > /app/answer\n",
-                                "duration": 1,
+                                "keystrokes": "echo ok > /app/answer; "
+                                "net-probe > /logs/agent/probe.txt\n",
+                                "duration": 9,
                             }
                         ],
                         "task_complete": False,
@@ -637,9 +638,10 @@ def agent_service(settings):
 def test_terminus_runs_with_the_container_offline(agent_service, monkeypatch):
     """Terminus-2 calls the model from the Runner, so the task container gets no network
     while the agent works or the verifier runs (U-18), and the key never reaches a file.
-    The model is a local stand-in, so nothing is spent. Whether a closed phase really
-    blocks traffic needs a host whose containers have a route out; this test checks the
-    plan Harbor enforced and that the egress-control sidecar ran. Terminus-2 needs tmux in the task image: build
+    The model is a local stand-in, so nothing is spent. The same task is first run as
+    Oracle, which keeps the author's (public) network: its probes must connect, so a
+    closed probe in the model run means the platform policy closed it. Needs a host whose
+    containers can reach example.com. Terminus-2 needs tmux in the task image: build
     ``maestro-test/ubuntu-tmux:22.04`` once (``FROM ubuntu:22.04`` plus ``apt-get install
     tmux``)."""
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
@@ -691,6 +693,20 @@ def test_terminus_runs_with_the_container_offline(agent_service, monkeypatch):
                 expect=201,
             ).json()["data"]["id"]
             pat = create_pat(admin)
+            control = submit(pat, service.version_id, ["agent-pass"])
+            assert wait_operation(pat, control["operation_id"], timeout=300)["status"] == (
+                "succeeded"
+            )
+            control_files = pat.get(f"/api/v1/runs/{control['run_id']}/artifacts").json()["data"]
+
+            def probe(files, path):
+                found = next(a for a in files if a["relative_path"] == path)
+                body = pat.get(f"/api/v1/artifacts/{found['id']}/download", expect=200)
+                return body.text.strip()
+
+            # The control: with the author's network both phases reach the internet.
+            assert probe(control_files, "agent/probe.txt") == "NET_OPEN"
+            assert probe(control_files, "verifier/probe.txt") == "NET_OPEN"
             accepted = submit(
                 pat,
                 service.version_id,
@@ -739,6 +755,9 @@ def test_terminus_runs_with_the_container_offline(agent_service, monkeypatch):
                 for role in ("agent", "verifier")
             }
             assert effective == {"agent": "no-network", "verifier": "no-network"}
+            # ...and the model run really could not get out, while working or verifying.
+            assert probe(artifacts, "agent/probe.txt") == "NET_CLOSED"
+            assert probe(artifacts, "verifier/probe.txt") == "NET_CLOSED"
             assert sidecars, "the egress-control sidecar never ran"
             paths = {a["relative_path"] for a in artifacts}
             assert "agent/trajectory.json" in paths

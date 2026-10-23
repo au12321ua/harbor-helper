@@ -1,0 +1,8 @@
+#!/bin/bash
+# Prints NET_OPEN only when example.com answers an HTTP request. A transparent egress
+# proxy accepts the TCP handshake before it decides, so a handshake alone proves nothing.
+if timeout 8 bash -c '
+  exec 3<>/dev/tcp/example.com/80 || exit 1
+  printf "HEAD / HTTP/1.0\r\nHost: example.com\r\n\r\n" >&3
+  read -r -t 6 line <&3 && [[ $line == HTTP/* ]]
+'; then echo NET_OPEN; else echo NET_CLOSED; fi
