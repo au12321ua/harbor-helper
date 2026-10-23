@@ -271,10 +271,15 @@ export type ParameterValue = string | { credential_id: string };
 
 /** A run configuration request (03): unset fields are inherited from the layer below. */
 export interface ConfigRequest {
+  /** An experiment plan: fields set here win, the plan fills in the rest. */
+  plan_id?: string | null;
+  plan_revision?: number | null;
   dataset_version_id: string;
   execution_mode: ExecutionMode;
   task_selection: { mode: "all_eligible" | "explicit"; task_ids?: string[] | null };
   model_config_id?: string | null;
+  /** Pins an earlier model revision (a rerun's or an imported run's). */
+  model_revision?: number | null;
   harness_version_id?: string | null;
   harness_params?: Record<string, unknown>;
   /** Attachment version ids in load order (model runs only). */
@@ -289,8 +294,73 @@ export interface ConfigRequest {
 
 export interface RunCreate {
   name: string;
-  resolution_id: string;
+  resolution_id?: string;
   client_request_id?: string | null;
+  /** Makes this a modified run of that run; the differences are recorded. */
+  source_run_id?: string | null;
+}
+
+/** A saved, partial configuration request (04 section 1). */
+export interface Plan {
+  id: string;
+  name: string;
+  description: string;
+  owner_id: string;
+  owner_username: string | null;
+  revision: number;
+  template: Partial<ConfigRequest>;
+  copied_from: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  allowed_actions: string[];
+}
+
+export interface BatchProgress {
+  runs: number;
+  terminal_runs: number;
+  finished: number;
+  cancelled: number;
+  interrupted: number;
+  planned_trials: number;
+  scored_trials: number;
+  error_trials: number;
+}
+
+export interface Batch {
+  id: string;
+  name: string;
+  owner_id: string;
+  owner_username: string | null;
+  stop_requested: boolean;
+  created_at: string;
+  status: string;
+  operation_id: string;
+  progress: BatchProgress;
+  runs: Run[];
+  allowed_actions: string[];
+}
+
+export interface BatchPreview {
+  runs: {
+    index: number;
+    config_digest: string | null;
+    planned_trials: number;
+    labels?: Record<string, string>;
+    blockers?: ConfigBlocker[];
+  }[];
+  planned_trials: number;
+  pat_quota: { needed: number; left: number } | null;
+  duplicate_configs: string[];
+  blockers: Record<string, unknown>[];
+  can_submit: boolean;
+}
+
+export interface BatchAccepted {
+  batch_id: string;
+  operation_id: string;
+  planned_trials: number;
+  runs: RunAccepted[];
 }
 
 export interface ConfigBlocker {
@@ -560,6 +630,9 @@ export interface Run {
   pat_id: string | null;
   relation: "initial" | "rerun" | "modified";
   source_run_id: string | null;
+  plan_id?: string | null;
+  plan_revision?: number | null;
+  batch_id?: string | null;
   dataset_version_id: string;
   operation_id: string;
   client_request_id: string | null;

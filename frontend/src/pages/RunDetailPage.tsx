@@ -10,7 +10,9 @@ import {
   Download,
   Loader2,
   Package,
+  PencilLine,
   RefreshCw,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -64,6 +66,7 @@ import type {
   DeletionState,
   Export,
   Run,
+  RunAccepted,
   RunDetail,
   RunSummary,
   Trial,
@@ -131,6 +134,28 @@ function RunDetailView({ runId }: { runId: string }) {
       toast.error(`取消失败：${errorText(err)}`);
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const rerun = async (mode: "all" | "unfinished") => {
+    const text =
+      mode === "all"
+        ? "按原配置重跑全部任务？会创建一个新运行，原运行不受影响。"
+        : "只重跑有试次未得分的任务（这些任务的全部重复次数都会重跑）？会创建一个新运行。";
+    if (!window.confirm(text)) return;
+    setBusy(true);
+    try {
+      const res = await api.post<RunAccepted>(
+        `runs/${runId}/rerun`,
+        { task_selection: { mode } },
+        { "Idempotency-Key": crypto.randomUUID() },
+      );
+      toast.success(`已受理重跑：计划 ${res.data.planned_trials} 个试次`);
+      navigate(`/runs/${res.data.run_id}`);
+    } catch (err) {
+      toast.error(`重跑失败：${errorText(err)}`);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -202,6 +227,32 @@ function RunDetailView({ runId }: { runId: string }) {
           <Package />
           导出
         </Button>
+        {run.allowed_actions.includes("rerun") && (
+          <>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void rerun("all")}>
+              <RotateCcw />
+              重跑
+            </Button>
+            {!active && run.counts.scored < run.counts.planned && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void rerun("unfinished")}
+              >
+                重跑未得分的任务
+              </Button>
+            )}
+          </>
+        )}
+        {run.allowed_actions.includes("modify") && (
+          <Button asChild size="sm" variant="outline">
+            <Link to={`/runs/new?from=${run.id}`}>
+              <PencilLine />
+              修改后运行
+            </Link>
+          </Button>
+        )}
         {run.allowed_actions.includes("delete") && (
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void remove()}>
             <Trash2 />
@@ -271,6 +322,27 @@ function RunDetailView({ runId }: { runId: string }) {
               )
             }
           />
+          {run.plan_id && (
+            <Info
+              label="实验方案"
+              value={
+                <>
+                  <code>{shortId(run.plan_id)}</code> · 修订 {run.plan_revision}
+                </>
+              }
+            />
+          )}
+          {run.batch_id && (
+            <Info
+              label="批次"
+              value={
+                <Link className="text-primary underline" to={`/batches/${run.batch_id}`}>
+                  {shortId(run.batch_id)}
+                </Link>
+              }
+            />
+          )}
+          <SourceDifferences snapshot={run.snapshot} />
           <Info label="数据集版本" value={<code>{run.dataset_version_id}</code>} />
           <Info label="Operation" value={<code>{run.operation_id}</code>} />
           <Info label="客户端请求标识" value={run.client_request_id ?? "—"} />
@@ -393,6 +465,46 @@ function ExecutionMode({ mode }: { mode: unknown }) {
 }
 
 /** The model and harness this run froze at acceptance; later edits do not change it. */
+/** What a modified run changed, or which tasks a rerun took and why (04 section 7). */
+function SourceDifferences({ snapshot }: { snapshot: RunDetail["snapshot"] }) {
+  const source = snapshot.provenance.source as
+    | {
+        differences?: { path: string; before: unknown; after: unknown }[];
+        task_causes?: Record<string, string[]>;
+      }
+    | null
+    | undefined;
+  if (!source) return null;
+  if (source.differences) {
+    return (
+      <Info
+        label="与原运行的差异"
+        value={
+          source.differences.length === 0 ? (
+            "无"
+          ) : (
+            <ul className="text-xs">
+              {source.differences.slice(0, 12).map((d) => (
+                <li key={d.path}>
+                  <code>{d.path}</code>：{JSON.stringify(d.before)} → {JSON.stringify(d.after)}
+                </li>
+              ))}
+              {source.differences.length > 12 && <li>…共 {source.differences.length} 处</li>}
+            </ul>
+          )
+        }
+      />
+    );
+  }
+  const causes = Object.values(source.task_causes ?? {});
+  return (
+    <Info
+      label="重跑范围"
+      value={`${causes.length} 个任务；原结果：${[...new Set(causes.flat())].join("、") || "—"}`}
+    />
+  );
+}
+
 const INSTALL_STATUS: Record<string, string> = {
   failed: "安装脚本失败",
   timeout: "安装超时",

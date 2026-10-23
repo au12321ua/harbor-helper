@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +37,8 @@ import {
 import { limit, useLoad, useSession } from "@/lib/hooks";
 import type {
   Attachment,
+  BatchAccepted,
+  BatchPreview,
   ConfigRequest,
   ConfigResolution,
   CredentialName,
@@ -46,6 +48,8 @@ import type {
   Harness,
   ModelConfig,
   ParameterValue,
+  Plan,
+  Run,
   RunAccepted,
   RunCreate,
   Task,
@@ -56,6 +60,56 @@ function newKey() {
   return crypto.randomUUID();
 }
 
+const NESTED = new Set(["resources", "timeouts", "parameters", "harness_params"]);
+
+/** The fields of a full request that differ from the plan's: the rest the plan supplies,
+ *  and the resolution reports those with the plan as their source. */
+function ownFields(
+  full: ConfigRequest,
+  template: Partial<ConfigRequest>,
+): Partial<ConfigRequest> {
+  const own: Record<string, unknown> = {};
+  const plan = template as Record<string, unknown>;
+  for (const [key, value] of Object.entries(full)) {
+    if (value === null || value === undefined) continue;
+    if (NESTED.has(key)) {
+      const planned = (plan[key] ?? {}) as Record<string, unknown>;
+      const changed = Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).filter(
+          ([k, v]) => v !== null && JSON.stringify(v) !== JSON.stringify(planned[k]),
+        ),
+      );
+      if (Object.keys(changed).length > 0) own[key] = changed;
+    } else if (JSON.stringify(value) !== JSON.stringify(plan[key])) {
+      own[key] = value;
+    }
+  }
+  return own as Partial<ConfigRequest>;
+}
+
+/** Drops unset fields, for saving a request as a plan template. */
+function setFields(full: ConfigRequest): Partial<ConfigRequest> {
+  const found: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(full)) {
+    if (value === null || value === undefined) continue;
+    if (NESTED.has(key)) {
+      const kept = Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).filter(([, v]) => v != null),
+      );
+      if (Object.keys(kept).length > 0) found[key] = kept;
+    } else if (!(Array.isArray(value) && value.length === 0)) {
+      found[key] = value;
+    }
+  }
+  return found as Partial<ConfigRequest>;
+}
+
+interface DraftMember {
+  name: string;
+  request: Partial<ConfigRequest>;
+  label: string;
+}
+
 /** Blank means "inherit": the field is sent as null so the resolver takes the layer below. */
 function numberOrNull(text: string): number | null {
   return text.trim() === "" ? null : Number(text);
@@ -64,6 +118,10 @@ function numberOrNull(text: string): number | null {
 export function NewRunPage() {
   const { capabilities } = useSession();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // A modified run starts from that run's request; its differences are recorded.
+  const sourceRunId = params.get("from");
+  const plans = useLoad(async () => (await api.get<Plan[]>("plans")).data);
   const datasets = useLoad(
     async () => (await api.get<Dataset[]>("datasets", { limit: 200 })).data,
   );
@@ -128,6 +186,14 @@ export function NewRunPage() {
   });
   // Attachment version ids in load order.
   const [chosenAttachments, setChosenAttachments] = useState<string[]>([]);
+  // An earlier model revision, pinned by an imported request until the model changes.
+  const [modelRevision, setModelRevision] = useState<number | null>(null);
+  const [planId, setPlanId] = useState("");
+  const [planName, setPlanName] = useState("");
+  const [draft, setDraft] = useState<DraftMember[]>([]);
+  const [batchName, setBatchName] = useState("");
+  const [batchPreview, setBatchPreview] = useState<BatchPreview | null>(null);
+  const batchKey = useRef<string>(newKey());
   const [parameters, setParameters] = useState<
     Record<string, { value: string; secret: boolean }>
   >({});
@@ -227,6 +293,7 @@ export function NewRunPage() {
       ...(executionMode === "agent"
         ? {
             model_config_id: model?.id ?? null,
+            model_revision: modelRevision,
             harness_version_id: harness?.id ?? null,
             harness_params: typedHarnessParams,
             attachments: chosenAttachments,
@@ -248,6 +315,142 @@ export function NewRunPage() {
     };
   };
 
+  const plan = (plans.data ?? []).find((p) => p.id === planId);
+  /** What is sent: with a plan, only the fields that differ from it. */
+  const outgoing = (): Partial<ConfigRequest> =>
+    plan
+      ? { ...ownFields(request(), plan.template), plan_id: plan.id, plan_revision: plan.revision }
+      : request();
+
+  /** Fill the form from a (partial) request: a plan's template or a run's request. */
+  const applyRequest = (req: Partial<ConfigRequest>) => {
+    if (req.dataset_version_id) setChosenVersion(req.dataset_version_id);
+    if (req.execution_mode) setExecutionMode(req.execution_mode);
+    if (req.model_config_id) setModelId(req.model_config_id);
+    setModelRevision(req.model_revision ?? null);
+    if (req.harness_version_id) setHarnessId(req.harness_version_id);
+    if (req.harness_params)
+      setHarnessParams(
+        Object.fromEntries(Object.entries(req.harness_params).map(([k, v]) => [k, String(v)])),
+      );
+    if (req.attachments) setChosenAttachments(req.attachments);
+    if (req.task_selection) {
+      setMode(req.task_selection.mode);
+      setSelected(new Set(req.task_selection.task_ids ?? []));
+    }
+    const text = (v: number | null | undefined) => (v == null ? "" : String(v));
+    setOverrides({
+      repetitions: text(req.repetitions),
+      concurrency: text(req.concurrency),
+      run_deadline_hours: text(req.run_deadline_hours),
+      agent_sec: text(req.timeouts?.agent_sec),
+      bootstrap_sec: text(req.timeouts?.bootstrap_sec),
+      cpus: text(req.resources?.cpus),
+      memory_mb: text(req.resources?.memory_mb),
+    });
+    if (req.parameters)
+      setParameters(
+        Object.fromEntries(
+          Object.entries(req.parameters).map(([k, v]) =>
+            typeof v === "string"
+              ? [k, { value: v, secret: false }]
+              : [k, { value: v.credential_id, secret: true }],
+          ),
+        ),
+      );
+    setResolution(null);
+  };
+
+  // "Use this plan" from the plans page.
+  const wanted = params.get("plan");
+  const planApplied = useRef(false);
+  useEffect(() => {
+    const chosen = (plans.data ?? []).find((p) => p.id === wanted);
+    if (!chosen || planApplied.current) return;
+    planApplied.current = true;
+    setPlanId(chosen.id);
+    applyRequest(chosen.template);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, plans.data]);
+
+  const imported = useRef(false);
+  useEffect(() => {
+    if (!sourceRunId || imported.current) return;
+    imported.current = true;
+    void (async () => {
+      try {
+        const [req, run] = await Promise.all([
+          api.get<ConfigRequest>(`runs/${sourceRunId}/request`),
+          api.get<Run>(`runs/${sourceRunId}`),
+        ]);
+        applyRequest(req.data);
+        setName(`${run.data.name}（修改）`);
+      } catch (err) {
+        setError(err);
+      }
+    })();
+    // applyRequest only sets state; it is safe to leave out of the dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceRunId]);
+
+  const savePlan = async () => {
+    setError(undefined);
+    try {
+      const res = await api.post<Plan>("plans", {
+        name: planName.trim(),
+        template: setFields(request()),
+      });
+      toast.success(`已保存方案“${res.data.name}”`);
+      setPlanName("");
+      await plans.reload();
+    } catch (err) {
+      setError(err);
+    }
+  };
+
+  const addToDraft = () => {
+    const label = [
+      executionMode === "agent" ? (model?.name ?? "模型") : "Oracle",
+      harness ? `${harness.name} ${harness.version}` : null,
+      chosenAttachments.length ? `${chosenAttachments.length} 个附件` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    setDraft([...draft, { name: name.trim() || `成员 ${draft.length + 1}`, request: outgoing(), label }]);
+    setBatchPreview(null);
+    toast.success("已加入批次草稿");
+  };
+  const batchBody = () => ({
+    name: batchName.trim(),
+    runs: draft.map((m) => ({ name: m.name, ...m.request })),
+  });
+  const previewBatch = async () => {
+    setError(undefined);
+    try {
+      setBatchPreview((await api.post<BatchPreview>("run-batches/preview", batchBody())).data);
+    } catch (err) {
+      setError(err);
+    }
+  };
+  const submitBatch = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const res = await api.post<BatchAccepted>("run-batches", batchBody(), {
+        "Idempotency-Key": batchKey.current,
+      });
+      batchKey.current = newKey();
+      toast.success(`批次已受理：${res.data.runs.length} 个运行，${res.data.planned_trials} 个试次`);
+      navigate(`/batches/${res.data.batch_id}`);
+    } catch (err) {
+      setError(err);
+      // An unknown outcome keeps the key, so a retry cannot accept the batch twice.
+      if (!(err instanceof ApiError && err.indeterminate)) batchKey.current = newKey();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const check = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -255,7 +458,7 @@ export function NewRunPage() {
     try {
       const res = await api.post<ConfigResolution>(
         "config-resolutions",
-        request(),
+        outgoing(),
       );
       setResolution(res.data);
     } catch (err) {
@@ -274,6 +477,7 @@ export function NewRunPage() {
       name,
       resolution_id: resolution.resolution_id,
       client_request_id: clientRequestId || null,
+      source_run_id: sourceRunId,
     };
     try {
       const res = await api.post<RunAccepted>("runs", body, {
@@ -340,6 +544,61 @@ export function NewRunPage() {
       )}
       {versions.length > 0 && (
         <form className="grid gap-4" onSubmit={check}>
+          {sourceRunId && (
+            <div className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900">
+              基于运行 <Link to={`/runs/${sourceRunId}`} className="underline">{sourceRunId}</Link>{" "}
+              修改：表单按原运行实际用的值填好（团队默认与模型修订已固定）。提交后会记录与原运行的差异。
+            </div>
+          )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">实验方案</CardTitle>
+              <CardDescription>
+                方案是保存下来的一组配置，团队可见。选用后表单按方案填好；提交时仍引用这个方案，你改过的字段记为“本次填写”，其余记为“实验方案”。
+                <Link to="/plans" className="ml-1 underline">
+                  管理方案
+                </Link>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              <SelectField
+                id="run-plan"
+                label="选用方案"
+                value={planId}
+                onChange={(e) => {
+                  const chosen = (plans.data ?? []).find((p) => p.id === e.target.value);
+                  setPlanId(e.target.value);
+                  if (chosen) applyRequest(chosen.template);
+                  else setResolution(null);
+                }}
+              >
+                <option value="">不使用方案</option>
+                {(plans.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}（{p.owner_username}，修订 {p.revision}）
+                  </option>
+                ))}
+              </SelectField>
+              <div className="flex items-end gap-2">
+                <TextField
+                  id="plan-name"
+                  label="把当前表单另存为方案"
+                  placeholder="方案名称"
+                  value={planName}
+                  onChange={(e) => setPlanName(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!planName.trim()}
+                  onClick={() => void savePlan()}
+                >
+                  保存
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">基本信息</CardTitle>
@@ -423,7 +682,10 @@ export function NewRunPage() {
                     id="run-model"
                     label="模型"
                     value={model?.id ?? ""}
-                    onChange={(e) => changed(setModelId)(e.target.value)}
+                    onChange={(e) => {
+                      changed(setModelId)(e.target.value);
+                      setModelRevision(null);
+                    }}
                     error={fieldErr("model_config_id")}
                   >
                     {models.data.map((m) => (
@@ -433,6 +695,18 @@ export function NewRunPage() {
                       </option>
                     ))}
                   </SelectField>
+                )}
+                {modelRevision != null && model && modelRevision !== model.revision && (
+                  <p className="text-xs text-amber-800 md:col-span-2">
+                    固定在原运行用的修订 {modelRevision}（当前是修订 {model.revision}）。
+                    <button
+                      type="button"
+                      className="ml-1 underline"
+                      onClick={() => changed(setModelRevision)(null)}
+                    >
+                      改用当前修订
+                    </button>
+                  </p>
                 )}
                 {model && compatible.length === 0 && (
                   <EmptyNote>没有能调用这个模型协议的 Harness 版本。</EmptyNote>
@@ -763,6 +1037,15 @@ export function NewRunPage() {
                 : resolution
                   ? "重新检查"
                   : "检查配置"}
+            </Button>{" "}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || !versionId || sourceRunId != null}
+              title={sourceRunId ? "修改后运行单独提交" : undefined}
+              onClick={addToDraft}
+            >
+              加入批次草稿
             </Button>
           </div>
 
@@ -774,6 +1057,80 @@ export function NewRunPage() {
               canSubmit={name.trim() !== ""}
               onSubmit={() => void submit()}
             />
+          )}
+
+          {draft.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">批次草稿（{draft.length} 个运行）</CardTitle>
+                <CardDescription>
+                  批次里的运行一起受理：任何一个不能提交，整批都不受理，也不扣令牌额度。受理后各自执行。
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm">
+                <ol className="grid gap-1">
+                  {draft.map((m, i) => {
+                    const found = batchPreview?.runs[i];
+                    return (
+                      <li key={i} className="flex flex-wrap items-center gap-2">
+                        <span className="w-5 text-right text-xs text-muted-foreground">{i + 1}.</span>
+                        <span className="font-medium">{m.name}</span>
+                        <span className="text-xs text-muted-foreground">{m.label}</span>
+                        {found && (
+                          <span className="text-xs">
+                            {found.blockers && found.blockers.length > 0 ? (
+                              <span className="text-destructive">
+                                {found.blockers.map((b) => CONFIG_BLOCKER[b.code] ?? b.message).join("；")}
+                              </span>
+                            ) : (
+                              `${found.planned_trials} 个试次`
+                            )}
+                          </span>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setDraft(draft.filter((_, j) => j !== i));
+                            setBatchPreview(null);
+                          }}
+                        >
+                          移除
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ol>
+                {batchPreview && (
+                  <p className={batchPreview.can_submit ? "text-emerald-800" : "text-destructive"}>
+                    共 {batchPreview.planned_trials} 个试次
+                    {batchPreview.pat_quota &&
+                      `，需要令牌额度 ${batchPreview.pat_quota.needed}（剩 ${batchPreview.pat_quota.left}）`}
+                    {batchPreview.duplicate_configs.length > 0 && "；有重复的配置"}
+                    {batchPreview.can_submit ? "，可以提交" : "，不能提交"}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-end gap-2">
+                  <TextField
+                    id="batch-name"
+                    label="批次名称"
+                    value={batchName}
+                    onChange={(e) => setBatchName(e.target.value)}
+                  />
+                  <Button type="button" variant="outline" onClick={() => void previewBatch()}>
+                    预览
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={busy || !batchName.trim() || !batchPreview?.can_submit}
+                    onClick={() => void submitBatch()}
+                  >
+                    提交批次
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </form>
       )}

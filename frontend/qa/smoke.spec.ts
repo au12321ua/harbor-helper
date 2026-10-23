@@ -47,7 +47,10 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await page.getByLabel("手动选择").check();
   await page.getByLabel("选择 add-01").check();
   await page.getByLabel("选择 mul-01").check();
-  await page.getByRole("button", { name: "提交运行" }).click();
+  // The demo executor has no model: Oracle. Check the configuration, then submit it.
+  await page.getByLabel(/^Oracle/).check();
+  await page.getByRole("button", { name: "检查配置" }).click();
+  await page.getByRole("button", { name: "按此配置提交运行" }).click();
   await expect(page).toHaveURL(/\/runs\/(?!new$)[^/]+$/);
   const runUrl = page.url();
   await expect(page.getByText("每 2 秒自动刷新")).toBeVisible();
@@ -243,4 +246,58 @@ test("score and dimension rendering", async ({ page }) => {
   await expect(page.getByRole("button", { name: "取消运行" })).toHaveCount(0);
   await rows.nth(1).click();
   await expect(page.getByText("AGENT_TIMEOUT：agent timed out")).toBeVisible();
+});
+
+// M5: rerun a run, save and use an experiment plan, and submit a batch.
+test("rerun, plan and batch", async ({ page }) => {
+  test.skip(!token, "MAESTRO_SETUP_TOKEN not set");
+  page.on("dialog", (dialog) => void dialog.accept());
+  await page.goto("/");
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码").fill(password);
+  await page.getByRole("button", { name: "登录" }).click();
+  await expect(page.getByRole("heading", { name: "运行" })).toBeVisible();
+
+  await page.getByRole("link", { name: "新建运行" }).click();
+  await page.getByLabel("运行名称").fill("m5 source");
+  await page.getByLabel(/^Oracle/).check();
+  await page.getByLabel("把当前表单另存为方案").fill("smoke plan");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("已保存方案")).toBeVisible();
+  await page.getByRole("button", { name: "检查配置" }).click();
+  await page.getByRole("button", { name: "按此配置提交运行" }).click();
+  await expect(page).toHaveURL(/\/runs\/(?!new$)[^/]+$/);
+  const source = page.url();
+  await expect(page.getByText("已结束")).toBeVisible({ timeout: 60_000 });
+
+  // Rerun: a new run from the same snapshot, linked back to its source.
+  await page.getByRole("button", { name: "重跑", exact: true }).click();
+  await expect(page).not.toHaveURL(source);
+  await expect(page.getByText("m5 source (rerun)")).toBeVisible();
+  await expect(page.getByText("重跑范围")).toBeVisible();
+
+  // Modified run: the form comes filled from the source.
+  await page.goto(source);
+  await page.getByRole("link", { name: "修改后运行" }).click();
+  await expect(page.getByText("基于运行")).toBeVisible();
+  await expect(page.getByLabel("运行名称")).toHaveValue("m5 source（修改）");
+
+  // A plan, then two runs from it in one batch.
+  await page.getByRole("link", { name: "方案", exact: true }).click();
+  await expect(page.getByText("smoke plan")).toBeVisible();
+  await page.getByRole("link", { name: "用它新建运行" }).click();
+  await expect(page.getByLabel("选用方案")).not.toHaveValue("");
+  await page.getByLabel("运行名称").fill("batch one");
+  await page.getByRole("button", { name: "加入批次草稿" }).click();
+  await page.getByLabel("运行名称").fill("batch two");
+  await page.getByRole("button", { name: "加入批次草稿" }).click();
+  await page.getByLabel("批次名称").fill("smoke batch");
+  await page.getByRole("button", { name: "预览" }).click();
+  await expect(page.getByText("可以提交")).toBeVisible();
+  await page.getByRole("button", { name: "提交批次" }).click();
+  await expect(page).toHaveURL(/\/batches\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: "批次：smoke batch" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "batch one" })).toBeVisible();
+  await expect(page.getByText("2 个运行：已结束 2")).toBeVisible({ timeout: 60_000 });
+  await page.screenshot({ path: `${process.env.MAESTRO_SHOTS ?? "/tmp"}/batch.png`, fullPage: true });
 });

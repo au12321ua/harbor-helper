@@ -255,6 +255,7 @@ export const RECYCLE_TYPE: Record<string, string> = {
   model_config: "模型配置",
   harness_version: "Harness 版本",
   attachment_version: "附件",
+  experiment_plan: "实验方案",
 };
 
 export const STORAGE_LEVEL: Labels = {

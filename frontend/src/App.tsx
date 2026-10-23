@@ -14,6 +14,8 @@ import { NewRunPage } from "@/pages/NewRunPage";
 import { RunDetailPage } from "@/pages/RunDetailPage";
 import { DatasetsPage } from "@/pages/DatasetsPage";
 import { AttachmentsPage } from "@/pages/AttachmentsPage";
+import { PlansPage } from "@/pages/PlansPage";
+import { BatchListPage, BatchPage } from "@/pages/BatchPage";
 import { ExportsPage } from "@/pages/ExportsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AdminPage } from "@/pages/AdminPage";
@@ -175,6 +177,9 @@ function SignedIn({
           <Route path="/runs/:runId" element={<RunDetailPage />} />
           <Route path="/datasets" element={<DatasetsPage />} />
           <Route path="/attachments" element={<AttachmentsPage />} />
+          <Route path="/plans" element={<PlansPage />} />
+          <Route path="/batches" element={<BatchListPage />} />
+          <Route path="/batches/:batchId" element={<BatchPage />} />
           <Route path="/exports" element={<ExportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route
@@ -211,6 +216,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   useInterval(() => void pollHealth(), 30000, true);
   const links = [
     { to: "/runs", label: "运行" },
+    { to: "/batches", label: "批次" },
+    { to: "/plans", label: "方案" },
     { to: "/datasets", label: "数据集" },
     { to: "/attachments", label: "附件" },
     { to: "/exports", label: "导出" },
