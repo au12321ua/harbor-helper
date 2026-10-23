@@ -531,6 +531,17 @@ class Exports:
         at = clock.to_text(now)
         with self.db.write() as conn:
             row = self._row(conn, export_id)
+            if summary and self._purged_since(conn, row):
+                # A purge ran during the build; its content must not be published.
+                shutil.rmtree(self.directory / export_id, ignore_errors=True)
+                summary, error = (
+                    None,
+                    {
+                        "code": "EXPORT_CONTENT_PURGED",
+                        "message": "A run or file in this export was permanently deleted; "
+                        "export again",
+                    },
+                )
             conn.execute(
                 delete(t.artifact_pins).where(
                     t.artifact_pins.c.holder_kind == "export",
@@ -562,6 +573,29 @@ class Exports:
                 result={"export_id": export_id, **(summary or {})},
                 error=error,
             )
+
+    @staticmethod
+    def _purged_since(conn, row) -> bool:
+        """Whether a requested run, or a file of one, was purged after the export was
+        accepted. ``expire`` cannot reach a package that is still being built."""
+        run_ids = row["request_json"]["run_ids"]
+        purged = select(t.deletions.c.object_id).where(
+            t.deletions.c.state == deleted.PURGED, t.deletions.c.purged_at >= row["created_at"]
+        )
+        runs = conn.execute(
+            purged.where(
+                t.deletions.c.object_type == "run", t.deletions.c.object_id.in_(run_ids)
+            ).limit(1)
+        ).first()
+        files = conn.execute(
+            purged.where(
+                t.deletions.c.object_type == "artifact",
+                t.deletions.c.object_id.in_(
+                    select(t.artifacts.c.id).where(t.artifacts.c.run_id.in_(run_ids))
+                ),
+            ).limit(1)
+        ).first()
+        return bool(runs or files)
 
     # --- retention -----------------------------------------------------------------
 

@@ -183,11 +183,24 @@ function PatCard() {
   const revoke = async (pat: Pat) => {
     if (!window.confirm(`撤销访问令牌「${pat.name}」？使用它的脚本将立即失效。`)) return;
     try {
-      await api.del(`me/pats/${pat.id}`);
+      await api.post(`me/pats/${pat.id}/revoke`);
       toast.success("已撤销");
       await pats.reload();
     } catch (err) {
       toast.error(`撤销失败：${errorText(err)}`);
+    }
+  };
+
+  const remove = async (pat: Pat) => {
+    const effect = pat.state === "active" ? "它会立即失效，并" : "它会";
+    if (!window.confirm(`删除访问令牌「${pat.name}」？${effect}从列表中移除（管理员可在回收站恢复记录）。`))
+      return;
+    try {
+      await api.del(`me/pats/${pat.id}`);
+      toast.success("已删除");
+      await pats.reload();
+    } catch (err) {
+      toast.error(`删除失败：${errorText(err)}`);
     }
   };
   const field = (n: string) => (error instanceof ApiError ? error.field(n) : undefined);
@@ -288,12 +301,15 @@ function PatCard() {
                     </TableCell>
                     <TableCell className="text-xs">{fmtTime(pat.expires_at)}</TableCell>
                     <TableCell className="text-xs">{fmtTime(pat.last_used_at)}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="flex justify-end gap-2">
                       {pat.state === "active" && (
                         <Button size="sm" variant="outline" onClick={() => void revoke(pat)}>
                           撤销
                         </Button>
                       )}
+                      <Button size="sm" variant="outline" onClick={() => void remove(pat)}>
+                        删除
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

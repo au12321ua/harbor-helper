@@ -67,7 +67,7 @@
 
 | 内容状态 | 接口语义 |
 | --- | --- |
-| available | 返回或流式下载内容，支持校验摘要；建议支持 Range |
+| available | 返回或流式下载内容，支持校验摘要；可用 offset / length 分段读取（实现见 [14](14-decisions.md) M6 实施记录，Range 待需要时再加） |
 | uploading | 返回尚未可用与重试提示 |
 | expired | 返回 410 ARTIFACT_EXPIRED，仍可查询索引 |
 | failed / unavailable | 返回 ARTIFACT_UNAVAILABLE 及原因 |
@@ -87,10 +87,10 @@ export-<id>/
   runs/<run_id>/config.json
   runs/<run_id>/summary.json
   runs/<run_id>/tasks/<task_key>/trials/<trial_id>/result.json
-  runs/<run_id>/tasks/<task_key>/trials/<trial_id>/artifacts/<artifact_id>
+  runs/<run_id>/tasks/<task_key>/trials/<trial_id>/artifacts/<artifact_id>/<文件名>
 ~~~
 
-manifest 至少包含 schema_version、generated_at、服务 / 适配器版本、各运行快照摘要、任务对应关系、评分口径、每个文件的摘要与状态。缺失项列出 artifact_id、逻辑路径、reason、expired_at；不能只省略文件。
+目录名和文件名由服务端安全化生成。manifest 至少包含 schema_version、generated_at、服务 / 适配器版本、各运行快照摘要、任务对应关系、评分口径、每个文件的摘要与状态。缺失项列出 artifact_id、逻辑路径、reason、expired_at；不能只省略文件。
 
 导出前取得有期限的读 pin，保护正在打包的内容。建议 pin 最长 1 小时；超时导出中止并释放，不能无限阻止回收。已经过期且尚未被删除的内容也不因导出重新变为 available。
 
@@ -112,7 +112,7 @@ manifest 至少包含 schema_version、generated_at、服务 / 适配器版本�
 
 - **范围**：运行、批次、方案、集合、分析快照、数据集与版本、附件版本、模型配置、Harness、凭据、账户、PAT 和产物都可删除。第 7 节的到期回收是自动机制，与手动删除互不替代。
 - **第一步，名义删除**：对象进入回收站，从列表和选择器中消失，不能再被新提交引用；已有引用仍能解析，并标明“已删除”。可从回收站恢复。
-- **第二步，物理删除**：只能在回收站中执行，删除记录内容和文件，不可恢复。保留一条删除回执，记录对象身份、操作者和时间，使集合、分析快照、重跑来源能显示“已物理删除”，而不是悬空引用。
+- **第二步，物理删除**：只能在回收站中执行，删除记录内容和文件，不可恢复。保留一条删除回执，记录对象身份、操作者和时间，使集合、分析快照、重跑来源能显示“已物理删除”，而不是悬空引用。实现中每个被删对象在 `deletions` 表有一行，回收站状态与回执共用这一行；各类对象物理删除的具体内容见 [14](14-decisions.md) 的 M6 实施记录。
 - **引用方保留**：运行快照已冻结所需内容。物理删除数据集、配置或附件后，引用它们的运行仍可查看，显示快照中的名称与摘要；原配置重跑在受理检查中报告内容已删除。
 
 以下由用户于 2026-10-23 确定（[14](14-decisions.md) U-19）：

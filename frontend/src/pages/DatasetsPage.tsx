@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -10,17 +13,54 @@ import {
 } from "@/components/ui/table";
 import { EmptyNote, ErrorAlert, Loading, PageTitle, Pill } from "@/components/common";
 import { TaskStatusCells } from "@/components/TaskStatusCells";
-import { api } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import { fmtTime, shortId } from "@/lib/format";
-import { useLoad } from "@/lib/hooks";
-import type { Dataset, DatasetVersionDetail, Task } from "@/lib/types";
+import { useLoad, useSession } from "@/lib/hooks";
+import type { Dataset, DatasetVersion, DatasetVersionDetail, Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function DatasetsPage() {
+  const { me } = useSession();
+  const canDelete = me.role === "admin" && me.auth_channel === "web_session";
   const datasets = useLoad(async () => (await api.get<Dataset[]>("datasets", { limit: 200 })).data);
   const [chosen, setVersionId] = useState<string>("");
+  const visible = datasets.data?.some((d) => d.versions.some((v) => v.id === chosen));
   const versionId =
-    chosen || datasets.data?.find((d) => d.versions.length > 0)?.versions[0].id || "";
+    (visible ? chosen : "") ||
+    datasets.data?.find((d) => d.versions.length > 0)?.versions[0].id ||
+    "";
+
+  const removeDataset = async (dataset: Dataset) => {
+    if (
+      !window.confirm(
+        `删除数据集「${dataset.namespace}/${dataset.name}」及其全部版本？它会移入回收站；已有运行记录保留，但不能再用它提交或重跑。`,
+      )
+    )
+      return;
+    try {
+      await api.del(`admin/datasets/${dataset.id}`);
+      toast.success("已移入回收站");
+    } catch (err) {
+      toast.error(`删除失败：${errorText(err)}`);
+    }
+    await datasets.reload();
+  };
+
+  const removeVersion = async (dataset: Dataset, version: DatasetVersion) => {
+    if (
+      !window.confirm(
+        `删除版本「${dataset.name} ${version.upstream_ref}」？它会移入回收站；已有运行记录保留，但不能再用它提交或重跑。`,
+      )
+    )
+      return;
+    try {
+      await api.del(`admin/dataset-versions/${version.id}`);
+      toast.success("已移入回收站");
+    } catch (err) {
+      toast.error(`删除失败：${errorText(err)}`);
+    }
+    await datasets.reload();
+  };
 
   return (
     <div>
@@ -36,8 +76,19 @@ export function DatasetsPage() {
           {datasets.data?.map((dataset) => (
             <Card key={dataset.id}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">
+                <CardTitle className="flex items-center justify-between gap-2 text-base">
                   {dataset.namespace}/{dataset.name}
+                  {canDelete && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="删除数据集"
+                      aria-label={`删除数据集 ${dataset.name}`}
+                      onClick={() => void removeDataset(dataset)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  )}
                 </CardTitle>
                 <div className="text-xs text-muted-foreground">
                   来源：{dataset.source_kind}
@@ -49,21 +100,33 @@ export function DatasetsPage() {
                   <span className="text-xs text-muted-foreground">无版本</span>
                 )}
                 {dataset.versions.map((version) => (
-                  <button
-                    key={version.id}
-                    type="button"
-                    onClick={() => setVersionId(version.id)}
-                    className={cn(
-                      "flex items-center justify-between rounded-md border px-2 py-1 text-left text-sm",
-                      versionId === version.id ? "border-primary bg-accent" : "hover:bg-muted",
+                  <div key={version.id} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setVersionId(version.id)}
+                      className={cn(
+                        "flex flex-1 items-center justify-between rounded-md border px-2 py-1 text-left text-sm",
+                        versionId === version.id ? "border-primary bg-accent" : "hover:bg-muted",
+                      )}
+                    >
+                      <span>
+                        {version.upstream_ref}
+                        <span className="ml-1 text-xs text-muted-foreground">({version.ref_kind})</span>
+                      </span>
+                      <Pill tone="neutral">{version.status}</Pill>
+                    </button>
+                    {canDelete && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="删除该版本"
+                        aria-label={`删除版本 ${version.upstream_ref}`}
+                        onClick={() => void removeVersion(dataset, version)}
+                      >
+                        <Trash2 />
+                      </Button>
                     )}
-                  >
-                    <span>
-                      {version.upstream_ref}
-                      <span className="ml-1 text-xs text-muted-foreground">({version.ref_kind})</span>
-                    </span>
-                    <Pill tone="neutral">{version.status}</Pill>
-                  </button>
+                  </div>
                 ))}
               </CardContent>
             </Card>
@@ -95,6 +158,12 @@ function VersionTasks({ versionId }: { versionId: string }) {
               <code title={detail.data.resolved_digest}>{shortId(detail.data.resolved_digest, 20)}</code>{" "}
               · 登记于 {fmtTime(detail.data.created_at)}
             </div>
+            {detail.data.deletion && (
+              <div className="text-sm text-amber-800">
+                该版本已删除（{detail.data.deletion.state === "purged" ? "已彻底删除" : "在回收站中"}，
+                {fmtTime(detail.data.deletion.deleted_at)}）。
+              </div>
+            )}
             <div className="text-sm text-foreground">
               共 {detail.data.task_count} 个任务 · 已准入 {detail.data.admitted_task_count} ·
               可提交 {detail.data.submittable_task_count}

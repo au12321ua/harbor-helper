@@ -79,6 +79,13 @@ def test_query_summarize_and_export_runs_with_a_read_pat(service, version_id, ex
             f"/api/v1/runs?dataset_version_id={version_id}&accepted_after={start}"
         ).json()["data"]
         assert {x["id"] for x in listed} == {mixed, clean, unsaved}
+        # Fewer fractional digits mean the same instant (compared as times, not text).
+        short = start[:-8] + "Z" if start.endswith("000000Z") else None
+        if short:
+            again = reader.get(f"/api/v1/runs?accepted_after={short}").json()["data"]
+            assert {x["id"] for x in again} == {mixed, clean, unsaved}
+        future = reader.get("/api/v1/runs?accepted_after=2099-01-01T00:00:00.0Z").json()
+        assert future["data"] == []
         by_id = {x["id"]: x for x in listed}
         scoring = by_id[mixed]["scoring"]
         assert scoring["scored_trials"] == 1 and scoring["mean"] == 0.0
@@ -194,3 +201,31 @@ def test_export_packages_expire(service, version_id):
         assert not path.exists()
         gone = admin.get(f"/api/v1/exports/{package['id']}/download")
         assert gone.status_code == 410 and gone.json()["error"]["code"] == "EXPORT_EXPIRED"
+
+
+def test_purge_during_a_build_withholds_the_package(service, version_id):
+    """A purge cannot expire a package still being written; the build checks at the end."""
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        run_id = run_to_end(admin, version_id)
+        artifact = admin.get(f"/api/v1/runs/{run_id}/artifacts").json()["data"][0]
+        me = admin.get("/api/v1/me").json()["data"]
+    from maestro.domain.states import Role
+    from maestro.services.principal import Channel, Principal
+
+    who = Principal(me["id"], "admin", Role.ADMIN, Channel.WEB_SESSION, session_id="s")
+    created = service.exports.create(who, {"run_ids": [run_id]})
+    write = service.exports._write
+
+    def purge_meanwhile(*args):
+        result = write(*args)
+        entry = service.recycle.delete(who, "artifact", artifact["id"])
+        service.recycle.purge(who, entry["id"], artifact["id"])
+        return result
+
+    service.exports._write = purge_meanwhile
+    service.exports.build(created["id"])
+    package = service.exports.get(who, created["id"])
+    assert package["state"] == "failed"
+    assert package["error"]["code"] == "EXPORT_CONTENT_PURGED"
+    assert not (service.settings.exports_dir / created["id"]).exists()

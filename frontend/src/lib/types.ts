@@ -128,6 +128,7 @@ export interface DatasetVersion {
 }
 
 export interface DatasetVersionDetail extends DatasetVersion {
+  deletion: DeletionState | null;
   task_count: number;
   admitted_task_count: number;
   submittable_task_count: number;
@@ -174,6 +175,80 @@ export interface RunAccepted {
   links: Record<string, string>;
 }
 
+export interface DeletionState {
+  state: "recycled" | "purged";
+  deleted_at: string;
+  purged_at: string | null;
+}
+
+export interface RunScoring {
+  metric_id: string;
+  planned_trials: number;
+  scored_trials: number;
+  excluded_error_trials: number;
+  unfinished_trials: number;
+  passed_trials: number | null;
+  mean: number | null;
+  stddev: number | null;
+  pass_rate: number | null;
+  scored_coverage: number | null;
+  bench_score: number | null;
+}
+
+export interface ScoringContract {
+  contract_version: number;
+  source: "platform_default" | "dataset_version";
+  metric_id: string;
+  name: string;
+  unit: string | null;
+  direction: "higher_is_better" | "lower_is_better";
+  passed: { rule?: string; threshold?: number; [key: string]: unknown } | null;
+  task_aggregation: string;
+  bench_aggregation: string;
+  count_as_failure: string[];
+}
+
+export interface TaskSummary {
+  task_key: string;
+  planned_trials: number;
+  scored_trials: number;
+  mean: number | null;
+  stddev: number | null;
+  passed_trials: number | null;
+  partial: boolean;
+  excluded_trials: number;
+  failure_causes: string[];
+}
+
+export interface RunSummary {
+  run_id: string;
+  contract: ScoringContract;
+  planned_trials: number;
+  scored_trials: number;
+  count_as_failure_trials: number;
+  excluded_error_trials: number;
+  unfinished_trials: number;
+  active_trials: number;
+  queued_trials: number;
+  passed_trials: number | null;
+  mean: number | null;
+  stddev: number | null;
+  pass_rate: number | null;
+  scored_coverage: number | null;
+  evaluation_coverage: number | null;
+  bench_task_coverage: number | null;
+  bench_score: number | null;
+  bench_scored_tasks: number;
+  task_count: number;
+  result_completeness: "none" | "partial" | "complete";
+  excluded_by_cause: Record<string, number>;
+  attempts: number;
+  retried_trials: number;
+  retry_count: number;
+  usage: { known_trials: number; unknown_trials: number; known_totals: Record<string, number> };
+  tasks: TaskSummary[];
+}
+
 export interface RunCounts {
   planned: number;
   terminal: number;
@@ -199,7 +274,7 @@ export interface Run {
   id: string;
   name: string;
   owner_id: string;
-  owner: { username: string; display_name: string };
+  owner: { username: string; display_name: string; deleted: boolean };
   pat_id: string | null;
   relation: "initial" | "rerun" | "modified";
   source_run_id: string | null;
@@ -217,6 +292,10 @@ export interface Run {
   /** Last sign of life from the run's Runner process. */
   heartbeat_at: string | null;
   counts: RunCounts;
+  /** Headline statistics; null before any summary exists. */
+  scoring: RunScoring | null;
+  deletion: DeletionState | null;
+  dataset_version_deletion: DeletionState | null;
   accepted_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -287,6 +366,7 @@ export interface Trial {
   phase: string | null;
   reason_code: string | null;
   artifact_state: string;
+  artifact_counts: { available: number; failed: number; expired: number };
   cleanup_state: string;
   result: TrialResult | null;
   attempts: Attempt[];
@@ -301,9 +381,61 @@ export interface Artifact {
   relative_path: string;
   digest: string | null;
   size_bytes: number | null;
-  status: string;
+  status: "pending" | "available" | "failed" | "deleting" | "expired" | "unavailable" | "deleted";
+  /** e.g. RETENTION_EXPIRED, STORAGE_CONTENT_MISSING, DELETED. */
+  status_reason: string | null;
   created_at: string;
+  /** Null until the trial ends; then trial end + retention. */
   expires_at: string | null;
+}
+
+export interface ExportRequest {
+  run_ids: string[];
+  include_artifacts: boolean;
+  artifact_kinds: string[] | null;
+  task_keys: string[] | null;
+}
+
+export interface Export {
+  id: string;
+  owner_id: string;
+  operation_id: string;
+  state: "queued" | "building" | "ready" | "failed" | "expired";
+  request: ExportRequest;
+  size_bytes: number | null;
+  digest: string | null;
+  /** runs, files, missing, warnings, artifact_bytes … */
+  summary: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  created_at: string;
+  finished_at: string | null;
+  expires_at: string | null;
+  links: Record<string, string>;
+}
+
+export type RecycleObjectType =
+  | "run"
+  | "artifact"
+  | "dataset"
+  | "dataset_version"
+  | "credential"
+  | "user"
+  | "pat";
+
+export interface RecycleEntry {
+  id: string;
+  object_type: RecycleObjectType;
+  object_id: string;
+  label: string;
+  owner_id: string | null;
+  owner_username: string | null;
+  state: "recycled" | "purged" | "restored";
+  deleted_by: string;
+  deleted_by_username: string | null;
+  deleted_at: string;
+  purged_by: string | null;
+  purged_at: string | null;
+  detail: Record<string, unknown>;
 }
 
 export interface AuditEvent {

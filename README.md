@@ -6,7 +6,7 @@ Maestro 让受邀的可信团队通过网页和 SDK 提交、观察、比较和�
 
 ## 当前状态
 
-已有地基（M2）：数据库与迁移、账户 / 邀请 / 会话 / PAT、凭据与主密钥轮换、受理事务与幂等、Operation 与审计、运行级 Worker 与四个边界的测试替身、公开 OpenAPI 和最简网页。真实执行器（Harbor Runner）、数据集导入与准备、配置解析等尚未实现，见[实施计划](docs/design/13-testing-plan.md)第 2 节。
+已有地基（M2）：数据库与迁移、账户 / 邀请 / 会话 / PAT、凭据与主密钥轮换、受理事务与幂等、Operation 与审计、运行级 Worker 与四个边界的测试替身、公开 OpenAPI 和最简网页；Harbor 执行内核（M3）；结果与产物（M6）：评分汇总与覆盖率、产物到期回收、批量导出、两步删除与回收站。数据集导入与准备、配置解析与模型运行尚未实现，见[实施计划](docs/design/13-testing-plan.md)第 2 节。
 
 ## 本机试用
 
@@ -41,6 +41,8 @@ uv run maestro --config "$root/config.toml" serve --port 8420
 `dev-local-dataset` 是开发用的隐藏命令，在 M4 的 Hub 导入完成前，把本地任务目录登记为已准入数据集。目前只有 Oracle 测试模式：执行任务自带的参考解法，不调用模型。运行页能看到每个试次的步骤、耗时和实时日志。
 
 `cookie_secure = false` 只用于本机 HTTP；对外部署由反向代理提供 HTTPS，并保持默认的 `true`。
+
+数据目录所在磁盘的可用空间低于 20 GiB 或 15% 时不再受理新运行，低于 10 GiB 或 8% 时排队运行不再启动。小磁盘上试用可在 `config.toml` 调低 `storage_accept_min_free_gb`、`storage_accept_min_free_percent`、`storage_dispatch_min_free_gb`、`storage_dispatch_min_free_percent`。
 
 ## 文档
 

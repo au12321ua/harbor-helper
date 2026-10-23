@@ -50,6 +50,28 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await page.goto(runUrl);
   await expect(page.getByText("配置快照")).toBeVisible();
 
+  // M6 results: summary card, per-task rows, artifact retention.
+  const summary = page.getByTestId("result-summary");
+  await expect(summary).toBeVisible();
+  await expect(summary.getByText("平台默认")).toBeVisible();
+  await expect(page.getByTestId("task-summary-row")).toHaveCount(2);
+  await page.screenshot({ path: "/tmp/maestro-web-ui-results/run-summary.png", fullPage: true });
+
+  // Run list score column: a mean always comes with its coverage.
+  await page.getByRole("link", { name: "运行", exact: true }).click();
+  await expect(page.getByTestId("score-coverage").first()).toContainText("已评分 ");
+
+  // Export the run, wait for the archive, download it.
+  await page.getByLabel("选择 smoke run").check();
+  await page.getByRole("button", { name: /导出所选/ }).click();
+  await expect(page).toHaveURL(/\/exports$/);
+  await expect(page.getByRole("link", { name: "下载" })).toBeVisible({ timeout: 60_000 });
+  const download = page.waitForEvent("download");
+  await page.getByRole("link", { name: "下载" }).click();
+  expect((await download).suggestedFilename()).toMatch(/\.zip$/);
+  await page.screenshot({ path: "/tmp/maestro-web-ui-results/exports.png", fullPage: true });
+
+
   // PAT shown once.
   await page.getByRole("link", { name: "个人设置" }).click();
   await page.getByLabel("名称").fill("smoke pat");
@@ -91,10 +113,41 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await member.getByRole("button", { name: "退出" }).click();
   await expect(member.getByRole("heading", { name: "登录" })).toBeVisible();
   await other.close();
+
+  // Deletion: PAT revoke then delete; the run goes to the recycle bin, is restored,
+  // deleted again and purged (the prompt asks for the object id).
+  const runId = runUrl.split("/").pop()!;
+  page.on("dialog", (dialog) => void dialog.accept(dialog.type() === "prompt" ? runId : undefined));
+  await page.getByRole("link", { name: "个人设置" }).click();
+  const patRow = page.getByRole("row").filter({ hasText: "smoke pat" });
+  await patRow.getByRole("button", { name: "撤销" }).click();
+  await expect(patRow.getByText("已撤销")).toBeVisible();
+  await patRow.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByText("smoke pat")).toHaveCount(0);
+  await page.goto(runUrl);
+  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByText("该运行已删除，在回收站中")).toBeVisible();
+  await page.getByRole("link", { name: "管理" }).click();
+  await page.getByRole("tab", { name: "回收站" }).click();
+  const runEntry = page.getByTestId("recycle-row").filter({ hasText: "smoke run" });
+  await runEntry.getByRole("button", { name: "恢复" }).click();
+  await expect(runEntry).toHaveCount(0);
+  await page.goto(runUrl);
+  await expect(page.getByText("该运行已删除，在回收站中")).toHaveCount(0);
+  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByText("该运行已删除，在回收站中")).toBeVisible();
+  await page.getByRole("link", { name: "管理" }).click();
+  await page.getByRole("tab", { name: "回收站" }).click();
+  await runEntry.getByRole("button", { name: "彻底删除" }).click();
+  await expect(runEntry).toHaveCount(0);
+  await page.getByRole("button", { name: "删除回执" }).click();
+  await expect(runEntry).toBeVisible();
+  await page.screenshot({ path: "/tmp/maestro-web-ui-results/recycle-receipts.png", fullPage: true });
 });
 
 // Score rendering rules with intercepted API responses (no backend state touched):
-// 0 shows "0", null shows "未评分" with its reason; four run dimensions stay separate.
+// a valid 0, a missing score and an execution failure stay distinct; four run dimensions
+// stay separate.
 test("score and dimension rendering", async ({ page }) => {
   const meta = { request_id: "req_test" };
   const me = {
@@ -103,7 +156,11 @@ test("score and dimension rendering", async ({ page }) => {
     auth_channel: "web_session", pat_id: null, pat_scope: null,
   };
   const run = {
-    id: "run_x", name: "fixture run", owner_id: "usr_2", pat_id: null, relation: "initial",
+    id: "run_x", name: "fixture run", owner_id: "usr_2",
+    owner: { username: "gone", display_name: "Gone", deleted: true },
+    scoring: null, deletion: null, queue_reason: null, heartbeat_at: null,
+    dataset_version_deletion: { state: "recycled", deleted_at: "2026-10-22T01:00:00Z", purged_at: null },
+    pat_id: null, relation: "initial",
     source_run_id: null, dataset_version_id: "dsv_1", operation_id: "op_1",
     client_request_id: null, state: "finished", result_completeness: "partial",
     artifact_state: "failed", cleanup_state: "failed", stop_requested: false, stop_reason: null,
@@ -117,13 +174,16 @@ test("score and dimension rendering", async ({ page }) => {
   const trial = (key: string, state: string, result: unknown, reason: string | null) => ({
     id: `trl_${key}`, task_id: `tsk_${key}`, task_key: key, repetition_index: 1, state,
     phase: null, reason_code: reason, artifact_state: "complete", cleanup_state: "complete",
+    artifact_counts: { available: 1, failed: 0, expired: 0 },
     result, attempts: [{ id: `att_${key}`, attempt_index: 1, state: "failed", phase: "executing",
+      steps: [], executor_ref: null,
       started_at: "2026-10-22T00:00:00Z", ended_at: "2026-10-22T00:00:01Z",
       error: { code: "AGENT_TIMEOUT", message: "agent timed out" } }],
   });
   const result = (score: number | null, cause: string | null) => ({
     raw_score: score, reward_valid: score !== null, score, failure_cause: cause,
-    exception_type: null, verifier_status: "ok", policy_version: "p", attempt_id: "att",
+    exception_type: null, verifier_status: cause === "verifier_failed" ? "no_reward" : "ok",
+    policy_version: "p", attempt_id: "att",
   });
   const routes: Record<string, unknown> = {
     "/api/v1/setup": { needs_setup: false },
@@ -137,6 +197,7 @@ test("score and dimension rendering", async ({ page }) => {
       trial("zero", "scored", result(0, null), null),
       trial("unscored", "execution_error", result(null, "agent_timeout"), "AGENT_TIMEOUT"),
       trial("noresult", "execution_error", null, "SETUP_FAILED"),
+      trial("noreward", "execution_error", result(null, "verifier_failed"), null),
     ],
     "/api/v1/runs/run_x/artifacts": [],
   };
@@ -152,11 +213,15 @@ test("score and dimension rendering", async ({ page }) => {
   await expect(page.getByText("当前无法受理新运行")).toBeVisible();
   await expect(page.getByRole("link", { name: "管理" })).toHaveCount(0);
   const rows = page.getByTestId("trial-row");
-  await expect(rows.nth(0).getByRole("cell").nth(4)).toHaveText("0");
-  await expect(rows.nth(1).getByRole("cell").nth(4)).toContainText("未评分");
+  await expect(rows.nth(0).getByRole("cell").nth(4)).toHaveText("0有效零分");
+  await expect(rows.nth(1).getByRole("cell").nth(4)).toContainText("执行失败");
   await expect(rows.nth(1).getByRole("cell").nth(4)).toContainText("AGENT_TIMEOUT");
-  await expect(rows.nth(2).getByRole("cell").nth(4)).toContainText("未评分");
+  await expect(rows.nth(2).getByRole("cell").nth(4)).toContainText("执行失败");
   await expect(rows.nth(2).getByRole("cell").nth(4)).toContainText("SETUP_FAILED");
+  await expect(rows.nth(3).getByRole("cell").nth(4)).toContainText("缺评分");
+  await expect(page.getByText("（已删除）")).toBeVisible();
+  await expect(page.getByText("所用数据集版本已删除，在回收站中")).toBeVisible();
+  await expect(page.getByRole("button", { name: "删除", exact: true })).toHaveCount(0);
   await expect(page.getByText("保存失败")).toBeVisible();
   await expect(page.getByText("清理失败")).toBeVisible();
   await expect(page.getByText("部分评分")).toBeVisible();

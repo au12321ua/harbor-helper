@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -9,8 +9,11 @@ import {
   CircleX,
   Download,
   Loader2,
+  Package,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +36,9 @@ import {
 } from "@/components/common";
 import { API, api, errorText } from "@/lib/api";
 import {
+  ARTIFACT_REASON,
   ARTIFACT_STATE,
+  ARTIFACT_STATUS,
   ATTEMPT_STATE,
   CLEANUP_STATE,
   QUEUE_REASON,
@@ -44,13 +49,24 @@ import {
   TRIAL_STATE,
   fmtBytes,
   fmtDuration,
+  fmtNum,
+  fmtPct,
   fmtTime,
   label,
   shortId,
   type Tone,
 } from "@/lib/format";
 import { useInterval, useSession } from "@/lib/hooks";
-import type { Artifact, Attempt, Run, RunDetail, Trial } from "@/lib/types";
+import type {
+  Artifact,
+  Attempt,
+  DeletionState,
+  Export,
+  Run,
+  RunDetail,
+  RunSummary,
+  Trial,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const TRIAL_TERMINAL = new Set(["scored", "execution_error", "not_started", "cancelled", "interrupted"]);
@@ -65,8 +81,13 @@ function RunDetailView({ runId }: { runId: string }) {
   const [run, setRun] = useState<RunDetail>();
   const [trials, setTrials] = useState<Trial[]>();
   const [artifacts, setArtifacts] = useState<Artifact[]>();
+  const [summary, setSummary] = useState<RunSummary>();
+  const [summaryError, setSummaryError] = useState<unknown>();
   const [error, setError] = useState<unknown>();
   const [cancelling, setCancelling] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+  const canDeleteArtifacts = me.role === "admin" && me.auth_channel === "web_session";
 
   const load = useCallback(async () => {
     try {
@@ -74,6 +95,13 @@ function RunDetailView({ runId }: { runId: string }) {
         api.get<RunDetail>(`runs/${runId}`),
         api.get<Trial[]>(`runs/${runId}/trials`),
         api.get<Artifact[]>(`runs/${runId}/artifacts`),
+        api.get<RunSummary>(`runs/${runId}/summary`).then(
+          (res) => {
+            setSummary(res.data);
+            setSummaryError(undefined);
+          },
+          (err: unknown) => setSummaryError(err),
+        ),
       ]);
       setRun(r.data);
       setTrials(t.data);
@@ -105,6 +133,53 @@ function RunDetailView({ runId }: { runId: string }) {
     }
   };
 
+  const exportRun = async () => {
+    setBusy(true);
+    try {
+      await api.post<Export>("exports", { run_ids: [runId] });
+      toast.success("已创建导出，正在打包");
+      navigate("/exports");
+    } catch (err) {
+      toast.error(`导出失败：${errorText(err)}`);
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (
+      !window.confirm(
+        "删除该运行？它会移入回收站，从运行列表中隐藏；只有管理员可以从回收站恢复或彻底删除。",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.del(`runs/${runId}`);
+      toast.success("已移入回收站");
+      await load();
+    } catch (err) {
+      toast.error(`删除失败：${errorText(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeArtifact = async (artifact: Artifact) => {
+    if (
+      !window.confirm(
+        `删除产物「${artifact.relative_path}」？文件内容将移入回收站，之后无法下载；索引记录保留。`,
+      )
+    )
+      return;
+    try {
+      await api.del(`artifacts/${artifact.id}`);
+      toast.success("产物已删除");
+      await load();
+    } catch (err) {
+      toast.error(`删除失败：${errorText(err)}`);
+    }
+  };
+
   if (!run) {
     return error ? <ErrorAlert error={error} title="无法加载运行" /> : <Loading />;
   }
@@ -122,6 +197,16 @@ function RunDetailView({ runId }: { runId: string }) {
           <RefreshCw />
           刷新
         </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void exportRun()}>
+          <Package />
+          导出
+        </Button>
+        {run.allowed_actions.includes("delete") && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void remove()}>
+            <Trash2 />
+            删除
+          </Button>
+        )}
         {run.allowed_actions.includes("cancel") && (
           <Button
             size="sm"
@@ -134,11 +219,39 @@ function RunDetailView({ runId }: { runId: string }) {
         )}
       </PageTitle>
       {error !== undefined && <ErrorAlert error={error} title="刷新失败（显示的是上次数据）" />}
+      {run.deletion && (
+        <DeletionBanner
+          deletion={run.deletion}
+          title={run.deletion.state === "purged" ? "该运行已彻底删除" : "该运行已删除，在回收站中"}
+          text="它不再出现在运行列表中；只有管理员可以在回收站中恢复。"
+        />
+      )}
+      {run.dataset_version_deletion && (
+        <DeletionBanner
+          deletion={run.dataset_version_deletion}
+          title={
+            run.dataset_version_deletion.state === "purged"
+              ? "所用数据集版本已彻底删除"
+              : "所用数据集版本已删除，在回收站中"
+          }
+          text="本运行的记录与结果保留，但不能再用该版本重跑。"
+        />
+      )}
 
       <Card>
         <CardContent className="grid gap-x-6 gap-y-2 pt-6 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <Info label="运行 ID" value={<code>{run.id}</code>} />
-          <Info label="提交者" value={run.owner_id === me.id ? `我（${me.username}）` : `${run.owner.display_name}（${run.owner.username}）`} />
+          <Info
+            label="提交者"
+            value={
+              <>
+                {run.owner_id === me.id
+                  ? `我（${me.username}）`
+                  : `${run.owner.display_name}（${run.owner.username}）`}
+                {run.owner.deleted && <span className="text-muted-foreground">（已删除）</span>}
+              </>
+            }
+          />
           <Info label="提交方式" value={run.pat_id ? <>PAT <code>{run.pat_id}</code></> : "网页会话"} />
           <Info
             label="来源"
@@ -212,6 +325,8 @@ function RunDetailView({ runId }: { runId: string }) {
         </CardContent>
       </Card>
 
+      <ResultSummary summary={summary} error={summaryError} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">配置快照</CardTitle>
@@ -249,7 +364,11 @@ function RunDetailView({ runId }: { runId: string }) {
           {!artifacts && <Loading />}
           {artifacts && artifacts.length === 0 && <EmptyNote>暂无产物。</EmptyNote>}
           {artifacts && artifacts.length > 0 && (
-            <ArtifactTable artifacts={artifacts} trials={trials ?? []} />
+            <ArtifactTable
+              artifacts={artifacts}
+              trials={trials ?? []}
+              onDelete={canDeleteArtifacts ? removeArtifact : undefined}
+            />
           )}
         </CardContent>
       </Card>
@@ -316,24 +435,45 @@ function Count({ label, value, tone }: { label: string; value: number; tone?: "g
   );
 }
 
-/** Score cell: 0 is a real zero; null is "未评分" with the reason. Never render null as 0. */
+/**
+ * Score cell. Three outcomes stay distinct: a valid score (0 is a real zero), a missing
+ * score (the verifier gave no usable reward) and an execution failure. Never render null as 0.
+ */
 function ScoreCell({ trial }: { trial: Trial }) {
-  const score = trial.result?.score;
+  const result = trial.result;
+  const score = result?.score;
   if (score !== null && score !== undefined) {
-    return <span className="font-semibold tabular-nums">{String(score)}</span>;
+    return (
+      <span className="tabular-nums">
+        <span className="font-semibold">{String(score)}</span>
+        {score === 0 && <span className="ml-1 text-xs text-muted-foreground">有效零分</span>}
+      </span>
+    );
   }
-  const reason =
-    trial.reason_code ??
-    trial.result?.failure_cause ??
-    trial.result?.exception_type ??
-    (TRIAL_TERMINAL.has(trial.state) ? null : "进行中");
+  if (!TRIAL_TERMINAL.has(trial.state)) {
+    return <span className="text-muted-foreground">进行中</span>;
+  }
+  const reason = trial.reason_code ?? result?.failure_cause ?? result?.exception_type;
+  const invalidRaw =
+    result && !result.reward_valid && result.raw_score !== null
+      ? `原始值 ${String(result.raw_score)} 无效`
+      : null;
+  let verdict: [string, Tone];
+  if (trial.state !== "execution_error" && trial.state !== "scored") {
+    verdict = ["未完成", "muted"];
+  } else if (
+    result?.failure_cause === "verifier_failed" ||
+    (result != null && result.verifier_status !== "not_run" && result.failure_cause == null)
+  ) {
+    verdict = ["缺评分", "warn"];
+  } else {
+    verdict = ["执行失败", "bad"];
+  }
   return (
-    <span className="text-muted-foreground">
-      未评分
-      {reason && <span className="ml-1 text-xs">（{reason}）</span>}
-      {trial.result && !trial.result.reward_valid && trial.result.raw_score !== null && (
-        <span className="ml-1 text-xs">原始值 {String(trial.result.raw_score)} 无效</span>
-      )}
+    <span className="flex flex-wrap items-center gap-1">
+      <StatusPill value={verdict} />
+      {reason && <span className="text-xs text-muted-foreground">{reason}</span>}
+      {invalidRaw && <span className="text-xs text-muted-foreground">{invalidRaw}</span>}
     </span>
   );
 }
@@ -400,7 +540,7 @@ function TrialsTable({
                   {trial.reason_code ?? trial.result?.failure_cause ?? "—"}
                 </TableCell>
                 <TableCell className="text-xs">
-                  {label(ARTIFACT_STATE, trial.artifact_state)[0]} /{" "}
+                  <ArtifactCounts counts={trial.artifact_counts} state={trial.artifact_state} /> /{" "}
                   {label(CLEANUP_STATE, trial.cleanup_state)[0]}
                 </TableCell>
               </TableRow>,
@@ -568,6 +708,8 @@ function StepList({
 }
 
 const LOG_TAIL_LINES = 400;
+/** Logs larger than this are read as a bounded tail slice (the API caps a slice at 1 MiB). */
+const LOG_TAIL_BYTES = 256 * 1024;
 
 /** Live log tail: refetched whenever the stored size grows (the page polls while active). */
 function LogView({ artifact, live }: { artifact: Artifact; live: boolean }) {
@@ -575,11 +717,15 @@ function LogView({ artifact, live }: { artifact: Artifact; live: boolean }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let stale = false;
-    fetch(`${API}/artifacts/${artifact.id}/download`, { credentials: "same-origin" })
+    const size = artifact.size_bytes ?? 0;
+    const sliced = size > LOG_TAIL_BYTES;
+    const query = sliced ? `?offset=${size - LOG_TAIL_BYTES}&length=${LOG_TAIL_BYTES}` : "";
+    fetch(`${API}/artifacts/${artifact.id}/download${query}`, { credentials: "same-origin" })
       .then((res) => (res.ok ? res.text() : Promise.reject(new Error(String(res.status)))))
       .then((body) => {
         if (!stale) {
-          setText(body);
+          // A slice may start mid-line; drop the partial first line.
+          setText(sliced ? body.slice(body.indexOf("\n") + 1) : body);
           setFailed(false);
         }
       })
@@ -619,12 +765,18 @@ function TrialArtifacts({ artifacts }: { artifacts: Artifact[] }) {
   );
 }
 
+function artifactReason(artifact: Artifact): string | null {
+  if (!artifact.status_reason) return null;
+  return ARTIFACT_REASON[artifact.status_reason] ?? artifact.status_reason;
+}
+
 function ArtifactLink({ artifact }: { artifact: Artifact }) {
   const name = artifact.relative_path.split("/").pop() || artifact.relative_path;
   if (artifact.status !== "available") {
+    const reason = artifactReason(artifact);
     return (
-      <span className="text-muted-foreground" title={artifact.relative_path}>
-        {name}（{artifact.status}）
+      <span className="text-muted-foreground" title={`${artifact.relative_path}${reason ? `：${reason}` : ""}`}>
+        {name}（{label(ARTIFACT_STATUS, artifact.status)[0]}）
       </span>
     );
   }
@@ -640,7 +792,15 @@ function ArtifactLink({ artifact }: { artifact: Artifact }) {
   );
 }
 
-function ArtifactTable({ artifacts, trials }: { artifacts: Artifact[]; trials: Trial[] }) {
+function ArtifactTable({
+  artifacts,
+  trials,
+  onDelete,
+}: {
+  artifacts: Artifact[];
+  trials: Trial[];
+  onDelete?: (artifact: Artifact) => Promise<void>;
+}) {
   const trialName = new Map(trials.map((t) => [t.id, `${t.task_key} #${t.repetition_index}`]));
   return (
     <div className="rounded-md border">
@@ -653,6 +813,7 @@ function ArtifactTable({ artifacts, trials }: { artifacts: Artifact[]; trials: T
             <TableHead>大小</TableHead>
             <TableHead>状态</TableHead>
             <TableHead>到期</TableHead>
+            {onDelete && <TableHead />}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -668,15 +829,260 @@ function ArtifactTable({ artifacts, trials }: { artifacts: Artifact[]; trials: T
               </TableCell>
               <TableCell className="text-xs tabular-nums">{fmtBytes(a.size_bytes)}</TableCell>
               <TableCell>
-                <Pill tone={a.status === "available" ? "good" : a.status === "expired" ? "warn" : "neutral"}>
-                  {a.status}
-                </Pill>
+                <StatusPill value={label(ARTIFACT_STATUS, a.status)} />
+                {artifactReason(a) && (
+                  <div className="mt-1 text-xs text-muted-foreground">{artifactReason(a)}</div>
+                )}
               </TableCell>
-              <TableCell className="text-xs">{fmtTime(a.expires_at)}</TableCell>
+              <TableCell className="text-xs">
+                {a.expires_at ? (
+                  <span className={cn(a.status === "expired" && "text-amber-800")}>
+                    {fmtTime(a.expires_at)}
+                    {a.status === "expired" && "（已过期）"}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">试次结束后起算</span>
+                )}
+              </TableCell>
+              {onDelete && (
+                <TableCell className="text-right">
+                  {a.status !== "deleted" && a.status !== "deleting" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label={`删除产物 ${a.relative_path}`}
+                      onClick={() => void onDelete(a)}
+                    >
+                      删除
+                    </Button>
+                  )}
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+function DeletionBanner({
+  deletion,
+  title,
+  text,
+}: {
+  deletion: DeletionState;
+  title: string;
+  text: string;
+}) {
+  return (
+    <Alert className="border-amber-400 bg-amber-50" data-testid="deletion-banner">
+      <Trash2 className="size-4 text-amber-700" />
+      <AlertTitle className="text-amber-900">{title}</AlertTitle>
+      <AlertDescription className="text-amber-900">
+        删除于 {fmtTime(deletion.deleted_at)}
+        {deletion.purged_at && `，彻底删除于 ${fmtTime(deletion.purged_at)}`}。{text}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function ArtifactCounts({
+  counts,
+  state,
+}: {
+  counts: Trial["artifact_counts"];
+  state: string;
+}) {
+  const parts: ReactNode[] = [];
+  if (counts.available) parts.push(<span key="a">可用 {counts.available}</span>);
+  if (counts.expired) parts.push(<span key="e" className="text-amber-700">过期 {counts.expired}</span>);
+  if (counts.failed) parts.push(<span key="f" className="text-red-700">失败 {counts.failed}</span>);
+  if (parts.length === 0) return <>{label(ARTIFACT_STATE, state)[0]}</>;
+  return (
+    <span className="inline-flex gap-1" title={label(ARTIFACT_STATE, state)[0]}>
+      {parts}
+    </span>
+  );
+}
+
+const DIRECTION: Record<string, string> = {
+  higher_is_better: "越高越好",
+  lower_is_better: "越低越好",
+};
+
+function passRule(summary: RunSummary): string {
+  const rule = summary.contract.passed;
+  if (!rule) return "未定义（不计算通过率）";
+  if (rule.rule === "threshold" && typeof rule.threshold === "number") {
+    const op = summary.contract.direction === "lower_is_better" ? "≤" : "≥";
+    return `得分 ${op} ${rule.threshold} 记为通过`;
+  }
+  return JSON.stringify(rule);
+}
+
+/** 06 §5 result summary: counts, statistics with their coverage, and per-task rows. */
+function ResultSummary({ summary, error }: { summary?: RunSummary; error: unknown }) {
+  if (!summary) {
+    return error ? <ErrorAlert error={error} title="无法加载结果汇总" /> : null;
+  }
+  const c = summary.contract;
+  const causes = Object.entries(summary.excluded_by_cause);
+  return (
+    <Card data-testid="result-summary">
+      <CardHeader>
+        <CardTitle className="text-base">结果汇总</CardTitle>
+        <div className="text-xs text-muted-foreground">
+          指标 {c.name}（<code>{c.metric_id}</code>
+          {c.unit ? `，单位 ${c.unit}` : ""}，{DIRECTION[c.direction] ?? c.direction}）· 评分规则来源：
+          {c.source === "dataset_version" ? "数据集版本声明" : "平台默认"} · {passRule(summary)}
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4 text-sm">
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <Count label="计划" value={summary.planned_trials} />
+          <Count label="已评分" value={summary.scored_trials} tone="good" />
+          <Count
+            label="执行失败（不计入统计）"
+            value={summary.excluded_error_trials}
+            tone={summary.excluded_error_trials ? "bad" : undefined}
+          />
+          {summary.count_as_failure_trials > 0 && (
+            <Count label="按失败计分" value={summary.count_as_failure_trials} tone="bad" />
+          )}
+          <Count label="未完成" value={summary.unfinished_trials} />
+          {summary.active_trials > 0 && <Count label="进行中" value={summary.active_trials} />}
+          {summary.queued_trials > 0 && <Count label="排队" value={summary.queued_trials} />}
+          {summary.passed_trials !== null && <Count label="通过" value={summary.passed_trials} />}
+        </div>
+        <div className="grid gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-5">
+          <Info
+            label="均值（已评分试次）"
+            value={
+              <span className="tabular-nums">
+                <b>{fmtNum(summary.mean)}</b>
+                <span className="ml-1 text-xs text-muted-foreground">
+                  已评分 {summary.scored_trials}/{summary.planned_trials}
+                </span>
+              </span>
+            }
+          />
+          <Info label="标准差" value={<span className="tabular-nums">{fmtNum(summary.stddev)}</span>} />
+          <Info
+            label="通过率"
+            value={
+              <span className="tabular-nums">
+                {fmtPct(summary.pass_rate)}
+                {summary.passed_trials !== null && (
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    {summary.passed_trials}/{summary.scored_trials}
+                  </span>
+                )}
+              </span>
+            }
+          />
+          <Info
+            label="评分覆盖 / 评估覆盖"
+            value={
+              <span className="tabular-nums" title="评分覆盖 = 已评分 / 计划；评估覆盖计入按失败计分的试次">
+                {fmtPct(summary.scored_coverage)} / {fmtPct(summary.evaluation_coverage)}
+              </span>
+            }
+          />
+          <Info
+            label="基准分（任务均值的宏平均）"
+            value={
+              <span className="tabular-nums">
+                <b>{fmtNum(summary.bench_score)}</b>
+                <span className="ml-1 text-xs text-muted-foreground">
+                  有分任务 {summary.bench_scored_tasks}/{summary.task_count}
+                  {summary.bench_task_coverage != null &&
+                    ` · 覆盖基准任务 ${fmtPct(summary.bench_task_coverage)}`}
+                </span>
+              </span>
+            }
+          />
+          <Info
+            label="尝试 / 重试"
+            value={
+              <span className="tabular-nums">
+                {summary.attempts} 次尝试 · 重试 {summary.retry_count} 次（{summary.retried_trials}{" "}
+                个试次）
+              </span>
+            }
+          />
+          <Info label="评分完整性" value={<StatusPill value={label(RESULT_COMPLETENESS, summary.result_completeness)} />} />
+          <Info
+            label="执行失败原因"
+            value={
+              causes.length === 0 ? (
+                "—"
+              ) : (
+                <span className="flex flex-wrap gap-1">
+                  {causes.map(([cause, n]) => (
+                    <Pill key={cause} tone="bad">
+                      {cause} × {n}
+                    </Pill>
+                  ))}
+                </span>
+              )
+            }
+          />
+          <Info
+            label="用量"
+            value={
+              <span className="text-xs">
+                已知 {summary.usage.known_trials} 个试次，未知 {summary.usage.unknown_trials} 个
+                {Object.keys(summary.usage.known_totals).length > 0 &&
+                  ` · ${Object.entries(summary.usage.known_totals)
+                    .map(([k, v]) => `${k} ${fmtNum(v)}`)
+                    .join("，")}`}
+              </span>
+            }
+          />
+        </div>
+        {summary.tasks.length > 0 && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>任务</TableHead>
+                  <TableHead className="text-right">已评分 / 计划</TableHead>
+                  <TableHead className="text-right">均值</TableHead>
+                  <TableHead className="text-right">标准差</TableHead>
+                  <TableHead className="text-right">通过</TableHead>
+                  <TableHead>执行失败</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {summary.tasks.map((task) => (
+                  <TableRow key={task.task_key} data-testid="task-summary-row">
+                    <TableCell className="font-mono text-xs">
+                      {task.task_key}
+                      {task.partial && (
+                        <span className="ml-2" title="部分计划的重复没有得分，均值基于更少的样本">
+                          <Pill tone="warn">部分</Pill>
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {task.scored_trials} / {task.planned_trials}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtNum(task.mean)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtNum(task.stddev)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{task.passed_trials ?? "—"}</TableCell>
+                    <TableCell className="text-xs">
+                      {task.excluded_trials > 0
+                        ? `${task.excluded_trials} 个：${task.failure_causes.join("、") || "—"}`
+                        : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

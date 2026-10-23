@@ -156,7 +156,8 @@ def download(
     "/artifacts/{artifact_id}", response_model=Envelope[RecycleEntry], tags=["artifacts"]
 )
 def delete_artifact(artifact_id: str, request: Request, who: Principal = Depends(principal)):
-    """Administrators only, e.g. for a confirmed leak; the index entry stays."""
+    """Administrators only, e.g. for a confirmed leak. The file leaves the run's list;
+    the recycle bin keeps the entry and, after a purge, the receipt."""
     return ok(request, maestro(request).recycle.delete(who, "artifact", artifact_id))
 
 

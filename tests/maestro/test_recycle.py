@@ -289,3 +289,33 @@ def test_unknown_object_and_bin_pagination(service, version_id):
             f"/api/v1/admin/recycle-bin?limit=2&object_type=run&cursor={first['meta']['next_cursor']}"
         ).json()["data"]
         assert {x["object_id"] for x in first["data"] + rest} == set(runs)
+
+
+def test_purging_a_dataset_purges_its_versions_with_receipts(service, version_id):
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        run_id = finished_run(admin, version_id)
+        artifact = admin.get(f"/api/v1/runs/{run_id}/artifacts").json()["data"][0]
+        dataset_id = admin.get("/api/v1/datasets").json()["data"][0]["id"]
+        entry = admin.delete(f"/api/v1/admin/datasets/{dataset_id}", expect=200).json()["data"]
+        purged = purge(admin, entry).json()["data"]
+        assert purged["detail"]["purged"]["versions"] == 1
+        receipt = bin_entry(admin, version_id, "purged")
+        assert receipt["label"] == "demo/arith@v1" and receipt["purged_at"]
+        detail = admin.get(f"/api/v1/dataset-versions/{version_id}").json()["data"]
+        assert detail["deletion"]["state"] == "purged"
+        # The run, its scores and files survive the dataset (U-08).
+        run = admin.get(f"/api/v1/runs/{run_id}").json()["data"]
+        assert run["dataset_version_deletion"]["state"] == "purged"
+        assert run["scoring"]["mean"] == 1.0
+        admin.get(f"/api/v1/artifacts/{artifact['id']}/download", expect=200)
+
+
+def test_files_of_a_binned_run_stay_readable_until_purged(service, version_id):
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        run_id = finished_run(admin, version_id)
+        artifact = admin.get(f"/api/v1/runs/{run_id}/artifacts").json()["data"][0]
+        admin.delete(f"/api/v1/runs/{run_id}", expect=200)
+        admin.get(f"/api/v1/artifacts/{artifact['id']}/download", expect=200)
+        assert admin.get(f"/api/v1/runs/{run_id}/summary", expect=200).json()["data"]

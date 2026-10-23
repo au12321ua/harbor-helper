@@ -93,6 +93,7 @@ export const QUEUE_REASON: Record<string, string> = {
   CAPACITY_CPU: "等待空闲 CPU",
   CAPACITY_MEMORY: "等待空闲内存",
   PROVIDER_LIMIT: "等待模型提供商并发额度",
+  STORAGE_LOW: "存储空间不足，暂停启动",
 };
 
 export function fmtDuration(ms: number): string {
@@ -127,3 +128,63 @@ export function blockerText(blocker: Record<string, unknown>): string {
     .join(", ");
   return extra ? `${String(code)}（${extra}）` : String(code);
 }
+
+/** A statistic; null stays "—" (never 0). */
+export function fmtNum(value: number | null | undefined, digits = 3): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return String(Number(value.toFixed(digits)));
+}
+
+export function fmtPct(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `${Number((value * 100).toFixed(1))}%`;
+}
+
+/** Local calendar day ("YYYY-MM-DD") to the API's RFC 3339 UTC form with microseconds. */
+export function dayToApiTime(day: string, plusDays = 0): string | undefined {
+  if (!day) return undefined;
+  const date = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  date.setDate(date.getDate() + plusDays);
+  return date.toISOString().replace(/\.(\d{3})Z$/, ".$1000Z");
+}
+
+export const ARTIFACT_STATUS: Labels = {
+  pending: ["待保存", "muted"],
+  available: ["可下载", "good"],
+  failed: ["保存失败", "bad"],
+  deleting: ["回收中", "warn"],
+  expired: ["已过期", "warn"],
+  unavailable: ["不可用", "bad"],
+  deleted: ["已删除", "muted"],
+};
+
+export const ARTIFACT_REASON: Record<string, string> = {
+  RETENTION_EXPIRED: "超过保留期，内容已回收",
+  STORAGE_CONTENT_MISSING: "存储中找不到内容",
+  DELETED: "管理员已删除",
+};
+
+export const EXPORT_STATE: Labels = {
+  queued: ["排队中", "info"],
+  building: ["打包中", "info"],
+  ready: ["可下载", "good"],
+  failed: ["失败", "bad"],
+  expired: ["已过期", "muted"],
+};
+
+export const RECYCLE_TYPE: Record<string, string> = {
+  run: "运行",
+  artifact: "产物",
+  dataset: "数据集",
+  dataset_version: "数据集版本",
+  credential: "凭据",
+  user: "成员",
+  pat: "访问令牌",
+};
+
+export const STORAGE_LEVEL: Labels = {
+  ok: ["存储充足", "good"],
+  accept_paused: ["存储偏低：暂停受理新运行", "warn"],
+  dispatch_paused: ["存储不足：暂停启动排队运行", "bad"],
+};

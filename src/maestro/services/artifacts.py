@@ -165,9 +165,9 @@ class Artifacts:
             raise MaestroError("INVALID_RANGE", f"offset >= 0 and length 1-{READ_MAX} bytes", 400)
         with self.db.read() as conn:
             row = self._row(conn, artifact_id)
-            gone = deleted.state(conn, "artifact", artifact_id) or deleted.state(
-                conn, "run", row["run_id"]
-            )
+            # A run in the recycle bin still resolves, files included; a purged run
+            # has no files left and its rows are gone.
+            gone = deleted.state(conn, "artifact", artifact_id)
         if gone:
             raise MaestroError("ARTIFACT_DELETED", "Artifact was deleted", 410)
         check_readable(row)

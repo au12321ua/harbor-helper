@@ -13,6 +13,7 @@ import { RunListPage } from "@/pages/RunListPage";
 import { NewRunPage } from "@/pages/NewRunPage";
 import { RunDetailPage } from "@/pages/RunDetailPage";
 import { DatasetsPage } from "@/pages/DatasetsPage";
+import { ExportsPage } from "@/pages/ExportsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AdminPage } from "@/pages/AdminPage";
 
@@ -172,6 +173,7 @@ function SignedIn({
           <Route path="/runs/new" element={<NewRunPage />} />
           <Route path="/runs/:runId" element={<RunDetailPage />} />
           <Route path="/datasets" element={<DatasetsPage />} />
+          <Route path="/exports" element={<ExportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route
             path="/admin"
@@ -208,6 +210,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const links = [
     { to: "/runs", label: "运行" },
     { to: "/datasets", label: "数据集" },
+    { to: "/exports", label: "导出" },
     { to: "/settings", label: "个人设置" },
     ...(me.role === "admin" ? [{ to: "/admin", label: "管理" }] : []),
   ];
@@ -277,6 +280,8 @@ function SystemNotice({ health }: { health: Health | null }) {
   if (detail.master_key_available === false) reasons.push("主密钥不可用");
   if (!detail.executor) reasons.push("未配置执行器");
   if (detail.worker_running === false) reasons.push("执行进程未运行");
+  const storage = detail.storage as { level?: string } | undefined;
+  if (storage?.level && storage.level !== "ok") reasons.push("存储空间不足");
   return (
     <div className="border-b border-amber-300 bg-amber-50 text-amber-900">
       <div className="mx-auto flex max-w-7xl items-start gap-2 px-4 py-2 text-sm">

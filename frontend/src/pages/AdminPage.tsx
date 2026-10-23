@@ -23,16 +23,27 @@ import {
   TextField,
 } from "@/components/common";
 import { ApiError, api, errorText } from "@/lib/api";
-import { INVITATION_STATE, fmtTime, label, shortId } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import {
+  INVITATION_STATE,
+  RECYCLE_TYPE,
+  STORAGE_LEVEL,
+  fmtBytes,
+  fmtTime,
+  label,
+  shortId,
+} from "@/lib/format";
 import { limit, useLoad, useSession } from "@/lib/hooks";
 import type {
   AuditEvent,
   CapacityOverview,
   Credential,
   CredentialKind,
+  Health,
   Invitation,
   IssuedInvitation,
   MasterKeyStatus,
+  RecycleEntry,
   Role,
   User,
 } from "@/lib/types";
@@ -52,6 +63,7 @@ export function AdminPage() {
           <TabsTrigger value="credentials">凭据</TabsTrigger>
           <TabsTrigger value="capacity">容量</TabsTrigger>
           <TabsTrigger value="master-key">主密钥</TabsTrigger>
+          <TabsTrigger value="recycle-bin">回收站</TabsTrigger>
           <TabsTrigger value="audit">审计</TabsTrigger>
         </TabsList>
         <TabsContent value="members">
@@ -68,6 +80,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="master-key">
           <MasterKeyTab />
+        </TabsContent>
+        <TabsContent value="recycle-bin">
+          <RecycleBinTab />
         </TabsContent>
         <TabsContent value="audit">
           <AuditTab />
@@ -90,6 +105,22 @@ function MembersTab() {
       toast.success(`已${verb}`);
     } catch (err) {
       toast.error(`${verb}失败：${errorText(err)}`);
+    }
+    await members.reload();
+  };
+
+  const remove = async (user: User) => {
+    if (
+      !window.confirm(
+        `删除账户「${user.username}」？其会话和访问令牌立即失效，账户移入回收站；历史运行保留提交者名称。`,
+      )
+    )
+      return;
+    try {
+      await api.del(`admin/members/${user.id}`);
+      toast.success("已移入回收站");
+    } catch (err) {
+      toast.error(`删除失败：${errorText(err)}`);
     }
     await members.reload();
   };
@@ -163,6 +194,11 @@ function MembersTab() {
                       <Button size="sm" variant="outline" onClick={() => void issueReset(user)}>
                         生成重置密码链接
                       </Button>
+                      {user.id !== me.id && (
+                        <Button size="sm" variant="outline" onClick={() => void remove(user)}>
+                          删除
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -354,6 +390,20 @@ function CredentialsTab() {
     }
     await credentials.reload();
   };
+  const remove = async (cred: Credential) => {
+    if (!window.confirm(`删除凭据「${cred.name}」？它会移入回收站，之后的运行不能再使用它。`)) return;
+    try {
+      await api.del(`admin/credentials/${cred.id}`);
+      toast.success("已移入回收站");
+    } catch (err) {
+      const hint =
+        err instanceof ApiError && err.code === "CREDENTIAL_IN_USE"
+          ? "。仍有运行在使用该凭据：可先停用，待这些运行结束后再删除"
+          : "";
+      toast.error(`删除失败：${errorText(err)}${hint}`);
+    }
+    await credentials.reload();
+  };
   const field = (n: string) => (error instanceof ApiError ? error.field(n) : undefined);
 
   return (
@@ -464,6 +514,9 @@ function CredentialsTab() {
                       <Button size="sm" variant="outline" onClick={() => void toggle(cred)}>
                         {cred.enabled ? "停用" : "启用"}
                       </Button>
+                      <Button size="sm" variant="outline" onClick={() => void remove(cred)}>
+                        删除
+                      </Button>
                     </TableCell>
                   </TableRow>,
                   replacing === cred.id && (
@@ -533,6 +586,24 @@ function ReplaceValue({ credential, onDone }: { credential: Credential; onDone: 
   );
 }
 
+function StorageBadge() {
+  const status = useLoad(async () => (await api.get<Health>("system-status")).data);
+  const storage = status.data?.detail?.storage as
+    | { level: string; free_bytes: number; total_bytes: number }
+    | undefined;
+  if (!storage) return null;
+  const [text, tone] = label(STORAGE_LEVEL, storage.level);
+  return (
+    <div className="flex items-center gap-2 text-sm" data-testid="storage-badge">
+      <span className="text-xs text-muted-foreground">数据存储</span>
+      <Pill tone={tone}>{text}</Pill>
+      <span className="text-xs tabular-nums text-muted-foreground">
+        剩余 {fmtBytes(storage.free_bytes)} / 共 {fmtBytes(storage.total_bytes)}
+      </span>
+    </div>
+  );
+}
+
 function CapacityTab() {
   const overview = useLoad(async () => (await api.get<CapacityOverview>("admin/capacity")).data);
   const [form, setForm] = useState({ provider: "", limit: "" });
@@ -572,6 +643,7 @@ function CapacityTab() {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
+        <StorageBadge />
         <ErrorAlert error={overview.error} />
         {overview.loading && !data && <Loading />}
         {data && (
@@ -810,6 +882,200 @@ function AuditTab() {
           </div>
         )}
         {!loading && events.length === 0 && !error && <EmptyNote>没有审计事件。</EmptyNote>}
+        {loading && <Loading />}
+        {cursor && !loading && (
+          <div className="flex justify-center">
+            <Button variant="outline" onClick={() => void load(cursor)}>
+              加载更多
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const RECYCLE_TYPES = ["run", "artifact", "dataset", "dataset_version", "credential", "user", "pat"];
+
+function RecycleBinTab() {
+  const [state, setState] = useState<"recycled" | "purged">("recycled");
+  const [objectType, setObjectType] = useState("");
+  const [entries, setEntries] = useState<RecycleEntry[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(
+    async (after: string | null) => {
+      setLoading(true);
+      try {
+        const res = await api.get<RecycleEntry[]>("admin/recycle-bin", {
+          state,
+          object_type: objectType || undefined,
+          cursor: after,
+        });
+        setEntries((prev) => (after ? [...prev, ...res.data] : res.data));
+        setCursor(res.meta.next_cursor ?? null);
+        setError(undefined);
+      } catch (err) {
+        setError(err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [state, objectType],
+  );
+
+  useEffect(() => {
+    void load(null);
+  }, [load]);
+
+  const restore = async (entry: RecycleEntry) => {
+    if (!window.confirm(`恢复${RECYCLE_TYPE[entry.object_type] ?? entry.object_type}「${entry.label}」？`))
+      return;
+    setBusy(entry.id);
+    try {
+      await api.post(`admin/recycle-bin/${entry.id}/restore`);
+      toast.success("已恢复");
+    } catch (err) {
+      toast.error(`恢复失败：${errorText(err)}`);
+    } finally {
+      setBusy(null);
+    }
+    await load(null);
+  };
+
+  const purge = async (entry: RecycleEntry) => {
+    const typed = window.prompt(
+      `彻底删除${RECYCLE_TYPE[entry.object_type] ?? entry.object_type}「${entry.label}」？\n` +
+        "此操作不可撤销：内容与文件会被永久删除，只留下删除回执。\n\n" +
+        `请输入对象 ID 确认：${entry.object_id}`,
+    );
+    if (typed === null) return;
+    if (typed.trim() !== entry.object_id) {
+      toast.error("输入的对象 ID 不一致，未删除");
+      return;
+    }
+    setBusy(entry.id);
+    try {
+      await api.post(`admin/recycle-bin/${entry.id}/purge`, { confirm_object_id: typed.trim() });
+      toast.success("已彻底删除");
+    } catch (err) {
+      toast.error(`彻底删除失败：${errorText(err)}`);
+    } finally {
+      setBusy(null);
+    }
+    await load(null);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">回收站</CardTitle>
+        <CardDescription>
+          删除的对象先进入这里，可以恢复；“彻底删除”会永久移除内容和文件，不可撤销，只保留删除回执。
+          主密钥不可删除。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border bg-background p-0.5 text-sm">
+            {(["recycled", "purged"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={cn(
+                  "rounded px-3 py-1",
+                  state === value ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                )}
+                onClick={() => setState(value)}
+              >
+                {value === "recycled" ? "回收站" : "删除回执"}
+              </button>
+            ))}
+          </div>
+          <select
+            aria-label="对象类型"
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            value={objectType}
+            onChange={(e) => setObjectType(e.target.value)}
+          >
+            <option value="">全部类型</option>
+            {RECYCLE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {RECYCLE_TYPE[type]}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" variant="outline" onClick={() => void load(null)}>
+            刷新
+          </Button>
+        </div>
+        <ErrorAlert error={error} />
+        {!loading && entries.length === 0 && !error && (
+          <EmptyNote>{state === "recycled" ? "回收站是空的。" : "没有删除回执。"}</EmptyNote>
+        )}
+        {entries.length > 0 && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>类型</TableHead>
+                  <TableHead>名称</TableHead>
+                  <TableHead>所有者</TableHead>
+                  <TableHead>删除者</TableHead>
+                  <TableHead>删除时间</TableHead>
+                  {state === "purged" && <TableHead>彻底删除时间</TableHead>}
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry) => (
+                  <TableRow key={entry.id} data-testid="recycle-row">
+                    <TableCell>
+                      <Pill tone="neutral">{RECYCLE_TYPE[entry.object_type] ?? entry.object_type}</Pill>
+                    </TableCell>
+                    <TableCell>
+                      {entry.label}
+                      <div className="font-mono text-xs text-muted-foreground">{entry.object_id}</div>
+                    </TableCell>
+                    <TableCell className="text-xs">{entry.owner_username ?? "—"}</TableCell>
+                    <TableCell className="text-xs">
+                      {entry.deleted_by_username ?? shortId(entry.deleted_by)}
+                    </TableCell>
+                    <TableCell className="text-xs">{fmtTime(entry.deleted_at)}</TableCell>
+                    {state === "purged" && (
+                      <TableCell className="text-xs">{fmtTime(entry.purged_at)}</TableCell>
+                    )}
+                    <TableCell className="flex justify-end gap-2">
+                      {entry.state === "recycled" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy === entry.id}
+                            onClick={() => void restore(entry)}
+                          >
+                            恢复
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={busy === entry.id}
+                            onClick={() => void purge(entry)}
+                          >
+                            彻底删除
+                          </Button>
+                        </>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
         {loading && <Loading />}
         {cursor && !loading && (
           <div className="flex justify-center">

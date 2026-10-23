@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError, errorText } from "@/lib/api";
-import type { Tone } from "@/lib/format";
+import { fmtNum, type Tone } from "@/lib/format";
+import type { RunScoring } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const TONES: Record<Tone, string> = {
@@ -197,5 +198,21 @@ export function EmptyNote({ children }: { children: ReactNode }) {
     <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
       {children}
     </div>
+  );
+}
+
+/** Mean with its coverage, never a bare mean: "0.5 · 已评分 4/5". */
+export function ScoreCoverage({ scoring }: { scoring: RunScoring | null }) {
+  if (!scoring) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className="whitespace-nowrap tabular-nums" data-testid="score-coverage">
+      <span className={cn("font-semibold", scoring.mean == null && "text-muted-foreground")}>
+        {fmtNum(scoring.mean)}
+      </span>
+      <span className="text-xs text-muted-foreground">
+        {" "}
+        · 已评分 {scoring.scored_trials}/{scoring.planned_trials}
+      </span>
+    </span>
   );
 }

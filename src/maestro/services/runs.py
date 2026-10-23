@@ -661,19 +661,22 @@ class Runs:
     ) -> tuple[list, str | None]:
         """Deleted runs are hidden; the recycle bin lists them."""
         limit = pagination.check_limit(limit)
-        for name, value in (
-            ("accepted_after", accepted_after),
-            ("accepted_before", accepted_before),
-        ):
-            if value is not None:
-                try:
-                    clock.from_text(value)
-                except ValueError:
-                    raise MaestroError(
-                        "INVALID_TIME",
-                        f"{name} must be RFC 3339 UTC like {clock.to_text(clock.now())}",
-                        400,
-                    ) from None
+
+        def normalized(name: str, value: str | None) -> str | None:
+            """Stored times have six fractional digits; compare like with like."""
+            if value is None:
+                return None
+            try:
+                return clock.to_text(clock.from_text(value))
+            except ValueError:
+                raise MaestroError(
+                    "INVALID_TIME",
+                    f"{name} must be RFC 3339 UTC like {clock.to_text(clock.now())}",
+                    400,
+                ) from None
+
+        accepted_after = normalized("accepted_after", accepted_after)
+        accepted_before = normalized("accepted_before", accepted_before)
         filters = {
             "owner_id": owner_id,
             "state": state,

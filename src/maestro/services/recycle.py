@@ -145,7 +145,7 @@ class RunHandler(Handler):
         conn.execute(delete(t.trials).where(t.trials.c.run_id == run_id))
         conn.execute(delete(t.run_snapshots).where(t.run_snapshots.c.run_id == run_id))
         # Artifacts of this run already in the bin are gone with it.
-        service.mark_purged(conn, "artifact", ids)
+        service.mark_purged(conn, "artifact", ids, actor_id)
         keys = [a.storage_key for a in artifacts]
         return Purged(
             counts,
@@ -276,7 +276,7 @@ class DatasetHandler(Handler):
         )
         result = purge_versions(conn, versions, service) if versions else Purged()
         conn.execute(update(t.datasets).where(t.datasets.c.id == row["id"]).values(description=""))
-        service.mark_purged(conn, "dataset_version", versions, actor_id=actor_id)
+        service.mark_purged(conn, "dataset_version", versions, actor_id, add_receipts=True)
         result.detail["versions"] = len(versions)
         return result
 
@@ -659,10 +659,15 @@ class Recycle:
     # --- helpers for handlers ------------------------------------------------------
 
     def mark_purged(
-        self, conn: Connection, object_type: str, ids: list[str], actor_id: str | None = None
+        self,
+        conn: Connection,
+        object_type: str,
+        ids: list[str],
+        actor_id: str,
+        add_receipts: bool = False,
     ) -> None:
-        """Entries purged along with their parent; with ``actor_id``, objects not yet
-        in the bin get a purged receipt too."""
+        """Bin entries purged along with their parent; with ``add_receipts`` objects
+        that were not in the bin get a purged receipt too."""
         if not ids:
             return
         at = clock.to_text(clock.now())
@@ -673,9 +678,9 @@ class Recycle:
                 t.deletions.c.object_id.in_(ids),
                 t.deletions.c.state == deleted.RECYCLED,
             )
-            .values(state=deleted.PURGED, purged_at=at)
+            .values(state=deleted.PURGED, purged_at=at, purged_by=actor_id)
         )
-        if actor_id is None:
+        if not add_receipts:
             return
         present = set(
             conn.execute(

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Plus, RefreshCw } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Package, Plus, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -10,19 +11,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { EmptyNote, ErrorAlert, Loading, PageTitle, StatusPill } from "@/components/common";
-import { api } from "@/lib/api";
+import {
+  EmptyNote,
+  ErrorAlert,
+  Loading,
+  PageTitle,
+  ScoreCoverage,
+  StatusPill,
+} from "@/components/common";
+import { api, errorText } from "@/lib/api";
 import {
   ARTIFACT_STATE,
   CLEANUP_STATE,
   RESULT_COMPLETENESS,
   RUN_STATE,
+  dayToApiTime,
   fmtTime,
   label,
   shortId,
 } from "@/lib/format";
 import { useSession } from "@/lib/hooks";
-import type { Run } from "@/lib/types";
+import type { Export, Run } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function RunListPage() {
@@ -32,6 +41,11 @@ export function RunListPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<unknown>();
   const [loading, setLoading] = useState(true);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const navigate = useNavigate();
 
   const load = useCallback(
     async (after: string | null) => {
@@ -39,9 +53,12 @@ export function RunListPage() {
       try {
         const res = await api.get<Run[]>("runs", {
           owner_id: scope === "mine" ? me.id : undefined,
+          accepted_after: dayToApiTime(from),
+          accepted_before: dayToApiTime(to, 1),
           cursor: after,
         });
         setRuns((prev) => (after ? [...prev, ...res.data] : res.data));
+        if (!after) setSelected(new Set());
         setCursor(res.meta.next_cursor ?? null);
         setError(undefined);
       } catch (err) {
@@ -50,12 +67,33 @@ export function RunListPage() {
         setLoading(false);
       }
     },
-    [scope, me.id],
+    [scope, me.id, from, to],
   );
 
   useEffect(() => {
     void load(null);
   }, [load]);
+
+  const toggle = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  };
+  const allSelected = runs.length > 0 && runs.every((r) => selected.has(r.id));
+
+  const exportSelected = async () => {
+    setExporting(true);
+    try {
+      await api.post<Export>("exports", { run_ids: [...selected] });
+      toast.success(`已创建导出（${selected.size} 个运行），正在打包`);
+      navigate("/exports");
+    } catch (err) {
+      toast.error(`导出失败：${errorText(err)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div>
@@ -75,6 +113,33 @@ export function RunListPage() {
             </button>
           ))}
         </div>
+        <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          受理于
+          <input
+            type="date"
+            aria-label="开始日期"
+            className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+          至
+          <input
+            type="date"
+            aria-label="结束日期"
+            className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+          />
+        </label>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={selected.size === 0 || exporting}
+          onClick={() => void exportSelected()}
+        >
+          <Package />
+          导出所选{selected.size > 0 && `（${selected.size}）`}
+        </Button>
         <Button variant="outline" size="sm" onClick={() => void load(null)}>
           <RefreshCw />
           刷新
@@ -93,13 +158,23 @@ export function RunListPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8">
+                  <input
+                    type="checkbox"
+                    aria-label="全选"
+                    checked={allSelected}
+                    onChange={() =>
+                      setSelected(allSelected ? new Set() : new Set(runs.map((r) => r.id)))
+                    }
+                  />
+                </TableHead>
                 <TableHead>名称</TableHead>
                 <TableHead>提交者</TableHead>
                 <TableHead>生命周期</TableHead>
+                <TableHead>得分（均值 · 覆盖）</TableHead>
                 <TableHead>评分覆盖</TableHead>
                 <TableHead>产物</TableHead>
                 <TableHead>环境清理</TableHead>
-                <TableHead className="text-right">已评分 / 计划</TableHead>
                 <TableHead className="text-right">错误</TableHead>
                 <TableHead>受理时间</TableHead>
               </TableRow>
@@ -108,6 +183,14 @@ export function RunListPage() {
               {runs.map((run) => (
                 <TableRow key={run.id}>
                   <TableCell>
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${run.name}`}
+                      checked={selected.has(run.id)}
+                      onChange={() => toggle(run.id)}
+                    />
+                  </TableCell>
+                  <TableCell>
                     <Link className="font-medium text-primary hover:underline" to={`/runs/${run.id}`}>
                       {run.name}
                     </Link>
@@ -115,6 +198,7 @@ export function RunListPage() {
                   </TableCell>
                   <TableCell className="text-xs">
                     {run.owner_id === me.id ? "我" : run.owner.display_name}
+                    {run.owner.deleted && <span className="text-muted-foreground">（已删除）</span>}
                     {run.pat_id && <div className="text-muted-foreground">PAT</div>}
                   </TableCell>
                   <TableCell>
@@ -124,6 +208,9 @@ export function RunListPage() {
                     )}
                   </TableCell>
                   <TableCell>
+                    <ScoreCoverage scoring={run.scoring} />
+                  </TableCell>
+                  <TableCell>
                     <StatusPill value={label(RESULT_COMPLETENESS, run.result_completeness)} />
                   </TableCell>
                   <TableCell>
@@ -131,9 +218,6 @@ export function RunListPage() {
                   </TableCell>
                   <TableCell>
                     <StatusPill value={label(CLEANUP_STATE, run.cleanup_state)} />
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {run.counts.scored} / {run.counts.planned}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{run.counts.errors}</TableCell>
                   <TableCell className="text-xs">{fmtTime(run.accepted_at)}</TableCell>
