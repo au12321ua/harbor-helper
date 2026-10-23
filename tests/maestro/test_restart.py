@@ -62,7 +62,11 @@ def test_restart_stops_leftovers_and_records_cleanup(service, owner, version_id,
     assert report["interrupted_runs"] == [data["run_id"]]
     assert service.runs.get(owner, data["run_id"])["cleanup_state"] == "pending"
     result = asyncio.run(service.worker.recover())
-    assert result == {"runs": {data["run_id"]: True}, "sweep_released": True}
+    assert result == {
+        "runs": {data["run_id"]: True},
+        "sweep_released": True,
+        "preparation": {"temporary_images_removed": []},
+    }
     (leftover,) = executor.reconciled
     assert leftover.labels["io.maestro.run_id"] == data["run_id"].lower()
     assert leftover.runner["runner_id"] == "fake"

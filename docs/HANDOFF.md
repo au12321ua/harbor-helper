@@ -14,10 +14,11 @@
 - M2 地基已实现（2026-10-22）：新包 `src/maestro/`、最简网页与测试；实现中的选择与未覆盖范围见决策记录的“M2 实施记录”。
 - M3 执行内核已实现（2026-10-23）：独立 Runner 环境（`runner/`，锁定 Harbor 0.24.0）、协议、错误策略映射、实时步骤与日志、取消、按标签清理、重启对账和容量。选择与未覆盖范围见决策记录的“M3 实施记录”。
 - M6 结果与产物已实现（2026-10-23）：评分汇总与覆盖率、产物到期与回收、启动对账、批量导出、磁盘水位、两步删除与回收站。按用户安排 M5 暂时跳过，M4 在另一会话并行；M6 中依赖它们的部分（管理员确认的评分契约、删除数据集版本时回收准备缓存、凭据与运行的绑定）见决策记录的“M6 实施记录”。
+- M4 数据集与准备已实现（2026-10-23，与 M6 并行，合并在 M6 之后）：Hub 数据源（经 Runner）、管理员导入与首次准备、按任务的准入、内容可得性与本机缓存分开记录、平台自己构建或拉取并导出原件（U-17）、共享恢复（租约、代次、等待者、pin）、恢复失败计为试次的执行尝试、手动回收、重启对账、作者参数与评分契约确认，以及数据集页。选择与未覆盖范围见决策记录的“M4 实施记录”。M5 仍待做。
 
 ## 代码状态
 
-- 新代码在 `src/maestro/`，Runner 在 `runner/`（单独的 uv 项目和锁文件），测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。`src/harbor_helper/` 只剩 M4、M5 要参考的任务来源、作者参数与旧安全模块；服务环境已不安装 Harbor，这些文件不能再导入，也不进入发布包，参考完即删。
+- 新代码在 `src/maestro/`，Runner 在 `runner/`（单独的 uv 项目和锁文件），测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。`src/harbor_helper/` 只剩 M5 要参考的旧团队配置与安全模块；服务环境已不安装 Harbor，这些文件不能再导入，也不进入发布包，参考完即删。
 - 重写过程中允许无法部署。按模块替换，新模块就绪后直接删除对应的基线代码和测试，不保留新旧并行、转发层或兼容分支。
 - 不承诺向后兼容，不迁移旧 state，新实现从空实例初始化。对外 HTTP、SDK、CLI 契约随重写修改。
 - 可移植的基线与 `dev` 代码见[实施计划](design/13-testing-plan.md)第 2.3 节。移植时先读原代码，按新设计重写接口。
@@ -27,7 +28,7 @@
 需要 Linux、Python 3.12–3.13 和 uv；实际执行另需 Docker/Compose、可用作者依赖与 Hub 权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
 - Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests runner/src`；新代码另跑 `uv run ruff format --check src/maestro tests/maestro runner/src`。
-- Runner：在 `runner/` 执行 `uv sync --locked`。真实 Docker 测试需显式开启：`MAESTRO_DOCKER_TESTS=1 uv run pytest -q tests/maestro/test_harbor_docker.py`。它只用本地 Oracle 任务和已有的 `ubuntu:22.04`，不调用模型和 Hub；资源都带每个测试独立的实例标签，结束时核对清空。
+- Runner：在 `runner/` 执行 `uv sync --locked`。真实 Docker 测试需显式开启：`MAESTRO_DOCKER_TESTS=1 uv run pytest -q tests/maestro/test_harbor_docker.py`。它只用本地 Oracle 任务和已有的 `ubuntu:22.04`，需要 buildx，不调用模型和 Hub；执行资源都带每个测试独立的实例标签，准备好的镜像在每个实例自己的 `maestro-prep/<实例>` 仓库名下，结束时都核对清空。真实 Hub 测试另需 `MAESTRO_HUB_TESTS=1 uv run pytest -q tests/maestro/test_hub_live.py`：匿名读取公开的 `harbor/hello-world`，导入测试会真实构建（基础镜像可能被拉取）；Runner 继承代理变量，但不支持 SOCKS 代理变量（`ALL_PROXY`）。
 - 数据库：`schema.py` 与最新迁移须一致（`tests/maestro/test_migrations.py` 检查）。首个发布前没有已部署的 schema，`0001` 可以随 `schema.py` 重新生成；发布后只追加迁移。并行分支都改了 `schema.py` 时，合并后在合并结果上重新生成 `0001`。
 - 实例：`maestro --config <config.toml> init / db upgrade / serve / openapi`；示例配置与试用步骤见根目录 README。
 - 前端：在 `frontend/` 执行 `npm ci`、`npm run build`、`npm run lint`；build 写入 `src/maestro/static/`。

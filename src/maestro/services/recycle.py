@@ -10,12 +10,15 @@ one thing that cannot be deleted. The bin never empties itself.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from sqlalchemy import Connection, delete, func, insert, select, update
 
+from maestro.boundaries.environment import PreparedOutput
 from maestro.core import clock
 from maestro.core.errors import MaestroError, not_found
 from maestro.core.ids import new_id
@@ -219,23 +222,25 @@ def purge_versions(conn: Connection, version_ids: list[str], service: Recycle) -
         "cancel_runs",
     )
     tasks = conn.execute(
-        select(t.tasks.c.id, t.tasks.c.content_digest).where(
+        select(t.tasks.c.id, t.tasks.c.content_digest, t.tasks.c.spec_digest).where(
             t.tasks.c.dataset_version_id.in_(version_ids)
         )
     ).all()
-    still_used = set(
-        conn.execute(
-            select(t.tasks.c.content_digest).where(
-                t.tasks.c.dataset_version_id.not_in(version_ids),
-                t.tasks.c.dataset_version_id.not_in(
-                    select(t.deletions.c.object_id).where(
-                        t.deletions.c.object_type == "dataset_version",
-                        t.deletions.c.state == deleted.PURGED,
-                    )
-                ),
-            )
-        ).scalars()
+    remaining = (
+        select(t.tasks)
+        .where(
+            t.tasks.c.dataset_version_id.not_in(version_ids),
+            t.tasks.c.dataset_version_id.not_in(
+                select(t.deletions.c.object_id).where(
+                    t.deletions.c.object_type == "dataset_version",
+                    t.deletions.c.state == deleted.PURGED,
+                )
+            ),
+        )
+        .subquery()
     )
+    still_used = set(conn.execute(select(remaining.c.content_digest)).scalars())
+    specs_used = set(conn.execute(select(remaining.c.spec_digest)).scalars())
     task_ids = [x.id for x in tasks]
     conn.execute(delete(t.task_admissions).where(t.task_admissions.c.task_id.in_(task_ids)))
     conn.execute(update(t.tasks).where(t.tasks.c.id.in_(task_ids)).values(definition_json={}))
@@ -244,12 +249,31 @@ def purge_versions(conn: Connection, version_ids: list[str], service: Recycle) -
         .where(t.dataset_versions.c.id.in_(version_ids))
         .values(manifest_json={})
     )
-    # TODO(M4): also reclaim this version's preparation cache, image archives and
-    # images here, keeping content still used by versions that are not purged.
+    # Preparation caches, their images and recoverable originals go with the last
+    # version that uses the same spec (U-19); shared content stays.
+    specs = sorted({x.spec_digest for x in tasks if x.spec_digest} - specs_used)
+    preparations = conn.execute(
+        select(
+            t.preparations.c.id, t.preparations.c.spec_digest, t.preparations.c.output_json
+        ).where(t.preparations.c.spec_digest.in_(specs))
+    ).all()
+    preparation_ids = [p.id for p in preparations]
+    conn.execute(
+        delete(t.preparation_pins).where(t.preparation_pins.c.preparation_id.in_(preparation_ids))
+    )
+    conn.execute(delete(t.preparations).where(t.preparations.c.id.in_(preparation_ids)))
+    outputs = [(p.spec_digest, p.output_json) for p in preparations if p.output_json]
     released = sorted({x.content_digest for x in tasks} - still_used)
     return Purged(
-        {"tasks": len(task_ids), "released_task_contents": len(released)},
-        [lambda: service.remove_task_materials(released)],
+        {
+            "tasks": len(task_ids),
+            "released_task_contents": len(released),
+            "released_preparations": len(preparation_ids),
+        },
+        [
+            lambda: service.remove_task_materials(released),
+            lambda: service.discard_preparations(outputs),
+        ],
     )
 
 
@@ -479,11 +503,12 @@ def public_entry(row) -> dict:
 
 
 class Recycle:
-    def __init__(self, db: Database, store, materials=None, exports=None):
+    def __init__(self, db: Database, store, materials=None, exports=None, environment=None):
         self.db = db
         self.store = store
         self.materials = materials
         self.exports = exports
+        self.environment = environment
 
     @staticmethod
     def _handler(object_type: str) -> Handler:
@@ -716,6 +741,33 @@ class Recycle:
         if self.materials:
             for digest in digests:
                 self.materials.remove(digest)
+
+    def discard_preparations(self, outputs: list[tuple[str, dict]]) -> None:
+        """Local images and their originals; runs from a request thread after commit.
+        A spec that a new import prepared again meanwhile has a live row: keep it."""
+        if self.environment is None or not outputs:
+            return
+        with self.db.read() as conn:
+            live = set(
+                conn.execute(
+                    select(t.preparations.c.spec_digest).where(
+                        t.preparations.c.spec_digest.in_([spec for spec, _ in outputs])
+                    )
+                ).scalars()
+            )
+
+        async def discard():
+            for spec, output in outputs:
+                if spec not in live:
+                    await self.environment.discard(PreparedOutput.from_json(output))
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(discard())
+            return
+        with ThreadPoolExecutor(1) as pool:  # called on a loop thread: run beside it
+            pool.submit(asyncio.run, discard()).result()
 
     def expire_exports(self, run_ids: set[str]) -> None:
         if self.exports:

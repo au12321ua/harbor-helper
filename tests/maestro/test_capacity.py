@@ -4,6 +4,7 @@ import asyncio
 import uuid
 
 import pytest
+from conftest import import_version
 from sqlalchemy import update
 from support import Api, running, setup_admin
 
@@ -11,7 +12,6 @@ from maestro.db import schema as t
 from maestro.domain.states import Role
 from maestro.services.capacity import HostCapacity
 from maestro.services.principal import Channel, Principal
-from maestro.testing.fakes import FakeDatasetSource
 
 
 @pytest.fixture
@@ -56,7 +56,9 @@ def set_provider(service, run_id, provider):
         )
 
 
-def test_runs_wait_for_slots_and_small_runs_pass_large_ones(service, owner, version_id, executor):
+def test_runs_wait_for_slots_and_small_runs_pass_large_ones(
+    service, owner, version_id, executor, source
+):
     executor.script = {"add-01": ["hang"], "add-02": ["hang"], "mul-01": ["hang"]}
     use(service, slots=4)
     first = accept(service, owner, version_id, concurrency=3)  # 3 trials, width 3
@@ -66,9 +68,8 @@ def test_runs_wait_for_slots_and_small_runs_pass_large_ones(service, owner, vers
     assert claimed[0] == first["run_id"]
     assert service.worker._claim() is None
     assert service.runs.get(owner, large["run_id"])["queue_reason"] == "CAPACITY_SLOTS"
-    small = FakeDatasetSource()
-    small.add("demo", "one", "v1", ["solo"])
-    one = service.catalog.register_version(small, "demo", "one", "v1", True, None)
+    source.add("demo", "one", "v1", ["solo"])
+    one = import_version(service, "demo", "one", "v1")["dataset_version_id"]
     passing = accept(service, owner, one, concurrency=1)
     assert service.worker._claim()[0] == passing["run_id"]
     assert service.runs.get(owner, large["run_id"])["state"] == "queued"

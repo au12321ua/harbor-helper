@@ -5,6 +5,7 @@ import asyncio
 import uuid
 
 import pytest
+from conftest import import_version
 from sqlalchemy import insert, select, update
 
 from maestro.application import Maestro
@@ -20,14 +21,18 @@ from maestro.testing.fakes import FakeExecutor
 
 
 @pytest.fixture
-def local(settings, source):
+def local(settings, source, environment):
     """A service writing real files, for races that depend on POSIX unlink."""
     built = Maestro.build(
-        settings, executor=FakeExecutor(), store=LocalArtifactStore(settings.artifacts_dir)
+        settings,
+        executor=FakeExecutor(),
+        store=LocalArtifactStore(settings.artifacts_dir),
+        environment=environment,
+        sources={"fake": source},
     )
     migrate.upgrade(built.db)
     built.keys.initialize()
-    version = built.catalog.register_version(source, "demo", "arith", "v1", True, None)
+    version = import_version(built)["dataset_version_id"]
     owner = make_owner(built)
     built.worker.start_epoch()
     yield built, owner, version

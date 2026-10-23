@@ -15,6 +15,7 @@ from support import (
 )
 
 from maestro.db import schema as t
+from maestro.testing.fakes import FakeDatasetSource
 
 
 def finished_run(api, version_id, **body) -> str:
@@ -319,3 +320,82 @@ def test_files_of_a_binned_run_stay_readable_until_purged(service, version_id):
         admin.delete(f"/api/v1/runs/{run_id}", expect=200)
         admin.get(f"/api/v1/artifacts/{artifact['id']}/download", expect=200)
         assert admin.get(f"/api/v1/runs/{run_id}/summary", expect=200).json()["data"]
+
+
+def test_purging_a_version_reclaims_caches_except_shared_content(
+    service, source, environment, settings
+):
+    """U-19: purge takes the version's preparation caches, images and originals, and
+    its task materials, but keeps what a remaining version still uses."""
+    from test_datasets import import_and_prepare, tasks_by_key
+
+    shared = FakeDatasetSource.task_files("demo", "pair", "shared")
+    source.add("demo", "pair", "v1", ["shared", "only-v1"], files={"shared": shared})
+    source.add("demo", "pair", "v2", ["shared"], files={"shared": shared})
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        v1, _ = import_and_prepare(admin, name="pair", ref="v1")
+        v2, _ = import_and_prepare(admin, name="pair", ref="v2")
+        old = tasks_by_key(admin, v1)
+        refs = {k: environment.ref(x["spec_digest"]) for k, x in old.items()}
+        assert set(refs.values()) <= set(environment.images)
+        entry = admin.delete(f"/api/v1/admin/dataset-versions/{v1}", expect=200).json()["data"]
+        purged = purge(admin, entry).json()["data"]
+        assert purged["detail"]["purged"]["released_preparations"] == 1
+        assert refs["only-v1"] not in environment.images
+        assert refs["only-v1"] not in environment.archives
+        assert refs["shared"] in environment.images  # v2 still uses the same spec
+        only = old["only-v1"]["content"]["digest"][7:]
+        assert not (settings.cache_dir / "tasks" / only).exists()
+        assert (settings.cache_dir / "tasks" / old["shared"]["content"]["digest"][7:]).is_dir()
+        (kept,) = tasks_by_key(admin, v2).values()
+        assert kept["local_preparation"]["cache_state"] == "ready" and kept["can_submit"]
+
+
+def test_imports_respect_the_recycle_bin(service, source):
+    """A recycled version or dataset is restored, not imported again; after a purge
+    the same content can be added as a new version (M6 hand-over to M4)."""
+    from test_datasets import import_and_prepare, import_dataset, tasks_by_key
+
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        first, _ = import_and_prepare(admin)
+        entry = admin.delete(f"/api/v1/admin/dataset-versions/{first}", expect=200).json()["data"]
+        again = import_dataset(admin)
+        assert again["status"] == "failed"
+        assert again["error"]["code"] == "DATASET_VERSION_RECYCLED"
+        purge(admin, entry).raise_for_status()
+        second, prepared = import_and_prepare(admin)
+        assert second != first and prepared["status"] == "succeeded"
+        assert all(x["can_submit"] for x in tasks_by_key(admin, second).values())
+
+        (dataset,) = admin.get("/api/v1/datasets").json()["data"]
+        entry = admin.delete(f"/api/v1/admin/datasets/{dataset['id']}", expect=200).json()["data"]
+        assert import_dataset(admin)["error"]["code"] == "DATASET_RECYCLED"
+        purge(admin, entry).raise_for_status()
+        third, _ = import_and_prepare(admin)
+        (fresh,) = admin.get("/api/v1/datasets").json()["data"]
+        assert fresh["id"] != dataset["id"] and fresh["versions"][0]["id"] == third
+
+
+def test_admin_confirms_the_scoring_contract_for_new_runs(service, version_id):
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        member = invite_member(service, admin, "member")
+        before = finished_run(member, version_id)
+        detail = member.get(f"/api/v1/dataset-versions/{version_id}").json()["data"]
+        assert detail["scoring_contract"]["source"] == "platform_default"
+        body = {"direction": "higher_is_better", "pass_threshold": 0.5, "name": "Accuracy"}
+        url = f"/api/v1/admin/dataset-versions/{version_id}/scoring-contract"
+        assert member.put(url, json=body).status_code == 403
+        bad = admin.put(url, json={"direction": "higher_is_better", "pass_threshold": None})
+        assert bad.status_code == 200  # no pass rate is a valid choice
+        confirmed = admin.put(url, json=body, expect=200).json()["data"]
+        assert confirmed["source"] == "dataset_version"
+        assert confirmed["passed"] == {"rule": "threshold", "threshold": 0.5}
+        after = finished_run(member, version_id)
+        policy = lambda run_id: member.get(f"/api/v1/runs/{run_id}").json()["data"]["snapshot"][
+            "policy"
+        ]["scoring"]
+        assert policy(before)["source"] == "platform_default"
+        assert policy(after)["source"] == "dataset_version" and policy(after)["name"] == "Accuracy"

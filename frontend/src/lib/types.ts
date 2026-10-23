@@ -123,15 +123,29 @@ export interface DatasetVersion {
   upstream_ref: string;
   ref_kind: string;
   resolved_digest: string;
+  materialization_digest: string | null;
   status: string;
+  description: string;
   created_at: string;
-}
-
-export interface DatasetVersionDetail extends DatasetVersion {
-  deletion: DeletionState | null;
+  created_by: string | null;
+  operation_id: string | null;
   task_count: number;
   admitted_task_count: number;
   submittable_task_count: number;
+  cache_ready_task_count: number;
+}
+
+export interface DatasetVersionDetail extends DatasetVersion {
+  namespace: string;
+  name: string;
+  first_preparation_operation_id: string | null;
+  deletion: DeletionState | null;
+  scoring_contract: {
+    source: "dataset_version" | "platform_default";
+    name: string;
+    direction: "higher_is_better" | "lower_is_better";
+    passed: { rule: string; threshold: number } | null;
+  };
 }
 
 export interface Dataset {
@@ -140,20 +154,115 @@ export interface Dataset {
   namespace: string;
   name: string;
   description: string;
+  credential_id: string | null;
   versions: DatasetVersion[];
+}
+
+export type Availability = "unknown" | "available" | "unavailable";
+export type CacheState = "absent" | "restoring" | "ready" | "stale";
+
+export interface LocalPreparation {
+  id: string | null;
+  location_id: string;
+  cache_state: CacheState;
+  last_restore_error: Record<string, unknown> | null;
+  operation_id: string | null;
+  prepared_at: string | null;
+  last_used_at: string | null;
+}
+
+export interface AuthorParameter {
+  name: string;
+  default: string | null;
+  required: boolean;
+  sensitive: boolean;
+  description: string;
+  hard_constraints: Record<string, unknown>;
+  used_in: string[];
+}
+
+export interface TaskBlocker {
+  code: string;
+  admission_state?: string | null;
+  first_preparation_error?: Record<string, unknown> | null;
+  resource_kind?: string | null;
+  expected_digest?: string | null;
+  evidence?: Record<string, unknown> | null;
+  parameters?: string[] | null;
+  issues?: Record<string, unknown>[] | null;
 }
 
 export interface Task {
   id: string;
+  dataset_version_id: string;
   task_key: string;
-  admission: { id: string; state: string; revision: number } | null;
+  admission: { id: string; state: string; revision: number; approved_at: string | null } | null;
   content: {
     digest: string;
-    availability: "unknown" | "available" | "unavailable";
+    material_digest: string | null;
+    availability: Availability;
     checked_at: string | null;
+    resources: {
+      resource_kind: string;
+      digest: string;
+      availability: Availability;
+      checked_at: string | null;
+    }[];
   };
+  local_preparation: LocalPreparation;
+  spec_digest: string | null;
+  resources: Record<string, unknown>;
+  timeouts: Record<string, unknown>;
+  parameters: AuthorParameter[];
+  instruction: string;
   can_submit: boolean;
-  blockers: Record<string, unknown>[];
+  blockers: TaskBlocker[];
+  warnings: { code: string; action: string }[];
+  required_preparation: { action: string; spec_digest: string }[];
+}
+
+export interface Operation {
+  id: string;
+  kind: string;
+  resource: { type: string; id: string } | null;
+  owner_id: string | null;
+  status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+  phase: string | null;
+  progress: Record<string, unknown>;
+  error: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  allowed_actions: string[];
+  links: Record<string, string>;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+export interface SourceDataset {
+  namespace: string;
+  name: string;
+  visibility?: string | null;
+}
+
+export interface SourceVersion {
+  ref: string;
+  revision?: number | null;
+  tags: string[];
+  resolved_digest: string;
+  published_at?: string | null;
+  yanked: boolean;
+}
+
+export interface SourceVersionDetail {
+  namespace: string;
+  name: string;
+  upstream_ref: string;
+  ref_kind: string;
+  resolved_digest: string;
+  description: string;
+  tasks: { task_key: string; content_digest: string }[];
+  existing_version_id: string | null;
 }
 
 export interface RunCreate {
@@ -172,6 +281,8 @@ export interface RunAccepted {
   config_digest: string;
   snapshot_digest: string;
   planned_trials: number;
+  excluded_tasks: { task_id: string; task_key: string; blockers: TaskBlocker[] }[];
+  cache_observations: { task_key: string; cache_state: string; action: string | null }[];
   links: Record<string, string>;
 }
 

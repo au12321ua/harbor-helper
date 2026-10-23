@@ -7,8 +7,24 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from maestro.boundaries.dataset_source import SourceTask, SourceVersion
-from maestro.boundaries.environment import CleanupReport, PreparationSpec, PreparedArtifact
+from maestro.boundaries.dataset_source import (
+    MISMATCH,
+    NOT_FOUND,
+    FetchedTask,
+    SourceError,
+    SourceTask,
+    SourceVersion,
+)
+from maestro.boundaries.environment import (
+    MISMATCH as PREP_MISMATCH,
+)
+from maestro.boundaries.environment import (
+    TRANSIENT,
+    CleanupReport,
+    PreparationError,
+    PreparationSpec,
+    PreparedOutput,
+)
 from maestro.boundaries.executor import (
     AttemptOutcome,
     CancelToken,
@@ -21,46 +37,108 @@ from maestro.core.digests import digest_json
 
 
 class FakeDatasetSource:
+    """In-memory source. Each task is a small Harbor task directory; failures are
+    injected per content digest as a queue of kinds consumed one call at a time."""
+
     kind = "fake"
 
     def __init__(self):
         self.versions: dict[tuple[str, str, str], SourceVersion] = {}
+        self.files: dict[str, dict[str, str]] = {}
+        self.fail_fetch: dict[str, list[str]] = {}
+        self.gone: set[str] = set()
+        self.altered: set[str] = set()
+        self.fetches: list[str] = []
+        self.credentials: list[str | None] = []
 
-    def add(self, namespace: str, name: str, ref: str, task_keys: list[str]) -> SourceVersion:
-        tasks = tuple(
-            SourceTask(
-                task_key=key,
-                content_digest=digest_json({"dataset": f"{namespace}/{name}", "task": key}),
-                definition={"instruction": f"Solve {key}"},
-            )
-            for key in task_keys
-        )
+    @staticmethod
+    def task_files(namespace: str, name: str, key: str, revision: str = "") -> dict[str, str]:
+        return {
+            "task.toml": (
+                "[agent]\ntimeout_sec = 60.0\n[verifier]\ntimeout_sec = 60.0\n"
+                "[environment]\ncpus = 1\nmemory_mb = 2048\n"
+            ),
+            "instruction.md": f"Solve {key}{revision}\n",
+            "environment/Dockerfile": f"FROM scratch\n# {namespace}/{name}/{key}\n",
+            "solution/solve.sh": "echo ok\n",
+            "tests/test.sh": "echo 1 > /logs/verifier/reward.txt\n",
+        }
+
+    def add(
+        self,
+        namespace: str,
+        name: str,
+        ref: str,
+        task_keys: list[str],
+        *,
+        revision: str = "",
+        files: dict[str, dict[str, str]] | None = None,
+    ) -> SourceVersion:
+        """``revision`` changes every task's content: the same ref then moves (F-11)."""
+        tasks = []
+        for key in task_keys:
+            content = (files or {}).get(key) or self.task_files(namespace, name, key, revision)
+            digest = digest_json({"files": content})
+            self.files[digest] = content
+            tasks.append(SourceTask(key, digest, {"key": key}))
         version = SourceVersion(
             namespace=namespace,
             name=name,
             upstream_ref=ref,
-            ref_kind="tag",
+            ref_kind="digest" if ref.startswith("sha256:") else "tag",
             resolved_digest=digest_json([t.content_digest for t in tasks]),
-            tasks=tasks,
+            tasks=tuple(tasks),
+            description=f"Fake dataset {namespace}/{name}",
         )
         self.versions[(namespace, name, ref)] = version
         return version
 
-    def search(self, query: str) -> list[dict]:
+    async def search(self, query: str, credential: str | None) -> list[dict]:
+        self.credentials.append(credential)
+        seen = {(ns, n) for (ns, n, _) in self.versions if query in f"{ns}/{n}"}
+        return [{"namespace": ns, "name": n, "visibility": "public"} for ns, n in sorted(seen)]
+
+    async def list_versions(self, namespace: str, name: str, credential: str | None) -> list:
         return [
-            {"namespace": ns, "name": n, "ref": r}
-            for (ns, n, r) in self.versions
-            if query in f"{ns}/{n}"
+            {"ref": r, "tags": [r], "resolved_digest": v.resolved_digest, "yanked": False}
+            for (ns, n, r), v in self.versions.items()
+            if (ns, n) == (namespace, name)
         ]
 
-    def resolve(self, namespace: str, name: str, ref: str) -> SourceVersion:
-        return self.versions[(namespace, name, ref)]
+    async def describe(self, namespace: str, name: str, ref: str, credential: str | None):
+        self.credentials.append(credential)
+        version = self.versions.get((namespace, name, ref))
+        if version is None:
+            for (ns, n, _), candidate in self.versions.items():
+                if (ns, n) == (namespace, name) and candidate.resolved_digest == ref:
+                    return candidate
+            raise SourceError(NOT_FOUND, f"{namespace}/{name}@{ref} not found")
+        return version
 
-    def fetch(self, version: SourceVersion, destination: Path) -> str:
-        destination.mkdir(parents=True, exist_ok=True)
-        for task in version.tasks:
-            (destination / f"{task.task_key}.json").write_text(digest_json(task.definition))
-        return version.resolved_digest
+    async def fetch(self, task: SourceTask, destination: Path, credential: str | None):
+        self.fetches.append(task.content_digest)
+        self.credentials.append(credential)
+        queue = self.fail_fetch.get(task.content_digest)
+        if queue:
+            kind = queue.pop(0)
+            raise SourceError(kind, f"fake {kind} failure", {"request_id": "fake-req"})
+        if task.content_digest in self.gone:
+            raise SourceError(NOT_FOUND, "task version not found")
+        content = dict(self.files[task.content_digest])
+        if task.content_digest in self.altered:
+            content["instruction.md"] += "tampered\n"
+        destination.mkdir(parents=True)
+        for relative, text in content.items():
+            path = destination / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        if task.content_digest in self.altered:
+            raise SourceError(
+                MISMATCH,
+                "downloaded task differs from the fixed digest",
+                {"expected_digest": task.content_digest, "actual_digest": "sha256:" + "0" * 64},
+            )
+        return FetchedTask(destination, task.content_digest)
 
 
 def scored(score: float) -> AttemptOutcome:
@@ -152,28 +230,88 @@ class FakeExecutor:
 
 
 class FakeEnvironment:
+    """Images and originals in memory. Per task key, ``fail_prepare`` / ``fail_restore``
+    queue failure kinds; ``gate`` blocks preparation until set; ``nondeterministic``
+    tasks rebuild to a different image id; ``lose_archive`` drops an original."""
+
     location_id = "fake-host"
 
     def __init__(self):
-        self.ready: set[str] = set()
-        self.cleaned: list[dict] = []
-        self.fail_prepare: set[str] = set()
+        self.images: dict[str, str] = {}
+        self.archives: dict[str, str] = {}
+        self.fail_prepare: dict[str, list[str]] = {}
+        self.fail_restore: dict[str, list[str]] = {}
+        self.nondeterministic: set[str] = set()
+        self.gate: asyncio.Event | None = None
+        self.prepares: list[str] = []
+        self.restores: list[str] = []
+        self.loads: list[str] = []
+        self.started = asyncio.Event()
+        self.builds = 0
 
-    async def prepare(self, spec: PreparationSpec) -> PreparedArtifact:
-        if spec.spec_digest in self.fail_prepare:
-            raise RuntimeError("fake preparation failure")
-        self.ready.add(spec.spec_digest)
-        return PreparedArtifact(spec.spec_digest, self.location_id, spec.spec_digest)
+    def ref(self, spec_digest: str) -> str:
+        return f"fake-prep:{spec_digest[7:23]}"
 
-    async def is_ready(self, spec_digest: str) -> bool:
-        return spec_digest in self.ready
+    async def _work(self, spec: PreparationSpec, progress, queue: dict[str, list[str]]):
+        self.started.set()
+        await progress("building")
+        if self.gate is not None:
+            await self.gate.wait()
+        kinds = queue.get(spec.task_key)
+        if kinds:
+            kind = kinds.pop(0)
+            raise PreparationError(kind, f"fake {kind} preparation failure", {"stage": "build"})
+        if not (spec.task_dir / "task.toml").is_file():
+            raise PreparationError(TRANSIENT, "task material missing")
+        self.builds += 1
+        salt = self.builds if spec.task_key in self.nondeterministic else 0
+        return digest_json({"spec": spec.spec_digest, "salt": salt})
 
-    async def evict(self, spec_digest: str) -> None:
-        self.ready.discard(spec_digest)
+    async def prepare(self, spec: PreparationSpec, progress) -> PreparedOutput:
+        self.prepares.append(spec.task_key)
+        image_id = await self._work(spec, progress, self.fail_prepare)
+        ref = self.ref(spec.spec_digest)
+        self.images[ref] = image_id
+        self.archives[ref] = image_id
+        return PreparedOutput(image_id, ref, {"name": ref, "digest": image_id, "size_bytes": 1})
 
-    async def cleanup(self, labels: dict[str, str]) -> CleanupReport:
-        self.cleaned.append(labels)
-        return CleanupReport(released=True)
+    async def restore(self, spec: PreparationSpec, expected: PreparedOutput, progress):
+        self.restores.append(spec.task_key)
+        if await self.check(expected):
+            return expected
+        if self.archives.get(expected.image_ref) == expected.image_id and not self.fail_restore.get(
+            spec.task_key
+        ):
+            self.started.set()
+            await progress("loading")
+            if self.gate is not None:
+                await self.gate.wait()
+            self.loads.append(spec.task_key)
+            self.images[expected.image_ref] = expected.image_id
+            return expected
+        image_id = await self._work(spec, progress, self.fail_restore)
+        if image_id != expected.image_id:
+            raise PreparationError(
+                PREP_MISMATCH,
+                "rebuilt image differs",
+                {"expected_digest": expected.image_id, "actual_digest": image_id},
+            )
+        self.images[expected.image_ref] = image_id
+        self.archives[expected.image_ref] = image_id
+        return expected
+
+    async def check(self, expected: PreparedOutput) -> bool:
+        return self.images.get(expected.image_ref) == expected.image_id
+
+    async def evict(self, expected: PreparedOutput) -> None:
+        self.images.pop(expected.image_ref, None)
+
+    async def discard(self, expected: PreparedOutput) -> None:
+        self.images.pop(expected.image_ref, None)
+        self.archives.pop(expected.image_ref, None)
+
+    def lose_archive(self, image_ref: str) -> None:
+        self.archives.pop(image_ref, None)
 
 
 class MemoryArtifactStore:

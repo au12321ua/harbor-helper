@@ -81,13 +81,13 @@ erDiagram
 | sessions | token_hash、user_id、expires_at、revoked_at | 网页会话只存摘要，可在服务端撤销（14 M2 实施记录） |
 | pats | id、owner_id、token_hash、scope、expires_at、run_limit、accepted_runs、revoked_at | scope 为 read / experiment；计数只能在受理事务内增加 |
 | credentials | id、kind、encrypted_payload、key_version、enabled、revision | 对外仅返回引用与脱敏描述 |
-| datasets | id、source_kind、namespace、name、enabled | 来源、namespace、name 联合唯一 |
-| dataset_versions | id、dataset_id、upstream_ref、ref_kind、resolved_digest、materialization_digest、manifest_json、status | 上游 digest 与本地展开摘要分开；标签漂移不覆盖旧版本 |
-| tasks | id、dataset_version_id、task_key、definition_json、content_digest | 版本 + task_key 唯一 |
+| datasets | id、source_kind、namespace、name、enabled、credential_id | 来源、namespace、name 在未物理删除的记录中唯一（导入事务检查；物理删除只留回执，可重新添加，M4 实施记录） |
+| dataset_versions | id、dataset_id、upstream_ref、ref_kind、resolved_digest、materialization_digest、manifest_json、status | 上游 digest 与本地展开摘要分开；标签漂移不覆盖旧版本；同一数据集下未物理删除的版本按 resolved_digest 去重（M4 实施记录） |
+| tasks | id、dataset_version_id、task_key、definition_json、content_digest、material_digest、spec_digest | 版本 + task_key 唯一；content_digest 是上游内容身份，material_digest 是本地文件摘要，spec_digest 是准备规格摘要 |
 | task_admissions | id、task_id、preparation_method_digest、state、revision、evidence_json、approved_by、approved_at | task_id + preparation_method_digest 唯一；证据含任务 / 输入 / 必需输出摘要、参数契约与首次成功 Operation，回收不删除 |
 | content_availability | content_digest、resource_kind、availability、evidence_json、checked_at、revision | content_digest + resource_kind 唯一；unknown / available / unavailable；网络 / 鉴权暂态失败只记录观测 |
-| preparations | id、task_id、spec_digest、location_id、cache_state、generation、active_operation_id、eviction_operation_id、last_used_at、last_restore_error_json | spec_digest + location_id 唯一；absent / restoring / ready / stale；回收认领阻止新 pin / 发布，与准入分离 |
-| preparation_waiters | operation_id、attempt_id、run_id、deadline_at、state | operation_id + attempt_id 唯一；取消仅解除自身等待；历史不影响活动引用计数 |
+| preparations | id、task_id、spec_digest、location_id、cache_state、generation、active_operation_id、eviction_operation_id、output_json、prepared_at、last_used_at、last_restore_error_json | spec_digest + location_id 唯一；absent / restoring / ready / stale；回收认领阻止新 pin / 发布，与准入分离 |
+| preparation_waiters | operation_id、attempt_id（可空）、run_id（可空）、holder_operation_id（可空）、deadline_at、state | 等待者是运行（D-020）或管理员的首次准备 Operation；operation_id + 等待者唯一；取消仅解除自身等待；历史不影响活动引用计数 |
 | preparation_pins | preparation_id、holder_kind、holder_id、expires_at | holder 为恢复 / 尝试；发布、使用、回收互斥；到期需先确认资源停止 |
 | model_configs / model_revisions | id、name、revision、provider、model_id、params_json、credential_id | 运行引用具体修订 |
 | harness_versions | id、name、version、content_digest、schema_json、enabled | 名称 + 版本唯一，摘要不可改 |

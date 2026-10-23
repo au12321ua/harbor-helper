@@ -217,8 +217,16 @@ class DatasetVersion(Model):
     upstream_ref: str
     ref_kind: str
     resolved_digest: str
+    materialization_digest: str | None
     status: Literal["ready"]
+    description: str
     created_at: str
+    created_by: str | None
+    operation_id: str | None
+    task_count: int
+    admitted_task_count: int
+    submittable_task_count: int
+    cache_ready_task_count: int
 
 
 class DeletionState(Model):
@@ -230,12 +238,15 @@ class DeletionState(Model):
 
 
 class DatasetVersionDetail(DatasetVersion):
+    namespace: str
+    name: str
+    first_preparation_operation_id: str | None
+    scoring_contract: dict[str, Any] = Field(
+        description="Contract new runs freeze; source is dataset_version or platform_default"
+    )
     deletion: DeletionState | None = Field(
         description="Set when the version or its dataset was deleted; it still resolves"
     )
-    task_count: int
-    admitted_task_count: int
-    submittable_task_count: int
 
 
 class Dataset(Model):
@@ -244,6 +255,7 @@ class Dataset(Model):
     namespace: str
     name: str
     description: str
+    credential_id: str | None
     versions: list[DatasetVersion]
 
 
@@ -251,28 +263,186 @@ class TaskAdmission(Model):
     id: str
     state: Literal["pending", "admitted", "first_failed", "revoked"]
     revision: int
+    approved_at: str | None
 
 
-class TaskContent(Model):
+class ContentResource(Model):
+    resource_kind: Literal["task_content", "environment_image"]
     digest: str
     availability: Literal["unknown", "available", "unavailable"]
     checked_at: str | None
 
 
+class TaskContent(Model):
+    digest: str
+    material_digest: str | None
+    availability: Literal["unknown", "available", "unavailable"]
+    checked_at: str | None
+    resources: list[ContentResource]
+
+
+class LocalPreparation(Model):
+    id: str | None
+    location_id: str
+    cache_state: Literal["absent", "restoring", "ready", "stale"]
+    last_restore_error: dict[str, Any] | None
+    operation_id: str | None
+    prepared_at: str | None
+    last_used_at: str | None
+
+
 class TaskBlocker(Model):
-    code: Literal["TASK_NOT_ADMITTED", "TASK_ADMISSION_REVOKED", "RESOURCE_CONTENT_UNAVAILABLE"]
+    code: Literal[
+        "TASK_NOT_ADMITTED",
+        "TASK_ADMISSION_REVOKED",
+        "RESOURCE_CONTENT_UNAVAILABLE",
+        "CONFIG_REQUIRED_MISSING",
+        "AUTHOR_PARAMETERS_UNRESOLVED",
+    ]
     admission_state: str | None = None
+    first_preparation_error: dict[str, Any] | None = None
     resource_kind: str | None = None
     expected_digest: str | None = None
+    evidence: dict[str, Any] | None = None
+    parameters: list[str] | None = None
+    issues: list[dict[str, Any]] | None = None
+
+
+class TaskWarning(Model):
+    code: Literal["PREPARATION_CACHE_MISS"]
+    action: str
+
+
+class RequiredPreparation(Model):
+    action: Literal["restore_cache"]
+    spec_digest: str
+
+
+class AuthorParameter(Model):
+    """Author parameter contract (03): defaults, requirement, constraints."""
+
+    name: str
+    default: str | None
+    required: bool
+    sensitive: bool
+    description: str
+    hard_constraints: dict[str, Any]
+    used_in: list[str]
 
 
 class Task(Model):
     id: str
+    dataset_version_id: str
     task_key: str
     admission: TaskAdmission | None
     content: TaskContent
+    local_preparation: LocalPreparation
+    spec_digest: str | None
+    resources: dict[str, Any]
+    timeouts: dict[str, Any]
+    parameters: list[AuthorParameter]
+    instruction: str
     can_submit: bool
     blockers: list[TaskBlocker]
+    warnings: list[TaskWarning]
+    required_preparation: list[RequiredPreparation]
+
+
+class PreparationWaiter(Model):
+    run_id: str | None
+    operation_id: str | None
+    state: str
+    since: str
+
+
+class PreparationPin(Model):
+    holder_kind: str
+    holder_id: str
+
+
+class Preparation(LocalPreparation):
+    spec_digest: str
+    generation: int
+    image_id: str | None
+    archive: dict[str, Any] | None
+    waiters: list[PreparationWaiter]
+    pins: list[PreparationPin]
+
+
+class DatasetSource(Model):
+    kind: str
+    available: bool
+
+
+class SourceDataset(Model):
+    namespace: str
+    name: str
+    visibility: str | None = None
+
+
+class SourceVersion(Model):
+    ref: str
+    revision: int | None = None
+    tags: list[str] = []
+    resolved_digest: str
+    published_at: str | None = None
+    yanked: bool = False
+    yanked_reason: str | None = None
+
+
+class SourceTask(Model):
+    task_key: str
+    content_digest: str
+
+
+class SourceVersionDetail(Model):
+    namespace: str
+    name: str
+    upstream_ref: str
+    ref_kind: str
+    resolved_digest: str
+    description: str
+    tasks: list[SourceTask]
+    existing_version_id: str | None
+
+
+class DatasetImport(Model):
+    source_kind: str = "hub"
+    namespace: str
+    name: str
+    ref: str = Field(description="Tag, revision or sha256 digest; always pinned to a digest")
+    credential_id: str | None = None
+    accept_changed_content: bool = Field(
+        False, description="Record a moved tag as a new version (CONTENT_REFERENCE_CHANGED)"
+    )
+    prepare: bool = Field(True, description="Start the first preparation after the import")
+
+
+class FirstPreparation(Model):
+    task_ids: list[str] | None = Field(
+        None, description="Default: every task without a successful first preparation"
+    )
+
+
+class ScoringContractInput(Model):
+    metric_id: str = "reward"
+    name: str = "Reward"
+    unit: str | None = None
+    direction: Literal["higher_is_better", "lower_is_better"]
+    pass_threshold: float | None = Field(
+        description="A trial passes when its score reaches this value; null: no pass rate"
+    )
+
+
+class AdmissionRevocation(Model):
+    reason: str
+    expected_revision: int
+
+
+class AdmissionRevoked(Model):
+    id: str
+    state: Literal["revoked"]
+    revision: int
 
 
 # --- runs and operations -------------------------------------------------------------
@@ -306,6 +476,8 @@ class RunAccepted(Model):
     config_digest: str
     snapshot_digest: str
     planned_trials: int
+    excluded_tasks: list[dict[str, Any]]
+    cache_observations: list[dict[str, Any]]
     links: dict[str, str]
 
 

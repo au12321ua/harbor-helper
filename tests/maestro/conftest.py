@@ -1,11 +1,18 @@
 """Isolated instances: fresh data, cache and master-key directories per test."""
 
+import asyncio
+
 import pytest
 
 from maestro.application import Maestro
 from maestro.config import Settings
 from maestro.db import migrate
-from maestro.testing.fakes import FakeDatasetSource, FakeExecutor, MemoryArtifactStore
+from maestro.testing.fakes import (
+    FakeDatasetSource,
+    FakeEnvironment,
+    FakeExecutor,
+    MemoryArtifactStore,
+)
 
 
 @pytest.fixture
@@ -37,16 +44,6 @@ def store():
 
 
 @pytest.fixture
-def service(settings, executor, store):
-    built = Maestro.build(settings, executor=executor, store=store)
-    migrate.upgrade(built.db)
-    built.keys.initialize()
-    built.worker.poll_seconds = 0.02
-    yield built
-    built.db.dispose()
-
-
-@pytest.fixture
 def source():
     fake = FakeDatasetSource()
     fake.add("demo", "arith", "v1", ["add-01", "add-02", "mul-01"])
@@ -54,5 +51,39 @@ def source():
 
 
 @pytest.fixture
+def environment():
+    return FakeEnvironment()
+
+
+@pytest.fixture
+def service(settings, executor, store, source, environment):
+    built = Maestro.build(
+        settings,
+        executor=executor,
+        store=store,
+        environment=environment,
+        sources={"fake": source},
+    )
+    migrate.upgrade(built.db)
+    built.keys.initialize()
+    built.worker.poll_seconds = 0.02
+    built.worker.retry_waits = (0.01, 1.0, 0.01)
+    yield built
+    built.db.dispose()
+
+
+def import_version(service, namespace="demo", name="arith", ref="v1", **request) -> dict:
+    """Import and first-prepare through the real Operation code, outside the worker."""
+    return asyncio.run(
+        service.preparer.import_and_prepare(
+            {"source_kind": "fake", "namespace": namespace, "name": name, "ref": ref, **request},
+            None,
+        )
+    )
+
+
+@pytest.fixture
 def version_id(service, source):
-    return service.catalog.register_version(source, "demo", "arith", "v1", True, None)
+    result = import_version(service)
+    assert result["preparation"]["status"] == "succeeded", result
+    return result["dataset_version_id"]

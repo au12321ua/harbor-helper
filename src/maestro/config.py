@@ -53,6 +53,11 @@ class Settings:
         return self.data_dir / "exports"
 
     @property
+    def preparation_dir(self) -> Path:
+        """Recoverable originals of prepared images (U-17): data, not cache."""
+        return self.data_dir / "preparations"
+
+    @property
     def work_dir(self) -> Path:
         """Runner working directories: transient Harbor output until artifacts are stored."""
         return self.data_dir / "work"

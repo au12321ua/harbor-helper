@@ -21,10 +21,24 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await expect(page.getByRole("heading", { name: "运行" })).toBeVisible();
   await expect(page.getByText("可受理运行")).toBeVisible();
 
-  // Datasets (read only).
+  // Datasets: add a version from the (fake) source; first preparation admits its tasks.
   await page.getByRole("link", { name: "数据集" }).click();
-  await expect(page.getByText("demo/arith")).toBeVisible();
-  await expect(page.getByText("add-01")).toBeVisible();
+  await page.getByRole("button", { name: "从数据源添加版本" }).click();
+  await page.getByLabel("作者 / 名称").fill("demo");
+  await page.getByRole("button", { name: "搜索" }).click();
+  await page.getByRole("button", { name: "demo/arith" }).click();
+  await page.getByRole("row", { name: /^v1 / }).getByRole("button", { name: "查看" }).click();
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(page.getByText("add-01")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("缓存就绪").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("已准入 3 · 可提交 3")).toBeVisible({ timeout: 30_000 });
+  await page.screenshot({ path: `${process.env.MAESTRO_SHOTS ?? "/tmp"}/datasets.png`, fullPage: true });
+  // Evicting a cache keeps the task submittable; the next run restores it.
+  await page.getByRole("row", { name: /add-01/ }).getByRole("button", { name: "回收缓存" }).click();
+  await expect(page.getByText("运行时恢复")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "add-01" }).click();
+  await expect(page.getByText("作者参数")).toBeVisible();
+  await page.screenshot({ path: `${process.env.MAESTRO_SHOTS ?? "/tmp"}/datasets-cold.png`, fullPage: true });
 
   // New run, explicit task selection.
   await page.getByRole("link", { name: "运行", exact: true }).click();
@@ -178,6 +192,7 @@ test("score and dimension rendering", async ({ page }) => {
     result, attempts: [{ id: `att_${key}`, attempt_index: 1, state: "failed", phase: "executing",
       steps: [], executor_ref: null,
       started_at: "2026-10-22T00:00:00Z", ended_at: "2026-10-22T00:00:01Z",
+      steps: [], executor_ref: null,
       error: { code: "AGENT_TIMEOUT", message: "agent timed out" } }],
   });
   const result = (score: number | null, cause: string | null) => ({

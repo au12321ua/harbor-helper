@@ -1,12 +1,69 @@
-"""Team-readable dataset catalog. Imports and first preparation arrive with M4."""
+"""Dataset sources and the team-readable catalog (02, 10 section 4).
+
+Every authenticated caller may search sources and read versions, tasks and caches;
+administration is in ``admin`` and needs an administrator's web session.
+"""
 
 from fastapi import APIRouter, Depends, Request
 
 from maestro.api.deps import maestro, ok, principal
-from maestro.api.models import Dataset, DatasetVersionDetail, Envelope, Task
+from maestro.api.models import (
+    Dataset,
+    DatasetSource,
+    DatasetVersionDetail,
+    Envelope,
+    Preparation,
+    SourceDataset,
+    SourceVersion,
+    SourceVersionDetail,
+    Task,
+)
 from maestro.services.principal import Principal
 
 router = APIRouter(prefix="/api/v1", tags=["catalog"])
+
+
+@router.get("/dataset-sources", response_model=Envelope[list[DatasetSource]])
+def sources(request: Request, _: Principal = Depends(principal)):
+    return ok(request, maestro(request).datasets.source_list())
+
+
+@router.get("/dataset-search", response_model=Envelope[list[SourceDataset]])
+async def search(
+    request: Request,
+    q: str,
+    source_kind: str = "hub",
+    credential_id: str | None = None,
+    _: Principal = Depends(principal),
+):
+    return ok(request, await maestro(request).datasets.search(source_kind, q, credential_id))
+
+
+@router.get("/dataset-search/versions", response_model=Envelope[list[SourceVersion]])
+async def source_versions(
+    request: Request,
+    namespace: str,
+    name: str,
+    source_kind: str = "hub",
+    credential_id: str | None = None,
+    _: Principal = Depends(principal),
+):
+    service = maestro(request).datasets
+    return ok(request, await service.versions(source_kind, namespace, name, credential_id))
+
+
+@router.get("/dataset-search/version", response_model=Envelope[SourceVersionDetail])
+async def source_version(
+    request: Request,
+    namespace: str,
+    name: str,
+    ref: str,
+    source_kind: str = "hub",
+    credential_id: str | None = None,
+    _: Principal = Depends(principal),
+):
+    service = maestro(request).datasets
+    return ok(request, await service.describe(source_kind, namespace, name, ref, credential_id))
 
 
 @router.get("/datasets", response_model=Envelope[list[Dataset]])
@@ -28,3 +85,8 @@ def version(version_id: str, request: Request, _: Principal = Depends(principal)
 @router.get("/dataset-versions/{version_id}/tasks", response_model=Envelope[list[Task]])
 def tasks(version_id: str, request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).catalog.list_tasks(version_id))
+
+
+@router.get("/preparations/{preparation_id}", response_model=Envelope[Preparation])
+def preparation(preparation_id: str, request: Request, _: Principal = Depends(principal)):
+    return ok(request, maestro(request).catalog.get_preparation(preparation_id))

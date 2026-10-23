@@ -41,7 +41,13 @@ from maestro.services.capacity import (
     refuse_if_never_fits,
     reservation,
 )
-from maestro.services.catalog import ADMITTED
+from maestro.services.catalog import (
+    ADMITTED,
+    expected_image,
+    load_admissions,
+    load_availability,
+    task_blockers,
+)
 from maestro.services.principal import (
     Channel,
     Principal,
@@ -302,39 +308,49 @@ class Runs:
                 field_errors=[FieldError("/dataset_version_id", "NOT_FOUND")],
             )
         self._refuse_deleted_version(conn, version["id"])
-        rows = (
+        tasks_rows = (
             conn.execute(
-                select(
-                    t.tasks,
-                    t.task_admissions.c.id.label("admission_id"),
-                    t.task_admissions.c.state.label("admission_state"),
-                    t.task_admissions.c.revision.label("admission_revision"),
-                    t.task_admissions.c.preparation_method_digest,
-                    t.content_availability.c.availability,
-                )
-                .outerjoin(t.task_admissions, t.task_admissions.c.task_id == t.tasks.c.id)
-                .outerjoin(
-                    t.content_availability,
-                    t.content_availability.c.content_digest == t.tasks.c.content_digest,
-                )
+                select(t.tasks)
                 .where(t.tasks.c.dataset_version_id == version["id"])
                 .order_by(t.tasks.c.task_key)
             )
             .mappings()
             .all()
         )
+        admissions = load_admissions(conn, [r["id"] for r in tasks_rows])
+        availability = load_availability(
+            conn,
+            [r["content_digest"] for r in tasks_rows]
+            + [d for a in admissions.values() if (d := expected_image(a))],
+        )
+        rows, blockers = [], {}
+        for task in tasks_rows:
+            admission = admissions.get(task["id"])
+            rows.append(
+                {
+                    **task,
+                    "admission_id": admission["id"] if admission else None,
+                    "admission_revision": admission["revision"] if admission else None,
+                    "preparation_method_digest": (
+                        admission["preparation_method_digest"] if admission else None
+                    ),
+                    "expected_image_id": expected_image(admission),
+                }
+            )
+            blockers[task["id"]] = task_blockers(task, admission, availability)
 
         def blocker(row):
-            if row["admission_state"] != ADMITTED:
-                return "TASK_NOT_ADMITTED"
-            if row["availability"] == "unavailable":
-                return "RESOURCE_CONTENT_UNAVAILABLE"
-            return None
+            found = blockers[row["id"]]
+            return found[0]["code"] if found else None
 
         selection = request["task_selection"]
         if selection["mode"] == "all_eligible":
             chosen = [r for r in rows if blocker(r) is None]
-            excluded = [{"task_id": r["id"], "code": blocker(r)} for r in rows if blocker(r)]
+            excluded = [
+                {"task_id": r["id"], "task_key": r["task_key"], "blockers": blockers[r["id"]]}
+                for r in rows
+                if blocker(r)
+            ]
         else:
             by_id = {r["id"]: r for r in rows}
             missing = [x for x in selection["task_ids"] if x not in by_id]
@@ -361,6 +377,10 @@ class Runs:
                 "No submittable task in this version",
                 422,
                 stage="preflight",
+                field_errors=[
+                    FieldError("/task_selection", x["blockers"][0]["code"], x["task_key"])
+                    for x in excluded
+                ],
             )
         if len(chosen) > limits.RUN_MAX_TASKS or (
             len(chosen) * request["repetitions"] > limits.RUN_MAX_TRIALS
@@ -379,6 +399,8 @@ class Runs:
                 "admission_id": r["admission_id"],
                 "admission_revision": r["admission_revision"],
                 "preparation_method_digest": r["preparation_method_digest"],
+                "spec_digest": r["spec_digest"],
+                "expected_image_id": r["expected_image_id"],
                 "definition": r["definition_json"],
             }
             for r in sorted(chosen, key=lambda r: r["task_key"])
@@ -391,15 +413,35 @@ class Runs:
                 "version_id": version["id"],
                 "resolved_digest": version["resolved_digest"],
             },
-            "tasks": [{k: x[k] for k in ("task_key", "content_digest")} for x in tasks],
+            # The fixed preparation spec is part of the configuration; cache state is not.
+            "tasks": [
+                {k: x[k] for k in ("task_key", "content_digest", "spec_digest")} for x in tasks
+            ],
             "repetitions": request["repetitions"],
             "concurrency": request["concurrency"],
             "execution_mode": request["execution_mode"],
         }
+        ready = set(
+            conn.execute(
+                select(t.preparations.c.spec_digest).where(
+                    t.preparations.c.spec_digest.in_([x["spec_digest"] for x in tasks]),
+                    t.preparations.c.cache_state == "ready",
+                )
+            ).scalars()
+        )
+        observations = [
+            {
+                "task_key": x["task_key"],
+                "cache_state": "ready" if x["spec_digest"] in ready else "cold",
+                "action": None if x["spec_digest"] in ready else "restore_on_run",
+            }
+            for x in tasks
+        ]
         return {
             "version": dict(version),
             "tasks": tasks,
             "excluded": excluded,
+            "cache_observations": observations,
             "effective": effective,
             "reservation": reservation(
                 request["concurrency"],
@@ -439,12 +481,13 @@ class Runs:
                 select(t.task_admissions).where(t.task_admissions.c.id.in_(ids))
             ).mappings()
         }
+        digests = [x["content_digest"] for x in plan["tasks"]] + [
+            x["expected_image_id"] for x in plan["tasks"] if x["expected_image_id"]
+        ]
         unavailable = set(
             conn.execute(
                 select(t.content_availability.c.content_digest).where(
-                    t.content_availability.c.content_digest.in_(
-                        [x["content_digest"] for x in plan["tasks"]]
-                    ),
+                    t.content_availability.c.content_digest.in_(digests),
                     t.content_availability.c.availability == "unavailable",
                 )
             ).scalars()
@@ -456,6 +499,7 @@ class Runs:
             or row["state"] != ADMITTED
             or row["revision"] != x["admission_revision"]
             or x["content_digest"] in unavailable
+            or x["expected_image_id"] in unavailable
         ]
         if changed:
             raise MaestroError(
@@ -542,6 +586,8 @@ class Runs:
                         "admission_id",
                         "admission_revision",
                         "preparation_method_digest",
+                        "spec_digest",
+                        "expected_image_id",
                     )
                 }
                 for x in plan["tasks"]
@@ -605,6 +651,9 @@ class Runs:
                 {"effective": effective, "provenance": provenance, "policy": policy}
             ),
             "planned_trials": planned,
+            "excluded_tasks": plan["excluded"],
+            # Observations only: not part of the configuration or its digest (10 section 4).
+            "cache_observations": plan["cache_observations"],
             "links": {"run": f"/api/v1/runs/{run_id}", "operation": f"/api/v1/operations/{op_id}"},
         }
 

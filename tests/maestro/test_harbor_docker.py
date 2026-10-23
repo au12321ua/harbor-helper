@@ -1,9 +1,10 @@
-"""Real Harbor Runner and Docker, Oracle tasks only (M3 exit criteria).
+"""Real Harbor Runner and Docker, Oracle tasks only (M3 and M4 exit criteria).
 
-Opt-in: ``MAESTRO_DOCKER_TESTS=1``. Needs Docker, a local ``ubuntu:22.04`` image and
-the Runner environment (``uv sync --locked`` in ``runner/``, or
-``MAESTRO_RUNNER_PYTHON``). No model, Hub or network request is made; every Docker
-resource carries a per-test instance label and is checked to be gone afterwards.
+Opt-in: ``MAESTRO_DOCKER_TESTS=1``. Needs Docker with buildx, a local ``ubuntu:22.04``
+image and the Runner environment (``uv sync --locked`` in ``runner/``, or
+``MAESTRO_RUNNER_PYTHON``). No model, Hub or network request is made. Execution
+resources carry a per-test instance label, prepared images live in the per-instance
+``maestro-prep/<instance>`` repository; both are checked to be gone afterwards.
 """
 
 import os
@@ -26,6 +27,8 @@ from maestro.db import migrate
 from maestro.execution.docker import DockerResources
 from maestro.execution.harbor import HarborExecutor
 from maestro.execution.materials import LocalTaskSource, TaskMaterials
+from maestro.execution.preparation import DockerEnvironment
+from maestro.services.instance import instance_id as read_instance_id
 
 ROOT = Path(__file__).resolve().parents[2]
 TASKS = Path(__file__).with_name("fixtures") / "harbor-tasks"
@@ -50,6 +53,36 @@ def labelled(instance_id: str) -> list[str]:
     return found
 
 
+def prepared_images(instance_id: str) -> list[str]:
+    out = subprocess.run(
+        [
+            "docker",
+            "image",
+            "ls",
+            f"maestro-prep/{instance_id}",
+            "--format",
+            "{{.Repository}}:{{.Tag}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    return sorted(out)
+
+
+def remove_prepared(instance_id: str) -> None:
+    refs = prepared_images(instance_id)
+    if refs:
+        subprocess.run(["docker", "image", "rm", *refs], capture_output=True, check=False)
+
+
+def image_ids() -> set[str]:
+    out = subprocess.run(
+        ["docker", "images", "-q", "--no-trunc"], capture_output=True, text=True, check=True
+    )
+    return set(out.stdout.split())
+
+
 @pytest.fixture
 def harbor_service(settings):
     store = LocalArtifactStore(settings.artifacts_dir)
@@ -60,22 +93,39 @@ def harbor_service(settings):
         DockerResources(),
         term_grace=30,
     )
-    built = Maestro.build(settings, executor=executor, store=store)
+    environment = DockerEnvironment(settings.preparation_dir)
+    built = Maestro.build(
+        settings,
+        executor=executor,
+        store=store,
+        environment=environment,
+        sources={"local": LocalTaskSource(TASKS)},
+    )
     migrate.upgrade(built.db)
     built.keys.initialize()
     built.worker.poll_seconds = 0.1
-    source = LocalTaskSource(TASKS, TaskMaterials(settings.cache_dir))
-    built.version_id = built.catalog.register_version(source, "local", "oracle", "v1", True, None)
-    yield built
-    instance = built.worker.instance_id
-    built.db.dispose()
-    if instance:
+    instance = read_instance_id(built.db)
+    environment.bind(instance)
+    try:
+        import asyncio
+
+        result = asyncio.run(
+            built.preparer.import_and_prepare(
+                {"source_kind": "local", "namespace": "local", "name": "oracle", "ref": "v1"},
+                None,
+            )
+        )
+        assert result["preparation"]["status"] == "succeeded", result
+        built.version_id = result["dataset_version_id"]
+        yield built
+    finally:
+        built.db.dispose()
         leftovers = labelled(instance)
         if leftovers:  # never leave resources behind, even when an assertion failed
-            import asyncio
-
             asyncio.run(DockerResources().cleanup({"io.maestro.instance_id": instance}))
+        remove_prepared(instance)
         assert leftovers == []
+        assert prepared_images(instance) == []
 
 
 def task_ids(api: Api, version_id: str, *keys: str) -> list[str]:
@@ -142,6 +192,70 @@ def test_oracle_run_from_submission_to_artifacts(harbor_service):
             a["relative_path"] for a in artifacts
         }
         assert labelled(service.worker.instance_id) == []
+
+
+def test_prepared_image_is_used_then_restored_from_its_original(harbor_service, settings):
+    """M4 on the real host: first preparation is a reproducible build exported as an
+    archive (U-17); Harbor runs the prepared image without building or pulling; after
+    eviction a run restores exactly that image by loading the archive."""
+    service = harbor_service
+    instance = service.worker.instance_id or read_instance_id(service.db)
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        pat = create_pat(admin)
+        tasks = {
+            x["task_key"]: x
+            for x in pat.get(f"/api/v1/dataset-versions/{service.version_id}/tasks").json()["data"]
+        }
+        task = tasks["oracle-pass"]
+        image = next(
+            r["digest"]
+            for r in task["content"]["resources"]
+            if r["resource_kind"] == "environment_image"
+        )
+        assert len(prepared_images(instance)) == 3
+        archives = sorted(p.name for p in settings.preparation_dir.iterdir())
+        assert len(archives) == 3 and all(a.endswith(".tar") for a in archives)
+
+        before = image_ids()
+        accepted = submit(pat, service.version_id, ["oracle-pass"])
+        assert wait_operation(pat, accepted["operation_id"], timeout=300)["status"] == "succeeded"
+        assert image_ids() == before  # Harbor neither built nor pulled anything
+
+        preparation = task["local_preparation"]["id"]
+        ref = f"maestro-prep/{instance}:{task['spec_digest'][7:]}"
+
+        def restore_and_run():
+            op = admin.post(f"/api/v1/admin/preparations/{preparation}/evict", expect=202)
+            assert wait_operation(admin, op.json()["data"]["id"])["status"] == "succeeded"
+            assert ref not in prepared_images(instance)
+            again = submit(pat, service.version_id, ["oracle-pass"])
+            assert wait_operation(pat, again["operation_id"], timeout=300)["status"] == "succeeded"
+            restored = pat.get(f"/api/v1/preparations/{preparation}").json()["data"]
+            assert restored["cache_state"] == "ready" and restored["image_id"] == image
+            assert ref in prepared_images(instance)
+            with service.db.read() as conn:
+                from maestro.db import schema as t
+
+                return (
+                    conn.execute(
+                        t.operations.select()
+                        .where(t.operations.c.kind == "preparation_restore")
+                        .order_by(t.operations.c.created_at.desc())
+                    )
+                    .mappings()
+                    .first()
+                )
+
+        # The original archive is loaded back (U-17).
+        assert restore_and_run()["status"] == "succeeded"
+        # Without the original, a deterministic Dockerfile rebuilds to the same image id
+        # under the reproducible settings, so the restore is accepted and re-exported.
+        archive = settings.preparation_dir / f"{task['spec_digest'][7:]}.tar"
+        archive.unlink()
+        assert restore_and_run()["status"] == "succeeded"
+        assert archive.is_file()
+        assert labelled(instance) == []
 
 
 def test_live_steps_and_logs_then_cancel(harbor_service):
@@ -313,6 +427,8 @@ def test_service_killed_mid_run_is_reconciled_on_restart(tmp_path):
     finally:
         if first.poll() is None:
             os.killpg(first.pid, signal.SIGKILL)
+        if (tmp_path / "data/app.db").exists():
+            remove_prepared(instance_id())
 
 
 def _ready(base: str) -> bool:

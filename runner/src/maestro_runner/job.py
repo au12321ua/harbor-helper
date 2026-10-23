@@ -38,13 +38,17 @@ class Rejected(Exception):
         self.code = code
 
 
-def _labels_override(path: Path, labels: dict[str, str], label_build: bool) -> Path:
+def _labels_override(path: Path, labels: dict[str, str], label_build: bool, prepared: bool) -> Path:
     """Platform labels on the main service, its network and (when Harbor builds it) its image.
 
     Cleanup after a killed Runner finds every resource by these labels (05 section 7).
+    Prepared images are never pulled: a missing one must fail, not reach a registry.
     """
     body = "".join(f"      {key}: {value}\n" for key, value in sorted(labels.items()))
-    text = "services:\n  main:\n    init: true\n    labels:\n" + body
+    text = "services:\n  main:\n    init: true\n"
+    if prepared:
+        text += "    pull_policy: never\n"
+    text += "    labels:\n" + body
     if label_build:
         text += "    build:\n      labels:\n" + body.replace("      ", "        ")
     text += "networks:\n  default:\n    labels:\n" + body
@@ -57,6 +61,18 @@ def _builds_image(task_dir: Path) -> bool:
 
     config = TaskFile.model_validate_toml((task_dir / "task.toml").read_text())
     return not config.environment.docker_image
+
+
+def _with_image(task_dir: Path, copy: Path, image: str) -> Path:
+    """A private copy of the task whose environment uses the platform-prepared image,
+    so Harbor neither builds nor pulls it (M1 TECH-03)."""
+    from harbor.models.task.config import TaskConfig as TaskFile
+
+    shutil.copytree(task_dir, copy, symlinks=True)
+    config = TaskFile.model_validate_toml((copy / "task.toml").read_text())
+    config.environment.docker_image = image
+    (copy / "task.toml").write_text(config.model_dump_toml())
+    return copy
 
 
 def _manifest(root: Path) -> list[dict]:
@@ -115,16 +131,23 @@ class Execution:
         if len(counts) != 1:
             raise Rejected("RUNNER_INPUT_INVALID", "every task needs the same trial count")
         task_dirs = []
-        for task in tasks:
+        prepared = 0
+        for index, task in enumerate(tasks):
             path = Path(task["path"]).resolve()
             if not (path / "task.toml").is_file():
                 raise Rejected("TASK_MATERIAL_MISSING", f"no task.toml for {task['task_key']}")
+            if task.get("docker_image"):
+                path = _with_image(path, self.out / "tasks" / str(index), task["docker_image"])
+                prepared += 1
             self.task_by_path[str(path)] = task["task_key"]
             self.unbound[task["task_key"]] = list(task["trial_ids"])
             task_dirs.append(path)
         label_build = all(_builds_image(path) for path in task_dirs)
         override = _labels_override(
-            self.out / "labels.compose.yaml", self.spec["labels"], label_build
+            self.out / "labels.compose.yaml",
+            self.spec["labels"],
+            label_build,
+            prepared == len(tasks),
         )
         agent = self.spec["agent"]
         if not agent.get("name") and not agent.get("import_path"):

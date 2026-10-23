@@ -15,7 +15,7 @@ import pytest
 from maestro.boundaries.environment import CleanupReport
 from maestro.boundaries.executor import RunSpec, TrialSpec
 from maestro.execution.harbor import HarborExecutor
-from maestro.execution.materials import TaskMaterials
+from maestro.execution.materials import TaskMaterials, tree_digest
 
 FAKE_RUNNER = Path(__file__).with_name("fake_runner.py")
 
@@ -105,10 +105,13 @@ def make_spec(materials, tmp_path, mode: str, trials: int = 2) -> RunSpec:
     task = tmp_path / "tasks" / mode
     task.mkdir(parents=True, exist_ok=True)
     (task / "task.toml").write_text(f'# {mode}\nschema_version = "1.4"\n')
-    digest = materials.install(task)
+    digest = tree_digest(task)
+    material = materials.install(task, digest)
     return RunSpec(
         run_id=f"run_{mode.replace('-', '')}",
-        trials=tuple(TrialSpec(f"trl_{i}", mode, {}, i, digest) for i in range(1, trials + 1)),
+        trials=tuple(
+            TrialSpec(f"trl_{i}", mode, {}, i, digest, material) for i in range(1, trials + 1)
+        ),
         concurrency=2,
         effective_config={"execution_mode": "oracle"},
         deadline_at="2099-01-01T00:00:00Z",

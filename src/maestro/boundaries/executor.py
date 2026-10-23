@@ -13,6 +13,8 @@ from maestro.boundaries.environment import CleanupReport
 # Steps an attempt reports, and the trial phase each one implies (05 section 4).
 # Collection has no upstream event in Harbor 0.24.0: it spans agent end to verification.
 STEPS = {
+    # Platform cache restore before the executor starts (02 section 7); never from Harbor.
+    "cache": "preparing",
     "environment": "preparing",
     "agent": "executing",
     "collecting": "executing",
@@ -27,6 +29,10 @@ class TrialSpec:
     task_definition: dict
     repetition_index: int
     content_digest: str = ""
+    material_digest: str = ""
+    task_id: str = ""
+    prepared_image: str | None = None
+    """Local image prepared by the platform (02); the executor must not build or pull."""
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,8 @@ class AttemptOutcome:
     metrics: dict = field(default_factory=dict)
     usage: dict | None = None
     actual_model: dict | None = None
+    detail: dict | None = None
+    """Platform error detail, e.g. expected_digest of unavailable content (06 section 3)."""
 
 
 class ExecutionSink(Protocol):

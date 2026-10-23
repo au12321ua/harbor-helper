@@ -189,16 +189,27 @@ class HarborExecutor:
         tasks: dict[str, dict] = {}
         missing = []
         for trial in spec.trials:
-            path = self.materials.path_for(trial.content_digest)
+            path = (
+                self.materials.verified(trial.content_digest, trial.material_digest)
+                if trial.material_digest
+                else self.materials.path_for(trial.content_digest)
+            )
             if path is None:
                 missing.append(trial)
                 continue
             entry = tasks.setdefault(
-                trial.task_key, {"task_key": trial.task_key, "path": str(path), "trial_ids": []}
+                trial.task_key,
+                {
+                    "task_key": trial.task_key,
+                    "path": str(path),
+                    "docker_image": trial.prepared_image,
+                    "trial_ids": [],
+                },
             )
             entry["trial_ids"].append(trial.trial_id)
         for trial in missing:
-            # Material restore is M4's preparation; until then a missing copy fails the trial.
+            # The worker restores material before execution; losing it after that
+            # fails the trial instead of running unverified files.
             await sink.attempt_started(trial.trial_id, 1, {"runner": None})
             await sink.attempt_finished(
                 trial.trial_id,

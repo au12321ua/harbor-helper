@@ -12,6 +12,7 @@ import hashlib
 import logging
 import os
 import secrets
+from dataclasses import replace
 
 from sqlalchemy import insert, null, select, update
 
@@ -42,11 +43,19 @@ from maestro.domain.states import (
     trial_can_move,
 )
 from maestro.execution.docker import LABEL_INSTANCE, LABEL_RUN
-from maestro.execution.policy import POLICY_VERSION, legal_score
+from maestro.execution.policy import (
+    MAX_RETRIES,
+    POLICY_VERSION,
+    RETRY_MAX_WAIT_SEC,
+    RETRY_MIN_WAIT_SEC,
+    RETRY_WAIT_MULTIPLIER,
+    legal_score,
+)
 from maestro.security.redaction import redact
 from maestro.services.artifacts import expiry_for, stamp_expiry
 from maestro.services.capacity import HostCapacity, provider_of, reservation, waiting_reason
 from maestro.services.instance import instance_id
+from maestro.services.preparation import PreparationFailure, Preparer, load_context
 from maestro.services.runs import finalize, finish_unstarted, refresh_operation
 
 log = logging.getLogger(__name__)
@@ -93,6 +102,12 @@ class RunSink:
         self.run_id = run_id
         self.lease = lease
         self.attempt_ids: dict[tuple[str, int], str] = {}
+        # Attempts the platform recorded itself (failed cache restores) before the
+        # executor started; executor attempt numbers continue after them.
+        self.platform_attempts: dict[str, int] = {}
+
+    def _index(self, trial_id: str, attempt_index: int) -> int:
+        return self.platform_attempts.get(trial_id, 0) + attempt_index
 
     def _check_run(self, conn):
         run = conn.execute(
@@ -157,6 +172,7 @@ class RunSink:
     async def attempt_started(
         self, trial_id: str, attempt_index: int, detail: dict | None = None
     ) -> None:
+        attempt_index = self._index(trial_id, attempt_index)
         with self.db.write() as conn:
             trial = self._check(conn, trial_id)
             if trial["state"] in TRIAL_TERMINAL:
@@ -184,6 +200,7 @@ class RunSink:
             refresh_operation(conn, self.run_id)
 
     async def phase_changed(self, trial_id: str, attempt_index: int, step: str) -> None:
+        attempt_index = self._index(trial_id, attempt_index)
         target = TrialState(STEPS[step])
         with self.db.write() as conn:
             trial = self._check(conn, trial_id)
@@ -209,11 +226,13 @@ class RunSink:
             refresh_operation(conn, self.run_id)
 
     async def log(self, trial_id: str, attempt_index: int, source: str, text: str) -> None:
+        # ``artifact`` applies the attempt offset.
         await self.artifact(
             trial_id, attempt_index, "log", source, redact(text).encode(), append=True
         )
 
     async def artifact(self, trial_id, attempt_index, kind, relative_path, data, append=False):
+        attempt_index = self._index(trial_id, attempt_index)
         with self.db.read() as conn:
             self._check(conn, trial_id)
             attempt_id = self._attempt(conn, trial_id, attempt_index)
@@ -284,6 +303,7 @@ class RunSink:
     async def attempt_finished(
         self, trial_id: str, attempt_index: int, outcome: AttemptOutcome, final: bool
     ) -> None:
+        attempt_index = self._index(trial_id, attempt_index)
         cancelled = outcome.failure_cause == "cancelled"
         state, cause = trial_outcome(outcome)
         error = None
@@ -299,6 +319,8 @@ class RunSink:
                 "grade_requested": outcome.grade_requested,
                 "policy_version": POLICY_VERSION,
             }
+            if outcome.detail:
+                error["detail"] = outcome.detail
         with self.db.write() as conn:
             trial = self._check(conn, trial_id)
             attempt_id = self._attempt(conn, trial_id, attempt_index)
@@ -382,6 +404,50 @@ class RunSink:
             stamp_expiry(conn, self.run_id, trial_id)
             refresh_operation(conn, self.run_id)
 
+    def mark_waiting(self, trial_ids: list[str], phase: str | None) -> None:
+        """Queued trials of a task whose cache is being restored show it (02 section 7)."""
+        with self.db.write() as conn:
+            self._check_run(conn)
+            conn.execute(
+                update(t.trials)
+                .where(t.trials.c.id.in_(trial_ids), t.trials.c.state == TrialState.QUEUED)
+                .values(phase=phase)
+            )
+            refresh_operation(conn, self.run_id)
+
+    async def preparation_failed(self, trial_id: str, error: dict, final: bool) -> None:
+        """A failed cache restore is an attempt of each waiting trial (06 section 3)."""
+        await self.attempt_started(trial_id, 1, {"runner_id": "platform-preparation"})
+        await self.phase_changed(trial_id, 1, "cache")
+        await self.attempt_finished(
+            trial_id,
+            1,
+            AttemptOutcome(
+                raw_score=None,
+                reward_valid=False,
+                failure_cause=error["code"].lower(),
+                exception_type=error["code"],
+                message=error.get("message"),
+                retry_recommended=not final,
+                grade_requested=False,
+                verifier_status="not_run",
+                detail={
+                    k: error[k]
+                    for k in (
+                        "kind",
+                        "resource_kind",
+                        "expected_digest",
+                        "operation_id",
+                        "evidence",
+                        "suggested_actions",
+                    )
+                    if error.get(k)
+                },
+            ),
+            final=final,
+        )
+        self.platform_attempts[trial_id] = self.platform_attempts.get(trial_id, 0) + 1
+
 
 class Worker:
     def __init__(
@@ -391,6 +457,7 @@ class Worker:
         store: ArtifactStore,
         capacity: HostCapacity,
         *,
+        preparer: Preparer | None = None,
         poll_seconds: float = 0.5,
         cleanup_retry_seconds: float = CLEANUP_RETRY_SECONDS,
         disk=None,
@@ -400,6 +467,11 @@ class Worker:
         self.executor = executor
         self.store = store
         self.capacity = capacity
+        self.preparer = preparer
+        if preparer is not None:
+            preparer.wake = self.wake
+        # Back-off between failed cache restores of one task (D-011, 06 section 4).
+        self.retry_waits = (RETRY_MIN_WAIT_SEC, RETRY_WAIT_MULTIPLIER, RETRY_MAX_WAIT_SEC)
         self.poll_seconds = poll_seconds
         self.cleanup_retry_seconds = cleanup_retry_seconds
         self.worker_id = f"local-{os.getpid()}"
@@ -532,6 +604,8 @@ class Worker:
                 finalize(conn, run_id, "SERVICE_RESTARTED", cleanup=CleanupState.PENDING)
                 report["interrupted_runs"].append(run_id)
         self.leftovers = leftovers
+        if self.preparer is not None:
+            report["preparation"] = self.preparer.start_epoch(self.epoch, self.instance_id)
         return report
 
     async def recover(self) -> dict:
@@ -545,6 +619,8 @@ class Worker:
         sweep = await self.executor.cleanup(self.labels())
         self.leftovers = []
         result = {"runs": released, "sweep_released": sweep.released}
+        if self.preparer is not None:
+            result["preparation"] = await self.preparer.recover()
         if self.epoch:
             with self.db.write() as conn:
                 conn.execute(
@@ -623,10 +699,14 @@ class Worker:
         for task, _ in list(self.active.values()):
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        if self.preparer is not None:
+            await self.preparer.stop()
 
     async def tick(self) -> None:
         self._enforce_stops()
         await self._retry_cleanups()
+        if self.preparer is not None:
+            await self.preparer.tick()
         while True:
             claimed = self._claim()
             if claimed is None:
@@ -646,7 +726,8 @@ class Worker:
                 queued = conn.execute(
                     select(t.runs.c.id).where(t.runs.c.state == RunState.QUEUED).limit(1)
                 ).first()
-            if not self.active and not queued:
+            busy = self.preparer is not None and (self.preparer.jobs or self.preparer.active)
+            if not self.active and not queued and not busy:
                 return
             if asyncio.get_running_loop().time() > deadline:
                 raise TimeoutError("worker did not drain")
@@ -785,9 +866,11 @@ class Worker:
                 select(
                     t.trials.c.id,
                     t.trials.c.repetition_index,
+                    t.tasks.c.id.label("task_id"),
                     t.tasks.c.task_key,
                     t.tasks.c.definition_json,
                     t.tasks.c.content_digest,
+                    t.tasks.c.material_digest,
                 )
                 .join(t.tasks, t.tasks.c.id == t.trials.c.task_id)
                 .where(t.trials.c.run_id == run["id"])
@@ -797,7 +880,15 @@ class Worker:
         spec = RunSpec(
             run_id=row["id"],
             trials=tuple(
-                TrialSpec(r.id, r.task_key, r.definition_json, r.repetition_index, r.content_digest)
+                TrialSpec(
+                    r.id,
+                    r.task_key,
+                    r.definition_json,
+                    r.repetition_index,
+                    r.content_digest,
+                    r.material_digest,
+                    r.task_id,
+                )
                 for r in trial_rows
             ),
             concurrency=row["concurrency"],
@@ -832,11 +923,17 @@ class Worker:
         failure = "EXECUTOR_FAILED"
         close = True
         try:
-            report = await self.executor.execute(spec, sink, cancel)
-            cleanup = CleanupState.COMPLETE if report.cleanup_complete else CleanupState.FAILED
-            failure = report.failure_code
-            if report.detail:
-                log.info("run %s executor report: %s", run_id, report.detail)
+            if self.preparer is not None:
+                spec = await self._prepare(spec, sink, cancel)
+            if spec.trials and not cancel.cancelled:
+                report = await self.executor.execute(spec, sink, cancel)
+                cleanup = CleanupState.COMPLETE if report.cleanup_complete else CleanupState.FAILED
+                failure = report.failure_code
+                if report.detail:
+                    log.info("run %s executor report: %s", run_id, report.detail)
+            else:
+                # Nothing was started outside the platform: no execution resources.
+                cleanup, failure = CleanupState.COMPLETE, None
         except StaleLease:
             log.warning("run %s lost its lease", run_id)
         except asyncio.CancelledError:
@@ -850,7 +947,67 @@ class Worker:
             self.active.pop(run_id, None)
             if close and not self._stopping:
                 self._close(run_id, lease, cleanup, failure)
+                if self.preparer is not None:
+                    self.preparer.release("run", run_id)
             self.wake()
+
+    async def _prepare(self, spec: RunSpec, sink: RunSink, cancel: _Cancel) -> RunSpec:
+        """D-020: before the run's executor starts, every task's prepared image is
+        pinned, restoring it when the cache is cold. Restores are shared with other
+        runs; a failed restore is an attempt of each trial of that task, retried with
+        back-off only for transient causes; other tasks of the run go ahead."""
+        by_task: dict[str, list[TrialSpec]] = {}
+        for trial in spec.trials:
+            by_task.setdefault(trial.task_id, []).append(trial)
+        with self.db.read() as conn:
+            contexts = {task_id: load_context(conn, task_id) for task_id in by_task}
+
+        async def one(task_id: str) -> tuple[str, str | None]:
+            trials = by_task[task_id]
+            ids = [x.trial_id for x in trials]
+            failures = 0
+            while True:
+                sink.mark_waiting(ids, "restoring_cache")
+                try:
+                    output = await self.preparer.acquire(
+                        contexts[task_id],
+                        "run",
+                        spec.run_id,
+                        cancel=cancel.event,
+                        deadline_at=spec.deadline_at,
+                    )
+                    sink.mark_waiting(ids, None)
+                    return task_id, output.image_ref
+                except PreparationFailure as error:
+                    if error.kind == "cancelled" or cancel.cancelled:
+                        return task_id, None
+                    failures += 1
+                    final = not error.retryable or failures > MAX_RETRIES
+                    for trial_id in ids:
+                        await sink.preparation_failed(trial_id, error.error, final)
+                    if final:
+                        return task_id, None
+                    low, factor, high = self.retry_waits
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            cancel.wait(), min(low * factor ** (failures - 1), high)
+                        )
+                    if cancel.cancelled:
+                        return task_id, None
+
+        images = dict(await asyncio.gather(*(one(task_id) for task_id in by_task)))
+        return RunSpec(
+            run_id=spec.run_id,
+            trials=tuple(
+                replace(trial, prepared_image=images[trial.task_id])
+                for trial in spec.trials
+                if images.get(trial.task_id)
+            ),
+            concurrency=spec.concurrency,
+            effective_config=spec.effective_config,
+            deadline_at=spec.deadline_at,
+            labels=spec.labels,
+        )
 
     def _close(self, run_id: str, lease: str, cleanup: CleanupState, failure: str | None) -> None:
         with self.db.write() as conn:

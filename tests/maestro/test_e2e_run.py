@@ -10,6 +10,7 @@ of the flow.
 import hashlib
 import uuid
 
+from conftest import import_version
 from support import create_pat, running, setup_admin, wait_operation
 
 from maestro.testing.fakes import scored
@@ -76,14 +77,14 @@ def test_agent_runs_a_complete_experiment_with_only_a_pat(service, version_id, e
         assert pats[0]["accepted_runs"] == 1
 
 
-def test_service_without_executor_refuses_runs_honestly(settings, source):
+def test_service_without_executor_refuses_runs_honestly(settings, source, environment):
     from maestro.application import Maestro
     from maestro.db import migrate
 
-    service = Maestro.build(settings)
+    service = Maestro.build(settings, environment=environment, sources={"fake": source})
     migrate.upgrade(service.db)
     service.keys.initialize()
-    version = service.catalog.register_version(source, "demo", "arith", "v1", True, None)
+    version = import_version(service)["dataset_version_id"]
     with running(service) as client:
         admin = setup_admin(service, client)
         assert client.get("/health/ready").json()["accepting_runs"] is False

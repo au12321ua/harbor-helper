@@ -242,8 +242,9 @@ export function NewRunPage() {
                         <TableHead>任务</TableHead>
                         <TableHead>准入</TableHead>
                         <TableHead>内容</TableHead>
+                        <TableHead>本机缓存</TableHead>
                         <TableHead>可提交</TableHead>
-                        <TableHead>阻塞原因</TableHead>
+                        <TableHead>说明</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

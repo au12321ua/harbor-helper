@@ -1,3 +1,5 @@
+import type { TaskBlocker } from "./types";
+
 export type Tone = "neutral" | "info" | "good" | "warn" | "bad" | "muted";
 
 export function fmtTime(value: string | null | undefined): string {
@@ -121,13 +123,40 @@ export function label(map: Labels, value: string | null | undefined): [string, T
   return map[value] ?? [value, "neutral"];
 }
 
-export function blockerText(blocker: Record<string, unknown>): string {
-  const { code, ...rest } = blocker;
-  const extra = Object.entries(rest)
-    .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
-    .join(", ");
-  return extra ? `${String(code)}（${extra}）` : String(code);
+const BLOCKER: Record<string, string> = {
+  TASK_NOT_ADMITTED: "首次准备未成功，管理员处理后才能选择",
+  TASK_ADMISSION_REVOKED: "准入已被管理员撤销",
+  RESOURCE_CONTENT_UNAVAILABLE: "固定内容已不可得",
+  CONFIG_REQUIRED_MISSING: "缺少必填作者参数",
+  AUTHOR_PARAMETERS_UNRESOLVED: "作者参数无法确定",
+};
+
+export function blockerText(blocker: TaskBlocker): string {
+  const base = BLOCKER[blocker.code] ?? blocker.code;
+  const details: string[] = [];
+  const error = blocker.first_preparation_error;
+  if (error?.message) details.push(String(error.message));
+  if (blocker.expected_digest)
+    details.push(`${String(blocker.resource_kind)} ${shortId(String(blocker.expected_digest), 19)}`);
+  if (Array.isArray(blocker.parameters)) details.push(blocker.parameters.join(", "));
+  return details.length ? `${base}（${details.join("；")}）` : base;
 }
+
+export const CACHE_STATE: Labels = {
+  ready: ["缓存就绪", "good"],
+  restoring: ["恢复中", "info"],
+  stale: ["运行时恢复", "warn"],
+  absent: ["未缓存", "muted"],
+};
+
+export const OPERATION_STATUS: Labels = {
+  accepted: ["已受理", "info"],
+  running: ["进行中", "info"],
+  succeeded: ["成功", "good"],
+  failed: ["失败", "bad"],
+  cancelled: ["已取消", "warn"],
+  interrupted: ["已中断", "bad"],
+};
 
 /** A statistic; null stays "—" (never 0). */
 export function fmtNum(value: number | null | undefined, digits = 3): string {

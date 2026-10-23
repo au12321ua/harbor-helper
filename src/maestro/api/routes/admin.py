@@ -1,25 +1,32 @@
 """Administrator web-session endpoints: members, invitations, credentials, master key,
-execution capacity, deletion of team objects and the recycle bin."""
+execution capacity, dataset imports, first preparation, cache eviction, admission,
+deletion of team objects and the recycle bin."""
 
 from fastapi import APIRouter, Depends, Request
 
 from maestro.api.deps import maestro, ok, principal
 from maestro.api.models import (
+    AdmissionRevocation,
+    AdmissionRevoked,
     AuditEvent,
     CapacityOverview,
     Credential,
     CredentialCreate,
     CredentialValue,
+    DatasetImport,
     Envelope,
+    FirstPreparation,
     Invitation,
     InvitationCreate,
     IssuedInvitation,
     MasterKeyRotation,
     MasterKeyStatus,
     ObjectType,
+    Operation,
     ProviderLimit,
     PurgeRequest,
     RecycleEntry,
+    ScoringContractInput,
     StatusChange,
     User,
 )
@@ -218,3 +225,58 @@ def purge(entry_id: str, body: PurgeRequest, request: Request, who: Principal = 
     """Irreversible: removes content and files; the entry stays as the receipt."""
     service = maestro(request)
     return ok(request, service.recycle.purge(who, entry_id, body.confirm_object_id))
+
+
+# --- datasets and preparation (02) -----------------------------------------------------
+
+
+@router.post("/dataset-imports", response_model=Envelope[Operation], status_code=202)
+def import_dataset(body: DatasetImport, request: Request, who: Principal = Depends(principal)):
+    """Resolve a reference to a fixed digest, fetch and record the version (02 section 3)."""
+    return ok(request, maestro(request).datasets.request_import(who, body.model_dump()))
+
+
+@router.post(
+    "/dataset-versions/{version_id}/preparations",
+    response_model=Envelope[Operation],
+    status_code=202,
+)
+def first_preparation(
+    version_id: str, body: FirstPreparation, request: Request, who: Principal = Depends(principal)
+):
+    """First preparation, or retry of the tasks whose first preparation failed."""
+    service = maestro(request).datasets
+    return ok(request, service.request_first_preparation(who, version_id, body.task_ids))
+
+
+@router.post(
+    "/preparations/{preparation_id}/evict", response_model=Envelope[Operation], status_code=202
+)
+def evict(preparation_id: str, request: Request, who: Principal = Depends(principal)):
+    """Remove the local image; admission and the recoverable original stay."""
+    return ok(request, maestro(request).datasets.request_eviction(who, preparation_id))
+
+
+@router.post("/task-admissions/{admission_id}/revoke", response_model=Envelope[AdmissionRevoked])
+def revoke_admission(
+    admission_id: str,
+    body: AdmissionRevocation,
+    request: Request,
+    who: Principal = Depends(principal),
+):
+    service = maestro(request).datasets
+    return ok(
+        request, service.revoke_admission(who, admission_id, body.reason, body.expected_revision)
+    )
+
+
+@router.put("/dataset-versions/{version_id}/scoring-contract", response_model=Envelope[dict])
+def scoring_contract(
+    version_id: str,
+    body: ScoringContractInput,
+    request: Request,
+    who: Principal = Depends(principal),
+):
+    """Confirm how this version is scored; new runs freeze it (06 section 2)."""
+    service = maestro(request).datasets
+    return ok(request, service.confirm_scoring_contract(who, version_id, body.model_dump()))

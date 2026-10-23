@@ -111,8 +111,13 @@ def test_blocked_tasks_are_excluded_or_rejected_before_acceptance(service, versi
         assert accepted["planned_trials"] == 2
         run = pat.get(f"/api/v1/runs/{accepted['run_id']}").json()["data"]
         assert run["snapshot"]["provenance"]["excluded_tasks"] == [
-            {"task_id": task_id, "code": "TASK_NOT_ADMITTED"}
+            {
+                "task_id": task_id,
+                "task_key": "mul-01",
+                "blockers": [{"code": "TASK_NOT_ADMITTED", "admission_state": "first_failed"}],
+            }
         ]
+        assert accepted["excluded_tasks"] == run["snapshot"]["provenance"]["excluded_tasks"]
 
 
 def test_admission_revoked_between_expansion_and_acceptance(service, version_id, monkeypatch):
@@ -137,7 +142,9 @@ def test_admission_revoked_between_expansion_and_acceptance(service, version_id,
         assert response.status_code == 409
         assert response.json()["error"]["code"] == "ADMISSION_CHANGED"
         assert count(service, t.runs) == 0 and count(service, t.trials) == 0
-        assert count(service, t.operations) == 0
+        with service.db.read() as conn:
+            kinds = conn.execute(select(t.operations.c.kind)).scalars().all()
+        assert "run" not in kinds
         assert admin.get("/api/v1/me/pats").json()["data"][0]["accepted_runs"] == 0
 
 

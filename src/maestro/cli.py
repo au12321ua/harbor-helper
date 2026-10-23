@@ -64,32 +64,32 @@ def cmd_serve(args) -> int:
     from maestro.application import Maestro
 
     settings = _settings(args)
-    executor = None
+    executor = environment = None
+    sources = {}
     if settings.runner_python and not args.demo_executor:
         executor = _harbor_executor(settings)
+        environment, sources = _preparation(settings)
     elif not args.demo_executor:
         print("runner_python is not configured: runs will be refused.", file=sys.stderr)
     if args.demo_executor:
-        # Development only: a scripted fake executor so pages can be exercised
-        # before the Harbor Runner (M3) exists. Never for real experiments.
-        from maestro.testing.fakes import FakeExecutor
+        # Development only: scripted fakes so pages can be exercised without Docker,
+        # Harbor or the Hub. Never for real experiments.
+        from maestro.testing.fakes import FakeDatasetSource, FakeEnvironment, FakeExecutor
 
         executor = FakeExecutor(step_delay=1.0, executor_id="demo-fake")
-        print("WARNING: demo fake executor enabled; results are not real.", file=sys.stderr)
-    service = Maestro.build(settings, executor=executor)
+        environment = FakeEnvironment()
+        source = FakeDatasetSource()
+        source.add("demo", "arith", "v1", ["add-01", "add-02", "mul-01"])
+        source.add("demo", "arith", "v2", ["add-01", "add-02", "mul-01", "div-01"], revision="2")
+        sources = {"fake": source}
+        print("WARNING: demo fakes enabled; results are not real.", file=sys.stderr)
+    service = Maestro.build(settings, executor=executor, environment=environment, sources=sources)
     state = service.schema_state()
     if not state["compatible"]:
         print(
             f"Schema {state['current']} does not match {state['head']}; run 'maestro db upgrade'.",
             file=sys.stderr,
         )
-    if args.demo_executor:
-        from maestro.testing.fakes import FakeDatasetSource
-
-        source = FakeDatasetSource()
-        source.add("demo", "arith", "v1", ["add-01", "add-02", "mul-01"])
-        if not service.catalog.list_datasets(None, None)[0]:
-            service.catalog.register_version(source, "demo", "arith", "v1", True, None)
     from maestro.core.lock import InstanceLock
 
     with InstanceLock(settings.lock_file):
@@ -122,20 +122,52 @@ def _harbor_executor(settings):
     )
 
 
-def cmd_local_dataset(args) -> int:
-    """Development only: register a directory of Harbor tasks as an admitted dataset.
+def _preparation(settings):
+    from maestro.execution.hub import HubSource
+    from maestro.execution.preparation import DockerEnvironment
 
-    Stands in for the Hub import and first preparation of M4; never for real benchmarks.
-    """
+    environment = DockerEnvironment(settings.preparation_dir)
+    return environment, {"hub": HubSource(settings.runner_python, settings.work_dir)}
+
+
+def cmd_local_dataset(args) -> int:
+    """Development only: import a directory of Harbor tasks and run its first preparation
+    with the real Docker environment, while the service is stopped. Never for benchmarks."""
+    import asyncio
+
     from maestro.application import Maestro
-    from maestro.execution.materials import LocalTaskSource, TaskMaterials
+    from maestro.core.lock import InstanceLock
+    from maestro.execution.materials import LocalTaskSource
+    from maestro.execution.preparation import DockerEnvironment
+    from maestro.services.instance import instance_id
 
     settings = _settings(args)
-    service = Maestro.build(settings)
-    source = LocalTaskSource(Path(args.directory).resolve(), TaskMaterials(settings.cache_dir))
-    version_id = service.catalog.register_version(source, "local", args.name, "local", True, None)
-    print(f"dataset local/{args.name} version {version_id}")
-    return 0
+    source = LocalTaskSource(Path(args.directory).resolve())
+    service = Maestro.build(
+        settings,
+        environment=DockerEnvironment(settings.preparation_dir),
+        sources={"local": source},
+    )
+
+    async def run():
+        service.preparer.start_epoch("ep_dev_local", instance_id(service.db))
+        return await service.preparer.import_and_prepare(
+            {"source_kind": "local", "namespace": "local", "name": args.name, "ref": "local"},
+            None,
+        )
+
+    with InstanceLock(settings.lock_file):
+        result = asyncio.run(run())
+    imported = result["import"]
+    if imported["status"] != "succeeded":
+        print(f"import failed: {imported['error']}", file=sys.stderr)
+        return 1
+    prepared = result.get("preparation") or {}
+    print(
+        f"dataset local/{args.name} version {result['dataset_version_id']}: "
+        f"first preparation {prepared.get('status', 'not needed')}"
+    )
+    return 0 if prepared.get("status") in (None, "succeeded") else 1
 
 
 def cmd_openapi(args) -> int:

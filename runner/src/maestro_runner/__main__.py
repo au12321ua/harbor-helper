@@ -30,9 +30,40 @@ def _stop_with_parent() -> None:
         os.kill(os.getpid(), signal.SIGTERM)
 
 
+def hub_command(spec: dict) -> int:
+    """One catalog command; the answer is a single ``result`` event (02 section 4)."""
+    from maestro_runner import hub
+
+    command = hub.COMMANDS.get(spec.get("op"))
+    if command is None:
+        emit("result", status="error", kind="unsupported", message="unknown hub command")
+        return 4
+    _stop_with_parent()
+    try:
+        data = asyncio.run(command(spec))
+    except Exception as error:  # noqa: BLE001 - classified and reported as an event
+        traceback.print_exc()
+        failure = hub.classify(error)
+        emit(
+            "result",
+            status="error",
+            kind=failure.kind,
+            message=str(failure)[: hub.MESSAGE_LIMIT],
+            evidence=failure.evidence,
+        )
+        return 2
+    emit("result", status="ok", data=data)
+    return 0
+
+
 def main() -> int:
     try:
         spec = json.loads(sys.stdin.read())
+        if (
+            spec.get("protocol_version") == protocol.PROTOCOL_VERSION
+            and spec.get("command") == "hub"
+        ):
+            return hub_command(spec)
         protocol.run_id = spec.get("run_id")
         check_spec(spec)
     except (ValueError, Rejected) as error:

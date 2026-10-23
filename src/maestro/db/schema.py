@@ -168,8 +168,11 @@ datasets = Table(
     Column("name", String(128), nullable=False),
     Column("description", Text, nullable=False),
     Column("enabled", Boolean, nullable=False),
+    # Team source credential used to read this dataset; only the reference is stored.
+    _ref("credential_id", "credentials", nullable=True),
     _time("created_at"),
-    UniqueConstraint("source_kind", "namespace", "name"),
+    # Not unique: a purged dataset keeps its row as a receipt and may be added again.
+    Index("ix_datasets_identity", "source_kind", "namespace", "name"),
 )
 
 dataset_versions = Table(
@@ -183,8 +186,11 @@ dataset_versions = Table(
     Column("materialization_digest", String(80), nullable=True),
     _json("manifest_json"),
     Column("status", String(16), nullable=False),
+    _ref("created_by", "users", nullable=True),
+    _ref("operation_id", "operations", nullable=True),
     _time("created_at"),
-    UniqueConstraint("dataset_id", "resolved_digest"),
+    # Not unique for the same reason; imports check it in their write transaction.
+    Index("ix_dataset_versions_digest", "dataset_id", "resolved_digest"),
 )
 
 tasks = Table(
@@ -194,8 +200,13 @@ tasks = Table(
     _ref("dataset_version_id", "dataset_versions"),
     Column("task_key", String(256), nullable=False),
     _json("definition_json"),
+    # Upstream content identity (Hub task digest) and the digest of the local files.
     Column("content_digest", String(80), nullable=False),
+    Column("material_digest", String(80), nullable=False),
+    # Preparation spec of this task (02 section 6); the cache key with location_id.
+    Column("spec_digest", String(80), nullable=False),
     UniqueConstraint("dataset_version_id", "task_key"),
+    Index("ix_tasks_spec", "spec_digest"),
 )
 
 task_admissions = Table(
@@ -270,6 +281,9 @@ preparations = Table(
     Column("generation", Integer, nullable=False),
     _ref("active_operation_id", "operations", nullable=True),
     _ref("eviction_operation_id", "operations", nullable=True),
+    # What a successful preparation produced (image id, local reference, archive).
+    _json("output_json", nullable=True),
+    _time("prepared_at", nullable=True),
     _time("last_used_at", nullable=True),
     _json("last_restore_error_json", nullable=True),
     UniqueConstraint("spec_digest", "location_id"),
@@ -502,12 +516,19 @@ preparation_waiters = Table(
     metadata,
     _id(),
     _ref("operation_id", "operations"),
-    _ref("attempt_id", "execution_attempts"),
-    _ref("run_id", "runs"),
+    # D-020: runs wait before their attempts exist; attempt_id is for trial-level work.
+    _ref("attempt_id", "execution_attempts", nullable=True),
+    # A waiter is a run, or the administrator's first-preparation Operation.
+    _ref("run_id", "runs", nullable=True),
+    _ref("holder_operation_id", "operations", nullable=True),
     _time("deadline_at"),
     Column("state", String(16), nullable=False),
-    UniqueConstraint("operation_id", "attempt_id"),
+    _time("created_at"),
+    _time("ended_at", nullable=True),
+    UniqueConstraint("operation_id", "run_id"),
+    UniqueConstraint("operation_id", "holder_operation_id"),
     Index("ix_preparation_waiters_op_state", "operation_id", "state"),
+    CheckConstraint("state IN ('waiting','released','cancelled','failed')", name="state"),
 )
 
 trial_results = Table(

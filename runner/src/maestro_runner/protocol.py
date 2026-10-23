@@ -23,7 +23,7 @@ def now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def emit(kind: str, **payload) -> None:
+def emit(kind: str, /, **payload) -> None:
     """One line per event; sequence numbers are gap-free so the worker can detect loss."""
     global _sequence
     _sequence += 1

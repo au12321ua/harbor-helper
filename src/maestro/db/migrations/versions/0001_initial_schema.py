@@ -27,17 +27,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_content_availability')),
     sa.UniqueConstraint('content_digest', 'resource_kind', name=op.f('uq_content_availability_content_digest_resource_kind'))
     )
-    op.create_table('datasets',
-    sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('source_kind', sa.String(length=32), nullable=False),
-    sa.Column('namespace', sa.String(length=128), nullable=False),
-    sa.Column('name', sa.String(length=128), nullable=False),
-    sa.Column('description', sa.Text(), nullable=False),
-    sa.Column('enabled', sa.Boolean(), nullable=False),
-    sa.Column('created_at', sa.String(length=32), nullable=False),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_datasets')),
-    sa.UniqueConstraint('source_kind', 'namespace', 'name', name=op.f('uq_datasets_source_kind_namespace_name'))
-    )
     op.create_table('harness_versions',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
@@ -146,20 +135,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_credentials_created_by_users')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_credentials')),
     sa.UniqueConstraint('name', name=op.f('uq_credentials_name'))
-    )
-    op.create_table('dataset_versions',
-    sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('dataset_id', sa.String(length=40), nullable=False),
-    sa.Column('upstream_ref', sa.String(length=256), nullable=False),
-    sa.Column('ref_kind', sa.String(length=16), nullable=False),
-    sa.Column('resolved_digest', sa.String(length=80), nullable=False),
-    sa.Column('materialization_digest', sa.String(length=80), nullable=True),
-    sa.Column('manifest_json', sa.JSON(), nullable=False),
-    sa.Column('status', sa.String(length=16), nullable=False),
-    sa.Column('created_at', sa.String(length=32), nullable=False),
-    sa.ForeignKeyConstraint(['dataset_id'], ['datasets.id'], name=op.f('fk_dataset_versions_dataset_id_datasets')),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_dataset_versions')),
-    sa.UniqueConstraint('dataset_id', 'resolved_digest', name=op.f('uq_dataset_versions_dataset_id_resolved_digest'))
     )
     op.create_table('deletions',
     sa.Column('id', sa.String(length=40), nullable=False),
@@ -282,6 +257,21 @@ def upgrade() -> None:
         batch_op.create_index('ix_audit_created', ['created_at', 'id'], unique=False)
         batch_op.create_index('ix_audit_object', ['object_type', 'object_id', 'created_at'], unique=False)
 
+    op.create_table('datasets',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('source_kind', sa.String(length=32), nullable=False),
+    sa.Column('namespace', sa.String(length=128), nullable=False),
+    sa.Column('name', sa.String(length=128), nullable=False),
+    sa.Column('description', sa.Text(), nullable=False),
+    sa.Column('enabled', sa.Boolean(), nullable=False),
+    sa.Column('credential_id', sa.String(length=40), nullable=True),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['credential_id'], ['credentials.id'], name=op.f('fk_datasets_credential_id_credentials')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_datasets'))
+    )
+    with op.batch_alter_table('datasets', schema=None) as batch_op:
+        batch_op.create_index('ix_datasets_identity', ['source_kind', 'namespace', 'name'], unique=False)
+
     op.create_table('model_revisions',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('model_config_id', sa.String(length=40), nullable=False),
@@ -326,16 +316,26 @@ def upgrade() -> None:
         batch_op.create_index('ix_operations_owner_created', ['owner_id', 'created_at', 'id'], unique=False)
         batch_op.create_index('ix_operations_resource', ['resource_type', 'resource_id'], unique=False)
 
-    op.create_table('tasks',
+    op.create_table('dataset_versions',
     sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('dataset_version_id', sa.String(length=40), nullable=False),
-    sa.Column('task_key', sa.String(length=256), nullable=False),
-    sa.Column('definition_json', sa.JSON(), nullable=False),
-    sa.Column('content_digest', sa.String(length=80), nullable=False),
-    sa.ForeignKeyConstraint(['dataset_version_id'], ['dataset_versions.id'], name=op.f('fk_tasks_dataset_version_id_dataset_versions')),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_tasks')),
-    sa.UniqueConstraint('dataset_version_id', 'task_key', name=op.f('uq_tasks_dataset_version_id_task_key'))
+    sa.Column('dataset_id', sa.String(length=40), nullable=False),
+    sa.Column('upstream_ref', sa.String(length=256), nullable=False),
+    sa.Column('ref_kind', sa.String(length=16), nullable=False),
+    sa.Column('resolved_digest', sa.String(length=80), nullable=False),
+    sa.Column('materialization_digest', sa.String(length=80), nullable=True),
+    sa.Column('manifest_json', sa.JSON(), nullable=False),
+    sa.Column('status', sa.String(length=16), nullable=False),
+    sa.Column('created_by', sa.String(length=40), nullable=True),
+    sa.Column('operation_id', sa.String(length=40), nullable=True),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_dataset_versions_created_by_users')),
+    sa.ForeignKeyConstraint(['dataset_id'], ['datasets.id'], name=op.f('fk_dataset_versions_dataset_id_datasets')),
+    sa.ForeignKeyConstraint(['operation_id'], ['operations.id'], name=op.f('fk_dataset_versions_operation_id_operations')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_dataset_versions'))
     )
+    with op.batch_alter_table('dataset_versions', schema=None) as batch_op:
+        batch_op.create_index('ix_dataset_versions_digest', ['dataset_id', 'resolved_digest'], unique=False)
+
     op.create_table('exports',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('owner_id', sa.String(length=40), nullable=False),
@@ -360,27 +360,6 @@ def upgrade() -> None:
         batch_op.create_index('ix_exports_owner_created', ['owner_id', 'created_at', 'id'], unique=False)
         batch_op.create_index('ix_exports_state', ['state'], unique=False)
 
-    op.create_table('preparations',
-    sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('task_id', sa.String(length=40), nullable=False),
-    sa.Column('spec_digest', sa.String(length=80), nullable=False),
-    sa.Column('location_id', sa.String(length=64), nullable=False),
-    sa.Column('cache_state', sa.String(length=16), nullable=False),
-    sa.Column('generation', sa.Integer(), nullable=False),
-    sa.Column('active_operation_id', sa.String(length=40), nullable=True),
-    sa.Column('eviction_operation_id', sa.String(length=40), nullable=True),
-    sa.Column('last_used_at', sa.String(length=32), nullable=True),
-    sa.Column('last_restore_error_json', sa.JSON(), nullable=True),
-    sa.CheckConstraint("cache_state IN ('absent','restoring','ready','stale')", name=op.f('ck_preparations_cache_state')),
-    sa.ForeignKeyConstraint(['active_operation_id'], ['operations.id'], name=op.f('fk_preparations_active_operation_id_operations')),
-    sa.ForeignKeyConstraint(['eviction_operation_id'], ['operations.id'], name=op.f('fk_preparations_eviction_operation_id_operations')),
-    sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], name=op.f('fk_preparations_task_id_tasks')),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_preparations')),
-    sa.UniqueConstraint('spec_digest', 'location_id', name=op.f('uq_preparations_spec_digest_location_id'))
-    )
-    with op.batch_alter_table('preparations', schema=None) as batch_op:
-        batch_op.create_index('ix_preparations_state_used', ['cache_state', 'last_used_at'], unique=False)
-
     op.create_table('submission_batches',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('owner_id', sa.String(length=40), nullable=False),
@@ -392,34 +371,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['operation_id'], ['operations.id'], name=op.f('fk_submission_batches_operation_id_operations')),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_submission_batches_owner_id_users')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_submission_batches'))
-    )
-    op.create_table('task_admissions',
-    sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('task_id', sa.String(length=40), nullable=False),
-    sa.Column('preparation_method_digest', sa.String(length=80), nullable=False),
-    sa.Column('state', sa.String(length=16), nullable=False),
-    sa.Column('revision', sa.Integer(), nullable=False),
-    sa.Column('evidence_json', sa.JSON(), nullable=False),
-    sa.Column('approved_by', sa.String(length=40), nullable=True),
-    sa.Column('approved_at', sa.String(length=32), nullable=True),
-    sa.CheckConstraint("state IN ('pending','admitted','first_failed','revoked')", name=op.f('ck_task_admissions_state')),
-    sa.ForeignKeyConstraint(['approved_by'], ['users.id'], name=op.f('fk_task_admissions_approved_by_users')),
-    sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], name=op.f('fk_task_admissions_task_id_tasks')),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_task_admissions')),
-    sa.UniqueConstraint('task_id', 'preparation_method_digest', name=op.f('uq_task_admissions_task_id_preparation_method_digest'))
-    )
-    with op.batch_alter_table('task_admissions', schema=None) as batch_op:
-        batch_op.create_index('ix_task_admissions_task_state', ['task_id', 'state'], unique=False)
-
-    op.create_table('preparation_pins',
-    sa.Column('id', sa.String(length=40), nullable=False),
-    sa.Column('preparation_id', sa.String(length=40), nullable=False),
-    sa.Column('holder_kind', sa.String(length=16), nullable=False),
-    sa.Column('holder_id', sa.String(length=40), nullable=False),
-    sa.Column('expires_at', sa.String(length=32), nullable=False),
-    sa.ForeignKeyConstraint(['preparation_id'], ['preparations.id'], name=op.f('fk_preparation_pins_preparation_id_preparations')),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_preparation_pins')),
-    sa.UniqueConstraint('preparation_id', 'holder_kind', 'holder_id', name=op.f('uq_preparation_pins_preparation_id_holder_kind_holder_id'))
     )
     op.create_table('runs',
     sa.Column('id', sa.String(length=40), nullable=False),
@@ -468,6 +419,44 @@ def upgrade() -> None:
         batch_op.create_index('ix_runs_owner_client', ['owner_id', 'client_request_id'], unique=False)
         batch_op.create_index('ix_runs_state', ['state'], unique=False)
 
+    op.create_table('tasks',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('dataset_version_id', sa.String(length=40), nullable=False),
+    sa.Column('task_key', sa.String(length=256), nullable=False),
+    sa.Column('definition_json', sa.JSON(), nullable=False),
+    sa.Column('content_digest', sa.String(length=80), nullable=False),
+    sa.Column('material_digest', sa.String(length=80), nullable=False),
+    sa.Column('spec_digest', sa.String(length=80), nullable=False),
+    sa.ForeignKeyConstraint(['dataset_version_id'], ['dataset_versions.id'], name=op.f('fk_tasks_dataset_version_id_dataset_versions')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_tasks')),
+    sa.UniqueConstraint('dataset_version_id', 'task_key', name=op.f('uq_tasks_dataset_version_id_task_key'))
+    )
+    with op.batch_alter_table('tasks', schema=None) as batch_op:
+        batch_op.create_index('ix_tasks_spec', ['spec_digest'], unique=False)
+
+    op.create_table('preparations',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('task_id', sa.String(length=40), nullable=False),
+    sa.Column('spec_digest', sa.String(length=80), nullable=False),
+    sa.Column('location_id', sa.String(length=64), nullable=False),
+    sa.Column('cache_state', sa.String(length=16), nullable=False),
+    sa.Column('generation', sa.Integer(), nullable=False),
+    sa.Column('active_operation_id', sa.String(length=40), nullable=True),
+    sa.Column('eviction_operation_id', sa.String(length=40), nullable=True),
+    sa.Column('output_json', sa.JSON(), nullable=True),
+    sa.Column('prepared_at', sa.String(length=32), nullable=True),
+    sa.Column('last_used_at', sa.String(length=32), nullable=True),
+    sa.Column('last_restore_error_json', sa.JSON(), nullable=True),
+    sa.CheckConstraint("cache_state IN ('absent','restoring','ready','stale')", name=op.f('ck_preparations_cache_state')),
+    sa.ForeignKeyConstraint(['active_operation_id'], ['operations.id'], name=op.f('fk_preparations_active_operation_id_operations')),
+    sa.ForeignKeyConstraint(['eviction_operation_id'], ['operations.id'], name=op.f('fk_preparations_eviction_operation_id_operations')),
+    sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], name=op.f('fk_preparations_task_id_tasks')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_preparations')),
+    sa.UniqueConstraint('spec_digest', 'location_id', name=op.f('uq_preparations_spec_digest_location_id'))
+    )
+    with op.batch_alter_table('preparations', schema=None) as batch_op:
+        batch_op.create_index('ix_preparations_state_used', ['cache_state', 'last_used_at'], unique=False)
+
     op.create_table('run_snapshots',
     sa.Column('run_id', sa.String(length=40), nullable=False),
     sa.Column('schema_version', sa.Integer(), nullable=False),
@@ -480,6 +469,24 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['run_id'], ['runs.id'], name=op.f('fk_run_snapshots_run_id_runs')),
     sa.PrimaryKeyConstraint('run_id', name=op.f('pk_run_snapshots'))
     )
+    op.create_table('task_admissions',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('task_id', sa.String(length=40), nullable=False),
+    sa.Column('preparation_method_digest', sa.String(length=80), nullable=False),
+    sa.Column('state', sa.String(length=16), nullable=False),
+    sa.Column('revision', sa.Integer(), nullable=False),
+    sa.Column('evidence_json', sa.JSON(), nullable=False),
+    sa.Column('approved_by', sa.String(length=40), nullable=True),
+    sa.Column('approved_at', sa.String(length=32), nullable=True),
+    sa.CheckConstraint("state IN ('pending','admitted','first_failed','revoked')", name=op.f('ck_task_admissions_state')),
+    sa.ForeignKeyConstraint(['approved_by'], ['users.id'], name=op.f('fk_task_admissions_approved_by_users')),
+    sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], name=op.f('fk_task_admissions_task_id_tasks')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_task_admissions')),
+    sa.UniqueConstraint('task_id', 'preparation_method_digest', name=op.f('uq_task_admissions_task_id_preparation_method_digest'))
+    )
+    with op.batch_alter_table('task_admissions', schema=None) as batch_op:
+        batch_op.create_index('ix_task_admissions_task_state', ['task_id', 'state'], unique=False)
+
     op.create_table('trials',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('run_id', sa.String(length=40), nullable=False),
@@ -521,6 +528,16 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['trial_id'], ['trials.id'], name=op.f('fk_execution_attempts_trial_id_trials')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_execution_attempts')),
     sa.UniqueConstraint('trial_id', 'attempt_index', name=op.f('uq_execution_attempts_trial_id_attempt_index'))
+    )
+    op.create_table('preparation_pins',
+    sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('preparation_id', sa.String(length=40), nullable=False),
+    sa.Column('holder_kind', sa.String(length=16), nullable=False),
+    sa.Column('holder_id', sa.String(length=40), nullable=False),
+    sa.Column('expires_at', sa.String(length=32), nullable=False),
+    sa.ForeignKeyConstraint(['preparation_id'], ['preparations.id'], name=op.f('fk_preparation_pins_preparation_id_preparations')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_preparation_pins')),
+    sa.UniqueConstraint('preparation_id', 'holder_kind', 'holder_id', name=op.f('uq_preparation_pins_preparation_id_holder_kind_holder_id'))
     )
     op.create_table('work_items',
     sa.Column('id', sa.String(length=40), nullable=False),
@@ -564,15 +581,21 @@ def upgrade() -> None:
     op.create_table('preparation_waiters',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('operation_id', sa.String(length=40), nullable=False),
-    sa.Column('attempt_id', sa.String(length=40), nullable=False),
-    sa.Column('run_id', sa.String(length=40), nullable=False),
+    sa.Column('attempt_id', sa.String(length=40), nullable=True),
+    sa.Column('run_id', sa.String(length=40), nullable=True),
+    sa.Column('holder_operation_id', sa.String(length=40), nullable=True),
     sa.Column('deadline_at', sa.String(length=32), nullable=False),
     sa.Column('state', sa.String(length=16), nullable=False),
+    sa.Column('created_at', sa.String(length=32), nullable=False),
+    sa.Column('ended_at', sa.String(length=32), nullable=True),
+    sa.CheckConstraint("state IN ('waiting','released','cancelled','failed')", name=op.f('ck_preparation_waiters_state')),
     sa.ForeignKeyConstraint(['attempt_id'], ['execution_attempts.id'], name=op.f('fk_preparation_waiters_attempt_id_execution_attempts')),
+    sa.ForeignKeyConstraint(['holder_operation_id'], ['operations.id'], name=op.f('fk_preparation_waiters_holder_operation_id_operations')),
     sa.ForeignKeyConstraint(['operation_id'], ['operations.id'], name=op.f('fk_preparation_waiters_operation_id_operations')),
     sa.ForeignKeyConstraint(['run_id'], ['runs.id'], name=op.f('fk_preparation_waiters_run_id_runs')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_preparation_waiters')),
-    sa.UniqueConstraint('operation_id', 'attempt_id', name=op.f('uq_preparation_waiters_operation_id_attempt_id'))
+    sa.UniqueConstraint('operation_id', 'holder_operation_id', name=op.f('uq_preparation_waiters_operation_id_holder_operation_id')),
+    sa.UniqueConstraint('operation_id', 'run_id', name=op.f('uq_preparation_waiters_operation_id_run_id'))
     )
     with op.batch_alter_table('preparation_waiters', schema=None) as batch_op:
         batch_op.create_index('ix_preparation_waiters_op_state', ['operation_id', 'state'], unique=False)
@@ -633,12 +656,25 @@ def downgrade() -> None:
         batch_op.drop_index('ix_work_items_state')
 
     op.drop_table('work_items')
+    op.drop_table('preparation_pins')
     op.drop_table('execution_attempts')
     with op.batch_alter_table('trials', schema=None) as batch_op:
         batch_op.drop_index('ix_trials_run_state')
 
     op.drop_table('trials')
+    with op.batch_alter_table('task_admissions', schema=None) as batch_op:
+        batch_op.drop_index('ix_task_admissions_task_state')
+
+    op.drop_table('task_admissions')
     op.drop_table('run_snapshots')
+    with op.batch_alter_table('preparations', schema=None) as batch_op:
+        batch_op.drop_index('ix_preparations_state_used')
+
+    op.drop_table('preparations')
+    with op.batch_alter_table('tasks', schema=None) as batch_op:
+        batch_op.drop_index('ix_tasks_spec')
+
+    op.drop_table('tasks')
     with op.batch_alter_table('runs', schema=None) as batch_op:
         batch_op.drop_index('ix_runs_state')
         batch_op.drop_index('ix_runs_owner_client')
@@ -647,22 +683,16 @@ def downgrade() -> None:
         batch_op.drop_index('ix_runs_accepted')
 
     op.drop_table('runs')
-    op.drop_table('preparation_pins')
-    with op.batch_alter_table('task_admissions', schema=None) as batch_op:
-        batch_op.drop_index('ix_task_admissions_task_state')
-
-    op.drop_table('task_admissions')
     op.drop_table('submission_batches')
-    with op.batch_alter_table('preparations', schema=None) as batch_op:
-        batch_op.drop_index('ix_preparations_state_used')
-
-    op.drop_table('preparations')
     with op.batch_alter_table('exports', schema=None) as batch_op:
         batch_op.drop_index('ix_exports_state')
         batch_op.drop_index('ix_exports_owner_created')
 
     op.drop_table('exports')
-    op.drop_table('tasks')
+    with op.batch_alter_table('dataset_versions', schema=None) as batch_op:
+        batch_op.drop_index('ix_dataset_versions_digest')
+
+    op.drop_table('dataset_versions')
     with op.batch_alter_table('operations', schema=None) as batch_op:
         batch_op.drop_index('ix_operations_resource')
         batch_op.drop_index('ix_operations_owner_created')
@@ -670,6 +700,10 @@ def downgrade() -> None:
 
     op.drop_table('operations')
     op.drop_table('model_revisions')
+    with op.batch_alter_table('datasets', schema=None) as batch_op:
+        batch_op.drop_index('ix_datasets_identity')
+
+    op.drop_table('datasets')
     with op.batch_alter_table('audit_events', schema=None) as batch_op:
         batch_op.drop_index('ix_audit_object')
         batch_op.drop_index('ix_audit_created')
@@ -690,7 +724,6 @@ def downgrade() -> None:
         batch_op.drop_index('ix_deletions_state_deleted')
 
     op.drop_table('deletions')
-    op.drop_table('dataset_versions')
     op.drop_table('credentials')
     op.drop_table('attachment_versions')
     op.drop_table('users')
@@ -703,6 +736,5 @@ def downgrade() -> None:
 
     op.drop_table('idempotency_records')
     op.drop_table('harness_versions')
-    op.drop_table('datasets')
     op.drop_table('content_availability')
     # ### end Alembic commands ###
