@@ -29,7 +29,7 @@ def agents():
     finally:
         sys.path.remove(str(RUNNER_SRC))
         module.ATTACHMENTS[:] = []
-        module.INSTALL.update(timeout_sec=None, report=None)
+        module.INSTALL.update(timeout_sec=None, report=None, env={})
 
 
 class Container:
@@ -177,6 +177,19 @@ def test_each_trial_installs_into_its_own_container(agents, tmp_path):
     for trial in ("trial-a", "trial-b"):
         install(agents, Container(tmp_path / trial, agents), tmp_path / trial)
     assert [(n, r[0]["status"]) for n, r in reports if r] == [("trial-a", "ok"), ("trial-b", "ok")]
+
+
+def test_the_setup_proxy_reaches_install_scripts_only(agents, tmp_path):
+    package = stored(tmp_path, "sdk", '#!/bin/bash\necho "proxy=$HTTP_PROXY"\n')
+    reports = prepare(agents, [package])
+    agents.INSTALL["env"] = {"HTTP_PROXY": "http://172.17.0.1:7890"}
+    container = Container(tmp_path / "container", agents)
+    install(agents, container, tmp_path / "trial-a")
+    log = container.root / "logs" / "00-sdk.log"
+    assert log.read_text() == "proxy=http://172.17.0.1:7890\n"
+    assert reports[-1][1][0]["proxy"] is True
+    # Copying and checking run without it.
+    assert all(c[0].find("PROXY") < 0 for c in container.commands)
 
 
 def test_setup_time_covers_installing(agents, tmp_path):

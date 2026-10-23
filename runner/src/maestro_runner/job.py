@@ -393,7 +393,9 @@ class Execution:
             loaded.append({**attachment, "files": files})
         agents.ATTACHMENTS[:] = loaded
         agents.INSTALL.update(
-            timeout_sec=self.spec.get("bootstrap_timeout_sec"), report=self._installed
+            timeout_sec=self.spec.get("bootstrap_timeout_sec"),
+            report=self._installed,
+            env=dict(self.spec.get("setup_env") or {}),
         )
 
     def _installed(self, name: str, records: list | None) -> None:
@@ -681,7 +683,7 @@ def check_spec(spec: dict) -> None:
         network.check_platform(spec.get("network"))
     except ValueError as error:
         raise Rejected("RUNNER_INPUT_INVALID", str(error)) from None
-    for name in ("secrets", "task_env"):
+    for name in ("secrets", "task_env", "setup_env"):
         value = spec.get(name) or {}
         if not isinstance(value, dict) or not all(
             isinstance(k, str) and k.isidentifier() and isinstance(v, str) for k, v in value.items()

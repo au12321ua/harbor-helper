@@ -175,9 +175,12 @@ class HarborExecutor:
         log_cap_bytes: int = 1024 * 1024,
         artifact_limits: dict[str, int] = DEFAULT_ARTIFACT_LIMITS,
         attachments: AttachmentStore | None = None,
+        setup_env: dict[str, str] | None = None,
     ):
         self.artifact_limits = dict(artifact_limits)
         self.attachments = attachments
+        # For attachment install scripts only (the setup proxy); never the agent's.
+        self.setup_env = dict(setup_env or {})
         self.runner_python = runner_python
         self.work_root = work_root
         self.materials = materials
@@ -348,6 +351,7 @@ class HarborExecutor:
             "task_env": self._task_env(spec),
             "attachments": attachments,
             "bootstrap_timeout_sec": spec.effective_config.get("bootstrap_timeout_sec"),
+            "setup_env": self.setup_env if attachments else {},
             "n_concurrent_trials": spec.concurrency,
             "retry": harbor_retry_config(),
             "tasks": list(tasks.values()),
@@ -358,7 +362,10 @@ class HarborExecutor:
             "tail_interval_sec": self.tail_interval_sec,
         }
         session = _Session(spec, workdir, {t for task in tasks.values() for t in task["trial_ids"]})
-        session.secrets = tuple(v for v in spec.secrets.values() if v)
+        # A proxy address with a password in it is a secret too.
+        session.secrets = tuple(v for v in spec.secrets.values() if v) + tuple(
+            {v for v in self.setup_env.values() if "@" in v}
+        )
         proc = await asyncio.create_subprocess_exec(
             str(self.runner_python),
             "-I",

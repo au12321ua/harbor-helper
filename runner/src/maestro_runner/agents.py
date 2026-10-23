@@ -33,7 +33,7 @@ SECRETS: dict[str, str] = {}
 # Set by the job: packages in load order ({name, version, content_digest, path, bootstrap,
 # files}), the install time limit of one trial, and the callback the job reports through.
 ATTACHMENTS: list[dict] = []
-INSTALL: dict[str, Any] = {"timeout_sec": None, "report": None}
+INSTALL: dict[str, Any] = {"timeout_sec": None, "report": None, "env": {}}
 TARGET = "/opt/maestro/attachments"
 LOG_DIR = "/logs/agent/attachments"
 # Time to copy and check one package, on top of the install time limit.
@@ -186,6 +186,8 @@ async def install(agent, environment) -> None:
                 "content_digest": attachment["content_digest"],
                 "target": target,
                 "user": None if user is None else str(user),
+                # Whether the deployment's setup proxy was offered (never its address).
+                "proxy": bool(INSTALL["env"]),
                 "status": "copying",
             }
             records.append(record)
@@ -220,7 +222,7 @@ async def install(agent, environment) -> None:
             result = await environment.exec(
                 f"timeout -k 5 {remaining} bash bootstrap.sh > {log} 2>&1",
                 cwd=target,
-                env={"MAESTRO_ATTACHMENT_DIR": target},
+                env={**INSTALL["env"], "MAESTRO_ATTACHMENT_DIR": target},
                 timeout_sec=remaining + 30,
             )
             spent += time.monotonic() - started

@@ -43,6 +43,15 @@ TASKS = Path(__file__).with_name("fixtures") / "harbor-tasks"
 # once, see the test docstring.
 AGENT_TASKS = Path(__file__).with_name("fixtures") / "agent-tasks"
 RUNNER = Path(os.environ.get("MAESTRO_RUNNER_PYTHON", ROOT / "runner/.venv/bin/python"))
+# Optional: the deployment's setup proxy (e.g. http://172.17.0.1:7890), for hosts that need
+# one to build images and install attachments. Tests then also check its boundaries.
+SETUP_PROXY = os.environ.get("MAESTRO_TEST_SETUP_PROXY", "")
+SETUP_ENV = (
+    {"HTTP_PROXY": SETUP_PROXY, "HTTPS_PROXY": SETUP_PROXY}
+    | {"http_proxy": SETUP_PROXY, "https_proxy": SETUP_PROXY}
+    if SETUP_PROXY
+    else {}
+)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MAESTRO_DOCKER_TESTS") != "1" or not RUNNER.is_file(),
@@ -103,8 +112,9 @@ def harbor(settings, tasks: Path, name: str):
         DockerResources(),
         term_grace=30,
         attachments=AttachmentStore(settings.data_dir),
+        setup_env=SETUP_ENV,
     )
-    environment = DockerEnvironment(settings.preparation_dir)
+    environment = DockerEnvironment(settings.preparation_dir, proxy_env=SETUP_ENV)
     built = Maestro.build(
         settings,
         executor=executor,
@@ -582,7 +592,14 @@ class ScriptedModel:
                         "commands": [
                             {
                                 "keystrokes": "echo ok > /app/answer; "
-                                "net-probe > /logs/agent/probe.txt\n",
+                                # Even told the setup proxy, the agent must not get out.
+                                + (
+                                    f"echo {SETUP_PROXY} > /app/proxy-url; "
+                                    f"http_proxy={SETUP_PROXY} "
+                                    if SETUP_PROXY
+                                    else ""
+                                )
+                                + "net-probe > /logs/agent/probe.txt\n",
                                 "duration": 9,
                             }
                         ],
@@ -880,8 +897,11 @@ def test_attachments_install_in_each_trial_container(agent_service, monkeypatch)
                 assert read(files, tid, "verifier/probe.txt").split()[0] == "NET_CLOSED"
                 # Only this trial's own install marker: no shared install layer.
                 assert read(files, tid, "agent/attachments/markers.txt").strip() == "1"
-                # The host's Docker client proxy settings never reach a task container.
-                assert read(files, tid, "agent/attachments/proxy-env.txt").strip() == ""
+                # Install scripts get the setup proxy when one is configured, and nothing
+                # else does: the host's own Docker client proxy never reaches a container.
+                seen = read(files, tid, "agent/attachments/proxy-env.txt")
+                assert (f"HTTP_PROXY={SETUP_PROXY}" in seen) if SETUP_PROXY else seen.strip() == ""
+                assert records[0]["proxy"] is bool(SETUP_PROXY)
                 mounts = set()
                 for line in read(files, tid, "agent/attachments/mountinfo.txt").splitlines():
                     fields, _, rest = line.partition(" - ")

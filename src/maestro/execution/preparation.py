@@ -121,8 +121,12 @@ class DockerEnvironment:
         build_timeout_max: float = MAX_BUILD_TIMEOUT,
         pull_timeout: float = PULL_TIMEOUT,
         save_timeout: float = SAVE_TIMEOUT,
+        proxy_env: dict[str, str] | None = None,
     ):
         self.archive_dir = archive_dir
+        # Docker's predefined proxy build arguments: RUN steps can download through the
+        # proxy, and Docker keeps them out of the image's history and the build cache.
+        self.proxy_env = dict(proxy_env or {})
         self.docker = docker or shutil.which("docker") or "docker"
         self.repository: str | None = None
         # A task's own build time is capped at ``build_timeout_max`` every time it builds,
@@ -185,10 +189,14 @@ class DockerEnvironment:
         timeout = build_timeout(
             spec.spec["environment"].get("build_timeout_sec"), self.build_timeout_max
         )
+        proxy_args = [
+            arg for k, v in sorted(self.proxy_env.items()) for arg in ("--build-arg", f"{k}={v}")
+        ]
         code, _, err = await self._run(
             "buildx",
             "build",
             "--provenance=false",
+            *proxy_args,
             "--build-arg",
             "SOURCE_DATE_EPOCH=0",
             "--label",
@@ -204,7 +212,7 @@ class DockerEnvironment:
             raise PreparationError(
                 classify(err), "image build failed", {"stderr_tail": err[-2000:]}
             )
-        return {"method": "build"}
+        return {"method": "build", "proxy": bool(self.proxy_env)}
 
     async def _pull(self, reference: str, tag: str, progress: Progress) -> dict:
         await progress("pulling")
