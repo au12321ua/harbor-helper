@@ -135,7 +135,7 @@ const BLOCKER: Record<string, string> = {
 /** Run-configuration blockers and where values came from (03). */
 export const CONFIG_BLOCKER: Record<string, string> = {
   LIMIT_EXCEEDED: "超过团队上限",
-  AUTHOR_CONSTRAINT_UNCONFIRMED: "低于作者给的资源，且作者是否硬性要求未经确认",
+  BELOW_AUTHOR_RESOURCES: "不能低于任务作者给的资源",
   HARNESS_PROTOCOL_UNSUPPORTED: "Harness 不支持该模型的调用协议",
   EXECUTOR_UNSUPPORTED: "执行器不支持该 Harness 与协议的组合",
   CREDENTIAL_UNAVAILABLE: "凭据不可用，需要管理员处理",

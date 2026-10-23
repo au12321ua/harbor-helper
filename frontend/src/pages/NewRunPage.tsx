@@ -2,7 +2,13 @@ import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -22,11 +28,17 @@ import {
   TextField,
 } from "@/components/common";
 import { ApiError, api } from "@/lib/api";
-import { CONFIG_BLOCKER, SOURCE_LAYER, blockerText, fmtTime } from "@/lib/format";
+import {
+  CONFIG_BLOCKER,
+  SOURCE_LAYER,
+  blockerText,
+  fmtTime,
+} from "@/lib/format";
 import { limit, useLoad, useSession } from "@/lib/hooks";
 import type {
   ConfigRequest,
   ConfigResolution,
+  CredentialName,
   Dataset,
   DatasetVersionDetail,
   ExecutionMode,
@@ -51,9 +63,18 @@ function numberOrNull(text: string): number | null {
 export function NewRunPage() {
   const { capabilities } = useSession();
   const navigate = useNavigate();
-  const datasets = useLoad(async () => (await api.get<Dataset[]>("datasets", { limit: 200 })).data);
-  const models = useLoad(async () => (await api.get<ModelConfig[]>("model-configs")).data);
-  const harnesses = useLoad(async () => (await api.get<Harness[]>("harness-versions")).data);
+  const datasets = useLoad(
+    async () => (await api.get<Dataset[]>("datasets", { limit: 200 })).data,
+  );
+  const models = useLoad(
+    async () => (await api.get<ModelConfig[]>("model-configs")).data,
+  );
+  const harnesses = useLoad(
+    async () => (await api.get<Harness[]>("harness-versions")).data,
+  );
+  const credentials = useLoad(
+    async () => (await api.get<CredentialName[]>("credentials")).data,
+  );
   const versions = useMemo(
     () =>
       (datasets.data ?? []).flatMap((d) =>
@@ -75,7 +96,8 @@ export function NewRunPage() {
   const detail = useLoad(
     async () =>
       versionId
-        ? (await api.get<DatasetVersionDetail>(`dataset-versions/${versionId}`)).data
+        ? (await api.get<DatasetVersionDetail>(`dataset-versions/${versionId}`))
+            .data
         : undefined,
     [versionId],
   );
@@ -84,7 +106,9 @@ export function NewRunPage() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>("agent");
   const [modelId, setModelId] = useState("");
   const [harnessId, setHarnessId] = useState("");
-  const [harnessParams, setHarnessParams] = useState<Record<string, string>>({});
+  const [harnessParams, setHarnessParams] = useState<Record<string, string>>(
+    {},
+  );
   const [mode, setMode] = useState<"all_eligible" | "explicit">("all_eligible");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [overrides, setOverrides] = useState({
@@ -95,9 +119,9 @@ export function NewRunPage() {
     cpus: "",
     memory_mb: "",
   });
-  const [parameters, setParameters] = useState<Record<string, { value: string; secret: boolean }>>(
-    {},
-  );
+  const [parameters, setParameters] = useState<
+    Record<string, { value: string; secret: boolean }>
+  >({});
   const [clientRequestId, setClientRequestId] = useState("");
   const [resolution, setResolution] = useState<ConfigResolution | null>(null);
   const [error, setError] = useState<unknown>();
@@ -106,7 +130,8 @@ export function NewRunPage() {
   const key = useRef<string>(newKey());
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
-  const model = (models.data ?? []).find((m) => m.id === modelId) ?? models.data?.[0];
+  const model =
+    (models.data ?? []).find((m) => m.id === modelId) ?? models.data?.[0];
   const compatible = (harnesses.data ?? []).filter(
     (h) => h.enabled && (!model || h.protocols.includes(model.protocol)),
   );
@@ -114,13 +139,18 @@ export function NewRunPage() {
   const eligible = (tasks.data ?? []).filter((t) => t.can_submit);
   // Author parameters declared by this version's tasks; required ones need a value.
   const declared = useMemo(() => {
-    const found = new Map<string, { sensitive: boolean; required: boolean; default: string | null }>();
+    const found = new Map<
+      string,
+      { sensitive: boolean; required: boolean; default: string | null }
+    >();
     for (const task of tasks.data ?? []) {
       for (const p of task.parameters) {
         const known = found.get(p.name);
         found.set(p.name, {
           sensitive: (known?.sensitive ?? false) || p.sensitive,
-          required: (known?.required ?? false) || task.required_parameters.includes(p.name),
+          required:
+            (known?.required ?? false) ||
+            task.required_parameters.includes(p.name),
           default: known?.default ?? p.default,
         });
       }
@@ -146,7 +176,9 @@ export function NewRunPage() {
     const params: Record<string, ParameterValue> = {};
     for (const [pname, entry] of Object.entries(parameters)) {
       if (entry.value.trim() === "") continue;
-      params[pname] = entry.secret ? { credential_id: entry.value.trim() } : entry.value;
+      params[pname] = entry.secret
+        ? { credential_id: entry.value.trim() }
+        : entry.value;
     }
     const typedHarnessParams: Record<string, unknown> = {};
     for (const [pname, text] of Object.entries(harnessParams)) {
@@ -163,7 +195,9 @@ export function NewRunPage() {
       dataset_version_id: versionId,
       execution_mode: executionMode,
       task_selection:
-        mode === "all_eligible" ? { mode } : { mode, task_ids: [...selected].sort() },
+        mode === "all_eligible"
+          ? { mode }
+          : { mode, task_ids: [...selected].sort() },
       ...(executionMode === "agent"
         ? {
             model_config_id: model?.id ?? null,
@@ -188,7 +222,10 @@ export function NewRunPage() {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.post<ConfigResolution>("config-resolutions", request());
+      const res = await api.post<ConfigResolution>(
+        "config-resolutions",
+        request(),
+      );
       setResolution(res.data);
     } catch (err) {
       setError(err);
@@ -208,7 +245,9 @@ export function NewRunPage() {
       client_request_id: clientRequestId || null,
     };
     try {
-      const res = await api.post<RunAccepted>("runs", body, { "Idempotency-Key": key.current });
+      const res = await api.post<RunAccepted>("runs", body, {
+        "Idempotency-Key": key.current,
+      });
       key.current = newKey();
       setPendingKey(null);
       toast.success(`已受理：计划 ${res.data.planned_trials} 个试次`);
@@ -220,15 +259,24 @@ export function NewRunPage() {
       } else {
         key.current = newKey();
         setPendingKey(null);
-        if (err instanceof ApiError && err.code.startsWith("CONFIG_RESOLUTION_")) setResolution(null);
+        if (
+          err instanceof ApiError &&
+          err.code.startsWith("CONFIG_RESOLUTION_")
+        )
+          setResolution(null);
       }
     } finally {
       setBusy(false);
     }
   };
 
-  const fieldErr = (field: string) => (error instanceof ApiError ? error.field(field) : undefined);
-  const override = (field: keyof typeof overrides, label: string, hint: string) => (
+  const fieldErr = (field: string) =>
+    error instanceof ApiError ? error.field(field) : undefined;
+  const override = (
+    field: keyof typeof overrides,
+    label: string,
+    hint: string,
+  ) => (
     <TextField
       id={`run-${field}`}
       label={label}
@@ -237,7 +285,9 @@ export function NewRunPage() {
       step={field === "cpus" ? 0.1 : 1}
       placeholder="继承"
       value={overrides[field]}
-      onChange={(e) => changed(setOverrides)({ ...overrides, [field]: e.target.value })}
+      onChange={(e) =>
+        changed(setOverrides)({ ...overrides, [field]: e.target.value })
+      }
       hint={hint}
       error={fieldErr(field)}
     />
@@ -253,7 +303,9 @@ export function NewRunPage() {
       {datasets.loading && !datasets.data && <Loading />}
       <ErrorAlert error={datasets.error} title="无法加载数据集" />
       {datasets.data && versions.length === 0 && (
-        <EmptyNote>还没有可用的数据集版本，请管理员先在“数据集”页添加。</EmptyNote>
+        <EmptyNote>
+          还没有可用的数据集版本，请管理员先在“数据集”页添加。
+        </EmptyNote>
       )}
       {versions.length > 0 && (
         <form className="grid gap-4" onSubmit={check}>
@@ -283,7 +335,8 @@ export function NewRunPage() {
               >
                 {versions.map(({ dataset, version }) => (
                   <option key={version.id} value={version.id}>
-                    {dataset.namespace}/{dataset.name} @ {version.upstream_ref} ({version.status})
+                    {dataset.namespace}/{dataset.name} @ {version.upstream_ref}{" "}
+                    ({version.status})
                   </option>
                 ))}
               </SelectField>
@@ -305,7 +358,8 @@ export function NewRunPage() {
                     checked={executionMode === "oracle"}
                     onChange={() => changed(setExecutionMode)("oracle")}
                   />
-                  Oracle 测试模式：执行任务自带的参考解法，不调用模型，不参与模型比较
+                  Oracle
+                  测试模式：执行任务自带的参考解法，不调用模型，不参与模型比较
                 </label>
               </fieldset>
               <TextField
@@ -323,11 +377,15 @@ export function NewRunPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">模型与 Harness</CardTitle>
-                <CardDescription>模型配置与 Harness 由管理员维护；这里只能选择。</CardDescription>
+                <CardDescription>
+                  模型配置与 Harness 由管理员维护；这里只能选择。
+                </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
                 {models.data && models.data.length === 0 && (
-                  <EmptyNote>还没有启用的模型配置，请管理员在“管理 → 模型”中添加。</EmptyNote>
+                  <EmptyNote>
+                    还没有启用的模型配置，请管理员在“管理 → 模型”中添加。
+                  </EmptyNote>
                 )}
                 {models.data && models.data.length > 0 && (
                   <SelectField
@@ -339,8 +397,8 @@ export function NewRunPage() {
                   >
                     {models.data.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.name} — {m.model_id}（{m.provider}，修订 {m.revision}）
-                        {m.credential_problem ? " ⚠ 凭据不可用" : ""}
+                        {m.name} — {m.model_id}（{m.provider}，修订 {m.revision}
+                        ）{m.credential_problem ? " ⚠ 凭据不可用" : ""}
                       </option>
                     ))}
                   </SelectField>
@@ -367,21 +425,28 @@ export function NewRunPage() {
                   </SelectField>
                 )}
                 {harness &&
-                  Object.entries(harness.parameter_schema.parameters ?? {}).map(([pname, spec]) => (
-                    <TextField
-                      key={pname}
-                      id={`harness-param-${pname}`}
-                      label={`Harness 参数 ${pname}（${spec.type}）`}
-                      placeholder={
-                        spec.default !== undefined ? `默认 ${String(spec.default)}` : "未设置"
-                      }
-                      value={harnessParams[pname] ?? ""}
-                      onChange={(e) =>
-                        changed(setHarnessParams)({ ...harnessParams, [pname]: e.target.value })
-                      }
-                      hint={spec.description}
-                    />
-                  ))}
+                  Object.entries(harness.parameter_schema.parameters ?? {}).map(
+                    ([pname, spec]) => (
+                      <TextField
+                        key={pname}
+                        id={`harness-param-${pname}`}
+                        label={`Harness 参数 ${pname}（${spec.type}）`}
+                        placeholder={
+                          spec.default !== undefined
+                            ? `默认 ${String(spec.default)}`
+                            : "未设置"
+                        }
+                        value={harnessParams[pname] ?? ""}
+                        onChange={(e) =>
+                          changed(setHarnessParams)({
+                            ...harnessParams,
+                            [pname]: e.target.value,
+                          })
+                        }
+                        hint={spec.description}
+                      />
+                    ),
+                  )}
               </CardContent>
             </Card>
           )}
@@ -409,9 +474,21 @@ export function NewRunPage() {
                 "运行总时限（小时，含排队）",
                 `团队默认 ${limit(capabilities, "run_deadline_hours", 72)}，上限 ${limit(capabilities, "run_deadline_hours_max", 72)}`,
               )}
-              {override("agent_sec", "Agent 时限（秒）", "留空用各任务作者的设定")}
-              {override("cpus", "每试次 CPU", "留空用作者设定；低于作者设定需管理员确认")}
-              {override("memory_mb", "每试次内存（MiB）", "留空用作者设定；低于作者设定需管理员确认")}
+              {override(
+                "agent_sec",
+                "Agent 时限（秒）",
+                "留空用各任务作者的设定",
+              )}
+              {override(
+                "cpus",
+                "每试次 CPU",
+                "留空用作者设定；只能调高，不能低于作者设定",
+              )}
+              {override(
+                "memory_mb",
+                "每试次内存（MiB）",
+                "留空用作者设定；只能调高，不能低于作者设定",
+              )}
             </CardContent>
           </Card>
 
@@ -420,26 +497,53 @@ export function NewRunPage() {
               <CardHeader>
                 <CardTitle className="text-base">作者参数</CardTitle>
                 <CardDescription>
-                  任务作者声明的参数。秘密参数只能填团队凭据的 ID（由管理员提供），不能直接填值。
+                  任务作者声明的参数。秘密参数只能选一个团队凭据，不能直接填值；凭据由管理员维护，这里只显示名称。
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
-                {declared.map(([pname, info]) => (
-                  <TextField
-                    key={pname}
-                    id={`param-${pname}`}
-                    label={`${pname}${info.required ? "（必填）" : ""}${info.sensitive ? "（秘密：凭据 ID）" : ""}`}
-                    placeholder={info.default != null ? `默认 ${info.default}` : ""}
-                    value={parameters[pname]?.value ?? ""}
-                    onChange={(e) =>
-                      changed(setParameters)({
-                        ...parameters,
-                        [pname]: { value: e.target.value, secret: info.sensitive },
-                      })
-                    }
-                    error={fieldErr(pname)}
-                  />
-                ))}
+                {declared.map(([pname, info]) =>
+                  info.sensitive ? (
+                    <SelectField
+                      key={pname}
+                      id={`param-${pname}`}
+                      label={`${pname}${info.required ? "（必填）" : ""}（秘密）`}
+                      value={parameters[pname]?.value ?? ""}
+                      onChange={(e) =>
+                        changed(setParameters)({
+                          ...parameters,
+                          [pname]: { value: e.target.value, secret: true },
+                        })
+                      }
+                      error={fieldErr(pname)}
+                    >
+                      <option value="">
+                        {info.default != null ? "用作者默认值" : "选择凭据"}
+                      </option>
+                      {(credentials.data ?? []).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}（{c.provider}）
+                        </option>
+                      ))}
+                    </SelectField>
+                  ) : (
+                    <TextField
+                      key={pname}
+                      id={`param-${pname}`}
+                      label={`${pname}${info.required ? "（必填）" : ""}`}
+                      placeholder={
+                        info.default != null ? `默认 ${info.default}` : ""
+                      }
+                      value={parameters[pname]?.value ?? ""}
+                      onChange={(e) =>
+                        changed(setParameters)({
+                          ...parameters,
+                          [pname]: { value: e.target.value, secret: false },
+                        })
+                      }
+                      error={fieldErr(pname)}
+                    />
+                  ),
+                )}
               </CardContent>
             </Card>
           )}
@@ -451,8 +555,9 @@ export function NewRunPage() {
             <CardContent className="grid gap-3">
               {detail.data && (
                 <p className="text-sm text-muted-foreground">
-                  共 {detail.data.task_count} 个任务；已准入 {detail.data.admitted_task_count}；
-                  可提交 {detail.data.submittable_task_count}。
+                  共 {detail.data.task_count} 个任务；已准入{" "}
+                  {detail.data.admitted_task_count}； 可提交{" "}
+                  {detail.data.submittable_task_count}。
                 </p>
               )}
               <div className="flex flex-wrap gap-4 text-sm">
@@ -523,14 +628,25 @@ export function NewRunPage() {
             </CardContent>
           </Card>
 
-          <ErrorAlert error={error} title={resolution ? "提交失败" : "检查失败"} />
+          <ErrorAlert
+            error={error}
+            title={resolution ? "提交失败" : "检查失败"}
+          />
           <div>
             <Button
               type="submit"
               variant={resolution ? "outline" : "default"}
-              disabled={busy || !versionId || (mode === "explicit" && selected.size === 0)}
+              disabled={
+                busy ||
+                !versionId ||
+                (mode === "explicit" && selected.size === 0)
+              }
             >
-              {busy && !resolution ? "检查中…" : resolution ? "重新检查" : "检查配置"}
+              {busy && !resolution
+                ? "检查中…"
+                : resolution
+                  ? "重新检查"
+                  : "检查配置"}
             </Button>
           </div>
 
@@ -601,7 +717,8 @@ function ResolutionReview({
     for (const part of path.split("/").filter(Boolean)) {
       node = (node as Record<string, unknown> | undefined)?.[part];
     }
-    if (node && typeof node === "object") return "value" in node ? String(node.value) : "（凭据）";
+    if (node && typeof node === "object")
+      return "value" in node ? String(node.value) : "（凭据）";
     return node == null ? "—" : String(node);
   };
   const blocked = resolution.blockers.length > 0;
@@ -610,10 +727,13 @@ function ResolutionReview({
     <Card className={blocked ? "border-destructive" : "border-emerald-400"}>
       <CardHeader>
         <CardTitle className="text-base">
-          {blocked ? "配置有阻塞项，不能提交" : `检查通过：计划 ${resolution.planned_trials} 个试次`}
+          {blocked
+            ? "配置有阻塞项，不能提交"
+            : `检查通过：计划 ${resolution.planned_trials} 个试次`}
         </CardTitle>
         <CardDescription>
-          结果在 {fmtTime(resolution.expires_at)} 前有效，不预留容量或额度；提交时服务端会再核对一次，期间配置若有变化会要求重新检查。
+          结果在 {fmtTime(resolution.expires_at)}{" "}
+          前有效，不预留容量或额度；提交时服务端会再核对一次，期间配置若有变化会要求重新检查。
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
@@ -621,14 +741,20 @@ function ResolutionReview({
           <ul className="grid gap-1">
             {resolution.blockers.map((b, i) => (
               <li key={`${b.path}-${b.code}-${i}`} className="text-destructive">
-                <code className="text-xs">{b.path}</code>：{CONFIG_BLOCKER[b.code] ?? b.message}
-                <span className="text-xs text-muted-foreground">（{b.message}）</span>
+                <code className="text-xs">{b.path}</code>：
+                {CONFIG_BLOCKER[b.code] ?? b.message}
+                <span className="text-xs text-muted-foreground">
+                  （{b.message}）
+                </span>
               </li>
             ))}
           </ul>
         )}
         {resolution.warnings.map((w, i) => (
-          <div key={i} className="rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900">
+          <div
+            key={i}
+            className="rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900"
+          >
             <code className="text-xs">{w.path}</code>：{w.message}
           </div>
         ))}
@@ -643,20 +769,30 @@ function ResolutionReview({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {Object.entries(resolution.field_sources).map(([path, source]) => (
-                  <TableRow key={path}>
-                    <TableCell>
-                      {FIELD_LABEL[path] ?? <code className="text-xs">{path}</code>}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{value(path)}</TableCell>
-                    <TableCell>
-                      <Pill tone={source.layer === "override" ? "warn" : "muted"}>
-                        {SOURCE_LAYER[source.layer] ?? source.layer}
-                        {source.revision != null ? ` · 修订 ${source.revision}` : ""}
-                      </Pill>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {Object.entries(resolution.field_sources).map(
+                  ([path, source]) => (
+                    <TableRow key={path}>
+                      <TableCell>
+                        {FIELD_LABEL[path] ?? (
+                          <code className="text-xs">{path}</code>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {value(path)}
+                      </TableCell>
+                      <TableCell>
+                        <Pill
+                          tone={source.layer === "override" ? "warn" : "muted"}
+                        >
+                          {SOURCE_LAYER[source.layer] ?? source.layer}
+                          {source.revision != null
+                            ? ` · 修订 ${source.revision}`
+                            : ""}
+                        </Pill>
+                      </TableCell>
+                    </TableRow>
+                  ),
+                )}
               </TableBody>
             </Table>
           </div>
@@ -674,11 +810,14 @@ function ResolutionReview({
         )}
         {resolution.excluded_tasks.length > 0 && (
           <div>
-            <p className="font-medium">不会运行的任务（{resolution.excluded_tasks.length}）</p>
+            <p className="font-medium">
+              不会运行的任务（{resolution.excluded_tasks.length}）
+            </p>
             <ul className="mt-1 grid gap-1 text-xs">
               {resolution.excluded_tasks.map((x) => (
                 <li key={x.task_id}>
-                  <code>{x.task_key}</code>：{x.blockers.map(blockerText).join("；")}
+                  <code>{x.task_key}</code>：
+                  {x.blockers.map(blockerText).join("；")}
                 </li>
               ))}
             </ul>
@@ -690,8 +829,13 @@ function ResolutionReview({
             个任务的本机缓存不在，运行开始前会自动恢复，无需管理员操作。
           </p>
         )}
-        <JsonBlock value={resolution.effective_config} summary="完整生效配置（JSON）" />
-        <p className="font-mono text-xs text-muted-foreground">配置摘要 {resolution.config_digest}</p>
+        <JsonBlock
+          value={resolution.effective_config}
+          summary="完整生效配置（JSON）"
+        />
+        <p className="font-mono text-xs text-muted-foreground">
+          配置摘要 {resolution.config_digest}
+        </p>
         {pendingKey && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
             上次提交结果未知（网络或服务端错误）。再次提交会复用同一幂等键，不会重复创建运行。
@@ -699,10 +843,18 @@ function ResolutionReview({
           </div>
         )}
         <div>
-          <Button type="button" disabled={busy || blocked || !canSubmit} onClick={onSubmit}>
+          <Button
+            type="button"
+            disabled={busy || blocked || !canSubmit}
+            onClick={onSubmit}
+          >
             {busy ? "提交中…" : pendingKey ? "重试提交" : "按此配置提交运行"}
           </Button>
-          {!canSubmit && <span className="ml-2 text-xs text-muted-foreground">先填写运行名称</span>}
+          {!canSubmit && (
+            <span className="ml-2 text-xs text-muted-foreground">
+              先填写运行名称
+            </span>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -247,12 +247,12 @@ def test_limits_block_instead_of_clamping_and_sources_explain_values(service, ve
             "revision": 1,
         }
         assert plain["effective_config"]["deviates_from_author_baseline"] is False
-        # Author resources have unknown strength: raising is fine, lowering waits.
+        # Resources may be raised, never lowered below the author's (U-22).
         more = resolve(admin, version_id, resources={"memory_mb": 4096})
         assert more["blockers"] == []
         assert {x["memory_mb"] for x in more["effective_config"]["tasks"]} == {4096}
         less = resolve(admin, version_id, resources={"cpus": 0.5})
-        assert codes(less) == ["AUTHOR_CONSTRAINT_UNCONFIRMED"]
+        assert codes(less) == ["BELOW_AUTHOR_RESOURCES"]
         huge = resolve(admin, version_id, resources={"cpus": 64})
         assert codes(huge)[0] == "LIMIT_EXCEEDED"  # and it could never fit the host either
         # The capacity check is separate from limits and from the configuration digest.
@@ -515,3 +515,36 @@ def test_author_parameter_values_are_resolved_and_secrets_stay_references(servic
         run = admin.get(f"/api/v1/runs/{accepted['run_id']}").json()["data"]
         assert run["snapshot"]["provenance"]["credential_ids"] == [secret["id"]]
         assert "s3" not in str(run["snapshot"])
+
+
+def test_everyone_sees_usable_credential_names_but_never_values(service):
+    with running(service, run_worker=False) as client:
+        admin = setup_admin(service, client)
+        member = invite_member(service, admin, "member")
+        reader = create_pat(member, scope="read")
+        for name in ("grader", "spare"):
+            admin.post(
+                "/api/v1/admin/credentials",
+                json={
+                    "name": name,
+                    "kind": "generic_secret",
+                    "provider": "p",
+                    "value": f"v-{name}",
+                },
+                expect=201,
+            )
+        spare = next(
+            c for c in admin.get("/api/v1/admin/credentials").json()["data"] if c["name"] == "spare"
+        )
+        admin.post(
+            f"/api/v1/admin/credentials/{spare['id']}/disable",
+            json={"expected_revision": 1},
+            expect=200,
+        )
+        for caller in (member, reader):
+            listed = caller.get("/api/v1/credentials", expect=200).json()["data"]
+            assert [c["name"] for c in listed] == ["grader"]
+            assert set(listed[0]) == {"id", "name", "kind", "provider", "description"}
+            assert "v-grader" not in str(listed)
+        # The administrative list stays administrative.
+        assert member.get("/api/v1/admin/credentials").status_code == 403

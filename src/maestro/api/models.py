@@ -540,6 +540,16 @@ class ConfigResolution(Model):
 Protocol = Literal["openai-compatible", "openai", "anthropic"]
 
 
+class CredentialName(Model):
+    """A usable team credential as everyone sees it: the name, never the value."""
+
+    id: str
+    name: str
+    kind: str
+    provider: str
+    description: str
+
+
 class ModelConfigFields(Model):
     provider: str = Field(description="Provider name; concurrency limits apply per provider")
     protocol: Protocol

@@ -329,6 +329,15 @@ export interface ConfigResolution {
   planned_trials: number;
 }
 
+/** A usable team credential as everyone sees it: the name, never the value. */
+export interface CredentialName {
+  id: string;
+  name: string;
+  kind: string;
+  provider: string;
+  description: string;
+}
+
 export type ModelProtocol = "openai-compatible" | "openai" | "anthropic";
 
 export interface ModelConfig {

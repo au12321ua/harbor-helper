@@ -850,14 +850,13 @@ class Resolver:
                     {"path": path, "value": value, "tasks_lower": lower, "tasks_higher": higher}
                 )
             if lower and name in {"cpus", "memory_mb"}:
-                # Author resources have unknown strength (02 section 3); lowering them
-                # waits for an administrator's confirmation (03 section 3 rule 5).
+                # CPU and memory never go below what the author asked for (U-22).
                 res.blockers.append(
                     Blocker(
-                        "AUTHOR_CONSTRAINT_UNCONFIRMED",
+                        "BELOW_AUTHOR_RESOURCES",
                         path,
-                        f"{lower} task(s) ask for more; whether the author requires it is "
-                        "not confirmed, so it cannot be lowered",
+                        f"{lower} task(s) ask for more; resources cannot be lowered below "
+                        "the author's",
                     )
                 )
             elif lower:

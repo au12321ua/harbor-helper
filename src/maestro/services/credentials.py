@@ -72,6 +72,23 @@ class Credentials:
             )
             return [public_credential(r) for r in rows.mappings().all()]
 
+    def directory(self, principal: Principal) -> list[dict]:
+        """Names of the team's usable credentials, for anyone signed in (U-23): a member
+        or an agent needs them to reference a secret parameter. Never values or anything
+        derived from them, and nothing about who made or changed them."""
+        with self.db.read() as conn:
+            rows = conn.execute(
+                select(t.credentials)
+                .where(
+                    deleted.visible(t.credentials.c.id, "credential"),
+                    t.credentials.c.enabled.is_(True),
+                )
+                .order_by(t.credentials.c.name)
+            ).mappings()
+            return [
+                {k: r[k] for k in ("id", "name", "kind", "provider", "description")} for r in rows
+            ]
+
     def create(
         self, principal: Principal, name: str, kind: str, provider: str, description: str, value
     ) -> dict:

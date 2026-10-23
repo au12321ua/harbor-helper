@@ -10,6 +10,7 @@ from maestro.api.deps import maestro, ok, principal
 from maestro.api.models import (
     ConfigRequest,
     ConfigResolution,
+    CredentialName,
     EnabledChange,
     Envelope,
     Harness,
@@ -51,6 +52,12 @@ def harnesses(request: Request, who: Principal = Depends(principal)):
 @router.get("/harness-versions/{harness_id}", response_model=Envelope[Harness])
 def harness(harness_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).models.get_harness(who, harness_id))
+
+
+@router.get("/credentials", response_model=Envelope[list[CredentialName]])
+def credential_names(request: Request, who: Principal = Depends(principal)):
+    """Enabled team credentials by name, to reference secret parameters; no values."""
+    return ok(request, maestro(request).credentials.directory(who))
 
 
 @router.get("/team-policy", response_model=Envelope[TeamPolicy])

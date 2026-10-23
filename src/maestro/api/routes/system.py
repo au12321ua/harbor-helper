@@ -116,6 +116,7 @@ def capabilities(request: Request):
                 "admin.team_policy": admin,
                 "config.resolve": read,
                 "config.read": read,
+                "credentials.names": read,
             },
             "execution": {
                 "executor": service.executor.executor_id if service.executor else None,
