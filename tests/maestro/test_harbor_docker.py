@@ -7,7 +7,10 @@ resources carry a per-test instance label, prepared images live in the per-insta
 ``maestro-prep/<instance>`` repository; both are checked to be gone afterwards.
 """
 
+import asyncio
+import contextlib
 import os
+import shutil
 import signal
 import socket
 import sqlite3
@@ -19,11 +22,13 @@ from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import select
 from support import Api, create_pat, running, setup_admin, wait_operation
 
 from maestro.application import Maestro
 from maestro.boundaries.storage import LocalArtifactStore
 from maestro.db import migrate
+from maestro.db import schema as t
 from maestro.execution.docker import DockerResources
 from maestro.execution.harbor import HarborExecutor
 from maestro.execution.materials import LocalTaskSource, TaskMaterials
@@ -436,3 +441,98 @@ def _ready(base: str) -> bool:
         return httpx.get(f"{base}/health/ready", timeout=2).json().get("accepting_runs") is True
     except httpx.HTTPError:
         return False
+
+
+# --- failures with the real Docker client --------------------------------------------
+# The error classification reads the Docker client's own words. Unit tests feed it
+# samples; these two use what BuildKit and the daemon really print.
+
+BROKEN_BUILD = """FROM ubuntu:22.04
+RUN echo "401 Unauthorized: pull access denied, requested access to the resource is denied" && exit 3
+"""
+MISSING_IMAGE = "maestro-test-nonexistent/no-such-image-7f3a9c:latest"
+
+
+@contextlib.contextmanager
+def prepare_only_service(settings, tmp_path, key: str):
+    """An instance with the real Docker environment and one task that cannot be prepared."""
+    tasks = tmp_path / "failing-tasks"
+    task = tasks / key
+    shutil.copytree(TASKS / "oracle-pass", task)
+    if key == "build-fails":
+        (task / "environment" / "Dockerfile").write_text(BROKEN_BUILD)
+    else:  # an image that does not exist: no Dockerfile, the task names the image
+        shutil.rmtree(task / "environment")
+        toml = (task / "task.toml").read_text()
+        named = f'[environment]\ndocker_image = "{MISSING_IMAGE}"\n'
+        (task / "task.toml").write_text(toml.replace("[environment]\n", named, 1))
+    environment = DockerEnvironment(settings.preparation_dir)
+    built = Maestro.build(
+        settings, environment=environment, sources={"local": LocalTaskSource(tasks)}
+    )
+    migrate.upgrade(built.db)
+    built.keys.initialize()
+    instance = read_instance_id(built.db)
+    environment.bind(instance)
+    built.instance = instance
+    built.images_before = image_ids()
+    try:
+        yield built
+    finally:
+        built.db.dispose()
+        leftovers = labelled(instance)
+        if leftovers:
+            asyncio.run(DockerResources().cleanup({"io.maestro.instance_id": instance}))
+        remove_prepared(instance)
+        assert leftovers == []
+        assert prepared_images(instance) == []
+
+
+def first_preparation(service, key: str):
+    """Run the import and first preparation, then read how the one task ended."""
+    asyncio.run(
+        service.preparer.import_and_prepare(
+            {"source_kind": "local", "namespace": "local", "name": "failing", "ref": "v1"}, None
+        )
+    )
+    with service.db.read() as conn:
+        row = conn.execute(
+            select(t.task_admissions.c.state, t.task_admissions.c.evidence_json)
+            .join(t.tasks, t.tasks.c.id == t.task_admissions.c.task_id)
+            .where(t.tasks.c.task_key == key)
+        ).one()
+    return row.state, (row.evidence_json or {}).get("error") or {}
+
+
+NO_CONNECTION = ("proxyconnect", "dial tcp", "no such host", "i/o timeout", "tls handshake")
+
+
+def test_a_failed_build_is_not_mistaken_for_a_credential_problem(settings, tmp_path):
+    """The RUN step prints what looks like a registry refusal and then fails. That is the
+    task's own business: a failed build, not a pointer to the Hub credential, and not a
+    transient trouble that would be retried."""
+    with prepare_only_service(settings, tmp_path, "build-fails") as service:
+        state, error = first_preparation(service, "build-fails")
+        assert state == "first_failed", error
+        assert error["kind"] == "failed", error
+        assert "suggested_actions" not in error
+        tail = error["evidence"]["stderr_tail"]
+        assert "401 Unauthorized" in tail and "exit code: 3" in tail  # the real output
+        assert image_ids() == service.images_before  # nothing half-built was kept
+
+
+def test_a_pull_the_registry_refuses_is_a_credential_problem(settings, tmp_path):
+    """A named image that does not exist: Docker answers "pull access denied", which looks
+    the same as a missing login, so the admin is pointed at the credential. A host that
+    cannot reach the registry at all gets a connection error instead; that is the only
+    outcome that skips, so a wrong classification of the real answer still fails."""
+    with prepare_only_service(settings, tmp_path, "image-missing") as service:
+        state, error = first_preparation(service, "image-missing")
+        tail = str(error.get("evidence", {}).get("stderr_tail", "")).lower()
+        if error.get("kind") == "transient" and any(word in tail for word in NO_CONNECTION):
+            pytest.skip("the Docker daemon cannot reach the registry from this host")
+        assert state == "first_failed", error
+        assert error["kind"] == "auth", error
+        assert "pull access denied" in tail  # the daemon's real answer, not a guess
+        assert error["suggested_actions"] == [{"type": "check_dataset_credential"}]
+        assert image_ids() == service.images_before

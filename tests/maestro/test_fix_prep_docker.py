@@ -356,3 +356,64 @@ def test_eviction_untags_only_the_name_the_platform_made(docker, environment):
     docker.respond("image inspect", out=IMAGE_ID + "\n")
     asyncio.run(environment.evict(PreparedOutput(IMAGE_ID, ref)))
     assert [c for c in docker.calls() if c.startswith("image rm")] == [f"image rm {ref}"]
+
+
+# What BuildKit (Docker 29.9.1, buildx 0.38) really printed for a Dockerfile whose RUN step
+# says "pull access denied" and then fails, captured by the real-Docker test. The command
+# text comes back three times without a step prefix: in the error line, as the instruction
+# header and in the Dockerfile excerpt. None of it is a registry speaking.
+REAL_RUN_STEP_FAILURE = """\
+#4 [1/2] FROM docker.io/library/ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+#4 CACHED
+
+#5 [2/2] RUN echo "401 Unauthorized: pull access denied, requested access to the resource is denied" && exit 3
+#5 0.099 401 Unauthorized: pull access denied, requested access to the resource is denied
+#5 ERROR: process "/bin/sh -c echo \\"401 Unauthorized: pull access denied, requested access to the resource is denied\\" && exit 3" did not complete successfully: exit code: 3
+------
+ > [2/2] RUN echo "401 Unauthorized: pull access denied, requested access to the resource is denied" && exit 3:
+0.099 401 Unauthorized: pull access denied, requested access to the resource is denied
+------
+Dockerfile:2
+--------------------
+   1 |     FROM ubuntu:22.04
+   2 | >>> RUN echo "401 Unauthorized: pull access denied, requested access to the resource is denied" && exit 3
+   3 |     
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c echo \\"401 Unauthorized: pull access denied, requested access to the resource is denied\\" && exit 3" did not complete successfully: exit code: 3
+"""
+
+
+def test_a_failed_run_step_is_a_failed_build_even_when_its_command_names_a_refusal():
+    assert classify(REAL_RUN_STEP_FAILURE) == FAILED
+
+
+def test_the_command_text_of_a_failed_run_step_is_not_read_as_network_trouble_either():
+    # The command only mentions the words (in a shell comment); the step printed nothing.
+    command = "true && exit 3 # connection refused, service unavailable"
+    echoed = (
+        f"#5 [2/2] RUN {command}\n"
+        f'#5 ERROR: process "/bin/sh -c {command}" did not complete successfully: exit code: 3\n'
+        f"------\n > [2/2] RUN {command}:\n------\n"
+        f"Dockerfile:2\n--------------------\n   2 | >>> RUN {command}\n"
+        f"--------------------\n"
+        f'ERROR: failed to build: failed to solve: process "/bin/sh -c {command}" did not '
+        "complete successfully: exit code: 3\n"
+    )
+    assert classify(echoed) == FAILED
+
+
+def test_network_trouble_in_the_output_of_a_failed_run_step_still_retries():
+    flaky = REAL_RUN_STEP_FAILURE.replace(
+        "0.099 401 Unauthorized: pull access denied, requested access to the resource is denied",
+        "0.099 W: Failed to fetch http://deb.debian.org/ Temporary failure resolving 'deb.debian.org'",
+    )
+    assert classify(flaky) == TRANSIENT
+
+
+def test_a_refused_base_image_pull_is_still_auth_when_no_step_ran():
+    refused = (
+        "ERROR: failed to build: failed to solve: private/base:1: failed to resolve source "
+        "metadata for docker.io/private/base:1: pull access denied, repository does not "
+        "exist or may require authorization: server message: insufficient_scope: authorization failed"
+    )
+    assert classify(refused) == AUTH

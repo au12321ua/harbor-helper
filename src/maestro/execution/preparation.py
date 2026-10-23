@@ -75,9 +75,21 @@ _TRANSIENT = re.compile(
 )
 
 
+# BuildKit says this when a RUN step itself failed. The base image was resolved fine and
+# the build reached the task's own commands, so no registry refused anything. It also
+# echoes the command text three times without a step prefix (the error line, the
+# instruction header, the Dockerfile excerpt); that text is the task's, not Docker's.
+_RUN_FAILED = re.compile(r"did not complete successfully")
+
+
 def classify(stderr: str) -> str:
     """AUTH for a registry refusal, TRANSIENT for a known passing trouble, else FAILED."""
-    registry = "\n".join(line for line in stderr.splitlines() if not _STEP_OUTPUT.match(line))
+    lines = stderr.splitlines()
+    if _RUN_FAILED.search(stderr):
+        # Only what the step itself printed can show passing trouble (a flaky mirror).
+        output = "\n".join(line for line in lines if _STEP_OUTPUT.match(line))
+        return TRANSIENT if _TRANSIENT.search(output) else FAILED
+    registry = "\n".join(line for line in lines if not _STEP_OUTPUT.match(line))
     if _AUTH.search(registry):
         return AUTH
     return TRANSIENT if _TRANSIENT.search(stderr) else FAILED
