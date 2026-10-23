@@ -9,6 +9,8 @@ Operation + audit.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from sqlalchemy import Connection, func, insert, select, update
 
 from maestro.core import clock
@@ -35,7 +37,15 @@ from maestro.domain.states import (
     trial_counts,
 )
 from maestro.execution.policy import POLICY_VERSION
-from maestro.services import audit, deleted, idempotency, operations, pagination, results
+from maestro.services import (
+    audit,
+    deleted,
+    idempotency,
+    operations,
+    pagination,
+    policy,
+    results,
+)
 from maestro.services.artifacts import stamp_expiry
 from maestro.services.capacity import HostCapacity, refuse_if_never_fits
 from maestro.services.catalog import ADMITTED
@@ -61,6 +71,7 @@ SNAPSHOT_SCHEMA = 2
 ACTION_SUBMIT = "runs.submit"
 ACTION_CANCEL = "runs.cancel"
 ACTION_RERUN = "runs.rerun"
+ACTION_BATCH = "runs.submit_batch"
 RERUN_MODES = ("all", "unfinished", "explicit")
 __all__ = ["EXECUTION_MODES", "Runs"]
 
@@ -165,6 +176,7 @@ def public_run(
         "source_run_id": row["source_run_id"],
         "plan_id": row["plan_id"],
         "plan_revision": row["plan_revision"],
+        "batch_id": row["batch_id"],
         "dataset_version_id": row["dataset_version_id"],
         "operation_id": row["operation_id"],
         "client_request_id": row["client_request_id"],
@@ -246,6 +258,8 @@ def refresh_operation(conn: Connection, run_id: str) -> None:
             "finalizing": "finalizing",
         }.get(state.value, state.value),
     )
+    if run["batch_id"]:
+        refresh_batch(conn, run["batch_id"])
 
 
 class Runs:
@@ -378,20 +392,7 @@ class Runs:
             if stored:
                 return stored.status_code, stored.response, True
             self._recheck_principal(conn, principal)
-            self._refuse_deleted_version(conn, res.version["id"])
-            self._recheck_tasks(conn, res)
-            changed = self.resolver.recheck(conn, res)
-            if changed:
-                raise MaestroError(
-                    "CONFIG_CHANGED",
-                    "Configuration references changed during submission; resubmit",
-                    409,
-                    stage="acceptance",
-                    retryable=True,
-                    field_errors=[FieldError(path, "CHANGED") for path in changed],
-                )
-            if self.capacity:
-                refuse_if_never_fits(conn, self.capacity, res.reservation)
+            self._recheck(conn, res)
             if principal.channel == Channel.PAT:
                 self._charge_pat(conn, principal.pat_id)
             response = self._insert_run(conn, principal, run, res, source)
@@ -563,6 +564,232 @@ class Runs:
         }
         return self._accept(principal, ACTION_RERUN, key, req_hash, run, res, source)
 
+    def _recheck(self, conn: Connection, res: Resolution) -> None:
+        """Inside the acceptance transaction: nothing the resolution relied on changed."""
+        self._refuse_deleted_version(conn, res.version["id"])
+        self._recheck_tasks(conn, res)
+        changed = self.resolver.recheck(conn, res)
+        if changed:
+            raise MaestroError(
+                "CONFIG_CHANGED",
+                "Configuration references changed during submission; resubmit",
+                409,
+                stage="acceptance",
+                retryable=True,
+                field_errors=[FieldError(path, "CHANGED") for path in changed],
+            )
+        if self.capacity:
+            refuse_if_never_fits(conn, self.capacity, res.reservation)
+
+    # --- batches (04 section 4) -------------------------------------------------------
+
+    def submit_batch(
+        self, principal: Principal, idempotency_key: str, body: dict
+    ) -> tuple[int, dict, bool]:
+        """All runs or none: one blocked member, or too little PAT quota for all of them,
+        refuses the whole batch before anything is written."""
+        require_experiment(principal)
+        key = idempotency.check_key(idempotency_key)
+        name = body.get("name")
+        items = body.get("runs")
+        errors = []
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 256:
+            errors.append(FieldError("/name", "LENGTH", "1-256 characters"))
+        client_request_id = body.get("client_request_id")
+        if client_request_id is not None and (
+            not isinstance(client_request_id, str) or not 1 <= len(client_request_id) <= 128
+        ):
+            errors.append(FieldError("/client_request_id", "LENGTH"))
+        if not isinstance(items, list) or not items or not all(isinstance(x, dict) for x in items):
+            errors.append(FieldError("/runs", "REQUIRED", "a list of run requests"))
+        if errors:
+            raise MaestroError(
+                "CONFIG_VALIDATION_FAILED", "Invalid batch request", 422, field_errors=errors
+            )
+        with self.db.read() as conn:
+            team = policy.current(conn)
+        if len(items) > team.batch_max_runs:
+            raise MaestroError(
+                "BATCH_TOO_LARGE",
+                f"A batch holds at most {team.batch_max_runs} runs",
+                413,
+                field_errors=[FieldError("/runs", "TOO_MANY", limit=team.batch_max_runs)],
+            )
+        prepared = []
+        for index, item in enumerate(items):
+            with _prefixed(f"/runs/{index}"):
+                run = _check_run_fields(item)
+                if run["resolution_id"]:
+                    request = None
+                else:
+                    with self.db.read() as conn:
+                        request = check_request(Plans.apply(conn, item))
+            prepared.append((run, request))
+        req_hash = idempotency.request_hash(
+            {
+                "name": name.strip(),
+                "client_request_id": client_request_id,
+                "runs": [{**(request or {}), **run} for run, request in prepared],
+            }
+        )
+        with self.db.read() as conn:
+            stored = idempotency.lookup(
+                conn, principal.idempotency_principal, ACTION_BATCH, key, req_hash
+            )
+        if stored:
+            return stored.status_code, stored.response, True
+        if self.disk:
+            self.disk.refuse_if_low()
+        members = []
+        with self.db.read() as conn:
+            for index, (run, request) in enumerate(prepared):
+                with _prefixed(f"/runs/{index}"):
+                    if request is None:
+                        res = self._confirmed(conn, principal, run["resolution_id"])
+                    else:
+                        res = self.resolver.resolve(conn, request)
+                        res.raise_if_blocked()
+                    source = None
+                    if run["source_run_id"]:
+                        source = self._source(conn, run["source_run_id"])
+                        source["differences"] = differences(source["effective"], res.effective)
+                members.append((run, res, source))
+        trials = sum(len(res.tasks) * res.effective["repetitions"] for _, res, _ in members)
+        if trials > team.batch_max_trials:
+            raise MaestroError(
+                "BATCH_TOO_LARGE",
+                f"The batch plans {trials} trials; at most {team.batch_max_trials}",
+                413,
+                field_errors=[FieldError("/runs", "TOO_MANY_TRIALS", limit=team.batch_max_trials)],
+            )
+        with self.db.write() as conn:
+            stored = idempotency.lookup(
+                conn, principal.idempotency_principal, ACTION_BATCH, key, req_hash
+            )
+            if stored:
+                return stored.status_code, stored.response, True
+            self._recheck_principal(conn, principal)
+            for index, (_, res, _) in enumerate(members):
+                with _prefixed(f"/runs/{index}"):
+                    self._recheck(conn, res)
+            if principal.channel == Channel.PAT:
+                self._charge_pat(conn, principal.pat_id, len(members))
+            batch_id = new_id("bat")
+            op_id = operations.create(
+                conn,
+                "batch",
+                owner_id=principal.user_id,
+                pat_id=principal.pat_id,
+                resource_type="batch",
+                resource_id=batch_id,
+                progress=batch_progress([], trials),
+                phase="queued",
+            )
+            conn.execute(
+                insert(t.submission_batches).values(
+                    id=batch_id,
+                    name=name.strip(),
+                    owner_id=principal.user_id,
+                    pat_id=principal.pat_id,
+                    operation_id=op_id,
+                    client_request_id=client_request_id,
+                    stop_requested=False,
+                    created_at=clock.to_text(clock.now()),
+                )
+            )
+            accepted = [
+                self._insert_run(conn, principal, run, res, source, batch_id=batch_id)
+                for run, res, source in members
+            ]
+            response = {
+                "batch_id": batch_id,
+                "operation_id": op_id,
+                "planned_trials": trials,
+                "runs": accepted,
+                "links": {
+                    "batch": f"/api/v1/run-batches/{batch_id}",
+                    "operation": f"/api/v1/operations/{op_id}",
+                },
+            }
+            idempotency.store(
+                conn, principal.idempotency_principal, ACTION_BATCH, key, req_hash, 202, response
+            )
+            audit.record(
+                conn,
+                principal,
+                "batch.submit",
+                object_type="batch",
+                object_id=batch_id,
+                detail={"runs": len(accepted), "trials": trials},
+            )
+        return 202, response, False
+
+    def preview_batch(self, principal: Principal, body: dict) -> dict:
+        """What a batch would be: per-run configuration digests, trials and blockers, the
+        PAT quota it needs, and runs that repeat a configuration. Charges nothing."""
+        items = body.get("runs")
+        if not isinstance(items, list) or not items or not all(isinstance(x, dict) for x in items):
+            raise MaestroError(
+                "CONFIG_VALIDATION_FAILED",
+                "Invalid batch request",
+                422,
+                field_errors=[FieldError("/runs", "REQUIRED", "a list of run requests")],
+            )
+        found = []
+        with self.db.read() as conn:
+            team = policy.current(conn)
+            for index, item in enumerate(items):
+                entry = {"index": index, "config_digest": None, "planned_trials": 0}
+                try:
+                    run = _check_run_fields(item)
+                    if run["resolution_id"]:
+                        stored = self._resolution_row(conn, principal, run["resolution_id"])
+                        request = stored["request_json"]
+                    else:
+                        request = check_request(Plans.apply(conn, item))
+                    res = self.resolver.resolve(conn, request)
+                    entry.update(
+                        config_digest=res.config_digest,
+                        planned_trials=len(res.tasks) * res.effective["repetitions"]
+                        if res.effective
+                        else 0,
+                        labels=res.labels,
+                        blockers=[b.public() for b in res.blockers],
+                        warnings=res.warnings,
+                    )
+                except MaestroError as error:
+                    entry["blockers"] = [
+                        {"code": e.code, "path": e.path, "message": e.message or error.message}
+                        for e in error.field_errors
+                    ] or [{"code": error.code, "path": "/", "message": error.message}]
+                found.append(entry)
+        digests = [x["config_digest"] for x in found if x["config_digest"]]
+        trials = sum(x["planned_trials"] for x in found)
+        blockers = []
+        if len(items) > team.batch_max_runs:
+            blockers.append(
+                {"code": "BATCH_TOO_LARGE", "path": "/runs", "limit": team.batch_max_runs}
+            )
+        if trials > team.batch_max_trials:
+            blockers.append(
+                {"code": "BATCH_TOO_LARGE", "path": "/runs", "limit": team.batch_max_trials}
+            )
+        quota = None
+        if principal.channel == Channel.PAT:
+            with self.db.read() as conn:
+                pat = conn.execute(select(t.pats).where(t.pats.c.id == principal.pat_id)).one()
+            quota = {"needed": len(items), "left": pat.run_limit - pat.accepted_runs}
+            if quota["left"] < quota["needed"]:
+                blockers.append({"code": "PAT_RUN_LIMIT_REACHED", "path": "/runs", **quota})
+        return {
+            "runs": found,
+            "planned_trials": trials,
+            "pat_quota": quota,
+            "duplicate_configs": sorted({d for d in digests if digests.count(d) > 1}),
+            "blockers": blockers,
+            "can_submit": not blockers and all(not x.get("blockers") for x in found),
+        }
+
     @staticmethod
     def _refuse_deleted_version(conn: Connection, version_id: str) -> None:
         """Deleted datasets and versions cannot be newly referenced (07 section 8)."""
@@ -624,7 +851,8 @@ class Runs:
             )
 
     @staticmethod
-    def _charge_pat(conn: Connection, pat_id: str) -> None:
+    def _charge_pat(conn: Connection, pat_id: str, runs: int = 1) -> None:
+        """One unit of quota per accepted run, all in one conditional update (F-01)."""
         now = clock.to_text(clock.now())
         charged = conn.execute(
             update(t.pats)
@@ -632,9 +860,9 @@ class Runs:
                 t.pats.c.id == pat_id,
                 t.pats.c.revoked_at.is_(None),
                 t.pats.c.expires_at > now,
-                t.pats.c.accepted_runs < t.pats.c.run_limit,
+                t.pats.c.accepted_runs + runs <= t.pats.c.run_limit,
             )
-            .values(accepted_runs=t.pats.c.accepted_runs + 1)
+            .values(accepted_runs=t.pats.c.accepted_runs + runs)
         ).rowcount
         if charged == 1:
             return
@@ -643,9 +871,10 @@ class Runs:
             raise MaestroError("PAT_REVOKED", "Access token was revoked", 401)
         if pat["expires_at"] <= now:
             raise MaestroError("PAT_EXPIRED", "Access token expired", 401)
+        left = pat["run_limit"] - pat["accepted_runs"]
         raise MaestroError(
             "PAT_RUN_LIMIT_REACHED",
-            "This access token has no remaining run quota",
+            f"This access token has {left} run(s) of quota left; {runs} needed",
             429,
             stage="acceptance",
             suggested_actions=[{"type": "create_access_token"}],
@@ -658,6 +887,7 @@ class Runs:
         run: dict,
         res: Resolution,
         source: dict | None = None,
+        batch_id: str | None = None,
     ) -> dict:
         now = clock.now()
         at = clock.to_text(now)
@@ -682,6 +912,7 @@ class Runs:
                 pat_id=principal.pat_id,
                 relation=(source or {}).get("relation", "modified" if source else "initial"),
                 plan_id=(res.request.get("plan") or {}).get("plan_id"),
+                batch_id=batch_id,
                 plan_revision=(res.request.get("plan") or {}).get("revision"),
                 source_run_id=source["run_id"] if source else None,
                 dataset_version_id=res.version["id"],
@@ -1028,35 +1259,210 @@ class Runs:
 
     # --- cancellation ---------------------------------------------------------
 
+    def _batch_row(self, conn: Connection, batch_id: str):
+        row = (
+            conn.execute(
+                select(t.submission_batches, t.users.c.username)
+                .join(t.users, t.users.c.id == t.submission_batches.c.owner_id)
+                .where(t.submission_batches.c.id == batch_id)
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            raise not_found("Batch")
+        return row
+
+    def _public_batch(self, conn: Connection, row, principal: Principal) -> dict:
+        members = conn.execute(
+            runs_with_owner().where(t.runs.c.batch_id == row["id"]).order_by(t.runs.c.id)
+        ).mappings()
+        runs = []
+        for member in members:
+            counts, _ = run_counts(conn, member["id"])
+            runs.append(public_run(member, counts, principal))
+        operation = (
+            conn.execute(select(t.operations).where(t.operations.c.id == row["operation_id"]))
+            .mappings()
+            .one()
+        )
+        manage = can_manage_owned(principal, row["owner_id"])
+        open_ = any(r["state"] not in RUN_TERMINAL for r in runs)
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "owner_id": row["owner_id"],
+            "owner_username": row["username"],
+            "pat_id": row["pat_id"],
+            "client_request_id": row["client_request_id"],
+            "stop_requested": row["stop_requested"],
+            "created_at": row["created_at"],
+            "status": operation["status"],
+            "operation_id": row["operation_id"],
+            "progress": batch_progress(runs, sum(r["counts"]["planned"] for r in runs)),
+            "runs": runs,
+            "allowed_actions": ["view"]
+            + (["cancel"] if manage and open_ and not row["stop_requested"] else []),
+        }
+
+    def get_batch(self, principal: Principal, batch_id: str) -> dict:
+        with self.db.read() as conn:
+            return self._public_batch(conn, self._batch_row(conn, batch_id), principal)
+
+    def list_batches(
+        self, principal: Principal, owner_id: str | None, cursor: str | None, limit: int | None
+    ) -> tuple[list, str | None]:
+        """Newest first; everyone sees every batch, like runs."""
+        limit = pagination.check_limit(limit)
+        filters = {"owner_id": owner_id}
+        query = select(t.submission_batches, t.users.c.username).join(
+            t.users, t.users.c.id == t.submission_batches.c.owner_id
+        )
+        if owner_id:
+            query = query.where(t.submission_batches.c.owner_id == owner_id)
+        query = pagination.page(
+            query,
+            t.submission_batches.c.created_at,
+            t.submission_batches.c.id,
+            cursor,
+            limit,
+            filters,
+        )
+        with self.db.read() as conn:
+            rows = list(conn.execute(query).mappings().all())
+            rows, next_cursor = pagination.split(rows, limit, "created_at", filters)
+            return [self._public_batch(conn, r, principal) for r in rows], next_cursor
+
+    def cancel_batch(self, principal: Principal, batch_id: str) -> dict:
+        """Stops every member not yet ended; the batch's ended members stay as they are."""
+        with self.db.write() as conn:
+            row = self._batch_row(conn, batch_id)
+            require_manage_owned(principal, row["owner_id"])
+            if not row["stop_requested"]:
+                reason = (
+                    "USER_CANCELLED" if row["owner_id"] == principal.user_id else "ADMIN_CANCELLED"
+                )
+                conn.execute(
+                    update(t.submission_batches)
+                    .where(t.submission_batches.c.id == batch_id)
+                    .values(stop_requested=True)
+                )
+                for member in conn.execute(
+                    select(t.runs).where(t.runs.c.batch_id == batch_id)
+                ).mappings():
+                    stop_run(conn, principal, member, reason)
+                audit.record(
+                    conn, principal, "batch.cancel", object_type="batch", object_id=batch_id
+                )
+                refresh_batch(conn, batch_id)
+            return self._public_batch(conn, self._batch_row(conn, batch_id), principal)
+
     def cancel(self, principal: Principal, run_id: str) -> dict:
         """Idempotent. Unclaimed trials end at once; claimed ones via the worker."""
         with self.db.write() as conn:
             row = self._row(conn, run_id)
             require_manage_owned(principal, row["owner_id"])
-            if row["state"] in RUN_TERMINAL or row["stop_requested"]:
-                counts, _ = run_counts(conn, run_id)
-                return public_run(row, counts, principal)
             reason = "USER_CANCELLED" if row["owner_id"] == principal.user_id else "ADMIN_CANCELLED"
-            conn.execute(
-                update(t.runs)
-                .where(t.runs.c.id == run_id)
-                .values(stop_requested=True, stop_reason=reason)
-            )
-            if row["lease_token"] is None:
-                # Never claimed: nothing executes, so finish it here.
-                finish_unstarted(conn, run_id, TrialState.NOT_STARTED, reason)
-                finalize(conn, run_id, reason, cleanup=CleanupState.NOT_REQUIRED)
-            audit.record(
-                conn,
-                principal,
-                "run.cancel",
-                object_type="run",
-                object_id=run_id,
-                detail={"reason": reason},
-            )
+            stop_run(conn, principal, row, reason)
             row = self._row(conn, run_id)
             counts, _ = run_counts(conn, run_id)
             return public_run(row, counts, principal)
+
+
+def stop_run(conn: Connection, principal: Principal, row, reason: str) -> bool:
+    """Ask a run to stop; False when it already ended or was asked."""
+    run_id = row["id"]
+    if row["state"] in RUN_TERMINAL or row["stop_requested"]:
+        return False
+    conn.execute(
+        update(t.runs).where(t.runs.c.id == run_id).values(stop_requested=True, stop_reason=reason)
+    )
+    if row["lease_token"] is None:
+        # Never claimed: nothing executes, so finish it here.
+        finish_unstarted(conn, run_id, TrialState.NOT_STARTED, reason)
+        finalize(conn, run_id, reason, cleanup=CleanupState.NOT_REQUIRED)
+    audit.record(
+        conn,
+        principal,
+        "run.cancel",
+        object_type="run",
+        object_id=run_id,
+        detail={"reason": reason},
+    )
+    return True
+
+
+@contextmanager
+def _prefixed(prefix: str):
+    """Field errors of one batch member, under its position in the request."""
+    try:
+        yield
+    except MaestroError as error:
+        for found in error.field_errors:
+            found.path = prefix + found.path
+        if not error.field_errors:
+            error.field_errors = [FieldError(prefix, error.code, error.message)]
+        raise
+
+
+def batch_progress(runs: list, planned_trials: int) -> dict:
+    """Member counts by lifecycle and trial outcome (04 section 4)."""
+    states = [r["state"] for r in runs]
+    return {
+        "runs": len(runs),
+        "terminal_runs": sum(s in RUN_TERMINAL for s in states),
+        "finished": states.count(RunState.FINISHED),
+        "cancelled": states.count(RunState.CANCELLED),
+        "interrupted": states.count(RunState.INTERRUPTED),
+        "planned_trials": planned_trials,
+        "scored_trials": sum(r["counts"]["scored"] for r in runs),
+        "error_trials": sum(r["counts"]["errors"] for r in runs),
+    }
+
+
+def refresh_batch(conn: Connection, batch_id: str) -> None:
+    """The batch Operation follows its members; it ends when all of them have."""
+    batch = (
+        conn.execute(select(t.submission_batches).where(t.submission_batches.c.id == batch_id))
+        .mappings()
+        .one()
+    )
+    rows = conn.execute(
+        select(t.runs.c.id, t.runs.c.state, t.runs.c.started_at).where(
+            t.runs.c.batch_id == batch_id
+        )
+    ).all()
+    members = [{"state": r.state, "counts": run_counts(conn, r.id)[0]} for r in rows]
+    progress = batch_progress(members, sum(m["counts"]["planned"] for m in members))
+    if progress["terminal_runs"] < len(members):
+        started = any(r.started_at for r in rows)
+        operations.advance(
+            conn,
+            batch["operation_id"],
+            status=OperationStatus.RUNNING if started else None,
+            phase="running" if started else "queued",
+            progress=progress,
+        )
+        return
+    if batch["stop_requested"] and progress["cancelled"]:
+        status = OperationStatus.CANCELLED
+    elif progress["scored_trials"] == 0:
+        status = OperationStatus.FAILED
+    else:
+        status = OperationStatus.SUCCEEDED
+    operations.advance(
+        conn,
+        batch["operation_id"],
+        status=status,
+        phase="finished",
+        progress=progress,
+        result={"batch_id": batch_id, **progress},
+        error=(
+            {"code": "ALL_TRIALS_FAILED", "message": "No member run produced a valid score"}
+            if status == OperationStatus.FAILED
+            else None
+        ),
+    )
 
 
 def finish_unstarted(conn: Connection, run_id: str, state: TrialState, reason: str) -> None:
@@ -1128,3 +1534,5 @@ def finalize(conn: Connection, run_id: str, stop_reason: str | None, cleanup: Cl
             else None
         ),
     )
+    if run["batch_id"]:
+        refresh_batch(conn, run["batch_id"])

@@ -457,15 +457,19 @@ idempotency_records = Table(
     Index("ix_idempotency_expires", "expires_at"),
 )
 
+# Runs accepted together, all or none (04 section 4); each member runs on its own.
 submission_batches = Table(
     "submission_batches",
     metadata,
     _id(),
+    Column("name", String(256), nullable=False),
     _ref("owner_id", "users"),
+    _ref("pat_id", "pats", nullable=True),
     _ref("operation_id", "operations"),
-    _ref("idempotency_record_id", "idempotency_records", nullable=True),
+    Column("client_request_id", String(128), nullable=True),
     Column("stop_requested", Boolean, nullable=False),
     _time("created_at"),
+    Index("ix_submission_batches_owner_created", "owner_id", "created_at", "id"),
 )
 
 runs = Table(

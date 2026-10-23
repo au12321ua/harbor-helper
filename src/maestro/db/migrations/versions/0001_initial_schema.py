@@ -419,16 +419,21 @@ def upgrade() -> None:
 
     op.create_table('submission_batches',
     sa.Column('id', sa.String(length=40), nullable=False),
+    sa.Column('name', sa.String(length=256), nullable=False),
     sa.Column('owner_id', sa.String(length=40), nullable=False),
+    sa.Column('pat_id', sa.String(length=40), nullable=True),
     sa.Column('operation_id', sa.String(length=40), nullable=False),
-    sa.Column('idempotency_record_id', sa.String(length=40), nullable=True),
+    sa.Column('client_request_id', sa.String(length=128), nullable=True),
     sa.Column('stop_requested', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.String(length=32), nullable=False),
-    sa.ForeignKeyConstraint(['idempotency_record_id'], ['idempotency_records.id'], name=op.f('fk_submission_batches_idempotency_record_id_idempotency_records')),
     sa.ForeignKeyConstraint(['operation_id'], ['operations.id'], name=op.f('fk_submission_batches_operation_id_operations')),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name=op.f('fk_submission_batches_owner_id_users')),
+    sa.ForeignKeyConstraint(['pat_id'], ['pats.id'], name=op.f('fk_submission_batches_pat_id_pats')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_submission_batches'))
     )
+    with op.batch_alter_table('submission_batches', schema=None) as batch_op:
+        batch_op.create_index('ix_submission_batches_owner_created', ['owner_id', 'created_at', 'id'], unique=False)
+
     op.create_table('runs',
     sa.Column('id', sa.String(length=40), nullable=False),
     sa.Column('name', sa.String(length=256), nullable=False),
@@ -761,6 +766,9 @@ def downgrade() -> None:
         batch_op.drop_index('ix_runs_accepted')
 
     op.drop_table('runs')
+    with op.batch_alter_table('submission_batches', schema=None) as batch_op:
+        batch_op.drop_index('ix_submission_batches_owner_created')
+
     op.drop_table('submission_batches')
     with op.batch_alter_table('exports', schema=None) as batch_op:
         batch_op.drop_index('ix_exports_state')

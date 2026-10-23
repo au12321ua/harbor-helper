@@ -69,7 +69,7 @@ def capabilities(request: Request):
             "features": {
                 "runs": True,
                 "execution": service.executor is not None,
-                "batches": False,
+                "batches": True,
                 "configuration_resolution": True,
                 "model_configs": True,
                 "team_policy": True,
@@ -94,6 +94,8 @@ def capabilities(request: Request):
             "actions": {
                 "runs.read": read,
                 "runs.submit": experiment,
+                "runs.submit_batch": experiment,
+                "runs.rerun": experiment,
                 "runs.cancel_own": experiment,
                 "runs.cancel_any": admin,
                 "runs.delete_own": experiment,

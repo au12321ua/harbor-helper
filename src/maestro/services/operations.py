@@ -96,6 +96,8 @@ def public(row, principal: Principal | None = None, allowed_actions: list[str] |
     links = {}
     if resource and resource["type"] in {"run", "export"}:
         links["resource"] = f"/api/v1/{resource['type']}s/{resource['id']}"
+    if resource and resource["type"] == "batch":
+        links["resource"] = f"/api/v1/run-batches/{resource['id']}"
     return {
         "id": row["id"],
         "kind": row["kind"],

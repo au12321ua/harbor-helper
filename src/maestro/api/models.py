@@ -835,6 +835,7 @@ class Run(Model):
     source_run_id: str | None
     plan_id: str | None = None
     plan_revision: int | None = None
+    batch_id: str | None = None
     dataset_version_id: str
     operation_id: str
     client_request_id: str | None
@@ -1181,3 +1182,47 @@ class Health(Model):
     status: str
     accepting_runs: bool | None = None
     detail: dict[str, Any] = {}
+
+
+# --- batches (04 section 4) ------------------------------------------------------
+
+
+class BatchCreate(Model):
+    """Runs accepted together, all or none; each costs one unit of PAT quota."""
+
+    name: str
+    runs: list[RunCreate]
+    client_request_id: str | None = None
+
+
+class BatchAccepted(Model):
+    batch_id: str
+    operation_id: str
+    planned_trials: int
+    runs: list[RunAccepted]
+    links: dict[str, str]
+
+
+class BatchPreview(Model):
+    runs: list[dict[str, Any]]
+    planned_trials: int
+    pat_quota: dict[str, int] | None
+    duplicate_configs: list[str] = Field(description="Configuration digests given twice")
+    blockers: list[dict[str, Any]]
+    can_submit: bool
+
+
+class Batch(Model):
+    id: str
+    name: str
+    owner_id: str
+    owner_username: str | None
+    pat_id: str | None
+    client_request_id: str | None
+    stop_requested: bool
+    created_at: str
+    status: str
+    operation_id: str
+    progress: dict[str, int]
+    runs: list[Run]
+    allowed_actions: list[str]
