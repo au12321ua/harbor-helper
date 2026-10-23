@@ -9,6 +9,7 @@ resources carry a per-test instance label, prepared images live in the per-insta
 
 import asyncio
 import contextlib
+import json
 import os
 import shutil
 import signal
@@ -37,6 +38,9 @@ from maestro.services.instance import instance_id as read_instance_id
 
 ROOT = Path(__file__).resolve().parents[2]
 TASKS = Path(__file__).with_name("fixtures") / "harbor-tasks"
+# Agent tasks need tmux in the image (Terminus-2): build ``maestro-test/ubuntu-tmux:22.04``
+# once, see the test docstring.
+AGENT_TASKS = Path(__file__).with_name("fixtures") / "agent-tasks"
 RUNNER = Path(os.environ.get("MAESTRO_RUNNER_PYTHON", ROOT / "runner/.venv/bin/python"))
 
 pytestmark = pytest.mark.skipif(
@@ -88,8 +92,8 @@ def image_ids() -> set[str]:
     return set(out.stdout.split())
 
 
-@pytest.fixture
-def harbor_service(settings):
+@contextlib.contextmanager
+def harbor(settings, tasks: Path, name: str):
     store = LocalArtifactStore(settings.artifacts_dir)
     executor = HarborExecutor(
         RUNNER,
@@ -104,7 +108,7 @@ def harbor_service(settings):
         executor=executor,
         store=store,
         environment=environment,
-        sources={"local": LocalTaskSource(TASKS)},
+        sources={"local": LocalTaskSource(tasks)},
     )
     migrate.upgrade(built.db)
     built.keys.initialize()
@@ -112,11 +116,9 @@ def harbor_service(settings):
     instance = read_instance_id(built.db)
     environment.bind(instance)
     try:
-        import asyncio
-
         result = asyncio.run(
             built.preparer.import_and_prepare(
-                {"source_kind": "local", "namespace": "local", "name": "oracle", "ref": "v1"},
+                {"source_kind": "local", "namespace": "local", "name": name, "ref": "v1"},
                 None,
             )
         )
@@ -131,6 +133,12 @@ def harbor_service(settings):
         remove_prepared(instance)
         assert leftovers == []
         assert prepared_images(instance) == []
+
+
+@pytest.fixture
+def harbor_service(settings):
+    with harbor(settings, TASKS, "oracle") as built:
+        yield built
 
 
 def task_ids(api: Api, version_id: str, *keys: str) -> list[str]:
@@ -536,3 +544,286 @@ def test_a_pull_the_registry_refuses_is_a_credential_problem(settings, tmp_path)
         assert "pull access denied" in tail  # the daemon's real answer, not a guess
         assert error["suggested_actions"] == [{"type": "check_dataset_credential"}]
         assert image_ids() == service.images_before
+
+
+class ScriptedModel:
+    """A local stand-in for an OpenAI-compatible model API, so Terminus-2 runs for real
+    without spending anything. It answers Terminus-2's JSON protocol: first a turn that
+    solves the task, then completion."""
+
+    KEY = "sk-local-scripted-model-key-0123456789"
+
+    def __init__(self):
+        import json
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        model = self
+        self.calls = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                model.calls.append(self.headers.get("Authorization"))
+                if self.headers.get("Authorization") != f"Bearer {model.KEY}":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                turn = sum(1 for m in body["messages"] if m["role"] == "assistant")
+                if turn == 0:
+                    reply = {
+                        "analysis": "Write the answer.",
+                        "plan": "One command.",
+                        "commands": [
+                            {
+                                "keystrokes": "echo ok > /app/answer\n",
+                                "duration": 1,
+                            }
+                        ],
+                        "task_complete": False,
+                    }
+                else:
+                    reply = {"analysis": "Done.", "plan": "", "commands": [], "task_complete": True}
+                data = json.dumps(
+                    {
+                        "id": f"chatcmpl-{turn}",
+                        "object": "chat.completion",
+                        "created": 0,
+                        "model": body["model"],
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": json.dumps(reply)},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 100,
+                            "completion_tokens": 20,
+                            "total_tokens": 120,
+                        },
+                    }
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.endpoint = f"http://127.0.0.1:{self.server.server_port}/v1"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+@pytest.fixture
+def agent_service(settings):
+    present = subprocess.run(
+        ["docker", "image", "inspect", "maestro-test/ubuntu-tmux:22.04"],
+        capture_output=True,
+        check=False,
+    )
+    if present.returncode:
+        pytest.skip("build maestro-test/ubuntu-tmux:22.04 first (ubuntu:22.04 + tmux)")
+    with harbor(settings, AGENT_TASKS, "agent") as built:
+        yield built
+
+
+def test_terminus_runs_with_the_container_offline(agent_service, monkeypatch):
+    """Terminus-2 calls the model from the Runner, so the task container gets no network
+    while the agent works or the verifier runs (U-18), and the key never reaches a file.
+    The model is a local stand-in, so nothing is spent. Whether a closed phase really
+    blocks traffic needs a host whose containers have a route out; this test checks the
+    plan Harbor enforced and that the egress-control sidecar ran. Terminus-2 needs tmux in the task image: build
+    ``maestro-test/ubuntu-tmux:22.04`` once (``FROM ubuntu:22.04`` plus ``apt-get install
+    tmux``)."""
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    service = agent_service
+    sidecars = []
+    with contextlib.ExitStack() as stack:
+        model = ScriptedModel()
+        stack.callback(model.close)
+        with running(service) as client:
+            admin = setup_admin(service, client)
+            credential = admin.post(
+                "/api/v1/admin/credentials",
+                json={
+                    "name": "local",
+                    "kind": "model_api_key",
+                    "provider": "local",
+                    "value": model.KEY,
+                },
+                expect=201,
+            ).json()["data"]
+            model_id = admin.post(
+                "/api/v1/admin/model-configs",
+                json={
+                    "name": "scripted",
+                    "provider": "local",
+                    "protocol": "openai-compatible",
+                    "endpoint": model.endpoint,
+                    "model_id": "scripted",
+                    "credential_id": credential["id"],
+                },
+                expect=201,
+            ).json()["data"]["id"]
+            harness_id = admin.post(
+                "/api/v1/admin/harness-versions",
+                json={
+                    "name": "terminus-2",
+                    "version": "harbor-0.24.0",
+                    "agent": "terminus-2",
+                    "protocols": ["openai-compatible"],
+                    "parameter_schema": {
+                        "parameters": {
+                            "max_turns": {"type": "integer", "default": 5},
+                            # asciinema cannot be installed without a network
+                            "record_terminal_session": {"type": "boolean", "default": False},
+                        }
+                    },
+                },
+                expect=201,
+            ).json()["data"]["id"]
+            pat = create_pat(admin)
+            accepted = submit(
+                pat,
+                service.version_id,
+                ["agent-pass"],
+                execution_mode="agent",
+                model_config_id=model_id,
+                harness_version_id=harness_id,
+            )
+            instance = service.worker.instance_id
+
+            def ended():
+                # Watch for the sidecar while the run is live: it is gone afterwards.
+                sidecars.extend(
+                    subprocess.run(
+                        ["docker", "ps", "--filter", f"label=io.maestro.instance_id={instance}",
+                         "--format", "{{.Names}}"],
+                        capture_output=True, text=True, check=True,
+                    ).stdout.split()
+                )  # fmt: skip
+                sidecars[:] = [n for n in sidecars if "egress-control" in n]
+                data = pat.get(f"/api/v1/operations/{accepted['operation_id']}").json()["data"]
+                return data if data["status"] not in {"accepted", "running"} else None
+
+            operation = wait_for(ended, timeout=600, interval=0.5)
+            run_id = accepted["run_id"]
+            trials = pat.get(f"/api/v1/runs/{run_id}/trials", expect=200).json()["data"]
+            artifacts = pat.get(f"/api/v1/runs/{run_id}/artifacts", expect=200).json()["data"]
+
+            def download(path, trial=True):
+                found = next(
+                    a
+                    for a in artifacts
+                    if a["relative_path"] == path and (a["trial_id"] is not None) == trial
+                )
+                return pat.get(f"/api/v1/artifacts/{found['id']}/download", expect=200).content
+
+            if operation["status"] != "succeeded":
+                stderr = download("runner/stderr.log", trial=False).decode(errors="replace")
+                errors = [a["error"] for t in trials for a in t["attempts"]]
+                raise AssertionError(f"{errors}\n--- runner stderr tail ---\n{stderr[-6000:]}")
+            (trial,) = trials
+            assert trial["result"]["score"] == 1.0
+            plan = json.loads(download("runner/network-plan.json", trial=False))
+            effective = {
+                role: plan["agent-pass"][role]["effective"]["network_mode"]
+                for role in ("agent", "verifier")
+            }
+            assert effective == {"agent": "no-network", "verifier": "no-network"}
+            assert sidecars, "the egress-control sidecar never ran"
+            paths = {a["relative_path"] for a in artifacts}
+            assert "agent/trajectory.json" in paths
+            # The trajectory was followed live as readable steps (U-07).
+            live = download("agent/trajectory").decode()
+            assert "$ echo ok > /app/answer" in live and "--- step" in live
+            assert model.calls and set(model.calls) == {f"Bearer {model.KEY}"}
+        stored = b"".join(
+            p.read_bytes() for p in Path(service.settings.artifacts_dir).rglob("*") if p.is_file()
+        )
+        assert model.KEY.encode() not in stored
+        assert labelled(service.worker.instance_id) == []
+
+
+MODEL_ENV = ("MAESTRO_MODEL_ENDPOINT", "MAESTRO_MODEL_ID", "MAESTRO_MODEL_KEY_FILE")
+
+
+@pytest.mark.skipif(
+    os.environ.get("MAESTRO_MODEL_TESTS") != "1" or not all(map(os.environ.get, MODEL_ENV)),
+    reason="real model smoke: set MAESTRO_MODEL_TESTS=1 and " + ", ".join(MODEL_ENV),
+)
+def test_terminus_with_a_real_model(agent_service):
+    """One trial of a trivial task against a real OpenAI-compatible endpoint, at most five
+    turns: the credential reaches the model, usage is recorded, the key stays out of every
+    stored file. This spends real tokens; run it deliberately."""
+    service = agent_service
+    key = Path(os.environ["MAESTRO_MODEL_KEY_FILE"]).expanduser().read_text().strip()
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        credential = admin.post(
+            "/api/v1/admin/credentials",
+            json={"name": "live", "kind": "model_api_key", "provider": "live", "value": key},
+            expect=201,
+        ).json()["data"]
+        model_id = admin.post(
+            "/api/v1/admin/model-configs",
+            json={
+                "name": "live",
+                "provider": "live",
+                "protocol": "openai-compatible",
+                "endpoint": os.environ["MAESTRO_MODEL_ENDPOINT"],
+                "model_id": os.environ["MAESTRO_MODEL_ID"],
+                "credential_id": credential["id"],
+            },
+            expect=201,
+        ).json()["data"]["id"]
+        harness_id = admin.post(
+            "/api/v1/admin/harness-versions",
+            json={
+                "name": "terminus-2",
+                "version": "harbor-0.24.0",
+                "agent": "terminus-2",
+                "protocols": ["openai-compatible"],
+                "parameter_schema": {
+                    "parameters": {
+                        "max_turns": {"type": "integer", "default": 5, "maximum": 5},
+                        "record_terminal_session": {"type": "boolean", "default": False},
+                    }
+                },
+            },
+            expect=201,
+        ).json()["data"]["id"]
+        pat = create_pat(admin)
+        accepted = submit(
+            pat,
+            service.version_id,
+            ["agent-pass"],
+            execution_mode="agent",
+            model_config_id=model_id,
+            harness_version_id=harness_id,
+        )
+        operation = wait_operation(pat, accepted["operation_id"], timeout=900)
+        run_id = accepted["run_id"]
+        trials = pat.get(f"/api/v1/runs/{run_id}/trials", expect=200).json()["data"]
+        summary = pat.get(f"/api/v1/runs/{run_id}/summary", expect=200).json()["data"]
+        artifacts = pat.get(f"/api/v1/runs/{run_id}/artifacts", expect=200).json()["data"]
+        live = next(a for a in artifacts if a["relative_path"] == "agent/trajectory")
+        text = pat.get(f"/api/v1/artifacts/{live['id']}/download", expect=200).text
+        print("\nOPERATION", operation["status"])
+        print("TRIALS", [(t["state"], t["result"]) for t in trials])
+        print("USAGE", summary.get("usage"))
+        print("LIVE TRAJECTORY (head)\n" + text[:3000])
+    stored = b"".join(
+        p.read_bytes() for p in Path(service.settings.artifacts_dir).rglob("*") if p.is_file()
+    )
+    assert key.encode() not in stored
+    assert operation["status"] == "succeeded", trials
+    assert labelled(service.worker.instance_id) == []

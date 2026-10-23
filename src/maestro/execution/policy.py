@@ -71,6 +71,25 @@ HARBOR_EXCEPTIONS = {
     "AddTestsDirError": "verifier_failed",
     "DownloadVerifierDirError": "verifier_failed",
     "CancelledError": "cancelled",
+    # Model client errors Terminus-2 lets through after its own three tries per call
+    # (litellm exception class names; Terminus-2 calls the model from the Runner).
+    "AuthenticationError": "provider_auth",
+    "PermissionDeniedError": "provider_auth",
+    "NotFoundError": "provider_auth",
+    "RateLimitError": "provider_transient",
+    "APIConnectionError": "provider_transient",
+    "InternalServerError": "provider_transient",
+    "ServiceUnavailableError": "provider_transient",
+    "BadGatewayError": "provider_transient",
+    "MidStreamFallbackError": "provider_transient",
+    "Timeout": "provider_transient",
+    "APIError": "provider_transient",
+    "BadRequestError": "provider_permanent",
+    "UnprocessableEntityError": "provider_permanent",
+    "UnsupportedParamsError": "provider_permanent",
+    "PaymentRequiredError": "provider_permanent",
+    "BudgetExceededError": "provider_permanent",
+    "ContentPolicyViolationError": "agent_refused_task",
 }
 
 MAPPING_ID = (

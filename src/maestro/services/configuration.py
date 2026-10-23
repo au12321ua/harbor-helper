@@ -105,8 +105,9 @@ def check_request(body: dict) -> dict:
         errors.append(FieldError("/resources", "TYPE"))
         resources, timeouts = {}, {}
     cpus, memory = resources.get("cpus"), resources.get("memory_mb")
-    if cpus is not None and (not _number(cpus) or cpus <= 0):
-        errors.append(FieldError("/resources/cpus", "TYPE", "a positive number"))
+    # Whole CPUs: the Harbor environment takes an integer and nothing is rounded silently.
+    if cpus is not None and (type(cpus) is not int or cpus < 1):
+        errors.append(FieldError("/resources/cpus", "TYPE", "a positive integer"))
     if memory is not None and (type(memory) is not int or memory < 1):
         errors.append(FieldError("/resources/memory_mb", "TYPE", "a positive integer"))
     for name in ("agent_sec", "verifier_sec"):

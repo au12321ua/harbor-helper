@@ -162,10 +162,12 @@ def harness_digest(agent: str, name: str, version: str, protocols: list, schema:
 
 
 class ModelConfigs:
-    def __init__(self, db: Database, adapters=None):
+    def __init__(self, db: Database, adapters=None, parameters=None):
         self.db = db
         # Executor adapters: name -> protocols; None when no executor is configured.
         self.adapters = adapters
+        # Parameters each adapter accepts; an adapter not listed accepts any.
+        self.parameters = parameters or {}
 
     # --- model configurations -------------------------------------------------------
 
@@ -406,7 +408,11 @@ class ModelConfigs:
 
     def public_adapters(self) -> list[dict]:
         return [
-            {"agent": name, "protocols": sorted(protocols)}
+            {
+                "agent": name,
+                "protocols": sorted(protocols),
+                "parameters": sorted(self.parameters[name]) if name in self.parameters else None,
+            }
             for name, protocols in sorted((self.adapters or {}).items())
         ]
 
@@ -484,6 +490,17 @@ class ModelConfigs:
         if errors:
             raise _invalid("HARNESS_INVALID", "Invalid harness version", errors)
         schema = check_harness_schema(body.get("parameter_schema") or {"parameters": {}})
+        allowed = self.parameters.get(agent)
+        unknown = sorted(set(schema["parameters"]) - allowed) if allowed is not None else []
+        if unknown:
+            raise _invalid(
+                "HARNESS_INVALID",
+                f"{agent} does not take these parameters",
+                [
+                    FieldError(f"/parameter_schema/parameters/{name}", "UNSUPPORTED")
+                    for name in unknown
+                ],
+            )
         protocols = sorted(protocols)
         harness_id = new_id("hrn")
         with self.db.write() as conn:

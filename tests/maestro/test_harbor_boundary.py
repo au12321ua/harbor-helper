@@ -26,3 +26,28 @@ def test_service_dependencies_exclude_harbor():
     assert '"harbor' not in text
     runner = (ROOT / "runner" / "pyproject.toml").read_text()
     assert '"harbor==0.24.0"' in runner  # exact pin, upgraded deliberately with the mapping
+
+
+def test_service_and_runner_agree_on_harness_adapters():
+    """The executor declares the Runner's adapters; the two live in different environments."""
+    import json
+    import os
+
+    import pytest
+
+    from maestro.execution.harbor import HarborExecutor
+
+    runner = Path(os.environ.get("MAESTRO_RUNNER_PYTHON", ROOT / "runner/.venv/bin/python"))
+    if not runner.exists():
+        pytest.skip("Runner environment not installed")
+    code = (
+        "import json; from maestro_runner.agents import ADAPTERS\n"
+        "print(json.dumps({k: [sorted(v['protocols']), sorted(v['parameters'])]"
+        " for k, v in ADAPTERS.items()}))\n"
+    )
+    result = subprocess.run([str(runner), "-c", code], capture_output=True, text=True, check=True)
+    declared = {
+        name: [sorted(protocols), sorted(HarborExecutor.harness_parameters[name])]
+        for name, protocols in HarborExecutor.harness_adapters.items()
+    }
+    assert json.loads(result.stdout) == declared

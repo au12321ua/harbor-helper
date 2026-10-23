@@ -19,7 +19,7 @@ from collections import defaultdict
 from importlib.metadata import version
 from pathlib import Path
 
-from maestro_runner import protocol
+from maestro_runner import agents, network, protocol
 from maestro_runner.protocol import emit
 
 # Harbor hook -> platform step. Collection has no hook: it is the span between
@@ -38,6 +38,41 @@ LOG_SUFFIXES = (".txt", ".log")
 # grow the manifest (one protocol line) without bound; the rest is only counted.
 MAX_LISTED_SKIPS = 200
 MESSAGE_LIMIT = 4000
+# Agents that keep an ATIF trajectory (Terminus-2 rewrites it after every turn) are
+# followed live by turning new steps into readable log text (U-07).
+TRAJECTORY = "agent/trajectory.json"
+TRAJECTORY_MAX_BYTES = 32 * 1024 * 1024
+STEP_PART_CHARS = 20000
+
+
+def _text(value) -> str:
+    """ATIF content is a string or a list of parts; only the text is shown."""
+    if isinstance(value, list):
+        return "\n".join(str(part.get("text", "")) for part in value if isinstance(part, dict))
+    return "" if value is None else str(value)
+
+
+def _render_step(step: dict) -> str:
+    def cut(text: str) -> str:
+        if len(text) <= STEP_PART_CHARS:
+            return text
+        return text[:STEP_PART_CHARS] + f"\n[... {len(text) - STEP_PART_CHARS} characters ...]"
+
+    lines = [f"--- step {step.get('step_id')} · {step.get('source')} ---"]
+    if message := _text(step.get("message")).strip():
+        lines.append(cut(message))
+    for call in step.get("tool_calls") or []:
+        arguments = call.get("arguments") if isinstance(call, dict) else None
+        arguments = arguments if isinstance(arguments, dict) else {}
+        keys = arguments.get("keystrokes")
+        if isinstance(keys, str):
+            lines.append(cut("$ " + keys.rstrip()))
+        else:
+            lines.append(cut(f"> {call.get('function_name')} {arguments}"))
+    for result in (step.get("observation") or {}).get("results") or []:
+        if content := _text(result.get("content") if isinstance(result, dict) else None).strip():
+            lines.append(cut(content))
+    return "\n".join(lines) + "\n"
 
 
 class Rejected(Exception):
@@ -46,8 +81,11 @@ class Rejected(Exception):
         self.code = code
 
 
-def _labels_override(path: Path, labels: dict[str, str], label_build: bool, prepared: bool) -> Path:
-    """Platform labels on the main service, its network and (when Harbor builds it) its image.
+def _labels_override(
+    path: Path, labels: dict[str, str], label_build: bool, prepared: bool, sidecar: bool = False
+) -> Path:
+    """Platform labels on the main service, its network, the egress-control sidecar when
+    the network is restricted, and (when Harbor builds it) its image.
 
     Cleanup after a killed Runner finds every resource by these labels (05 section 7).
     Prepared images are never pulled: a missing one must fail, not reach a registry.
@@ -59,6 +97,8 @@ def _labels_override(path: Path, labels: dict[str, str], label_build: bool, prep
     text += "    labels:\n" + body
     if label_build:
         text += "    build:\n      labels:\n" + body.replace("      ", "        ")
+    if sidecar:
+        text += f"  {network.SIDECAR}:\n    labels:\n" + body
     text += "networks:\n  default:\n    labels:\n" + body
     path.write_text(text)
     return path
@@ -71,16 +111,14 @@ def _builds_image(task_dir: Path) -> bool:
     return not config.environment.docker_image
 
 
-def _with_image(task_dir: Path, copy: Path, image: str) -> Path:
-    """A private copy of the task whose environment uses the platform-prepared image,
-    so Harbor neither builds nor pulls it (M1 TECH-03)."""
+def _with_image(copy: Path, image: str) -> None:
+    """Point the task copy at the platform-prepared image, so Harbor neither builds nor
+    pulls it (M1 TECH-03)."""
     from harbor.models.task.config import TaskConfig as TaskFile
 
-    shutil.copytree(task_dir, copy, symlinks=True)
     config = TaskFile.model_validate_toml((copy / "task.toml").read_text())
     config.environment.docker_image = image
     (copy / "task.toml").write_text(config.model_dump_toml())
-    return copy
 
 
 def _entries(top: Path) -> list[tuple[Path, os.stat_result]]:
@@ -234,13 +272,20 @@ class Execution:
         self.live: set[str] = set()
         self.offsets: dict[Path, int] = {}
         self.log_bytes: dict[tuple[str, int], int] = defaultdict(int)
+        self.trajectory_steps: dict[Path, int] = {}
+        self.trajectory_seen: dict[Path, tuple] = {}
         self.finished = 0
 
     # --- configuration -----------------------------------------------------------
 
     def _config(self):
         from harbor.models.job.config import JobConfig, RetryConfig
-        from harbor.models.trial.config import AgentConfig, EnvironmentConfig, TaskConfig
+        from harbor.models.trial.config import (
+            AgentConfig,
+            EnvironmentConfig,
+            TaskConfig,
+            VerifierConfig,
+        )
 
         tasks = self.spec["tasks"]
         counts = {len(task["trial_ids"]) for task in tasks}
@@ -248,27 +293,54 @@ class Execution:
             raise Rejected("RUNNER_INPUT_INVALID", "every task needs the same trial count")
         task_dirs = []
         prepared = 0
+        platform = self.spec.get("network")
+        restricted = False
         for index, task in enumerate(tasks):
             path = Path(task["path"]).resolve()
             if not (path / "task.toml").is_file():
                 raise Rejected("TASK_MATERIAL_MISSING", f"no task.toml for {task['task_key']}")
+            if task.get("docker_image") or platform:
+                # A private copy: the cached material is shared and never changed.
+                copy = self.out / "tasks" / str(index)
+                shutil.copytree(path, copy, symlinks=True)
+                path = copy
             if task.get("docker_image"):
-                path = _with_image(path, self.out / "tasks" / str(index), task["docker_image"])
+                _with_image(path, task["docker_image"])
                 prepared += 1
+            if platform:
+                plan = network.tighten(path, platform)
+                restricted |= network.restricted(plan)
+                emit("network_plan", task_key=task["task_key"], plan=plan)
             self.task_by_path[str(path)] = task["task_key"]
             self.unbound[task["task_key"]] = list(task["trial_ids"])
             task_dirs.append(path)
+        if restricted:
+            # Never fall back to public: a host that cannot restrict refuses the run.
+            if not network.supported():
+                raise Rejected(
+                    "NETWORK_POLICY_UNSUPPORTED",
+                    "this host cannot enforce the platform network policy (nftables)",
+                )
+            network.harden()
         label_build = all(_builds_image(path) for path in task_dirs)
         override = _labels_override(
             self.out / "labels.compose.yaml",
             self.spec["labels"],
             label_build,
             prepared == len(tasks),
+            sidecar=restricted,
         )
+        overrides = self.spec.get("overrides") or {}
         agent = self.spec["agent"]
-        if not agent.get("name") and not agent.get("import_path"):
+        if agent.get("adapter"):
+            try:
+                agent = agents.agent_config(agent)
+            except (agents.InputError, KeyError) as error:
+                raise Rejected("RUNNER_INPUT_INVALID", f"agent: {error}") from None
+        elif agent.get("name") != "oracle":
             # Harbor's default agent is oracle; never fall back to it implicitly (15 section 6).
             raise Rejected("RUNNER_INPUT_INVALID", "agent must be explicit")
+        agent = {**agent, "override_timeout_sec": overrides.get("agent_timeout_sec")}
         return JobConfig(
             job_name="job",
             jobs_dir=self.jobs_dir,
@@ -284,8 +356,13 @@ class Execution:
                 max_wait_sec=self.retry["max_wait_sec"],
             ),
             environment=EnvironmentConfig(
-                type="docker", delete=True, extra_docker_compose=[override]
+                type="docker",
+                delete=True,
+                extra_docker_compose=[override],
+                override_cpus=overrides.get("cpus"),
+                override_memory_mb=overrides.get("memory_mb"),
             ),
+            verifier=VerifierConfig(override_timeout_sec=overrides.get("verifier_timeout_sec")),
             agents=[AgentConfig(**agent)],
             tasks=[TaskConfig(path=path) for path in task_dirs],
         )
@@ -351,6 +428,7 @@ class Execution:
         exc = result.exception_info
         exception_type = exc.exception_type if exc else None
         rewards = result.verifier_result.rewards if result.verifier_result else None
+        context = result.agent_result
         self.finished += 1
         emit(
             "attempt_finished",
@@ -364,6 +442,16 @@ class Execution:
             archive=archive.relative_to(self.out).as_posix() if archived else None,
             files=files,
             skipped_unlisted=unlisted,
+            usage=(
+                {
+                    "input_tokens": context.n_input_tokens,
+                    "cache_tokens": context.n_cache_tokens,
+                    "output_tokens": context.n_output_tokens,
+                    "cost_usd": context.cost_usd,
+                }
+                if context is not None
+                else None
+            ),
             timing={
                 "environment_setup": _timing(result.environment_setup),
                 "agent_setup": _timing(result.agent_setup),
@@ -412,6 +500,52 @@ class Execution:
                         text=data.decode("utf-8", "replace"),
                         truncated=self.log_bytes[(trial_id, attempt)] >= cap,
                     )
+            self._tail_trajectory(root, trial_id, attempt, cap)
+
+    def _tail_trajectory(self, root: Path, trial_id: str, attempt: int, cap: int) -> None:
+        """New steps of the agent's trajectory as text. The file is rewritten whole each
+        turn (and anew on a retry), so steps are counted rather than bytes."""
+        import json
+
+        path = root / TRAJECTORY
+        try:
+            info = path.lstat()
+        except OSError:
+            return
+        if not stat.S_ISREG(info.st_mode) or info.st_size > TRAJECTORY_MAX_BYTES:
+            return
+        key = (path, info.st_size, info.st_mtime_ns)
+        if self.trajectory_seen.get(path) == key:
+            return
+        handle = _open_below(path, root)
+        if handle is None:
+            return
+        with handle:
+            raw = handle.read(TRAJECTORY_MAX_BYTES + 1)
+        try:
+            steps = json.loads(raw).get("steps") or []
+        except (ValueError, AttributeError):
+            return  # caught mid-write; the next tick reads it again
+        self.trajectory_seen[path] = key
+        seen = self.trajectory_steps.get(path, 0)
+        if len(steps) < seen:
+            seen = 0  # a retry started a new trajectory
+        self.trajectory_steps[path] = len(steps)
+        new = [s for s in steps[seen:] if isinstance(s, dict)]
+        used = self.log_bytes[(trial_id, attempt)]
+        if not new or used >= cap:
+            return
+        text = "".join(_render_step(step) for step in new)
+        data = text.encode()[: cap - used]
+        self.log_bytes[(trial_id, attempt)] += len(data)
+        emit(
+            "log",
+            trial_id=trial_id,
+            attempt=attempt,
+            source="agent/trajectory",
+            text=data.decode("utf-8", "replace"),
+            truncated=self.log_bytes[(trial_id, attempt)] >= cap,
+        )
 
     async def _tail_forever(self) -> None:
         while True:
@@ -497,3 +631,23 @@ def check_spec(spec: dict) -> None:
         raise Rejected(
             "RUNNER_INPUT_INVALID", "a single file cannot be allowed more than the total"
         )
+    try:
+        network.check_platform(spec.get("network"))
+    except ValueError as error:
+        raise Rejected("RUNNER_INPUT_INVALID", str(error)) from None
+    for name in ("secrets", "task_env"):
+        value = spec.get(name) or {}
+        if not isinstance(value, dict) or not all(
+            isinstance(k, str) and k.isidentifier() and isinstance(v, str) for k, v in value.items()
+        ):
+            raise Rejected("RUNNER_INPUT_INVALID", f"{name} must map names to strings")
+    overrides = spec.get("overrides") or {}
+    kinds = {
+        "cpus": int,
+        "memory_mb": int,
+        "agent_timeout_sec": (int, float),
+        "verifier_timeout_sec": (int, float),
+    }
+    for name, value in overrides.items():
+        if name not in kinds or isinstance(value, bool) or not isinstance(value, kinds[name]):
+            raise Rejected("RUNNER_INPUT_INVALID", f"overrides.{name} is not valid")

@@ -4,7 +4,16 @@ and the resolver shared by the resolution endpoint and run acceptance (03, 04)."
 import uuid
 
 from sqlalchemy import func, select, update
-from support import create_pat, invite_member, running, setup_admin, submit
+from support import (
+    PASSWORD,
+    Api,
+    create_pat,
+    invite_member,
+    running,
+    setup_admin,
+    submit,
+    wait_operation,
+)
 from test_datasets import import_and_prepare, tasks_by_key
 from test_e2e_run import prepare_model
 
@@ -162,7 +171,11 @@ def test_harness_versions_are_fixed_and_checked_against_the_executor(service):
         admin = setup_admin(service, client)
         adapters = admin.get("/api/v1/admin/harness-adapters", expect=200).json()["data"]
         assert adapters == [
-            {"agent": "fake-agent", "protocols": ["anthropic", "openai", "openai-compatible"]}
+            {
+                "agent": "fake-agent",
+                "protocols": ["anthropic", "openai", "openai-compatible"],
+                "parameters": None,
+            }
         ]
         body = {
             "name": "h",
@@ -251,7 +264,9 @@ def test_limits_block_instead_of_clamping_and_sources_explain_values(service, ve
         more = resolve(admin, version_id, resources={"memory_mb": 4096})
         assert more["blockers"] == []
         assert {x["memory_mb"] for x in more["effective_config"]["tasks"]} == {4096}
-        less = resolve(admin, version_id, resources={"cpus": 0.5})
+        more_cpus = resolve(admin, version_id, resources={"cpus": 2})
+        assert more_cpus["blockers"] == []
+        less = resolve(admin, version_id, resources={"memory_mb": 1024})
         assert codes(less) == ["BELOW_AUTHOR_RESOURCES"]
         huge = resolve(admin, version_id, resources={"cpus": 64})
         assert codes(huge)[0] == "LIMIT_EXCEEDED"  # and it could never fit the host either
@@ -491,7 +506,12 @@ def test_author_parameter_values_are_resolved_and_secrets_stay_references(servic
         assert codes(unknown) == ["UNKNOWN_PARAMETER"]
         secret = admin.post(
             "/api/v1/admin/credentials",
-            json={"name": "grader", "kind": "generic_secret", "provider": "grader", "value": "s3"},
+            json={
+                "name": "grader",
+                "kind": "generic_secret",
+                "provider": "grader",
+                "value": "grader-secret-xyz",
+            },
             expect=201,
         ).json()["data"]
         given = resolve(
@@ -514,7 +534,7 @@ def test_author_parameter_values_are_resolved_and_secrets_stay_references(servic
         ).json()["data"]
         run = admin.get(f"/api/v1/runs/{accepted['run_id']}").json()["data"]
         assert run["snapshot"]["provenance"]["credential_ids"] == [secret["id"]]
-        assert "s3" not in str(run["snapshot"])
+        assert "grader-secret-xyz" not in str(run["snapshot"])
 
 
 def test_everyone_sees_usable_credential_names_but_never_values(service):
@@ -548,3 +568,49 @@ def test_everyone_sees_usable_credential_names_but_never_values(service):
             assert "v-grader" not in str(listed)
         # The administrative list stays administrative.
         assert member.get("/api/v1/admin/credentials").status_code == 403
+
+
+def test_the_credential_value_is_read_at_execution(service, version_id, executor):
+    seen = []
+    original = executor.execute
+
+    async def capture(spec, sink, cancel):
+        seen.append(dict(spec.secrets))
+        return await original(spec, sink, cancel)
+
+    executor.execute = capture
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        model_id, harness_id = prepare_model(admin)
+        model = admin.get(f"/api/v1/model-configs/{model_id}").json()["data"]
+        accepted = submit(admin, version_id, **agent_body(model_id, harness_id)).json()["data"]
+        wait_operation(admin, accepted["operation_id"])
+    assert seen and seen[0] == {"model_api_key": "sk-demo-not-a-real-key-0000"}
+    run = admin.get(f"/api/v1/runs/{accepted['run_id']}").json()["data"]
+    assert "sk-demo" not in str(run)
+    assert model["credential_id"] in run["snapshot"]["provenance"]["credential_ids"]
+
+
+def test_a_credential_disabled_after_acceptance_stops_the_run_before_it_starts(
+    service, version_id, executor
+):
+    with running(service, run_worker=False) as client:
+        admin = setup_admin(service, client)
+        model_id, harness_id = prepare_model(admin)
+        accepted = submit(admin, version_id, **agent_body(model_id, harness_id)).json()["data"]
+        model = admin.get(f"/api/v1/model-configs/{model_id}").json()["data"]
+        admin.post(
+            f"/api/v1/admin/credentials/{model['credential_id']}/disable",
+            json={"expected_revision": 1},
+            expect=200,
+        )
+    with running(service) as client:
+        signed_in = client.post("/api/v1/session", json={"username": "admin", "password": PASSWORD})
+        api = Api(client, csrf=signed_in.json()["data"]["csrf_token"])
+        operation = wait_operation(api, accepted["operation_id"])
+        trials = api.get(f"/api/v1/runs/{accepted['run_id']}/trials").json()["data"]
+    assert operation["status"] == "failed"
+    assert {(x["state"], x["reason_code"]) for x in trials} == {
+        ("execution_error", "CREDENTIAL_UNAVAILABLE")
+    }
+    assert executor.cleaned == [] or all(x["attempts"] == [] for x in trials)

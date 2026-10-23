@@ -14,7 +14,7 @@ import logging
 import os
 import shutil
 import signal
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -29,6 +29,7 @@ from maestro.boundaries.executor import (
     RunSpec,
 )
 from maestro.execution import process
+from maestro.execution.agents import endpoint_host
 from maestro.execution.docker import DockerResources
 from maestro.execution.materials import TaskMaterials
 from maestro.execution.policy import HARBOR_VERSION, MAPPING_ID, harbor_outcome, harbor_retry_config
@@ -45,6 +46,7 @@ EVENT_TYPES = {
     "attempt_finished",
     "heartbeat",
     "cancel_requested",
+    "network_plan",
     "completed",
 }
 # Inherited by the Runner; nothing else, in particular no provider keys (09 section 5).
@@ -83,7 +85,7 @@ def artifact_kind(relative_path: str) -> str:
     return {"agent": "agent", "verifier": "verifier", "artifacts": "output"}.get(top, "trial")
 
 
-def _redacted(data: bytes, limit: int) -> bytes:
+def _redacted(data: bytes, limit: int, secrets: tuple[str, ...] = ()) -> bytes:
     """Logs and products are shown after basic redaction (U-10, 09 section 5).
 
     Any file that reads as text is redacted, whatever its name: a NUL byte marks binary,
@@ -92,7 +94,8 @@ def _redacted(data: bytes, limit: int) -> bytes:
     limit: the Runner collects nothing larger, so no collected text file goes unscanned."""
     if len(data) > limit or b"\0" in data:
         return data
-    return redact(data.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
+    text = data.decode("utf-8", "surrogateescape")
+    return redact(text, secrets).encode("utf-8", "surrogateescape")
 
 
 @dataclass
@@ -106,6 +109,8 @@ class _Session:
     open_attempts: set[tuple[str, int]] = field(default_factory=set)
     cancel_sent: bool = False
     failure: str | None = None
+    secrets: tuple[str, ...] = ()
+    network_plans: dict = field(default_factory=dict)
 
 
 class _StderrTail:
@@ -133,8 +138,27 @@ class _StderrTail:
 
 class HarborExecutor:
     executor_id = f"harbor-{HARBOR_VERSION}"
-    # Model harnesses arrive with the agent adapters of the Runner (M5 stage 2).
-    harness_adapters: ClassVar[dict[str, tuple[str, ...]]] = {}
+    # The Runner's adapters (maestro_runner.agents.ADAPTERS; a test keeps them in step).
+    harness_adapters: ClassVar[dict[str, tuple[str, ...]]] = {
+        "terminus-2": ("anthropic", "openai", "openai-compatible"),
+    }
+    harness_parameters: ClassVar[dict[str, frozenset[str]]] = {
+        "terminus-2": frozenset(
+            {
+                "max_turns",
+                "parser_name",
+                "enable_summarize",
+                "proactive_summarization_threshold",
+                "record_terminal_session",
+                "tmux_pane_width",
+                "tmux_pane_height",
+                "interleaved_thinking",
+            }
+        ),
+    }
+    # Where each adapter calls the model from. Terminus-2 calls it from the Runner, so the
+    # task container needs no network at all while the agent works.
+    model_called_from: ClassVar[dict[str, str]] = {"terminus-2": "runner"}
 
     def __init__(
         self,
@@ -185,11 +209,42 @@ class HarborExecutor:
         return env
 
     def _agent(self, spec: RunSpec) -> dict:
-        mode = spec.effective_config.get("execution_mode")
+        effective = spec.effective_config
+        mode = effective.get("execution_mode")
         if mode == "oracle":
             return {"name": "oracle"}
-        # Model agents arrive with M5; never let Harbor fall back to its default agent.
-        raise ValueError(f"unsupported execution mode: {mode!r}")
+        if mode != "agent":
+            # Never let Harbor fall back to its default agent (15 section 6).
+            raise ValueError(f"unsupported execution mode: {mode!r}")
+        model, harness = effective["model"], effective["harness"]
+        return {
+            "adapter": harness["agent"],
+            "model": {k: model[k] for k in ("protocol", "endpoint", "model_id", "params")},
+            "params": harness["params"],
+        }
+
+    def _network(self, spec: RunSpec) -> dict | None:
+        """Platform phase policy (U-18): model runs get the stricter of the author's and
+        this; Oracle is a test mode and keeps the author's settings. Verification never
+        needs the model; the agent phase needs it only when the harness calls the model
+        from inside the container."""
+        effective = spec.effective_config
+        if effective.get("execution_mode") != "agent":
+            return None
+        agent = effective["harness"]["agent"]
+        if self.model_called_from.get(agent) == "runner":
+            phase = {"mode": "no-network"}
+        else:
+            phase = {"mode": "allowlist", "hosts": [endpoint_host(effective["model"]["endpoint"])]}
+        return {"agent": phase, "verifier": {"mode": "no-network"}}
+
+    @staticmethod
+    def _task_env(spec: RunSpec) -> dict[str, str]:
+        """Author parameter values; secret ones were read from their credential."""
+        env = {}
+        for name, value in (spec.effective_config.get("parameters") or {}).items():
+            env[name] = value["value"] if "value" in value else spec.secrets[f"param:{name}"]
+        return env
 
     # --- execution ------------------------------------------------------------------
 
@@ -247,6 +302,14 @@ class HarborExecutor:
             "run_id": spec.run_id,
             "output_dir": str(workdir),
             "agent": self._agent(spec),
+            "network": self._network(spec),
+            "overrides": spec.effective_config.get("overrides") or {},
+            "secrets": (
+                {"model_api_key": spec.secrets["model_api_key"]}
+                if "model_api_key" in spec.secrets
+                else {}
+            ),
+            "task_env": self._task_env(spec),
             "n_concurrent_trials": spec.concurrency,
             "retry": harbor_retry_config(),
             "tasks": list(tasks.values()),
@@ -257,6 +320,7 @@ class HarborExecutor:
             "tail_interval_sec": self.tail_interval_sec,
         }
         session = _Session(spec, workdir, {t for task in tasks.values() for t in task["trial_ids"]})
+        session.secrets = tuple(v for v in spec.secrets.values() if v)
         proc = await asyncio.create_subprocess_exec(
             str(self.runner_python),
             "-I",
@@ -314,9 +378,20 @@ class HarborExecutor:
         if stderr.total:
             with contextlib.suppress(Exception):
                 shown = await asyncio.to_thread(
-                    _redacted, stderr.render(), self.artifact_limits["max_file_bytes"]
+                    _redacted,
+                    stderr.render(),
+                    self.artifact_limits["max_file_bytes"],
+                    session.secrets,
                 )
                 await sink.run_artifact("runner", "runner/stderr.log", shown)
+        if session.network_plans:
+            # Evidence of what each phase was allowed: author's, platform's, effective.
+            with contextlib.suppress(Exception):
+                await sink.run_artifact(
+                    "runner",
+                    "runner/network-plan.json",
+                    json.dumps(session.network_plans, indent=2, sort_keys=True).encode(),
+                )
         completed = session.completed or {}
         failure = session.failure
         if failure is None and completed.get("status") in {"rejected", "runner_error"}:
@@ -409,6 +484,8 @@ class HarborExecutor:
                 raise ProtocolError(f"Runner has Harbor {p.get('harbor_version')}")
         elif kind == "heartbeat":
             await sink.heartbeat()
+        elif kind == "network_plan":
+            session.network_plans[str(p.get("task_key"))] = p.get("plan")
         elif kind == "attempt_started":
             session.open_attempts.add((p["trial_id"], p["attempt"]))
             await sink.attempt_started(
@@ -425,7 +502,12 @@ class HarborExecutor:
                 raise ProtocolError(f"unknown step {p.get('step')!r}")
             await sink.phase_changed(p["trial_id"], p["attempt"], p["step"])
         elif kind == "log":
-            await sink.log(p["trial_id"], p["attempt"], str(p.get("source")), str(p.get("text")))
+            await sink.log(
+                p["trial_id"],
+                p["attempt"],
+                str(p.get("source")),
+                redact(str(p.get("text")), session.secrets),
+            )
         elif kind == "attempt_finished":
             await self._attempt_finished(p, sink, session)
 
@@ -452,16 +534,18 @@ class HarborExecutor:
                     artifact_kind(entry["path"]),
                     entry["path"],
                     await asyncio.to_thread(
-                        _redacted, data, self.artifact_limits["max_file_bytes"]
+                        _redacted, data, self.artifact_limits["max_file_bytes"], session.secrets
                     ),
                 )
         outcome = harbor_outcome(
             p.get("exception_type"),
-            redact(p.get("exception_message") or "") or None,
+            redact(p.get("exception_message") or "", session.secrets) or None,
             p.get("rewards"),
             bool(p.get("verifier_ran")),
             session.spec.metric_id,
         )
+        if isinstance(p.get("usage"), dict):
+            outcome = replace(outcome, usage=p["usage"])
         session.open_attempts.discard((trial_id, attempt))
         await sink.attempt_finished(trial_id, attempt, outcome, final=not p.get("will_retry"))
 

@@ -17,7 +17,7 @@
 - M4 数据集与准备已实现（2026-10-23，与 M6 并行，合并在 M6 之后）：Hub 数据源（经 Runner）、管理员导入与首次准备、按任务的准入、内容可得性与本机缓存分开记录、平台自己构建或拉取并导出原件（U-17）、共享恢复（租约、代次、等待者、pin）、恢复失败计为试次的执行尝试、手动回收、重启对账、作者参数与评分契约确认，以及数据集页。选择与未覆盖范围见决策记录的“M4 实施记录”。M5 仍待做。
 - 独立审查与修复（2026-10-23，在 `302b2ff` 上审查，修复在 `fix/review-findings`）：修了 Runner 实时日志可经符号链接读宿主机文件、凭据停用后无法解密并卡死主密钥轮换、准备流程的崩溃与占用泄漏、被删或停用管理员发出的邀请仍可兑换、清除失败仍报已清除、评分指标不起作用等；Hub 检索改为仅管理员（U-20）。选择、验证范围和留给后续的问题见决策记录的“独立审查与修复记录”。
 - 与机器和磁盘有关的数值上限进入 `config.toml`（U-21，同一分支）：归档与导出大小、构建、拉取与保存时限、同时恢复数、Hub 并发、Runner 心跳与静默时限，启动时校验，生效值见 `/capabilities`。见决策记录的“部署上限进入 config.toml”。
-- M5 分四段进行。第一段配置地基已实现（2026-10-23，`feature/m5-config`）：团队策略按修订进数据库、模型配置（三种协议）与 Harness 版本、配置解析接口（字段来源、阻塞项、`config_digest`）、凭 `resolution_id` 提交、作者参数取值，以及对应的管理页和新建运行页。还没有真实模型执行、网络收紧、附件、方案与重跑。选择与未覆盖范围见决策记录的“M5 实施记录（第一阶段）”。
+- M5 分四段进行。第一段配置地基已实现（2026-10-23，`feature/m5-config`）：团队策略按修订进数据库、模型配置（三种协议）与 Harness 版本、配置解析接口（字段来源、阻塞项、`config_digest`）、凭 `resolution_id` 提交、作者参数取值，以及对应的管理页和新建运行页。第二段模型 Agent 执行已实现（同日、同一分支）：Harness 先做 Terminus-2（U-25），凭据执行时解密、只在 Runner 内存里，模型运行的 Agent 与验证阶段由平台收紧为断网，Agent 轨迹实时可读，真实模型冒烟已通过。还没有附件、方案、批次与重跑。M5 四段做完再合入 `feature/rewrite`（U-24）。选择与未覆盖范围见决策记录的“M5 实施记录（第一阶段）”“（第二阶段）”。
 
 ## 代码状态
 
@@ -31,7 +31,7 @@
 需要 Linux、Python 3.12–3.13 和 uv；实际执行另需 Docker/Compose、可用作者依赖与 Hub 权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
 - Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests runner/src`；新代码另跑 `uv run ruff format --check src/maestro tests/maestro runner/src`。
-- Runner：在 `runner/` 执行 `uv sync --locked`。真实 Docker 测试需显式开启：`MAESTRO_DOCKER_TESTS=1 uv run pytest -q tests/maestro/test_harbor_docker.py`。它只用本地 Oracle 任务和已有的 `ubuntu:22.04`，需要 buildx，不调用模型和 Hub；执行资源都带每个测试独立的实例标签，准备好的镜像在每个实例自己的 `maestro-prep/<实例>` 仓库名下，结束时都核对清空。另有两项故意失败的用例核对错误分类：一个 `RUN` 步骤失败的 Dockerfile，和一个指定了不存在镜像的任务（后者会请求注册表，守护进程连不上时跳过）。运行前后建议对 `docker images`、`ps -a`、`network ls`、`volume ls` 各留快照对比。真实 Hub 测试另需 `MAESTRO_HUB_TESTS=1 uv run pytest -q tests/maestro/test_hub_live.py`：匿名读取公开的 `harbor/hello-world`，导入测试会真实构建（基础镜像可能被拉取）；Runner 继承代理变量，但不支持 SOCKS 代理变量（`ALL_PROXY`）。
+- Runner：在 `runner/` 执行 `uv sync --locked`。真实 Docker 测试需显式开启：`MAESTRO_DOCKER_TESTS=1 uv run pytest -q tests/maestro/test_harbor_docker.py`。它只用本地 Oracle 任务和已有的 `ubuntu:22.04`，需要 buildx，不调用模型和 Hub；执行资源都带每个测试独立的实例标签，准备好的镜像在每个实例自己的 `maestro-prep/<实例>` 仓库名下，结束时都核对清空。Terminus-2 的用例需要本地镜像 `maestro-test/ubuntu-tmux:22.04`（`FROM ubuntu:22.04` 加 `apt-get install tmux`，没有时跳过），模型是测试进程里的假服务，不花钱。另有两项故意失败的用例核对错误分类：一个 `RUN` 步骤失败的 Dockerfile，和一个指定了不存在镜像的任务（后者会请求注册表，守护进程连不上时跳过）。运行前后建议对 `docker images`、`ps -a`、`network ls`、`volume ls` 各留快照对比。真实模型冒烟默认跳过，会产生费用，需显式开启：`MAESTRO_DOCKER_TESTS=1 MAESTRO_MODEL_TESTS=1 MAESTRO_MODEL_ENDPOINT=<OpenAI 兼容地址> MAESTRO_MODEL_ID=<模型> MAESTRO_MODEL_KEY_FILE=<key 文件> uv run pytest -q -s tests/maestro/test_harbor_docker.py -k real_model`，一个试次、最多 5 轮。真实 Hub 测试另需 `MAESTRO_HUB_TESTS=1 uv run pytest -q tests/maestro/test_hub_live.py`：匿名读取公开的 `harbor/hello-world`，导入测试会真实构建（基础镜像可能被拉取）；Runner 继承代理变量，但不支持 SOCKS 代理变量（`ALL_PROXY`）。
 - 数据库：`schema.py` 与最新迁移须一致（`tests/maestro/test_migrations.py` 检查）。首个发布前没有已部署的 schema，`0001` 可以随 `schema.py` 重新生成；发布后只追加迁移。并行分支都改了 `schema.py` 时，合并后在合并结果上重新生成 `0001`。
 - 实例：`maestro --config <config.toml> init / db upgrade / serve / openapi`；示例配置与试用步骤见根目录 README。
 - 前端：在 `frontend/` 执行 `npm ci`、`npm run build`、`npm run lint`；build 写入 `src/maestro/static/`。

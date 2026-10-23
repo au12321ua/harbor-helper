@@ -13,6 +13,7 @@ import sys
 import traceback
 
 from maestro_runner import protocol  # first: claims stdout before Harbor loads
+from maestro_runner.agents import SECRETS
 from maestro_runner.job import Execution, Rejected, check_spec
 from maestro_runner.protocol import emit
 
@@ -66,6 +67,11 @@ def main() -> int:
             return hub_command(spec)
         protocol.run_id = spec.get("run_id")
         check_spec(spec)
+        # Model credentials stay in memory (SECRETS), never in the environment or
+        # any file. Author parameter values are the task's own input: Harbor resolves
+        # task.toml templates from the environment.
+        SECRETS.update(spec.pop("secrets", None) or {})
+        os.environ.update(spec.pop("task_env", None) or {})
     except (ValueError, Rejected) as error:
         code = error.code if isinstance(error, Rejected) else "RUNNER_INPUT_INVALID"
         emit("completed", status="rejected", code=code, message=str(error))

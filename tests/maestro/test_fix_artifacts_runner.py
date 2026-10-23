@@ -37,7 +37,7 @@ event = types.SimpleNamespace(
     trial_name="t1",
     result=types.SimpleNamespace(
         exception_info=none, verifier_result=none, verifier=none,
-        environment_setup=none, agent_setup=none, agent_execution=none,
+        environment_setup=none, agent_setup=none, agent_execution=none, agent_result=None,
     ),
 )
 for step, *rest in spec["steps"]:

@@ -384,6 +384,8 @@ export interface Harness {
 export interface HarnessAdapter {
   agent: string;
   protocols: ModelProtocol[];
+  /** Parameters a harness version may declare; null means any. */
+  parameters: string[] | null;
 }
 
 export interface PolicySetting {

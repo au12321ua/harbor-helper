@@ -49,6 +49,10 @@ class RunSpec:
     metric_id: str = DEFAULT_METRIC_ID
     """The reward the run's frozen scoring contract scores by (06 section 2); the executor
     maps its raw reward for ``raw_score`` from this key and reports the rest as metrics."""
+    secrets: dict[str, str] = field(default_factory=dict, repr=False)
+    """Credential values read at execution (03 section 5: the current value of the bound
+    credential): ``model_api_key`` and ``param:<NAME>`` for secret author parameters.
+    Never persisted, logged or put in configuration."""
 
 
 @dataclass(frozen=True)
@@ -129,6 +133,9 @@ class Executor(Protocol):
     harness_adapters: dict[str, tuple[str, ...]]
     """Harness adapters this executor runs, each with the model protocols it can call
     (03 section 2). Oracle is the test mode and needs no adapter."""
+    harness_parameters: dict[str, frozenset[str]]
+    """Parameters each adapter accepts; a harness version may only declare these. An
+    adapter missing here accepts any (test doubles)."""
 
     async def execute(
         self, spec: RunSpec, sink: ExecutionSink, cancel: CancelToken

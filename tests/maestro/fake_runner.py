@@ -142,5 +142,41 @@ elif mode == "stubborn":
     while True:
         time.sleep(0.2)
         emit("heartbeat")
+elif mode == "agent":
+    # Echo what arrived so the test can check it, and put the key everywhere it could
+    # leak: a live log, an archived file, an exception message and stderr.
+    (out.parent / "request.json").write_text(json.dumps(spec))
+    key = spec["secrets"]["model_api_key"]
+    emit("network_plan", task_key=mode, plan={"agent": {"effective": spec["network"]["agent"]}})
+    sys.stderr.write(f"litellm said {key}\n")
+    trial_id = trials[0]
+    emit("attempt_started", trial_id=trial_id, attempt=1)
+    emit("log", trial_id=trial_id, attempt=1, source="agent/episode-0/response.txt", text=key)
+    archive = out / "attempts" / trial_id / "1"
+    (archive / "agent").mkdir(parents=True, exist_ok=True)
+    (archive / "agent" / "trajectory.json").write_text(json.dumps({"key": key}))
+    emit(
+        "attempt_finished",
+        trial_id=trial_id,
+        attempt=1,
+        exception_type="AuthenticationError",
+        exception_message=f"Incorrect API key provided: {key}",
+        rewards=None,
+        verifier_ran=False,
+        will_retry=False,
+        archive=archive.relative_to(out).as_posix(),
+        files=[
+            {
+                "path": "agent/trajectory.json",
+                "size": (archive / "agent" / "trajectory.json").stat().st_size,
+                "sha256": __import__("hashlib")
+                .sha256((archive / "agent" / "trajectory.json").read_bytes())
+                .hexdigest(),
+            }
+        ],
+        usage={"input_tokens": 12, "cache_tokens": 0, "output_tokens": 3, "cost_usd": None},
+        timing={},
+    )
+    emit("completed", status="completed")
 elif mode == "rejected":
     emit("completed", status="rejected", code="TASK_MATERIAL_MISSING", message="no task.toml")

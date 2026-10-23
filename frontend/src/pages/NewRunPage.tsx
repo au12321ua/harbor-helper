@@ -281,8 +281,8 @@ export function NewRunPage() {
       id={`run-${field}`}
       label={label}
       type="number"
-      min={field === "cpus" ? 0.1 : 1}
-      step={field === "cpus" ? 0.1 : 1}
+      min={1}
+      step={1}
       placeholder="继承"
       value={overrides[field]}
       onChange={(e) =>

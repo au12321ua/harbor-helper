@@ -466,7 +466,7 @@ class CredentialRef(Model):
 
 
 class ResourceOverrides(Model):
-    cpus: float | None = None
+    cpus: int | None = None
     memory_mb: int | None = None
 
 
@@ -627,6 +627,9 @@ class Harness(Model):
 class HarnessAdapter(Model):
     agent: str
     protocols: list[str]
+    parameters: list[str] | None = Field(
+        None, description="Parameters a harness version may declare; null means any"
+    )
 
 
 class EnabledChange(Model):

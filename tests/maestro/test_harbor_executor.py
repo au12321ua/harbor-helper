@@ -5,9 +5,11 @@ double confirms that label cleanup always runs.
 """
 
 import asyncio
+import json
 import os
 import stat
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -34,6 +36,7 @@ class RecordingSink:
     def __init__(self, refuse_after: int | None = None):
         self.events = []
         self.files = {}
+        self.texts = []
         self.refuse_after = refuse_after
 
     def _record(self, *event):
@@ -54,6 +57,7 @@ class RecordingSink:
         self._record("step", trial_id, attempt, step)
 
     async def log(self, trial_id, attempt, source, text):
+        self.texts.append(text)
         self._record("log", trial_id, source)
 
     async def artifact(self, trial_id, attempt, kind, relative_path, data):
@@ -293,3 +297,84 @@ def test_runner_environment_carries_no_provider_keys(
     env = executor._environment(tmp_path)
     assert "OPENAI_API_KEY" not in env and env["HOME"].startswith(str(tmp_path))
     assert os.environ["OPENAI_API_KEY"]  # only the child environment is filtered
+
+
+KEY = "sk-test-0123456789abcdefghijklmnop"
+
+
+def agent_spec(materials, tmp_path) -> RunSpec:
+    spec = make_spec(materials, tmp_path, "agent", trials=1)
+    return replace(
+        spec,
+        effective_config={
+            "execution_mode": "agent",
+            "model": {
+                "config_id": "mdl_1",
+                "revision": 3,
+                "provider": "relay",
+                "protocol": "openai-compatible",
+                "endpoint": "https://relay.example.test/v1",
+                "model_id": "gpt-test",
+                "params": {"temperature": 0},
+                "credential_id": "cred_1",
+            },
+            "harness": {
+                "version_id": "hrn_1",
+                "name": "terminus",
+                "version": "harbor-0.24.0",
+                "agent": "terminus-2",
+                "content_digest": "sha256:x",
+                "params": {"max_turns": 5},
+            },
+            "parameters": {"REGION": {"value": "eu"}, "TOKEN": {"credential_id": "cred_2"}},
+            "overrides": {"agent_timeout_sec": 120},
+        },
+        secrets={"model_api_key": KEY, "param:TOKEN": "grader-secret-value"},
+    )
+
+
+def test_agent_run_request_carries_model_network_and_secrets(runner_python, materials, tmp_path):
+    sink = RecordingSink()
+    report = execute(
+        make_executor(runner_python, materials, tmp_path), agent_spec(materials, tmp_path), sink
+    )
+    assert report.failure_code is None
+    request = json.loads((tmp_path / "work" / "request.json").read_text())
+    assert request["agent"] == {
+        "adapter": "terminus-2",
+        "model": {
+            "protocol": "openai-compatible",
+            "endpoint": "https://relay.example.test/v1",
+            "model_id": "gpt-test",
+            "params": {"temperature": 0},
+        },
+        "params": {"max_turns": 5},
+    }
+    # Terminus-2 calls the model from the Runner: the container needs no network at all.
+    assert request["network"] == {
+        "agent": {"mode": "no-network"},
+        "verifier": {"mode": "no-network"},
+    }
+    assert request["secrets"] == {"model_api_key": KEY}
+    assert request["task_env"] == {"REGION": "eu", "TOKEN": "grader-secret-value"}
+    assert request["overrides"] == {"agent_timeout_sec": 120}
+    # The key appears nowhere the team can read: logs, files, messages, stderr.
+    shown = b"".join(data for _, data in sink.files.values()) + "".join(sink.texts).encode()
+    assert KEY.encode() not in shown and b"grader-secret-value" not in shown
+    assert ("run", "runner/network-plan.json") in sink.files
+    outcome = finished(sink)["trl_1"][3]
+    assert KEY not in (outcome.message or "") and outcome.failure_cause == "model_provider_failed"
+    assert not outcome.retry_recommended and not outcome.grade_requested
+    assert outcome.usage == {
+        "input_tokens": 12,
+        "cache_tokens": 0,
+        "output_tokens": 3,
+        "cost_usd": None,
+    }
+
+
+def test_oracle_keeps_the_author_network_and_gets_no_secrets(runner_python, materials, tmp_path):
+    executor = make_executor(runner_python, materials, tmp_path)
+    spec = make_spec(materials, tmp_path, "ok", trials=1)
+    assert executor._network(spec) is None and executor._agent(spec) == {"name": "oracle"}
+    assert executor._task_env(spec) == {}

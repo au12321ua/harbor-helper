@@ -92,7 +92,7 @@ class Maestro:
             else None
         )
         worker = (
-            Worker(db, executor, store, host, disk=disk, preparer=preparer)
+            Worker(db, executor, store, host, disk=disk, preparer=preparer, credentials=credentials)
             if executor is not None
             else None
         )
@@ -120,7 +120,11 @@ class Maestro:
             datasets=Datasets(db, sources, credentials),
             runs=runs,
             policies=Policies(db),
-            models=ModelConfigs(db, adapters),
+            models=ModelConfigs(
+                db,
+                adapters,
+                dict(getattr(executor, "harness_parameters", {}) or {}),
+            ),
             artifacts=artifacts,
             exports=exports,
             recycle=Recycle(db, store, materials, exports, environment),

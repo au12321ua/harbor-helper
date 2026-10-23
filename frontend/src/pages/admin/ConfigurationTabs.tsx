@@ -366,7 +366,8 @@ export function HarnessesTab() {
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const agent = form.agent || adapters.data?.[0]?.agent || "";
-  const supported = adapters.data?.find((a) => a.agent === agent)?.protocols ?? [];
+  const adapter = adapters.data?.find((a) => a.agent === agent);
+  const supported = adapter?.protocols ?? [];
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
@@ -539,6 +540,11 @@ export function HarnessesTab() {
               <span>
                 参数定义（JSON）：{"{\"parameters\": {\"max_turns\": {\"type\": \"integer\", \"default\": 30}}}"}
               </span>
+              {adapter?.parameters && (
+                <span className="text-xs text-muted-foreground">
+                  这个适配器可声明的参数：{adapter.parameters.join("、")}
+                </span>
+              )}
               <textarea
                 id="harness-schema"
                 className="min-h-24 rounded-md border bg-background p-2 font-mono text-xs"

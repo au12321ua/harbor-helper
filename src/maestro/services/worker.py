@@ -74,6 +74,12 @@ class StaleLease(MaestroError):
         super().__init__("STALE_EXECUTION_LEASE", "Execution lease is no longer valid", 409)
 
 
+class CredentialUnavailable(Exception):
+    def __init__(self, credential_id: str):
+        super().__init__(credential_id)
+        self.credential_id = credential_id
+
+
 class _Cancel:
     def __init__(self):
         self.event = asyncio.Event()
@@ -464,6 +470,7 @@ class Worker:
         capacity: HostCapacity,
         *,
         preparer: Preparer | None = None,
+        credentials=None,
         poll_seconds: float = 0.5,
         cleanup_retry_seconds: float = CLEANUP_RETRY_SECONDS,
         disk=None,
@@ -474,6 +481,7 @@ class Worker:
         self.store = store
         self.capacity = capacity
         self.preparer = preparer
+        self.credentials = credentials
         if preparer is not None:
             preparer.wake = self.wake
         # Back-off between failed cache restores of one task (D-011, 06 section 4).
@@ -927,6 +935,7 @@ class Worker:
         failure = "EXECUTOR_FAILED"
         close = True
         try:
+            spec = replace(spec, secrets=self._secrets(spec))
             if self.preparer is not None:
                 spec = await self._prepare(spec, sink, cancel)
             if spec.trials and not cancel.cancelled:
@@ -940,6 +949,10 @@ class Worker:
                 cleanup, failure = CleanupState.COMPLETE, None
         except StaleLease:
             log.warning("run %s lost its lease", run_id)
+        except CredentialUnavailable as error:
+            # Nothing started: the run ends without executing, naming the credential.
+            log.warning("run %s: credential %s cannot be used", run_id, error.credential_id)
+            cleanup, failure = CleanupState.COMPLETE, "CREDENTIAL_UNAVAILABLE"
         except asyncio.CancelledError:
             # Service shutdown: leave the run claimed; the next start reconciles it
             # as interrupted (05 section 8) instead of inventing an outcome here.
@@ -954,6 +967,28 @@ class Worker:
                 if self.preparer is not None:
                     self.preparer.release("run", run_id)
             self.wake()
+
+    def _secrets(self, spec: RunSpec) -> dict[str, str]:
+        """Values of the credentials the snapshot binds, read now: a run uses the current
+        value of its credential (03 section 5), never one copied at acceptance."""
+        effective = spec.effective_config
+        wanted = {}
+        if (effective.get("model") or {}).get("credential_id"):
+            wanted["model_api_key"] = effective["model"]["credential_id"]
+        for name, value in (effective.get("parameters") or {}).items():
+            if "credential_id" in value:
+                wanted[f"param:{name}"] = value["credential_id"]
+        if not wanted:
+            return {}
+        if self.credentials is None:
+            raise CredentialUnavailable(next(iter(wanted.values())))
+        secrets = {}
+        for key, credential_id in wanted.items():
+            try:
+                secrets[key], _ = self.credentials.resolve_value(credential_id)
+            except Exception:  # noqa: BLE001 - disabled, deleted, or undecryptable
+                raise CredentialUnavailable(credential_id) from None
+        return secrets
 
     async def _prepare(self, spec: RunSpec, sink: RunSink, cancel: _Cancel) -> RunSpec:
         """D-020: before the run's executor starts, every task's prepared image is
