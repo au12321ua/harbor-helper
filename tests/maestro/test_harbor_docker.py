@@ -705,7 +705,7 @@ def test_terminus_runs_with_the_container_offline(agent_service, monkeypatch):
             def probe(files, path):
                 found = next(a for a in files if a["relative_path"] == path)
                 body = pat.get(f"/api/v1/artifacts/{found['id']}/download", expect=200)
-                return body.text.strip()
+                return body.text.split()[0]
 
             # The control: with the author's network both phases reach the internet.
             assert probe(control_files, "agent/probe.txt") == "NET_OPEN"
@@ -781,6 +781,7 @@ PROBE_BOOTSTRAP = """#!/bin/bash
 set -e
 out=/logs/agent/attachments
 net-probe > $out/setup-probe.txt
+env | grep -i '_proxy=' > $out/proxy-env.txt || true
 touch /opt/maestro/installed-$(hostname)
 ls /opt/maestro/installed-* | wc -l > $out/markers.txt
 cat /proc/self/mountinfo > $out/mountinfo.txt
@@ -872,11 +873,15 @@ def test_attachments_install_in_each_trial_container(agent_service, monkeypatch)
                 log = read(files, tid, "agent/attachments/00-probe-tools.log")
                 assert "dir=/opt/maestro/attachments/00-probe-tools" in log
                 # Setup had the author's network; the agent and verifier phases had none.
-                assert read(files, tid, "agent/attachments/setup-probe.txt").strip() == "NET_OPEN"
-                assert read(files, tid, "agent/probe.txt").strip() == "NET_CLOSED"
-                assert read(files, tid, "verifier/probe.txt").strip() == "NET_CLOSED"
+                assert (
+                    read(files, tid, "agent/attachments/setup-probe.txt").split()[0] == "NET_OPEN"
+                )
+                assert read(files, tid, "agent/probe.txt").split()[0] == "NET_CLOSED"
+                assert read(files, tid, "verifier/probe.txt").split()[0] == "NET_CLOSED"
                 # Only this trial's own install marker: no shared install layer.
                 assert read(files, tid, "agent/attachments/markers.txt").strip() == "1"
+                # The host's Docker client proxy settings never reach a task container.
+                assert read(files, tid, "agent/attachments/proxy-env.txt").strip() == ""
                 mounts = set()
                 for line in read(files, tid, "agent/attachments/mountinfo.txt").splitlines():
                     fields, _, rest = line.partition(" - ")
