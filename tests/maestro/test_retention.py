@@ -2,6 +2,8 @@
 reads, index/file reconciliation (F-09, F-12) and storage watermarks (F-10)."""
 
 import asyncio
+import logging
+import os
 import uuid
 
 import pytest
@@ -174,13 +176,73 @@ def test_reconcile_marks_missing_and_removes_orphans(local, settings):
     partial = settings.artifacts_dir / "runs" / "orphan" / ".file.123.tmp"
     partial.write_bytes(b"half")
     report = service.artifacts.reconcile()
-    assert report == {"missing": 1, "orphans": 1, "partial": 1}
+    assert report == {"missing": 1, "orphans": 1, "partial": 1, "readopted": 0}
     assert not orphan.exists() and not partial.exists()
     row = next(a for a in service.artifacts.for_run(run_id) if a["id"] == artifact["id"])
     assert row["status"] == "unavailable" and row["status_reason"] == "STORAGE_CONTENT_MISSING"
     with pytest.raises(MaestroError) as error:
         service.artifacts.read(artifact["id"])
     assert error.value.code == "ARTIFACT_UNAVAILABLE"
+
+
+def statuses(service, run_id) -> dict[str, tuple[str, str | None]]:
+    return {a["id"]: (a["status"], a["status_reason"]) for a in service.artifacts.for_run(run_id)}
+
+
+def test_reconcile_readopts_files_once_the_volume_is_back(local, settings, caplog):
+    """A start while the artifact volume was absent must not condemn intact files for good."""
+    service, owner, version = local
+    run_id = run(service, owner, version)
+    root = settings.artifacts_dir
+    total = len(statuses(service, run_id))
+    away = root.with_name("artifacts.unmounted")
+    os.rename(root, away)
+    with caplog.at_level(logging.ERROR, logger="maestro.services.artifacts"):
+        assert service.artifacts.reconcile()["missing"] == total
+    # Most of the index vanished at once: that is a storage incident, said loudly.
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+    assert {s for s, _ in statuses(service, run_id).values()} == {"unavailable"}
+
+    os.rename(away, root)
+    report = service.artifacts.reconcile()
+    assert report["readopted"] == total and report["missing"] == 0
+    assert {v for v in statuses(service, run_id).values()} == {("available", None)}
+    artifact = service.artifacts.for_run(run_id)[0]
+    assert service.artifacts.read(artifact["id"])[1]
+    assert service.artifacts.reconcile()["readopted"] == 0  # nothing more to do
+
+
+def test_reconcile_does_not_readopt_files_that_changed_or_other_failures(local, settings):
+    service, owner, version = local
+    run_id = run(service, owner, version)
+    rows = service.artifacts.for_run(run_id)
+    with service.db.read() as conn:
+        keys = {
+            r.id: r.storage_key
+            for r in conn.execute(select(t.artifacts.c.id, t.artifacts.c.storage_key))
+        }
+    short, swapped, healthy = rows[0], rows[1], rows[2]
+    root = settings.artifacts_dir
+    away = root.with_name("artifacts.unmounted")
+    os.rename(root, away)
+    service.artifacts.reconcile()
+    os.rename(away, root)
+    (root / keys[short["id"]]).write_bytes(b"x")  # size no longer matches the index
+    original = (root / keys[swapped["id"]]).read_bytes()
+    (root / keys[swapped["id"]]).write_bytes(b"?" * len(original))  # same size, other content
+    # A row that went unavailable for another reason stays as it is.
+    with service.db.write() as conn:
+        conn.execute(
+            update(t.artifacts)
+            .where(t.artifacts.c.id == healthy["id"])
+            .values(status_reason="STORAGE_WRITE_FAILED")
+        )
+    report = service.artifacts.reconcile()
+    now = statuses(service, run_id)
+    assert now[short["id"]] == ("unavailable", "STORAGE_CONTENT_MISSING")
+    assert now[swapped["id"]] == ("unavailable", "STORAGE_CONTENT_MISSING")
+    assert now[healthy["id"]] == ("unavailable", "STORAGE_WRITE_FAILED")
+    assert report["readopted"] == len(rows) - 3
 
 
 def test_storage_watermarks_pause_acceptance_then_dispatch(local, settings):

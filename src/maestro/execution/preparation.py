@@ -26,6 +26,7 @@ from pathlib import Path
 
 from maestro.boundaries.environment import (
     AUTH,
+    FAILED,
     MISMATCH,
     TRANSIENT,
     UNAVAILABLE,
@@ -35,6 +36,7 @@ from maestro.boundaries.environment import (
     PreparedOutput,
     Progress,
 )
+from maestro.execution.materials import build_timeout
 
 log = logging.getLogger(__name__)
 
@@ -42,12 +44,43 @@ LABEL_SPEC = "io.maestro.spec_digest"
 DEFAULT_BUILD_TIMEOUT = 600.0
 PULL_TIMEOUT = 1800.0
 SAVE_TIMEOUT = 1800.0
+# Failure classification works on the docker client's stderr. Output of the Dockerfile's
+# own RUN steps ("#7 3.2 ..." while building, "3.2 ..." in the failure summary) is the
+# task's business, not the registry's: a pip "401 Unauthorized" in a RUN step is not a
+# credential problem.
+_STEP_OUTPUT = re.compile(r"^(#\d+ )?\d+(\.\d+)? ")
+# Registry, pull and login refusals only.
 _AUTH = re.compile(
-    r"pull access denied|unauthorized|authentication required|denied:", re.IGNORECASE
+    r"pull access denied|requested access to the resource is denied|"
+    r"unauthorized: (authentication required|incorrect username or password)|"
+    r"no basic auth credentials|authentication required|insufficient_scope|"
+    r"failed to authorize\b.*\b(401|403)\b",
+    re.IGNORECASE,
 )
 _MISSING = re.compile(
     r"manifest unknown|not found: manifest|manifest for .* not found", re.IGNORECASE
 )
+# What is known to pass by itself; anything else (a Dockerfile error, a RUN step that
+# exits non-zero, an unsupported platform) fails the same way again and is not retried.
+_TRANSIENT = re.compile(
+    r"tls handshake timeout|connection reset|i/o timeout|client\.timeout exceeded|"
+    r"temporary failure (in name resolution|resolving)|server misbehaving|"
+    r"context deadline exceeded|"
+    r"bad gateway|service unavailable|gateway time-?out|internal server error|"
+    r"toomanyrequests|too many requests|"
+    r"unexpected eof|[\w\"]: eof\b|"
+    r"connection refused|network is unreachable|no route to host|"
+    r"cannot connect to the docker daemon",
+    re.IGNORECASE,
+)
+
+
+def classify(stderr: str) -> str:
+    """AUTH for a registry refusal, TRANSIENT for a known passing trouble, else FAILED."""
+    registry = "\n".join(line for line in stderr.splitlines() if not _STEP_OUTPUT.match(line))
+    if _AUTH.search(registry):
+        return AUTH
+    return TRANSIENT if _TRANSIENT.search(stderr) else FAILED
 
 
 def _die_with_parent() -> None:
@@ -122,7 +155,7 @@ class DockerEnvironment:
         if not (env_dir / "Dockerfile").is_file():
             raise PreparationError(UNSUPPORTED, "the task has no environment/Dockerfile")
         await progress("building")
-        timeout = max(float(spec.spec["environment"].get("build_timeout_sec") or 0), 0)
+        timeout = build_timeout(spec.spec["environment"].get("build_timeout_sec"))
         code, _, err = await self._run(
             "buildx",
             "build",
@@ -139,21 +172,20 @@ class DockerEnvironment:
             timeout=timeout or DEFAULT_BUILD_TIMEOUT,
         )
         if code:
-            kind = AUTH if _AUTH.search(err) else TRANSIENT
-            raise PreparationError(kind, "image build failed", {"stderr_tail": err[-2000:]})
+            raise PreparationError(
+                classify(err), "image build failed", {"stderr_tail": err[-2000:]}
+            )
         return {"method": "build"}
 
     async def _pull(self, reference: str, tag: str, progress: Progress) -> dict:
         await progress("pulling")
         code, _, err = await self._run("pull", "--quiet", reference, timeout=PULL_TIMEOUT)
         if code:
-            if _AUTH.search(err):
-                # Docker reports "repository does not exist" and "login required" alike.
-                kind = AUTH
-            elif _MISSING.search(err) and "@sha256:" in reference:
+            # Docker reports "repository does not exist" and "login required" alike, so
+            # a refused pull is AUTH; only a digest that is missing is "exactly gone".
+            kind = classify(err)
+            if kind == FAILED and _MISSING.search(err) and "@sha256:" in reference:
                 kind = UNAVAILABLE
-            else:
-                kind = TRANSIENT
             raise PreparationError(
                 kind, f"pull of {reference} failed", {"stderr_tail": err[-2000:]}
             )
@@ -288,4 +320,14 @@ class DockerEnvironment:
             if "-tmp-" in ref.rsplit(":", 1)[-1]:
                 await self._untag(ref)
                 removed.append(ref)
+        return removed
+
+    async def sweep_archives(self) -> list[str]:
+        """Restart: drop half-written exports a killed ``docker save`` left behind."""
+        removed = []
+        if self.archive_dir.is_dir():
+            for path in sorted(self.archive_dir.glob(".*.tmp")):
+                if path.is_file():
+                    path.unlink(missing_ok=True)
+                    removed.append(path.name)
         return removed

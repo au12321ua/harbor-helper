@@ -13,13 +13,15 @@ import time
 import uuid
 import zipfile
 
-from sqlalchemy import update
-from support import create_pat, invite_member, running, setup_admin, wait_operation
+from sqlalchemy import select, update
+from support import PASSWORD, create_pat, invite_member, running, setup_admin, wait_operation
 
 from maestro.boundaries.executor import AttemptOutcome
 from maestro.core import clock
 from maestro.db import schema as t
 from maestro.domain import limits
+from maestro.domain.states import Role
+from maestro.services.principal import Channel, Principal
 from maestro.testing.fakes import failed, scored
 
 
@@ -66,11 +68,10 @@ def test_query_summarize_and_export_runs_with_a_read_pat(service, version_id, ex
         # One file of the clean run reaches its expiry and is reclaimed.
         artifacts = agent.get(f"/api/v1/runs/{clean}/artifacts").json()["data"]
         stale = next(a for a in artifacts if a["kind"] == "output")
+        due = clock.to_text(clock.now() - clock.timedelta(minutes=1))
         with service.db.write() as conn:
             conn.execute(
-                update(t.artifacts)
-                .where(t.artifacts.c.id == stale["id"])
-                .values(expires_at=clock.to_text(clock.now() - clock.timedelta(minutes=1)))
+                update(t.artifacts).where(t.artifacts.c.id == stale["id"]).values(expires_at=due)
             )
         assert service.artifacts.sweep()["reclaimed"] == 1
 
@@ -134,13 +135,26 @@ def test_query_summarize_and_export_runs_with_a_read_pat(service, version_id, ex
         reasons = {(m["artifact_id"], m["reason"]) for m in manifest["missing"]}
         assert (stale["id"], "EXPIRED") in reasons
         expired = next(m for m in manifest["missing"] if m["artifact_id"] == stale["id"])
-        assert expired["expired_at"] == stale["expires_at"] or expired["expired_at"]
+        assert expired["expired_at"] == due  # the manifest says when the file expired
         assert any(
             m["run_id"] == unsaved and m["reason"] == "SAVE_FAILED" for m in manifest["missing"]
         )
 
-        for secret in (agent.token, reader.token, "password_hash", "encrypted_payload"):
-            assert secret.encode() not in data
+        # The ZIP is compressed, so look inside every member (the manifest included), not at
+        # the raw bytes; the run id proves the search reads real content.
+        members = {name: archive.read(name) for name in archive.namelist()}
+        assert any(mixed.encode() in content for content in members.values())
+        secrets = (
+            agent.token,
+            reader.token,
+            admin.csrf,
+            PASSWORD,
+            "password_hash",
+            "encrypted_payload",
+            "token_hash",
+        )
+        for secret in secrets:
+            assert not [n for n, content in members.items() if secret.encode() in content], secret
 
         # Exports are personal: another member cannot read this one.
         hidden = alice.get(f"/api/v1/exports/{package['id']}")
@@ -229,3 +243,87 @@ def test_purge_during_a_build_withholds_the_package(service, version_id):
     assert package["state"] == "failed"
     assert package["error"]["code"] == "EXPORT_CONTENT_PURGED"
     assert not (service.settings.exports_dir / created["id"]).exists()
+
+
+def admin_principal(admin) -> Principal:
+    me = admin.get("/api/v1/me").json()["data"]
+    return Principal(me["id"], "admin", Role.ADMIN, Channel.WEB_SESSION, session_id="s")
+
+
+def expire_now(service, artifact_ids) -> None:
+    with service.db.write() as conn:
+        conn.execute(
+            update(t.artifacts)
+            .where(t.artifacts.c.id.in_(artifact_ids))
+            .values(expires_at=clock.to_text(clock.now() - clock.timedelta(minutes=1)))
+        )
+
+
+def test_a_sweep_during_a_build_cannot_take_the_files_being_packed(service, version_id):
+    """The build takes its read pins itself; retention that runs while it packs spares those
+    files, reclaims everything else, and gets the pinned ones once the export is done."""
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        packed = run_to_end(admin, version_id)
+        elsewhere = run_to_end(admin, version_id)
+        who = admin_principal(admin)
+    ids = {r: [a["id"] for a in service.artifacts.for_run(r)] for r in (packed, elsewhere)}
+    expire_now(service, ids[packed] + ids[elsewhere])
+    created = service.exports.create(who, {"run_ids": [packed]})
+    write = service.exports._write
+    seen = {}
+
+    def sweep_meanwhile(*args):
+        with service.db.read() as conn:
+            seen["pins"] = {
+                r.artifact_id
+                for r in conn.execute(
+                    select(t.artifact_pins).where(t.artifact_pins.c.holder_id == created["id"])
+                )
+            }
+        seen["swept"] = service.artifacts.sweep()
+        return write(*args)
+
+    service.exports._write = sweep_meanwhile
+    service.exports.build(created["id"])
+
+    assert seen["pins"] == set(ids[packed])  # taken by the build, not by the test
+    assert seen["swept"]["reclaimed"] == len(ids[elsewhere])
+    package = service.exports.get(who, created["id"])
+    assert package["state"] == "ready", package
+    _, path = service.exports.archive(who, created["id"])
+    archive = zipfile.ZipFile(path)
+    manifest = json.loads(archive.read(f"export-{created['id']}/manifest.json"))
+    assert manifest["missing"] == []
+    assert {f["artifact_id"] for f in manifest["files"] if "artifact_id" in f} == set(ids[packed])
+    with service.db.read() as conn:
+        assert conn.execute(select(t.artifact_pins)).first() is None  # released at the end
+    assert service.artifacts.sweep()["reclaimed"] == len(ids[packed])
+
+
+def test_a_purge_in_the_middle_of_packing_fails_the_export_and_leaves_nothing(service, version_id):
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        run_id = run_to_end(admin, version_id)
+        who = admin_principal(admin)
+    created = service.exports.create(who, {"run_ids": [run_id]})
+    add = service.exports._add_artifact
+    packed = []
+
+    def purge_the_second(archive, root, directory, item, *rest):
+        packed.append(item["id"])
+        if len(packed) == 2:
+            entry = service.recycle.delete(who, "artifact", item["id"])
+            service.recycle.purge(who, entry["id"], item["id"])
+        return add(archive, root, directory, item, *rest)
+
+    service.exports._add_artifact = purge_the_second
+    service.exports.build(created["id"])
+
+    package = service.exports.get(who, created["id"])
+    assert package["state"] == "failed" and package["error"]["code"] == "EXPORT_CONTENT_PURGED"
+    assert not (service.settings.exports_dir / created["id"]).exists()
+    assert service.operations.get(created["operation_id"])["status"] == "failed"
+    with service.db.read() as conn:
+        assert conn.execute(select(t.artifact_pins)).first() is None
+    assert len(packed) > 2  # the build went on to the end; the check came afterwards

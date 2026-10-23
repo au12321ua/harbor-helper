@@ -3,12 +3,17 @@
 Harbor's trial hooks give real-time phases; per-attempt evidence is archived in the
 END hook because Harbor deletes a failed attempt's directory before an in-job retry
 (M1, V-12). Live logs come from the trial directories Docker mounts on the host.
+
+Those mounted directories are writable from inside the container (C-07 / U-16), so
+everything under them is untrusted: links are never followed (a link could point at any
+host file), only regular files are read, and the size limits apply while copying.
 """
 
 import asyncio
 import hashlib
 import os
 import shutil
+import stat
 import traceback
 from collections import defaultdict
 from importlib.metadata import version
@@ -29,6 +34,10 @@ LOG_DIRS = ("agent", "verifier")
 LOG_SUFFIXES = (".txt", ".log")
 MAX_FILES = 500
 MAX_FILE_BYTES = 64 * 1024 * 1024
+MAX_TOTAL_BYTES = 1024 * 1024 * 1024
+# Skipped entries are listed so the evidence gap is visible, but a runaway task cannot
+# grow the manifest (one protocol line) without bound; the rest is only counted.
+MAX_LISTED_SKIPS = 200
 MESSAGE_LIMIT = 4000
 
 
@@ -75,22 +84,128 @@ def _with_image(task_dir: Path, copy: Path, image: str) -> Path:
     return copy
 
 
-def _manifest(root: Path) -> list[dict]:
-    files = []
-    for path in sorted(root.rglob("*")):
-        if path.is_symlink() or not path.is_file():
+def _entries(top: Path) -> list[tuple[Path, os.stat_result]]:
+    """Regular files and links below ``top`` in path order, with their own (lstat) data.
+
+    Directories are entered only when they really are directories: a link to one is
+    reported, never followed. Devices, pipes and sockets are left out.
+    """
+    if top.is_symlink() or not top.is_dir():
+        return []
+    found = []
+    pending = [top]
+    while pending:
+        try:
+            with os.scandir(pending.pop()) as scan:
+                entries = list(scan)
+        except OSError:
             continue
-        relative = path.relative_to(root).as_posix()
-        size = path.stat().st_size
-        if len(files) >= MAX_FILES or size > MAX_FILE_BYTES:
-            files.append({"path": relative, "size": size, "skipped": True})
-            continue
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
-        files.append({"path": relative, "size": size, "sha256": digest.hexdigest()})
-    return files
+        for entry in entries:
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                pending.append(Path(entry.path))
+            elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+                found.append((Path(entry.path), info))
+    return sorted(found, key=lambda item: item[0])
+
+
+def _open_below(path: Path, root: Path):
+    """Open a regular file for reading, or None when it is not one that lives under ``root``.
+
+    The container can swap names between listing and opening. O_NOFOLLOW refuses a link as
+    the last component, O_NONBLOCK keeps a planted pipe from blocking the Runner, and the
+    descriptor's real path catches a link in any directory above the file.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return None
+    handle = os.fdopen(fd, "rb")  # owns the descriptor from here on
+    try:
+        regular = stat.S_ISREG(os.fstat(fd).st_mode)
+        inside = Path(os.readlink(f"/proc/self/fd/{fd}")).is_relative_to(root.resolve())
+    except OSError:
+        regular = inside = False
+    if not (regular and inside):
+        handle.close()
+        return None
+    return handle
+
+
+def _copy(handle, target: Path, limit: int) -> tuple[str, int] | None:
+    """Copy at most ``limit`` bytes and return (sha256, size); None, with nothing kept,
+    when the file turns out to be longer."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    size = 0
+    within = True
+    with target.open("wb") as sink:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            size += len(chunk)
+            if size > limit:
+                within = False
+                break
+            digest.update(chunk)
+            sink.write(chunk)
+    if not within:
+        target.unlink()
+        return None
+    return digest.hexdigest(), size
+
+
+def _archive(source: Path, target: Path) -> tuple[list[dict], int]:
+    """Copy a trial directory's regular files and describe them: the manifest entries and
+    how many skipped entries were left off the list.
+
+    Nothing is followed or copied as a link, and the limits apply on the way, so a runaway
+    task cannot fill the disk a second time. Skipped files stay in the manifest, with a
+    reason, so a missing file is never silent.
+    """
+    target.mkdir(parents=True, exist_ok=True)
+    files: list[dict] = []
+    skipped = copied = total = 0
+
+    def skip(relative: str, size: int, reason: str) -> None:
+        nonlocal skipped
+        skipped += 1
+        if skipped <= MAX_LISTED_SKIPS:
+            files.append({"path": relative, "size": size, "skipped": True, "reason": reason})
+
+    for path, info in _entries(source):
+        relative = path.relative_to(source).as_posix()
+        if stat.S_ISLNK(info.st_mode):
+            skip(relative, 0, "SYMLINK")
+        elif copied >= MAX_FILES:
+            skip(relative, info.st_size, "TOO_MANY_FILES")
+        elif info.st_size > MAX_FILE_BYTES:
+            skip(relative, info.st_size, "TOO_LARGE")
+        elif total + info.st_size > MAX_TOTAL_BYTES:
+            skip(relative, info.st_size, "TOTAL_LIMIT")
+        elif (handle := _open_below(path, source)) is None:
+            skip(relative, info.st_size, "UNREADABLE")
+        else:
+            try:
+                with handle:
+                    done = _copy(
+                        handle,
+                        target / relative,
+                        min(MAX_FILE_BYTES, MAX_TOTAL_BYTES - total),
+                    )
+            except OSError:
+                (target / relative).unlink(missing_ok=True)
+                skip(relative, info.st_size, "COPY_FAILED")
+                continue
+            if done is None:
+                skip(relative, info.st_size, "TOO_LARGE")
+                continue
+            digest, size = done
+            copied += 1
+            total += size
+            files.append({"path": relative, "size": size, "sha256": digest})
+    return files, max(0, skipped - MAX_LISTED_SKIPS)
 
 
 def _timing(value) -> dict | None:
@@ -230,8 +345,8 @@ class Execution:
         result = event.result
         trial_dir = self.jobs_dir / "job" / name
         archive = self.attempts_dir / trial_id / str(attempt)
-        if trial_dir.is_dir():
-            shutil.copytree(trial_dir, archive, dirs_exist_ok=True, symlinks=True)
+        archived = trial_dir.is_dir()
+        files, unlisted = _archive(trial_dir, archive) if archived else ([], 0)
         exc = result.exception_info
         exception_type = exc.exception_type if exc else None
         rewards = result.verifier_result.rewards if result.verifier_result else None
@@ -245,8 +360,9 @@ class Execution:
             rewards=rewards,
             verifier_ran=result.verifier is not None,
             will_retry=self._will_retry(exception_type, attempt),
-            archive=archive.relative_to(self.out).as_posix() if archive.is_dir() else None,
-            files=_manifest(archive) if archive.is_dir() else [],
+            archive=archive.relative_to(self.out).as_posix() if archived else None,
+            files=files,
+            skipped_unlisted=unlisted,
             timing={
                 "environment_setup": _timing(result.environment_setup),
                 "agent_setup": _timing(result.agent_setup),
@@ -267,11 +383,11 @@ class Execution:
             attempt = self.attempt[name]
             root = self.jobs_dir / "job" / name
             for directory in LOG_DIRS:
-                for path in sorted((root / directory).glob("**/*")):
-                    if path.suffix not in LOG_SUFFIXES or not path.is_file():
+                for path, info in _entries(root / directory):
+                    if path.suffix not in LOG_SUFFIXES or stat.S_ISLNK(info.st_mode):
                         continue
                     start = self.offsets.get(path, 0)
-                    size = path.stat().st_size
+                    size = info.st_size
                     if size < start:
                         start = 0
                     if size == start:
@@ -280,7 +396,10 @@ class Execution:
                     used = self.log_bytes[(trial_id, attempt)]
                     if used >= cap:
                         continue
-                    with path.open("rb") as handle:
+                    handle = _open_below(path, root)
+                    if handle is None:
+                        continue
+                    with handle:
                         handle.seek(start)
                         data = handle.read(min(size - start, cap - used))
                     self.log_bytes[(trial_id, attempt)] += len(data)

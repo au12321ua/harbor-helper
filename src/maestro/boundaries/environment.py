@@ -11,12 +11,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-# PreparationError kinds (06 section 3, platform preparation errors).
-TRANSIENT = "transient"  # download / pull / build failed; the content may still exist
+# PreparationError kinds (06 section 3, platform preparation errors). Only TRANSIENT is
+# retried; a cause that is not known to be transient is never retried.
+TRANSIENT = "transient"  # network, registry or daemon trouble; the content may still exist
 AUTH = "auth"  # registry or source refused access; cannot tell "gone" from "denied"
 UNAVAILABLE = "unavailable"  # the exact content cannot be obtained any more
 MISMATCH = "mismatch"  # obtained something, but not the recorded digest
 UNSUPPORTED = "unsupported"  # the task's environment is outside what we can prepare
+FAILED = "failed"  # a build or pull that fails the same way every time (bad Dockerfile, ...)
 
 
 class PreparationError(Exception):

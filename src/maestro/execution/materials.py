@@ -10,6 +10,7 @@ normalized preparation spec whose digest is the cache key.
 """
 
 import hashlib
+import math
 import os
 import re
 import shutil
@@ -33,6 +34,10 @@ from maestro.core.digests import digest_json
 DEFAULT_CPUS = 1
 DEFAULT_MEMORY_MB = 2048
 INSTRUCTION_CHARS = 4000
+# Upper bound for a task's own build_timeout_sec. The design names no build limit (14
+# section 5), and Harbor's default is 600 s; an hour covers large images while one
+# build cannot hold one of the two restore slots for longer.
+MAX_BUILD_TIMEOUT = 3600.0
 
 # How the platform prepares an environment. A change here is a new preparation
 # method and needs a new admission (02 section 5).
@@ -44,6 +49,7 @@ PREPARATION_METHOD = {
 }
 PREPARATION_METHOD_DIGEST = digest_json(PREPARATION_METHOD)
 
+_MATERIAL_NAME = re.compile(r"[0-9a-f]{64}")
 _TEMPLATE = re.compile(r"\$\{([^}:]+)(?::-(.*))?\}")
 _SENSITIVE = re.compile(r"(KEY|SECRET|TOKEN(?!S)|PASSWORD|CREDENTIAL|AUTH)", re.IGNORECASE)
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -69,7 +75,11 @@ _INFRA = {
 
 
 def tree_digest(root: Path) -> str:
-    """Names, contents and executable bits; links and special files are rejected."""
+    """Names, contents and executable bits; links and special files are rejected.
+
+    Every entry is length-framed (name length, name, kind, executable bits, content
+    length, content), so no two different trees feed the hash the same bytes. Files
+    are read in chunks: task content can be large."""
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root).as_posix()
@@ -78,11 +88,32 @@ def tree_digest(root: Path) -> str:
         mode = path.stat().st_mode
         if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
             raise ValueError(f"special files are unsupported in task content: {relative}")
-        digest.update(relative.encode() + b"\0" + str(mode & 0o111).encode() + b"\0")
-        if path.is_file():
-            digest.update(path.read_bytes())
-        digest.update(b"\0")
+        name = os.fsencode(relative)
+        kind = b"f" if stat.S_ISREG(mode) else b"d"
+        digest.update(len(name).to_bytes(8, "big") + name + kind + bytes([mode & 0o111]))
+        if kind == b"f":
+            with path.open("rb") as handle:
+                size = os.fstat(handle.fileno()).st_size
+                digest.update(size.to_bytes(8, "big"))
+                remaining = size
+                while remaining:
+                    chunk = handle.read(min(remaining, 1 << 20))
+                    if not chunk:
+                        raise ValueError(f"file changed while it was read: {relative}")
+                    digest.update(chunk)
+                    remaining -= len(chunk)
     return "sha256:" + digest.hexdigest()
+
+
+def build_timeout(value) -> float | None:
+    """The author's build time limit when it is usable, else None (the platform default
+    applies). A build holds one of the few restore slots for as long as it runs, so a
+    task may not ask for ``inf`` or for days: the limit is capped."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return min(float(value), MAX_BUILD_TIMEOUT)
 
 
 def _hex(content_digest: str) -> str | None:
@@ -153,12 +184,35 @@ class TaskMaterials:
             shutil.copytree(source, copy, symlinks=True)
             if tree_digest(copy) != material:
                 raise SourceError(MISMATCH, "task content changed while it was being copied")
-            if target.exists():
-                os.rename(target, staging / "old")
-            os.rename(copy, target)
+            try:
+                if target.exists():
+                    os.rename(target, staging / "old")
+                os.rename(copy, target)
+            except OSError:
+                # A concurrent install of the same digest (a double-clicked import)
+                # got there first. If what it left is this very content, we are done.
+                if self.verified(content_digest, material):
+                    return material
+                raise
         finally:
             shutil.rmtree(staging, ignore_errors=True)
         return material
+
+    def sweep(self, referenced: set[str]) -> list[str]:
+        """Start-up reconciliation, before any install can run: remove what a crash left
+        (``.fetch-*``, ``.install-*``, ``.remove-*``) and material no task row refers
+        to (a failed import copied it in). Material a task refers to stays."""
+        if not self.root.is_dir():
+            return []
+        keep = {_hex(digest) for digest in referenced}
+        removed = []
+        for path in sorted(self.root.iterdir()):
+            leftover = path.name.startswith((".fetch-", ".install-", ".remove-"))
+            orphan = _MATERIAL_NAME.fullmatch(path.name) and path.name not in keep
+            if (leftover or orphan) and path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, ignore_errors=True)
+                removed.append(path.name)
+        return removed
 
 
 # --- inspection -------------------------------------------------------------------
@@ -281,6 +335,7 @@ def inspect_task(task_dir: Path, content_digest: str, material_digest: str) -> d
         kind = None
         unsupported.append("no_environment_definition")
     parameters, issues = _parameters(config, task_dir)
+    build_limit = build_timeout(environment.get("build_timeout_sec"))
     instruction = task_dir / "instruction.md"
     definition = {
         "instruction": (
@@ -298,7 +353,7 @@ def inspect_task(task_dir: Path, content_digest: str, material_digest: str) -> d
         "timeouts": {
             "agent_sec": (config.get("agent") or {}).get("timeout_sec"),
             "verifier_sec": (config.get("verifier") or {}).get("timeout_sec"),
-            "build_sec": environment.get("build_timeout_sec"),
+            "build_sec": build_limit,
         },
         "network": {
             "allow_internet": environment.get("allow_internet"),
@@ -317,7 +372,7 @@ def inspect_task(task_dir: Path, content_digest: str, material_digest: str) -> d
             "kind": kind,
             "docker_image": image,
             "definition_digest": tree_digest(env_dir) if env_dir.is_dir() else None,
-            "build_timeout_sec": environment.get("build_timeout_sec"),
+            "build_timeout_sec": build_limit,
         },
         "preparation_parameters": {},
         "preparation_method_digest": PREPARATION_METHOD_DIGEST,

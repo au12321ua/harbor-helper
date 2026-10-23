@@ -86,7 +86,7 @@ class Maestro:
         location = environment.location_id if environment is not None else "local-docker"
         runs = Runs(db, host, disk)
         artifacts = Artifacts(db, store)
-        exports = Exports(db, store, settings.exports_dir, runs)
+        exports = Exports(db, store, settings.exports_dir, runs, disk)
         return cls(
             settings=settings,
             db=db,

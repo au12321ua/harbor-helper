@@ -1,7 +1,8 @@
 """Dataset sources and the team-readable catalog (02, 10 section 4).
 
-Every authenticated caller may search sources and read versions, tasks and caches;
-administration is in ``admin`` and needs an administrator's web session.
+Every authenticated caller may read the datasets, versions, tasks and caches already
+in the platform. Searching the external source uses the team Hub credential, so it
+needs an administrator's web session like the rest of ``admin``.
 """
 
 from fastapi import APIRouter, Depends, Request
@@ -34,9 +35,9 @@ async def search(
     q: str,
     source_kind: str = "hub",
     credential_id: str | None = None,
-    _: Principal = Depends(principal),
+    who: Principal = Depends(principal),
 ):
-    return ok(request, await maestro(request).datasets.search(source_kind, q, credential_id))
+    return ok(request, await maestro(request).datasets.search(who, source_kind, q, credential_id))
 
 
 @router.get("/dataset-search/versions", response_model=Envelope[list[SourceVersion]])
@@ -46,10 +47,10 @@ async def source_versions(
     name: str,
     source_kind: str = "hub",
     credential_id: str | None = None,
-    _: Principal = Depends(principal),
+    who: Principal = Depends(principal),
 ):
     service = maestro(request).datasets
-    return ok(request, await service.versions(source_kind, namespace, name, credential_id))
+    return ok(request, await service.versions(who, source_kind, namespace, name, credential_id))
 
 
 @router.get("/dataset-search/version", response_model=Envelope[SourceVersionDetail])
@@ -60,10 +61,12 @@ async def source_version(
     ref: str,
     source_kind: str = "hub",
     credential_id: str | None = None,
-    _: Principal = Depends(principal),
+    who: Principal = Depends(principal),
 ):
     service = maestro(request).datasets
-    return ok(request, await service.describe(source_kind, namespace, name, ref, credential_id))
+    return ok(
+        request, await service.describe(who, source_kind, namespace, name, ref, credential_id)
+    )
 
 
 @router.get("/datasets", response_model=Envelope[list[Dataset]])

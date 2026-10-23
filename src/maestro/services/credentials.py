@@ -185,12 +185,28 @@ class Credentials:
             if row["revision"] != expected_revision:
                 raise MaestroError("REVISION_CONFLICT", "Credential changed; refresh", 409)
             if row["enabled"] != enabled:
+                # The revision is bound into the ciphertext, so the bump re-encrypts the
+                # same value under the new revision in this transaction.
+                revision = row["revision"] + 1
+                value = master_key.decrypt(
+                    self.keys.key_for(conn, row["key_version"]),
+                    row["nonce"],
+                    row["encrypted_payload"],
+                    master_key.credential_aad(cred_id, row["revision"]),
+                )
+                generation, key = self.keys.current(conn)
+                nonce, ciphertext = master_key.encrypt(
+                    key, value, master_key.credential_aad(cred_id, revision)
+                )
                 conn.execute(
                     update(t.credentials)
                     .where(t.credentials.c.id == cred_id)
                     .values(
+                        nonce=nonce,
+                        encrypted_payload=ciphertext,
+                        key_version=generation,
                         enabled=enabled,
-                        revision=row["revision"] + 1,
+                        revision=revision,
                         updated_at=clock.to_text(clock.now()),
                     )
                 )

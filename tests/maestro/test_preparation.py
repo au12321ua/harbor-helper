@@ -4,7 +4,8 @@ import asyncio
 import shutil
 import time
 
-from sqlalchemy import insert, select, update
+import pytest
+from sqlalchemy import delete, insert, select, update
 from support import create_pat, invite_member, running, setup_admin, submit, wait_operation
 from test_datasets import evict, import_and_prepare, import_dataset, tasks_by_key, wait_run
 
@@ -251,7 +252,10 @@ def test_ds05_local_copy_still_runs_when_upstream_lost_it(service, source, envir
         assert tasks_by_key(admin, version_id)["solo"]["can_submit"]
 
 
-def test_f24_a_superseded_restore_cannot_publish(service, source, environment):
+@pytest.mark.parametrize("takeover", ["generation", "lease", "operation"])
+def test_f24_a_superseded_restore_cannot_publish(service, source, environment, takeover):
+    """Publication needs the row's generation, the row's active Operation and the
+    Operation's lease token all to be the restore's own; losing any one is enough."""
     with running(service) as client:
         admin, version_id, task = solo(service, source, client)
         evict(admin, task)
@@ -262,12 +266,26 @@ def test_f24_a_superseded_restore_cannot_publish(service, source, environment):
             lambda: (d := admin.get(preparation).json()["data"])["operation_id"] and d,
             message="restore",
         )
-        with service.db.write() as conn:  # another generation took over the key
-            conn.execute(
-                update(t.preparations)
-                .where(t.preparations.c.id == task["local_preparation"]["id"])
-                .values(generation=t.preparations.c.generation + 1)
-            )
+        with service.db.write() as conn:
+            if takeover == "generation":  # another generation took over the key
+                conn.execute(
+                    update(t.preparations)
+                    .where(t.preparations.c.id == task["local_preparation"]["id"])
+                    .values(generation=t.preparations.c.generation + 1)
+                )
+            elif takeover == "lease":  # the Operation's lease was reissued
+                conn.execute(
+                    update(t.operations)
+                    .where(t.operations.c.id == restoring["operation_id"])
+                    .values(lease_token="someone-else")
+                )
+            else:  # the row points at another Operation
+                other = operations.create(conn, "preparation_restore", owner_id=None)
+                conn.execute(
+                    update(t.preparations)
+                    .where(t.preparations.c.id == task["local_preparation"]["id"])
+                    .values(active_operation_id=other)
+                )
         on_loop(service, environment.gate.set)
         op = wait_operation(admin, restoring["operation_id"])
         assert op["status"] == "failed" and op["error"]["code"] == "STALE_PREPARATION_LEASE"
@@ -275,7 +293,8 @@ def test_f24_a_superseded_restore_cannot_publish(service, source, environment):
         assert wait_run(admin, run["run_id"])["counts"]["scored"] == 1
         prep = admin.get(preparation).json()["data"]
         assert prep["cache_state"] == "ready"
-        assert prep["generation"] == restoring["generation"] + 2
+        bumped = 2 if takeover == "generation" else 1
+        assert prep["generation"] == restoring["generation"] + bumped
 
 
 def test_restart_during_restore_interrupts_it_and_keeps_admission(service, source, environment):
@@ -290,10 +309,25 @@ def test_restart_during_restore_interrupts_it_and_keeps_admission(service, sourc
         conn.execute(
             update(t.operations).where(t.operations.c.id == op_id).values(status="running")
         )
+        # An administrator's first preparation waiting on that restore.
+        waiter_op = operations.create(conn, "preparation_first", owner_id=None)
+        conn.execute(
+            update(t.operations).where(t.operations.c.id == waiter_op).values(status="running")
+        )
         conn.execute(
             update(t.preparations)
             .where(t.preparations.c.id == prep_id)
             .values(cache_state="restoring", active_operation_id=op_id)
+        )
+        conn.execute(
+            insert(t.preparation_waiters).values(
+                id="pwt_x",
+                operation_id=op_id,
+                holder_operation_id=waiter_op,
+                deadline_at="2099-01-01T00:00:00Z",
+                state="waiting",
+                created_at="2026-01-01T00:00:00Z",
+            )
         )
         conn.execute(
             insert(t.preparation_pins).values(
@@ -305,10 +339,93 @@ def test_restart_during_restore_interrupts_it_and_keeps_admission(service, sourc
             )
         )
     report = service.worker.start_epoch()
-    assert report["preparation"]["interrupted_operations"] == [op_id]
+    assert sorted(report["preparation"]["interrupted_operations"]) == sorted([op_id, waiter_op])
     prep = service.catalog.get_preparation(prep_id)
     assert prep["cache_state"] == "stale" and prep["pins"] == []
     assert prep["last_restore_error"]["message"].startswith("Service restarted")
     assert service.operations.get(op_id)["status"] == "interrupted"
+    with service.db.read() as conn:  # nobody of the dead process is still waiting
+        states = conn.execute(
+            select(t.preparation_waiters.c.state).where(t.preparation_waiters.c.id == "pwt_x")
+        ).scalars()
+    assert list(states) == ["failed"]
     (after,) = service.catalog.list_tasks(version_id)
     assert after["admission"] == {**task["admission"]} and after["can_submit"]
+
+
+def evict_with(service, admin, task, prepare=lambda conn, prep_id: None) -> dict:
+    """Ask for an eviction after ``prepare`` changed the cache row behind the request."""
+    prep_id = task["local_preparation"]["id"]
+    with service.db.write() as conn:
+        prepare(conn, prep_id)
+    op = admin.post(f"/api/v1/admin/preparations/{prep_id}/evict", expect=202).json()["data"]
+    return wait_operation(admin, op["id"])
+
+
+def test_eviction_is_refused_while_a_run_holds_the_cache(service, source, environment):
+    with running(service) as client:
+        admin, _, task = solo(service, source, client)
+
+        def pin(conn, prep_id):
+            conn.execute(
+                insert(t.preparation_pins).values(
+                    id="pin_x",
+                    preparation_id=prep_id,
+                    holder_kind="run",
+                    holder_id="run_x",
+                    expires_at="2099-01-01T00:00:00Z",
+                )
+            )
+
+        refused = evict_with(service, admin, task, pin)
+        assert (refused["status"], refused["error"]["code"]) == ("failed", "PREPARATION_IN_USE")
+        assert environment.images  # the image is untouched
+        prep = admin.get(f"/api/v1/preparations/{task['local_preparation']['id']}").json()["data"]
+        assert prep["cache_state"] == "ready"
+        # Once the holder is gone the same request goes through.
+        with service.db.write() as conn:
+            conn.execute(delete(t.preparation_pins))
+        evict(admin, task)
+        assert not environment.images
+
+
+def test_eviction_is_refused_while_the_cache_is_being_restored(service, source, environment):
+    with running(service) as client:
+        admin, _, task = solo(service, source, client)
+
+        def restoring(conn, prep_id):
+            other = operations.create(conn, "preparation_restore", owner_id=None)
+            conn.execute(
+                update(t.preparations)
+                .where(t.preparations.c.id == prep_id)
+                .values(active_operation_id=other)
+            )
+
+        refused = evict_with(service, admin, task, restoring)
+        assert (refused["status"], refused["error"]["code"]) == ("failed", "PREPARATION_BUSY")
+        assert environment.images
+
+
+def test_eviction_is_refused_when_the_cache_is_no_longer_ready(service, source, environment):
+    """The API only accepts a ready cache; if it changed before the Operation ran, the
+    Operation itself refuses and touches nothing."""
+    with running(service) as client:
+        _, _, task = solo(service, source, client)
+    prep_id = task["local_preparation"]["id"]
+    service.worker.start_epoch()
+    with service.db.write() as conn:
+        conn.execute(
+            update(t.preparations).where(t.preparations.c.id == prep_id).values(cache_state="stale")
+        )
+        op_id = operations.create(
+            conn,
+            "preparation_eviction",
+            owner_id=None,
+            resource_type="preparation",
+            resource_id=prep_id,
+            phase="queued",
+        )
+    asyncio.run(service.worker.drain())
+    op = service.operations.get(op_id)
+    assert (op["status"], op["error"]["code"]) == ("failed", "NOT_READY")
+    assert environment.images

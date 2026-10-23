@@ -1,6 +1,6 @@
 """Public API models. They define the OpenAPI contract shared by web and SDK."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -74,21 +74,28 @@ class SetupStatus(Model):
     needs_setup: bool
 
 
+# Sign-in and setup bodies come from anyone who can reach the port: bound every field.
+# The password limit is the policy's (security.passwords.MAX_LENGTH).
+UsernameText = Annotated[str, Field(max_length=128)]
+PasswordText = Annotated[str, Field(max_length=256)]
+TokenText = Annotated[str, Field(max_length=256)]
+
+
 class SetupRequest(Model):
-    setup_token: str
-    username: str
-    display_name: str | None = None
-    password: str
+    setup_token: TokenText
+    username: UsernameText
+    display_name: str | None = Field(None, max_length=1024)
+    password: PasswordText
 
 
 class LoginRequest(Model):
-    username: str
-    password: str
+    username: UsernameText
+    password: PasswordText
 
 
 class PasswordChange(Model):
-    current_password: str
-    new_password: str
+    current_password: PasswordText
+    new_password: PasswordText
 
 
 class InvitationCreate(Model):
@@ -116,7 +123,7 @@ class IssuedInvitation(Invitation):
 
 
 class InvitationLookup(Model):
-    token: str
+    token: TokenText
 
 
 class InvitationInfo(Model):
@@ -127,10 +134,10 @@ class InvitationInfo(Model):
 
 
 class InvitationAccept(Model):
-    token: str
-    username: str | None = None
-    display_name: str | None = None
-    password: str
+    token: TokenText
+    username: UsernameText | None = None
+    display_name: str | None = Field(None, max_length=1024)
+    password: PasswordText
 
 
 class StatusChange(Model):

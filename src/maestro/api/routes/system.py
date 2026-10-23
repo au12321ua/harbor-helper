@@ -76,7 +76,7 @@ def capabilities(request: Request):
                 "exports": True,
                 "deletion": True,
                 "collections": False,
-                "dataset_import": False,
+                "dataset_import": True,
             },
             "limits": limits.as_dict(),
             "auth": {
@@ -95,6 +95,8 @@ def capabilities(request: Request):
                 "artifacts.delete": admin,
                 "admin.recycle_bin": admin,
                 "catalog.read": read,
+                "catalog.search_source": admin,
+                "datasets.import": admin,
                 "operations.read": read,
                 "pats.manage_own": {"web_session": True, "pat_scopes": []},
                 "admin.members": admin,

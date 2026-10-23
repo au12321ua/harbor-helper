@@ -23,6 +23,13 @@ from maestro.core.errors import MaestroError
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).resolve().parent.parent / "static"
+# On every response. No script/style CSP: the built pages and the Swagger page load assets
+# the policy would have to enumerate; only framing is forbidden outright.
+HARDENING_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+}
 
 
 def error_response(error: MaestroError, request_id: str) -> JSONResponse:
@@ -97,6 +104,8 @@ def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
             context.request_id.reset(token)
         response.headers["X-Request-Id"] = request_id
         response.headers.setdefault("Cache-Control", "no-store")
+        for name, value in HARDENING_HEADERS.items():
+            response.headers.setdefault(name, value)
         return response
 
     @app.exception_handler(MaestroError)
@@ -132,10 +141,13 @@ def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
     @app.exception_handler(Exception)
     async def unexpected(request: Request, error: Exception):
         log.exception("unhandled error", exc_info=error)
-        return error_response(
+        response = error_response(
             MaestroError("INTERNAL_ERROR", "Unexpected server error", 500, retryable=True),
             request.state.request_id,
         )
+        # The server-error layer sits outside the middleware above: add the headers here.
+        response.headers.update(HARDENING_HEADERS)
+        return response
 
     for router in routes.routers():
         app.include_router(router)
@@ -144,8 +156,12 @@ def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
     async def web(path: str):
         if path.startswith("api/") or path == "api":
             raise MaestroError("NOT_FOUND", "Unknown API path", 404)
-        candidate = (STATIC / path).resolve()
-        if path and candidate.is_file() and candidate.is_relative_to(STATIC):
+        try:
+            candidate = (STATIC / path).resolve()
+            is_asset = bool(path) and candidate.is_file() and candidate.is_relative_to(STATIC)
+        except (OSError, ValueError):  # a NUL byte or a name too long: not a file, so the page
+            is_asset = False
+        if is_asset:
             return FileResponse(candidate)
         index = STATIC / "index.html"
         if index.is_file():

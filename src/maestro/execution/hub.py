@@ -26,10 +26,12 @@ from maestro.boundaries.dataset_source import (
 )
 from maestro.execution import process
 from maestro.execution.harbor import ENV_KEEP, PROTOCOL_VERSION
-from maestro.security.redaction import redact
+from maestro.security.redaction import redact, redact_json
 
 log = logging.getLogger(__name__)
 KINDS = {"auth", "transient", "not_found", "mismatch", "unsupported"}
+# One-shot Runner processes alive at once; the rest wait their turn.
+MAX_RUNNERS = 4
 
 
 class HubSource:
@@ -39,8 +41,20 @@ class HubSource:
         self.runner_python = runner_python
         self.work_root = work_root
         self.timeout = timeout
+        self._slots: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+
+    def _runner_slots(self) -> asyncio.Semaphore:
+        """Bound to the running loop, like the preparation restore slots."""
+        loop = asyncio.get_running_loop()
+        if self._slots is None or self._slots[0] is not loop:
+            self._slots = (loop, asyncio.Semaphore(MAX_RUNNERS))
+        return self._slots[1]
 
     async def _call(self, op: str, payload: dict, credential: str | None, timeout=None):
+        async with self._runner_slots():
+            return await self._run(op, payload, credential, timeout)
+
+    async def _run(self, op: str, payload: dict, credential: str | None, timeout=None):
         self.work_root.mkdir(parents=True, exist_ok=True)
         workdir = Path(tempfile.mkdtemp(prefix="hub-", dir=self.work_root))
         env = {k: v for k, v in os.environ.items() if k in ENV_KEEP}
@@ -76,6 +90,7 @@ class HubSource:
                 raise SourceError(TRANSIENT, f"Hub {op} timed out") from None
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
+        secrets = [credential] if credential else []
         result = None
         for line in out.splitlines():
             try:
@@ -89,13 +104,17 @@ class HubSource:
                 "hub %s: no result (exit %s): %s",
                 op,
                 proc.returncode,
-                redact(err[-2000:].decode(errors="replace")),
+                redact(err[-2000:].decode(errors="replace"), secrets),
             )
             raise SourceError(TRANSIENT, f"Hub {op} ended without an answer")
         if result.get("status") == "ok":
             return result.get("data")
         kind = result.get("kind") if result.get("kind") in KINDS else TRANSIENT
-        raise SourceError(kind, redact(str(result.get("message") or "")), result.get("evidence"))
+        raise SourceError(
+            kind,
+            redact(str(result.get("message") or ""), secrets),
+            redact_json(result.get("evidence"), secrets),
+        )
 
     async def search(self, query: str, credential: str | None) -> list[dict]:
         return await self._call("search", {"query": query}, credential, timeout=60)

@@ -1,5 +1,9 @@
 """Runs, trials, result summaries, artifacts, exports and Operations."""
 
+import os
+import re
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -22,6 +26,27 @@ from maestro.core.errors import MaestroError
 from maestro.services.principal import Principal
 
 router = APIRouter(prefix="/api/v1")
+NAME_MAX = 120
+_UNSAFE = re.compile(r"[^A-Za-z0-9._ -]")
+
+
+def attachment(name: str) -> str:
+    """Content-Disposition for a file name that comes from the Agent (RFC 6266).
+
+    Control characters, quotes and backslashes are dropped so the value cannot split the
+    header or end its quoted string. HTTP headers are Latin-1 at best, so the plain
+    ``filename`` is an ASCII fallback and ``filename*`` (RFC 5987) carries the real name.
+    """
+    name = "".join(c for c in name if c.isprintable() and c not in '"\\')
+    stem, ext = os.path.splitext(name)
+    if len(name) > NAME_MAX:
+        name = name[:NAME_MAX] if len(ext) > 16 else stem[: NAME_MAX - len(ext)] + ext
+    name = name.strip() or "download"
+    fallback = _UNSAFE.sub("_", name)
+    value = f'attachment; filename="{fallback}"'
+    if fallback != name:
+        value += f"; filename*=UTF-8''{quote(name, safe='')}"
+    return value
 
 
 @router.post("/runs", response_model=Envelope[RunAccepted], status_code=202, tags=["runs"])
@@ -139,12 +164,11 @@ def download(
                 left -= len(chunk)
                 yield chunk
 
-    name = meta["relative_path"].rsplit("/", 1)[-1].replace('"', "")
     return StreamingResponse(
         chunks(),
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{name}"',
+            "Content-Disposition": attachment(meta["relative_path"].rsplit("/", 1)[-1]),
             "Content-Length": str(count),
             "X-Content-Digest": meta["digest"] or "",
             "X-Total-Size": str(total),
@@ -202,8 +226,8 @@ def download_export(export_id: str, request: Request, who: Principal = Depends(p
 
 
 @router.get("/operations/{operation_id}", response_model=Envelope[Operation], tags=["operations"])
-def operation(operation_id: str, request: Request, _: Principal = Depends(principal)):
-    return ok(request, maestro(request).operations.get(operation_id))
+def operation(operation_id: str, request: Request, who: Principal = Depends(principal)):
+    return ok(request, maestro(request).operations.get(operation_id, who))
 
 
 @router.get("/operations", response_model=Envelope[list[Operation]], tags=["operations"])
@@ -213,9 +237,9 @@ def operations(
     owner_id: str | None = None,
     cursor: str | None = None,
     limit: int | None = None,
-    _: Principal = Depends(principal),
+    who: Principal = Depends(principal),
 ):
     items, next_cursor = maestro(request).operations.list(
-        kind=kind, owner_id=owner_id, cursor=cursor, limit=limit
+        kind=kind, owner_id=owner_id, cursor=cursor, limit=limit, principal=who
     )
     return ok(request, items, next_cursor)

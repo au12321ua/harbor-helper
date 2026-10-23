@@ -18,7 +18,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 
 from maestro import __version__
 from maestro.boundaries.storage import ArtifactStore
@@ -104,19 +104,39 @@ def _check_request(body: dict) -> dict:
 
 
 class Exports:
-    def __init__(self, db: Database, store: ArtifactStore, directory: Path, runs):
+    def __init__(self, db: Database, store: ArtifactStore, directory: Path, runs, disk=None):
         self.db = db
         self.store = store
         self.directory = directory
         self.runs = runs
+        self.disk = disk
 
     # --- requests ----------------------------------------------------------------
 
     def create(self, principal: Principal, body: dict) -> dict:
-        """Exporting reads team-shared results, so a read PAT may export too."""
+        """Exporting reads team-shared results, so a read PAT may export too. A package
+        can take up to ``EXPORT_MAX_BYTES``, so creation is limited per user and, like
+        new runs, paused while free disk space is low."""
         request = _check_request(body)
+        if self.disk:
+            self.disk.refuse_if_low("exports")
         export_id = new_id("exp")
         with self.db.write() as conn:
+            active = conn.execute(
+                select(func.count()).where(
+                    t.exports.c.owner_id == principal.user_id,
+                    t.exports.c.state.in_(["queued", "building"]),
+                )
+            ).scalar()
+            if active >= limits.EXPORT_MAX_ACTIVE_PER_USER:
+                raise MaestroError(
+                    "EXPORT_LIMIT_REACHED",
+                    f"At most {limits.EXPORT_MAX_ACTIVE_PER_USER} of your exports can be "
+                    "queued or building at once; wait for one to finish",
+                    429,
+                    retryable=True,
+                    headers={"Retry-After": "30"},
+                )
             found = set(
                 conn.execute(
                     select(t.runs.c.id).where(t.runs.c.id.in_(request["run_ids"]))
@@ -254,6 +274,27 @@ class Exports:
         return len(ids)
 
     def build(self, export_id: str) -> None:
+        """Build one queued export. Whatever goes wrong ends in 'failed' with a record the
+        owner can read: a queued export that kept raising would be retried every poll
+        and hold up everything behind it."""
+        try:
+            self._build(export_id)
+        except Exception:
+            log.exception("export %s could not be built", export_id)
+            self.fail(
+                export_id, "EXPORT_BUILD_FAILED", "The export could not be built; try again later"
+            )
+
+    def fail(self, export_id: str, code: str, message: str) -> None:
+        """End an export that has not finished, whichever step it stopped at. The message
+        is stored as given, so it must not carry exception text."""
+        with self.db.read() as conn:
+            state = self._row(conn, export_id)["state"]
+        if state in {"queued", "building"}:
+            shutil.rmtree(self.directory / export_id, ignore_errors=True)
+            self._finish(export_id, None, {"code": code, "message": message})
+
+    def _build(self, export_id: str) -> None:
         pin_until = clock.now() + clock.timedelta(minutes=limits.EXPORT_PIN_MINUTES)
         with self.db.write() as conn:
             row = self._row(conn, export_id)
@@ -327,7 +368,6 @@ class Exports:
     ) -> dict:
         root = f"export-{export_id}"
         files, missing, warnings = [], [], []
-        written = 0
         partial = target / f".{ARCHIVE}.tmp"
         task_filter = set(request.get("task_keys") or [])
         with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
@@ -384,7 +424,6 @@ class Exports:
                                 pin_until,
                             )
                         )
-                        written += item["size_bytes"] or 0
                     add_json(f"{trial_dir}/result.json", {**trial, "artifacts": entries})
                 run_entries = [
                     self._add_artifact(
@@ -458,7 +497,8 @@ class Exports:
             "files": len(files),
             "missing": len(missing),
             "warnings": len(warnings),
-            "artifact_bytes": written,
+            # Only files that went into the package, trial and run level alike.
+            "artifact_bytes": sum(f["size_bytes"] for f in files if "artifact_id" in f),
             "size_bytes": (target / ARCHIVE).stat().st_size,
             "digest": "sha256:" + digest.hexdigest(),
         }

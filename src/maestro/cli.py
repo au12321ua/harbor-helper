@@ -5,6 +5,7 @@ what the installer will call.
 """
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -16,6 +17,24 @@ from maestro.core.errors import MaestroError
 
 def _settings(args):
     return config.load(Path(args.config) if args.config else None)
+
+
+def _private_database(settings) -> None:
+    """The database holds password hashes and encrypted credentials: make it owner-only
+    before SQLite creates it with the umask's mode (the -wal and -shm files it adds beside
+    it take the main file's mode), and tighten one left looser by an earlier run."""
+    path = settings.database
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+        for suffix in ("-wal", "-shm"):
+            with contextlib.suppress(FileNotFoundError):
+                os.chmod(path.with_name(path.name + suffix), 0o600)
+    except OSError as error:
+        raise MaestroError("CONFIG_INVALID", f"database {path}: {error.strerror}", 500) from None
 
 
 def cmd_init(args) -> int:
@@ -31,6 +50,7 @@ def cmd_init(args) -> int:
     ):
         path.mkdir(parents=True, exist_ok=True, mode=mode)
     settings.artifacts_dir.mkdir(exist_ok=True, mode=0o700)
+    _private_database(settings)
     service = Maestro.build(settings)
     migrate.upgrade(service.db)
     created = service.keys.initialize()
@@ -50,6 +70,7 @@ def cmd_upgrade(args) -> int:
     from maestro.db.engine import Database
 
     settings = _settings(args)
+    _private_database(settings)
     db = Database.open(settings.database)
     before = migrate.current(db)
     migrate.upgrade(db)
@@ -64,6 +85,7 @@ def cmd_serve(args) -> int:
     from maestro.application import Maestro
 
     settings = _settings(args)
+    _private_database(settings)
     executor = environment = None
     sources = {}
     if settings.runner_python and not args.demo_executor:
@@ -142,6 +164,7 @@ def cmd_local_dataset(args) -> int:
     from maestro.services.instance import instance_id
 
     settings = _settings(args)
+    _private_database(settings)
     source = LocalTaskSource(Path(args.directory).resolve())
     service = Maestro.build(
         settings,

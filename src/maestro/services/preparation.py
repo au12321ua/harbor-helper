@@ -63,6 +63,7 @@ EVICTION_POLL = 0.1
 CODES = {
     env.TRANSIENT: "PREPARATION_RESTORE_FAILED",
     env.AUTH: "PREPARATION_RESTORE_FAILED",
+    env.FAILED: "PREPARATION_RESTORE_FAILED",
     env.UNAVAILABLE: "RESOURCE_CONTENT_UNAVAILABLE",
     env.MISMATCH: "RESOURCE_CONTENT_MISMATCH",
     env.UNSUPPORTED: "PREPARATION_UNSUPPORTED",
@@ -115,6 +116,21 @@ def _now() -> str:
     return clock.to_text(clock.now())
 
 
+async def gather_or_cancel(*awaitables) -> list:
+    """``asyncio.gather`` that does not leave siblings behind: when one fails, or this
+    task is cancelled, the others are cancelled and awaited before the error moves on.
+    A sibling still waiting on a shared restore would otherwise join it after its
+    owner has released everything, and be handed a pin nothing releases."""
+    tasks = [asyncio.ensure_future(item) for item in awaitables]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
 @dataclass
 class TaskContext:
     """Everything a restore needs about one task, read in one transaction."""
@@ -122,14 +138,16 @@ class TaskContext:
     task_id: str
     task_key: str
     spec_digest: str
-    spec: dict
+    spec: dict | None
+    """None for a task recorded as unsupported: it has no preparation spec."""
     content_digest: str
     material_digest: str
     locator: dict
     source_kind: str
     credential_id: str | None
     expected: PreparedOutput | None = None
-    """The admitted output a restore must reproduce (admission evidence)."""
+    """The output a restore must reproduce: the admission evidence, which a revoked
+    admission keeps, so that runs accepted before the revocation still start."""
 
 
 @dataclass
@@ -159,12 +177,16 @@ def load_context(conn: Connection, task_id: str) -> TaskContext:
         .one()
     )
     definition = row["definition_json"]
+    # A revoked admission is an explicit stop for new work; runs accepted earlier keep
+    # the snapshot and its recorded output (02 section 5).
     admission = (
         conn.execute(
-            select(t.task_admissions.c.evidence_json).where(
+            select(t.task_admissions.c.evidence_json)
+            .where(
                 t.task_admissions.c.task_id == task_id,
-                t.task_admissions.c.state == "admitted",
+                t.task_admissions.c.state.in_(["admitted", "revoked"]),
             )
+            .order_by(t.task_admissions.c.revision.desc())
         )
         .scalars()
         .first()
@@ -174,7 +196,7 @@ def load_context(conn: Connection, task_id: str) -> TaskContext:
         task_id=task_id,
         task_key=row["task_key"],
         spec_digest=row["spec_digest"],
-        spec=definition["preparation"]["spec"],
+        spec=(definition.get("preparation") or {}).get("spec"),
         content_digest=row["content_digest"],
         material_digest=row["material_digest"],
         locator=(definition.get("source") or {}).get("locator") or {},
@@ -316,9 +338,19 @@ class Preparer:
         return report
 
     async def recover(self) -> dict:
+        """Start-up sweep of what an interrupted process left behind. It runs before any
+        import or preparation starts, so it cannot race a live fetch or install."""
         sweep = getattr(self.environment, "sweep_temporary", None)
         removed = await sweep() if sweep is not None else []
-        return {"temporary_images_removed": removed}
+        sweep = getattr(self.environment, "sweep_archives", None)
+        files = await sweep() if sweep is not None else []
+        with self.db.read() as conn:
+            referenced = set(conn.execute(select(t.tasks.c.content_digest)).scalars())
+        files += await asyncio.to_thread(self.materials.sweep, referenced)
+        report = {"temporary_images_removed": removed}
+        if files:
+            report["leftovers_removed"] = files
+        return report
 
     async def stop(self) -> None:
         tasks = [a.task for a in self.active.values() if a.task] + list(self.jobs.values())
@@ -592,6 +624,51 @@ class Preparer:
                 set_availability(
                     conn, digest, "task_content", "available", {"reverified_by": op_id}
                 )
+        await self._reverify_images(version_id, op_id)
+
+    async def _reverify_images(self, version_id: str, op_id: str) -> None:
+        """The same for a prepared image recorded as unavailable (a rebuild gave a
+        different image). A blocked task never triggers a restore, so nothing else would
+        look again: ask the environment for the recorded image once more (local copy,
+        original, or an identical rebuild). A restore that succeeds publishes the cache
+        and marks the image available (``_publish``); one that fails changes nothing."""
+        with self.db.read() as conn:
+            admitted = conn.execute(
+                select(t.tasks.c.id, t.task_admissions.c.evidence_json)
+                .join(t.task_admissions, t.task_admissions.c.task_id == t.tasks.c.id)
+                .where(
+                    t.tasks.c.dataset_version_id == version_id,
+                    t.task_admissions.c.state == "admitted",
+                )
+            ).all()
+            images = {task: ((e or {}).get("output") or {}).get("image_id") for task, e in admitted}
+            lost = set(
+                conn.execute(
+                    select(t.content_availability.c.content_digest).where(
+                        t.content_availability.c.resource_kind == "environment_image",
+                        t.content_availability.c.availability == "unavailable",
+                        t.content_availability.c.content_digest.in_(
+                            [image for image in images.values() if image]
+                        ),
+                    )
+                ).scalars()
+            )
+            contexts = [load_context(conn, task) for task, image in images.items() if image in lost]
+        for ctx in contexts:
+            try:
+                output = await self.acquire(ctx, "operation", op_id)
+            except PreparationFailure:
+                continue  # still cannot be brought back: it stays unavailable
+            finally:
+                self.release("operation", op_id, task_id=ctx.task_id)
+            with self.db.write() as conn:  # (a cache that was still ready never published)
+                set_availability(
+                    conn,
+                    output.image_id,
+                    "environment_image",
+                    "available",
+                    {"reverified_by": op_id, "spec_digest": ctx.spec_digest},
+                )
 
     def _record_version(self, op, request, version, tasks) -> str:
         at = _now()
@@ -744,12 +821,14 @@ class Preparer:
                 ).scalar()
             try:
                 if definition.get("unsupported"):
+                    reason = definition.get("unsupported_reason")
                     raise PreparationFailure(
                         failure(
                             env.UNSUPPORTED,
                             "Task is outside what the platform can prepare: "
-                            + ", ".join(definition["unsupported"]),
-                            {"reason": definition.get("unsupported_reason")},
+                            + ", ".join(definition["unsupported"])
+                            + (f" ({reason})" if reason else ""),
+                            {"reason": reason},
                         )
                     )
                 output = await self.acquire(ctx, "operation", op_id, allow_new=True)
@@ -761,7 +840,7 @@ class Preparer:
                 record_progress("preparing")
 
         record_progress("preparing")
-        await asyncio.gather(*(one(task_id) for task_id in task_ids))
+        await gather_or_cancel(*(one(task_id) for task_id in task_ids))
         failed = [k for k, r in results.items() if r["state"] != "admitted"]
         with self.db.write() as conn:
             operations.advance(
@@ -890,15 +969,20 @@ class Preparer:
             await self.environment.evict(PreparedOutput.from_json(row["output_json"]))
         except PreparationError as exc:
             status = OperationStatus.FAILED
-            error = {"code": "EVICTION_FAILED", "message": exc.message}
-        finally:
-            with self.db.write() as conn:
-                conn.execute(
-                    update(t.preparations)
-                    .where(t.preparations.c.id == preparation_id)
-                    .values(eviction_operation_id=None)
-                )
-                operations.advance(conn, op_id, status=status, error=error, phase="done")
+            error = {"code": "EVICTION_FAILED", "message": redact(exc.message)}
+        except Exception as exc:  # the docker client could not even be started, ...
+            log.exception("eviction %s failed", op_id)
+            status = OperationStatus.FAILED
+            error = {"code": "EVICTION_FAILED", "message": redact(f"{type(exc).__name__}: {exc}")}
+        # Shutting down mid-eviction (CancelledError) leaves the claim: the next start
+        # reconciles it as interrupted rather than inventing an outcome.
+        with self.db.write() as conn:
+            conn.execute(
+                update(t.preparations)
+                .where(t.preparations.c.id == preparation_id)
+                .values(eviction_operation_id=None)
+            )
+            operations.advance(conn, op_id, status=status, error=error, phase="done")
 
     # --- acquire / shared restore -----------------------------------------------------
 
@@ -917,6 +1001,10 @@ class Preparer:
         ``allow_new`` lets the admin's first preparation produce a result nobody has
         recorded yet; runs may only bring back the admitted output.
         """
+        if ctx.spec is None:
+            raise PreparationFailure(
+                failure(env.UNSUPPORTED, "The task has no preparation spec", {"task": ctx.task_key})
+            )
         while True:
             if cancel is not None and cancel.is_set():
                 raise PreparationFailure(failure("cancelled", "Waiting was cancelled"))
@@ -925,16 +1013,28 @@ class Preparer:
                 raise PreparationFailure(pinned)
             if pinned is not None:
                 preparation_id, generation, output = pinned
-                if await self.environment.check(output):
+                try:
+                    present = await self._check(output)
+                except PreparationFailure:
+                    self._drop_pin(preparation_id, holder_kind, holder_id)
+                    raise
+                if present:
                     return output
-                self._drop_pin_mark_stale(preparation_id, generation, holder_kind, holder_id)
+                self._drop_pin(preparation_id, holder_kind, holder_id, stale_generation=generation)
                 continue
             decision, op_id = self._join(ctx, holder_kind, holder_id, deadline_at, allow_new)
             active = self.active.get(op_id) if op_id else None
             if decision == "wait":
                 await self._wait(active.done if active else None, cancel, EVICTION_POLL)
                 continue
-            if not await self._wait(active.done, cancel, None):
+            try:
+                listening = await self._wait(active.done, cancel, None)
+            except asyncio.CancelledError:
+                # The holder is gone (its run was closed, the service is stopping): it
+                # must not stay a waiter and be handed a pin when the restore ends.
+                self._leave(op_id, holder_kind, holder_id)
+                raise
+            if not listening:
                 self._leave(op_id, holder_kind, holder_id)
                 raise PreparationFailure(failure("cancelled", "Waiting was cancelled"))
             outcome = self._outcome(op_id, ctx, holder_kind, holder_id)
@@ -987,7 +1087,25 @@ class Preparer:
             )
             return row["id"], row["generation"], output
 
-    def _drop_pin_mark_stale(self, preparation_id, generation, holder_kind, holder_id) -> None:
+    async def _check(self, output: PreparedOutput) -> bool:
+        """Is the image there? A check that cannot answer (the 60 s inspect timeout, the
+        docker client missing) fails like a restore does: classified, and retried only
+        when it is transient."""
+        try:
+            return await self.environment.check(output)
+        except PreparationError as error:
+            raise PreparationFailure(failure(error.kind, error.message, error.evidence)) from None
+        except Exception as error:  # an unknown cause is reported, never guessed
+            log.exception("cache check failed")
+            raise PreparationFailure(
+                failure(env.TRANSIENT, f"{type(error).__name__}: {error}")
+            ) from None
+
+    def _drop_pin(
+        self, preparation_id, holder_kind, holder_id, *, stale_generation: int | None = None
+    ) -> None:
+        """Take the holder's pin back; with ``stale_generation``, also record that the
+        image of that generation turned out to be missing."""
         with self.db.write() as conn:
             conn.execute(
                 delete(t.preparation_pins).where(
@@ -996,15 +1114,16 @@ class Preparer:
                     t.preparation_pins.c.holder_id == holder_id,
                 )
             )
-            conn.execute(
-                update(t.preparations)
-                .where(
-                    t.preparations.c.id == preparation_id,
-                    t.preparations.c.generation == generation,
-                    t.preparations.c.cache_state == "ready",
+            if stale_generation is not None:
+                conn.execute(
+                    update(t.preparations)
+                    .where(
+                        t.preparations.c.id == preparation_id,
+                        t.preparations.c.generation == stale_generation,
+                        t.preparations.c.cache_state == "ready",
+                    )
+                    .values(cache_state="stale")
                 )
-                .values(cache_state="stale")
-            )
 
     def _row(self, conn, ctx: TaskContext):
         return (
@@ -1269,9 +1388,12 @@ class Preparer:
                 failure(kind, error.message, evidence, resource_kind="task_content")
             ) from None
         except Exception as error:
-            if getattr(error, "code", None) == "CREDENTIAL_DISABLED":
+            # Disabled or deleted: an administrator has to act, retrying cannot help.
+            code = getattr(error, "code", None)
+            if code in ("CREDENTIAL_DISABLED", "CREDENTIAL_DELETED"):
+                state = "disabled" if code == "CREDENTIAL_DISABLED" else "deleted"
                 raise PreparationFailure(
-                    failure(env.AUTH, "The dataset credential is disabled")
+                    failure(env.AUTH, f"The dataset credential is {state}")
                 ) from None
             raise
         path = await asyncio.to_thread(
@@ -1306,6 +1428,16 @@ class Preparer:
         with self.db.write() as conn:
             if not self._current(conn, active):
                 log.warning("restore %s lost its lease; result discarded", active.op_id)
+                # Its waiters get no answer: they join the generation that took over,
+                # and these rows end here instead of staying open forever.
+                conn.execute(
+                    update(t.preparation_waiters)
+                    .where(
+                        t.preparation_waiters.c.operation_id == active.op_id,
+                        t.preparation_waiters.c.state == "waiting",
+                    )
+                    .values(state="cancelled", ended_at=at)
+                )
                 operations.advance(
                     conn,
                     active.op_id,

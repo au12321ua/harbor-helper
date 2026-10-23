@@ -6,7 +6,10 @@ business metadata after the file is reclaimed. Read pins (exports) hold a file
 for a bounded time; nothing holds one forever.
 """
 
+import hashlib
 import logging
+import os
+import time
 from typing import BinaryIO
 
 from sqlalchemy import Connection, delete, select, update
@@ -23,6 +26,13 @@ from maestro.services import deleted
 log = logging.getLogger(__name__)
 SWEEP_BATCH = 500
 READ_MAX = 1024 * 1024
+MISSING_REASON = "STORAGE_CONTENT_MISSING"
+# Start-up checks: files up to this size are re-hashed before they are adopted again;
+# half of the indexed files missing at once means the volume, not individual files.
+READOPT_DIGEST_MAX = 8 * 1024 * 1024
+MISSING_ALARM_SHARE = 0.5
+# A file is written before its row is inserted, so it is not 'unindexed' until it is old.
+UNINDEXED_GRACE_SECONDS = 3600
 
 
 def public_artifact(row) -> dict:
@@ -253,40 +263,131 @@ class Artifacts:
                 )
         return {"reclaimed": len(reclaimed), "failed": failed}
 
+    def sweep_unindexed(self, grace_seconds: float = UNINDEXED_GRACE_SECONDS) -> dict:
+        """Remove stored files that no live index row stands for: what a purge could not
+        delete, or a write whose row was never inserted.
+
+        ``RunSink`` writes a file before it inserts the row, so only files last written
+        more than ``grace_seconds`` ago are judged; a fresh file is never touched.
+        """
+        cutoff = time.time() - grace_seconds
+        old = [
+            key
+            for key in list(self.store.keys())
+            if (written := self.store.modified_at(key)) is not None and written < cutoff
+        ]
+        status: dict[str, str] = {}
+        with self.db.read() as conn:
+            for start in range(0, len(old), SWEEP_BATCH):
+                status.update(
+                    conn.execute(
+                        select(t.artifacts.c.storage_key, t.artifacts.c.status).where(
+                            t.artifacts.c.storage_key.in_(old[start : start + SWEEP_BATCH])
+                        )
+                    ).all()
+                )
+        # Rows that are not available any more, and 'deleting' ones that retention is
+        # still working on, do not need the file; everything else does.
+        stray = [key for key in old if status.get(key) in {None, "deleted", "expired"}]
+        removed = failed = 0
+        for key in stray:
+            try:
+                self.store.delete(key)
+                removed += 1
+            except OSError:
+                failed += 1
+                log.warning("stray file %s could not be removed; will retry", key)
+        if removed:
+            log.warning("removed %d stored files that no artifact row needs", removed)
+        return {"removed": removed, "failed": failed}
+
     def reconcile(self) -> dict:
         """At start, before any run executes (F-09): an indexed file that is missing
-        becomes unavailable; a published file nobody indexes is an orphan and goes."""
+        becomes unavailable; a published file nobody indexes is an orphan and goes.
+
+        The mark is not permanent: a start while the artifact volume was absent marks
+        everything missing, so a file that is back, with the indexed size (and digest,
+        when small), is available again."""
         partial = self.store.discard_partial()
         with self.db.read() as conn:
             indexed = {
-                r.storage_key: (r.id, r.status)
+                r.storage_key: r
                 for r in conn.execute(
-                    select(t.artifacts.c.id, t.artifacts.c.storage_key, t.artifacts.c.status)
+                    select(
+                        t.artifacts.c.id,
+                        t.artifacts.c.storage_key,
+                        t.artifacts.c.status,
+                        t.artifacts.c.status_reason,
+                        t.artifacts.c.digest,
+                        t.artifacts.c.size_bytes,
+                    )
                 ).all()
             }
-        missing = [
-            artifact_id
-            for key, (artifact_id, status) in indexed.items()
-            if status == "available" and not self.store.exists(key)
+        available = [key for key, row in indexed.items() if row.status == "available"]
+        missing = [key for key in available if not self.store.exists(key)]
+        readopted = [
+            row.id
+            for key, row in indexed.items()
+            if row.status == "unavailable"
+            and row.status_reason == MISSING_REASON
+            and self._intact(key, row)
         ]
         orphans = [
             key
             for key in list(self.store.keys())
-            if key not in indexed or indexed[key][1] in {"expired", "deleted", "deleting"}
+            if key not in indexed or indexed[key].status in {"expired", "deleted", "deleting"}
         ]
         for key in orphans:
             try:
                 self.store.delete(key)
             except OSError:
                 log.warning("orphan file %s could not be removed", key)
-        if missing:
+        if missing or readopted:
             with self.db.write() as conn:
                 conn.execute(
                     update(t.artifacts)
-                    .where(t.artifacts.c.id.in_(missing), t.artifacts.c.status == "available")
-                    .values(status="unavailable", status_reason="STORAGE_CONTENT_MISSING")
+                    .where(
+                        t.artifacts.c.id.in_([indexed[key].id for key in missing]),
+                        t.artifacts.c.status == "available",
+                    )
+                    .values(status="unavailable", status_reason=MISSING_REASON)
                 )
-        report = {"missing": len(missing), "orphans": len(orphans), "partial": partial}
-        if missing or orphans or partial:
+                conn.execute(
+                    update(t.artifacts)
+                    .where(
+                        t.artifacts.c.id.in_(readopted),
+                        t.artifacts.c.status == "unavailable",
+                        t.artifacts.c.status_reason == MISSING_REASON,
+                    )
+                    .values(status="available", status_reason=None)
+                )
+        report = {
+            "missing": len(missing),
+            "orphans": len(orphans),
+            "partial": partial,
+            "readopted": len(readopted),
+        }
+        if missing or orphans or partial or readopted:
             log.warning("artifact storage reconciliation: %s", report)
+        if missing and len(missing) >= MISSING_ALARM_SHARE * len(available):
+            log.error(
+                "%d of %d indexed artifact files are missing: is the artifact volume mounted? "
+                "They are marked unavailable and are adopted again at the next start once "
+                "the files are back",
+                len(missing),
+                len(available),
+            )
         return report
+
+    def _intact(self, key: str, row) -> bool:
+        """The file at ``key`` is the one the index describes."""
+        try:
+            with self.store.open(key) as reader:
+                if reader.seek(0, os.SEEK_END) != row.size_bytes:
+                    return False
+                if row.size_bytes > READOPT_DIGEST_MAX:
+                    return True  # too large to hash at start; the size has to do
+                reader.seek(0)
+                return row.digest == "sha256:" + hashlib.sha256(reader.read()).hexdigest()
+        except (FileNotFoundError, KeyError):
+            return False

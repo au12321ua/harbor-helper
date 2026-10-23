@@ -6,7 +6,7 @@ permission, or offers a resource-agnostic cancel.
 
 from __future__ import annotations
 
-from sqlalchemy import Connection, insert, select, update
+from sqlalchemy import Connection, insert, or_, select, update
 
 from maestro.core import clock
 from maestro.core.errors import not_found
@@ -115,24 +115,53 @@ def public(row, principal: Principal | None = None, allowed_actions: list[str] |
     }
 
 
+PRIVATE_KINDS = ("export",)
+
+
+def _hidden_from(row, principal: Principal | None) -> bool:
+    """Export Operations carry the export's id, size and digest, so like the export itself
+    they belong to its owner and to administrator web sessions. Other kinds track
+    team-shared work and stay visible to everyone."""
+    return (
+        principal is not None
+        and row["kind"] in PRIVATE_KINDS
+        and row["owner_id"] != principal.user_id
+        and not principal.is_admin_session
+    )
+
+
 class Operations:
     def __init__(self, db: Database):
         self.db = db
 
-    def get(self, op_id: str) -> dict:
+    def get(self, op_id: str, principal: Principal | None = None) -> dict:
+        """``principal`` None is for the service's own bookkeeping; every API caller passes one."""
         with self.db.read() as conn:
             row = conn.execute(select(t.operations).where(t.operations.c.id == op_id)).mappings()
             row = row.first()
-        if row is None:
+        if row is None or _hidden_from(row, principal):
             raise not_found("Operation")
         return public(row)
 
     def list(
-        self, *, kind: str | None, owner_id: str | None, cursor: str | None, limit: int | None
+        self,
+        *,
+        kind: str | None,
+        owner_id: str | None,
+        cursor: str | None,
+        limit: int | None,
+        principal: Principal | None = None,
     ):
         limit = pagination.check_limit(limit)
         filters = {"kind": kind, "owner_id": owner_id}
         query = select(t.operations)
+        if principal is not None and not principal.is_admin_session:
+            query = query.where(
+                or_(
+                    t.operations.c.kind.not_in(PRIVATE_KINDS),
+                    t.operations.c.owner_id == principal.user_id,
+                )
+            )
         if kind:
             query = query.where(t.operations.c.kind == kind)
         if owner_id:

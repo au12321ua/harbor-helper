@@ -187,7 +187,8 @@ def test_ds03_sdk_reads_but_cannot_administer(service, source):
         admin_pat = create_pat(admin, scope="experiment")
 
         for pat in (reader, experimenter):
-            assert pat.get("/api/v1/dataset-search?q=solo&source_kind=fake").status_code == 200
+            assert pat.get("/api/v1/dataset-search?q=solo&source_kind=fake").status_code == 403
+            assert pat.get("/api/v1/datasets").status_code == 200
             listed = pat.get(f"/api/v1/dataset-versions/{version_id}/tasks").json()["data"]
             assert listed[0]["admission"]["state"] == "admitted"
             assert listed[0]["local_preparation"]["cache_state"] == "stale"

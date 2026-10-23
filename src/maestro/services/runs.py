@@ -772,9 +772,14 @@ class Runs:
         with self.db.read() as conn:
             self._live_row(conn, run_id)
             stored: dict[str, dict] = {}
+            # The same files /artifacts lists: recycled and purged ones are not counted.
             for trial_id, status, n in conn.execute(
                 select(t.artifacts.c.trial_id, t.artifacts.c.status, func.count())
-                .where(t.artifacts.c.run_id == run_id, t.artifacts.c.trial_id.is_not(None))
+                .where(
+                    t.artifacts.c.run_id == run_id,
+                    t.artifacts.c.trial_id.is_not(None),
+                    deleted.visible(t.artifacts.c.id, "artifact"),
+                )
                 .group_by(t.artifacts.c.trial_id, t.artifacts.c.status)
             ).all():
                 stored.setdefault(trial_id, {})[status] = n

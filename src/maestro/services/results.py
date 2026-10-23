@@ -7,7 +7,7 @@ they all report the same counts for the same records.
 from sqlalchemy import Connection, func, select
 
 from maestro.db import schema as t
-from maestro.domain.scoring import DEFAULT_CONTRACT, TrialRecord, summarize
+from maestro.domain.scoring import TrialRecord, snapshot_contract, summarize
 
 
 def trial_records(conn: Connection, run_ids: list[str]) -> dict[str, list[TrialRecord]]:
@@ -72,8 +72,9 @@ def summaries(conn: Connection, run_ids: list[str]) -> dict[str, dict]:
     )
     result = {}
     for row in meta:
-        contract = (row.policy_json or {}).get("scoring") or DEFAULT_CONTRACT
         result[row.id] = summarize(
-            records.get(row.id, []), contract, bench.get(row.dataset_version_id)
+            records.get(row.id, []),
+            snapshot_contract(row.policy_json),
+            bench.get(row.dataset_version_id),
         )
     return result

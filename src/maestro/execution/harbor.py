@@ -63,7 +63,9 @@ ENV_KEEP = (
     "no_proxy",
     "SSL_CERT_FILE",
 )
-TEXT_SUFFIXES = {".txt", ".log", ".json", ".jsonl", ".md", ".toml", ".yaml", ".yml", ".sh", ".py"}
+# Redaction scans every text file up to the Runner's own per-file limit (job.MAX_FILE_BYTES):
+# a larger file is not collected at all, so no collected text file goes unscanned.
+REDACT_MAX_BYTES = 64 * 1024 * 1024
 STDERR_KEEP = 256 * 1024
 
 
@@ -76,14 +78,15 @@ def artifact_kind(relative_path: str) -> str:
     return {"agent": "agent", "verifier": "verifier", "artifacts": "output"}.get(top, "trial")
 
 
-def _redacted(relative_path: str, data: bytes) -> bytes:
-    """Logs and products are shown after basic redaction (U-10, 09 section 5)."""
-    if Path(relative_path).suffix not in TEXT_SUFFIXES:
+def _redacted(data: bytes) -> bytes:
+    """Logs and products are shown after basic redaction (U-10, 09 section 5).
+
+    Any file that reads as text is redacted, whatever its name: a NUL byte marks binary,
+    which stays untouched. Bytes that are not valid UTF-8 (a stderr tail cut mid-character)
+    pass through unchanged around the redacted text."""
+    if len(data) > REDACT_MAX_BYTES or b"\0" in data:
         return data
-    try:
-        return redact(data.decode("utf-8")).encode()
-    except UnicodeDecodeError:
-        return data
+    return redact(data.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
 
 
 @dataclass
@@ -299,9 +302,8 @@ class HarborExecutor:
         spec = session.spec
         if stderr.total:
             with contextlib.suppress(Exception):
-                await sink.run_artifact(
-                    "runner", "runner/stderr.log", _redacted("stderr.log", stderr.render())
-                )
+                shown = await asyncio.to_thread(_redacted, stderr.render())
+                await sink.run_artifact("runner", "runner/stderr.log", shown)
         completed = session.completed or {}
         failure = session.failure
         if failure is None and completed.get("status") in {"rejected", "runner_error"}:
@@ -436,13 +438,14 @@ class HarborExecutor:
                     attempt,
                     artifact_kind(entry["path"]),
                     entry["path"],
-                    _redacted(entry["path"], data),
+                    await asyncio.to_thread(_redacted, data),
                 )
         outcome = harbor_outcome(
             p.get("exception_type"),
             redact(p.get("exception_message") or "") or None,
             p.get("rewards"),
             bool(p.get("verifier_ran")),
+            session.spec.metric_id,
         )
         session.open_attempts.discard((trial_id, attempt))
         await sink.attempt_finished(trial_id, attempt, outcome, final=not p.get("will_retry"))

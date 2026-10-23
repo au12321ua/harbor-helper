@@ -16,7 +16,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from sqlalchemy import Connection, delete, func, insert, select, update
+from sqlalchemy import Connection, delete, func, insert, or_, select, update
 
 from maestro.boundaries.environment import PreparedOutput
 from maestro.core import clock
@@ -34,14 +34,17 @@ from maestro.services.principal import (
 )
 
 log = logging.getLogger(__name__)
+FAILED_KEYS_SHOWN = 20
 
 
 @dataclass
 class Purged:
-    """What a purge removed, and work to do once its transaction committed."""
+    """What a purge removed, and work to do once its transaction committed. Each step
+    does as much as it can and returns what it could not do (merged into the receipt's
+    detail), or nothing when all went well."""
 
     detail: dict = field(default_factory=dict)
-    after_commit: list[Callable[[], None]] = field(default_factory=list)
+    after_commit: list[Callable[[], dict | None]] = field(default_factory=list)
 
 
 def _active_runs(conn: Connection, *where) -> list[str]:
@@ -383,7 +386,9 @@ class UserHandler(Handler):
         )
 
     def on_delete(self, conn, principal, row):
-        """Sessions and PATs stop working at once (U-19)."""
+        """Sessions and PATs stop working at once (U-19); so do the invitations the
+        account issued, which would otherwise create accounts in its name (an admin
+        invitation among them) and the ones addressed to it (password resets)."""
         at = clock.to_text(clock.now())
         conn.execute(
             update(t.sessions)
@@ -395,15 +400,18 @@ class UserHandler(Handler):
             .where(t.pats.c.owner_id == row["id"], t.pats.c.revoked_at.is_(None))
             .values(revoked_at=at, revision=t.pats.c.revision + 1)
         ).rowcount
-        conn.execute(
+        invitations = conn.execute(
             update(t.invitations)
             .where(
-                t.invitations.c.target_user_id == row["id"],
+                or_(
+                    t.invitations.c.target_user_id == row["id"],
+                    t.invitations.c.created_by == row["id"],
+                ),
                 t.invitations.c.used_at.is_(None),
                 t.invitations.c.revoked_at.is_(None),
             )
             .values(revoked_at=at)
-        )
+        ).rowcount
         conn.execute(
             update(t.users)
             .where(t.users.c.id == row["id"])
@@ -414,7 +422,11 @@ class UserHandler(Handler):
                 updated_at=at,
             )
         )
-        return {"previous_status": row["status"], "revoked_pats": revoked}
+        return {
+            "previous_status": row["status"],
+            "revoked_pats": revoked,
+            "revoked_invitations": invitations,
+        }
 
     def on_restore(self, conn, row, detail):
         # Revoked sessions and PATs stay revoked; the account can sign in again.
@@ -673,12 +685,25 @@ class Recycle:
                 detail=purged.detail,
             )
             result = public_entry(self._entry(conn, t.deletions.c.id == entry_id))
+        leftovers: dict = {}
         for step in purged.after_commit:
             try:
-                step()
+                leftovers.update(step() or {})
             except Exception:
-                # Records are already gone; start-up reconciliation removes orphans.
+                # Records are already gone; the sweep of unindexed files (and start-up
+                # reconciliation) picks up what is left.
                 log.exception("purge cleanup of %s failed", entry_id)
+                leftovers["cleanup_errors"] = leftovers.get("cleanup_errors", 0) + 1
+        if leftovers:
+            # The receipt says so: "purged" does not mean every file is gone yet.
+            with self.db.write() as conn:
+                detail = entry["detail_json"] or {}
+                conn.execute(
+                    update(t.deletions)
+                    .where(t.deletions.c.id == entry_id)
+                    .values(detail_json={**detail, "purged": {**purged.detail, **leftovers}})
+                )
+                result = public_entry(self._entry(conn, t.deletions.c.id == entry_id))
         return result
 
     # --- helpers for handlers ------------------------------------------------------
@@ -733,20 +758,36 @@ class Recycle:
                 )
             )
 
-    def remove_files(self, keys: list[str]) -> None:
+    def remove_files(self, keys: list[str]) -> dict | None:
+        """Try every key; a failure does not skip the rest. The failures are logged and
+        returned for the receipt; the sweep of unindexed files retries them later."""
+        failed = []
         for key in keys:
-            self.store.delete(key)
+            try:
+                self.store.delete(key)
+            except Exception:
+                log.exception("file %s could not be removed after a purge", key)
+                failed.append(key)
+        if failed:
+            return {"files_failed": len(failed), "failed_keys": failed[:FAILED_KEYS_SHOWN]}
+        return None
 
-    def remove_task_materials(self, digests: list[str]) -> None:
-        if self.materials:
-            for digest in digests:
+    def remove_task_materials(self, digests: list[str]) -> dict | None:
+        failed = 0
+        for digest in digests if self.materials else []:
+            try:
                 self.materials.remove(digest)
+            except Exception:
+                log.exception("task material %s could not be removed after a purge", digest)
+                failed += 1
+        return {"materials_failed": failed} if failed else None
 
-    def discard_preparations(self, outputs: list[tuple[str, dict]]) -> None:
+    def discard_preparations(self, outputs: list[tuple[str, dict]]) -> dict | None:
         """Local images and their originals; runs from a request thread after commit.
-        A spec that a new import prepared again meanwhile has a live row: keep it."""
+        A spec that a new import prepared again meanwhile has a live row: keep it.
+        Each image is tried on its own; the failures are logged and returned."""
         if self.environment is None or not outputs:
-            return
+            return None
         with self.db.read() as conn:
             live = set(
                 conn.execute(
@@ -756,18 +797,26 @@ class Recycle:
                 ).scalars()
             )
 
-        async def discard():
+        async def discard() -> int:
+            failed = 0
             for spec, output in outputs:
-                if spec not in live:
+                if spec in live:
+                    continue
+                try:
                     await self.environment.discard(PreparedOutput.from_json(output))
+                except Exception:
+                    log.exception("prepared image of %s could not be discarded after a purge", spec)
+                    failed += 1
+            return failed
 
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            asyncio.run(discard())
-            return
-        with ThreadPoolExecutor(1) as pool:  # called on a loop thread: run beside it
-            pool.submit(asyncio.run, discard()).result()
+            failed = asyncio.run(discard())
+        else:
+            with ThreadPoolExecutor(1) as pool:  # called on a loop thread: run beside it
+                failed = pool.submit(asyncio.run, discard()).result()
+        return {"preparations_failed": failed} if failed else None
 
     def expire_exports(self, run_ids: set[str]) -> None:
         if self.exports:

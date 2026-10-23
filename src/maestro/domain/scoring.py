@@ -7,12 +7,18 @@ an invalid reward is never one even when a number exists.
 """
 
 import math
+import statistics
 from collections import defaultdict
 from dataclasses import dataclass
 
-from maestro.domain.states import TrialState
+from maestro.domain.states import TRIAL_ACTIVE, TrialState
 
 CONTRACT_VERSION = 1
+
+# The only aggregation rules ``summarize`` computes, and the only ones a contract may name:
+# a summary echoes its contract, so it must not claim a rule the maths does not apply.
+TASK_AGGREGATION = "mean_of_scored_repetitions"
+BENCH_AGGREGATION = "macro_mean_of_task_means"
 
 # Used when the dataset version declares no confirmed contract. ``passed`` needs an
 # explicit threshold (never "score > 0"); Harbor verifiers write 1 for a solved task.
@@ -24,12 +30,38 @@ DEFAULT_CONTRACT = {
     "unit": None,
     "direction": "higher_is_better",
     "passed": {"rule": "threshold", "threshold": 1.0},
-    "task_aggregation": "mean_of_scored_repetitions",
-    "bench_aggregation": "macro_mean_of_task_means",
-    "count_as_failure": [],
+    "task_aggregation": TASK_AGGREGATION,
+    "bench_aggregation": BENCH_AGGREGATION,
+    "count_as_failure": [],  # The extension is not implemented: only [] is accepted.
 }
 
 _DIRECTIONS = {"higher_is_better", "lower_is_better"}
+
+
+def contract_errors(contract: dict) -> list[str]:
+    """Names of the contract fields ``summarize`` cannot honour, empty when it can."""
+    passed, unit, direction = (
+        contract.get("passed"),
+        contract.get("unit"),
+        contract.get("direction"),
+    )
+    checks = {
+        "contract_version": contract.get("contract_version") == CONTRACT_VERSION,
+        "metric_id": _text(contract.get("metric_id")),
+        "name": _text(contract.get("name")),
+        "unit": unit is None or isinstance(unit, str),
+        "direction": isinstance(direction, str) and direction in _DIRECTIONS,
+        "passed": passed is None
+        or (
+            isinstance(passed, dict)
+            and passed.get("rule") == "threshold"
+            and _number(passed.get("threshold"))
+        ),
+        "task_aggregation": contract.get("task_aggregation") == TASK_AGGREGATION,
+        "bench_aggregation": contract.get("bench_aggregation") == BENCH_AGGREGATION,
+        "count_as_failure": contract.get("count_as_failure") == [],
+    }
+    return [name for name, ok in checks.items() if not ok]
 
 
 def contract_for(manifest: dict | None) -> dict:
@@ -38,17 +70,16 @@ def contract_for(manifest: dict | None) -> dict:
     if not isinstance(declared, dict):
         return dict(DEFAULT_CONTRACT)
     contract = {**DEFAULT_CONTRACT, **declared, "source": "dataset_version"}
-    passed = contract.get("passed")
-    if contract.get("direction") not in _DIRECTIONS or not (
-        passed is None
-        or (
-            isinstance(passed, dict)
-            and passed.get("rule") == "threshold"
-            and _number(passed.get("threshold"))
-        )
-    ):
-        return dict(DEFAULT_CONTRACT)
-    return contract
+    return dict(DEFAULT_CONTRACT) if contract_errors(contract) else contract
+
+
+def snapshot_contract(policy: dict | None) -> dict:
+    """The contract a run snapshot froze at acceptance (written by ``contract_for``)."""
+    return (policy or {}).get("scoring") or DEFAULT_CONTRACT
+
+
+def _text(value) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _number(value) -> bool:
@@ -75,35 +106,60 @@ def passed(contract: dict, score: float) -> bool | None:
 
 
 def mean(values: list[float]) -> float | None:
-    return sum(values) / len(values) if values else None
+    """Correctly rounded: ``statistics`` works in exact fractions, so three 0.1 average
+    to 0.1 and not to 0.10000000000000002."""
+    return float(statistics.mean(values)) if values else None
 
 
 def sample_stddev(values: list[float]) -> float | None:
-    """n - 1 denominator; fewer than two samples have no spread (not 0)."""
-    if len(values) < 2:
-        return None
-    centre = sum(values) / len(values)
-    return math.sqrt(sum((v - centre) ** 2 for v in values) / (len(values) - 1))
+    """n - 1 denominator, exact like ``mean`` (equal values spread exactly 0.0); fewer
+    than two samples have no spread (null, not 0)."""
+    return float(statistics.stdev(values)) if len(values) >= 2 else None
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
     return numerator / denominator if denominator else None
 
 
+# A trial that has not started cannot have used anything yet: waiting in the queue,
+# preparing its environment, or never started because the run stopped first.
+_NOT_STARTED = {TrialState.QUEUED, TrialState.PREPARING, TrialState.NOT_STARTED}
+
+
 def _usage(trials: list[TrialRecord]) -> dict:
-    """Known totals plus how many trials reported nothing (06 section 7)."""
-    totals: dict[str, float] = defaultdict(float)
-    known = 0
+    """Known totals plus how many started trials reported nothing (06 section 7)."""
+    totals: dict[str, list[float]] = defaultdict(list)
+    known = started = 0
     for trial in trials:
-        if trial.state == TrialState.NOT_STARTED:
+        if trial.state in _NOT_STARTED:
             continue
+        started += 1
         values = {k: v for k, v in (trial.usage or {}).items() if _number(v)}
         if values:
             known += 1
             for key, value in values.items():
-                totals[key] += value
-    started = sum(1 for x in trials if x.state != TrialState.NOT_STARTED)
-    return {"known_trials": known, "unknown_trials": started - known, "known_totals": totals}
+                totals[key].append(value)
+    return {
+        "known_trials": known,
+        "unknown_trials": started - known,
+        "known_totals": {key: math.fsum(values) for key, values in totals.items()},
+    }
+
+
+def _bucket(trial: TrialRecord) -> str:
+    """Every trial lands in exactly one bucket, so planned = scored + excluded + unfinished
+    + active + queued holds by construction (06 section 5). A trial recorded as scored
+    without a legal number is not a sample: it is excluded, never dropped."""
+    state = trial.state
+    if state == TrialState.SCORED:
+        return "scored" if _number(trial.raw_score) else "excluded"
+    if state == TrialState.EXECUTION_ERROR:
+        return "excluded"
+    if state == TrialState.QUEUED:
+        return "queued"
+    if state in TRIAL_ACTIVE:
+        return "active"
+    return "unfinished"  # not started, cancelled, interrupted
 
 
 def summarize(
@@ -111,22 +167,15 @@ def summarize(
 ) -> dict:
     """06 section 5. At a terminal run planned = scored + count_as_failure + excluded +
     unfinished; while running, active and queued trials make up the rest."""
-    states = [x.state for x in trials]
-    scored = [x for x in trials if x.state == TrialState.SCORED and _number(x.raw_score)]
+    buckets: dict[str, list[TrialRecord]] = defaultdict(list)
+    for trial in trials:
+        buckets[_bucket(trial)].append(trial)
+    scored, excluded = buckets["scored"], buckets["excluded"]
     values = [x.raw_score for x in scored]
     has_pass_rule = bool(contract.get("passed"))
     passed_count = sum(1 for x in scored if passed(contract, x.raw_score)) if has_pass_rule else 0
     planned = len(trials)
     count_as_failure = 0  # Non-default extension (06 section 1); not offered yet.
-    excluded = states.count(TrialState.EXECUTION_ERROR)
-    unfinished = sum(
-        states.count(s)
-        for s in (TrialState.NOT_STARTED, TrialState.CANCELLED, TrialState.INTERRUPTED)
-    )
-    active = sum(
-        states.count(s) for s in (TrialState.PREPARING, TrialState.EXECUTING, TrialState.VERIFYING)
-    )
-    queued = states.count(TrialState.QUEUED)
 
     by_task: dict[str, list[TrialRecord]] = defaultdict(list)
     for trial in trials:
@@ -134,9 +183,8 @@ def summarize(
     tasks = []
     for task_key in sorted(by_task):
         group = by_task[task_key]
-        task_values = [
-            x.raw_score for x in group if x.state == TrialState.SCORED and _number(x.raw_score)
-        ]
+        task_values = [x.raw_score for x in group if _bucket(x) == "scored"]
+        task_excluded = [x for x in group if _bucket(x) == "excluded"]
         tasks.append(
             {
                 "task_key": task_key,
@@ -149,21 +197,16 @@ def summarize(
                 else None,
                 # Some planned repetitions have no score: the mean covers fewer samples.
                 "partial": 0 < len(task_values) < len(group),
-                "excluded_trials": sum(1 for x in group if x.state == TrialState.EXECUTION_ERROR),
+                "excluded_trials": len(task_excluded),
                 "failure_causes": sorted(
-                    {
-                        x.failure_cause or "unclassified"
-                        for x in group
-                        if x.state == TrialState.EXECUTION_ERROR
-                    }
+                    {x.failure_cause or "unclassified" for x in task_excluded}
                 ),
             }
         )
     task_means = [x["mean"] for x in tasks if x["mean"] is not None]
     causes: dict[str, int] = defaultdict(int)
-    for trial in trials:
-        if trial.state == TrialState.EXECUTION_ERROR:
-            causes[trial.failure_cause or "unclassified"] += 1
+    for trial in excluded:
+        causes[trial.failure_cause or "unclassified"] += 1
     attempts = sum(x.attempts for x in trials)
     retried = [x for x in trials if x.attempts > 1]
     if scored and len(scored) == planned:
@@ -177,10 +220,10 @@ def summarize(
         "planned_trials": planned,
         "scored_trials": len(scored),
         "count_as_failure_trials": count_as_failure,
-        "excluded_error_trials": excluded,
-        "unfinished_trials": unfinished,
-        "active_trials": active,
-        "queued_trials": queued,
+        "excluded_error_trials": len(excluded),
+        "unfinished_trials": len(buckets["unfinished"]),
+        "active_trials": len(buckets["active"]),
+        "queued_trials": len(buckets["queued"]),
         "passed_trials": passed_count if has_pass_rule else None,
         "mean": mean(values),
         "stddev": sample_stddev(values),

@@ -31,6 +31,7 @@ from maestro.core.errors import MaestroError
 from maestro.core.ids import new_id
 from maestro.db import schema as t
 from maestro.db.engine import Database
+from maestro.domain.scoring import snapshot_contract
 from maestro.domain.states import (
     RUN_TERMINAL,
     TRIAL_ACTIVE,
@@ -55,7 +56,12 @@ from maestro.security.redaction import redact
 from maestro.services.artifacts import expiry_for, stamp_expiry
 from maestro.services.capacity import HostCapacity, provider_of, reservation, waiting_reason
 from maestro.services.instance import instance_id
-from maestro.services.preparation import PreparationFailure, Preparer, load_context
+from maestro.services.preparation import (
+    PreparationFailure,
+    Preparer,
+    gather_or_cancel,
+    load_context,
+)
 from maestro.services.runs import finalize, finish_unstarted, refresh_operation
 
 log = logging.getLogger(__name__)
@@ -857,11 +863,11 @@ class Worker:
                 .values(state="claimed", lease_token=lease)
             )
             row = conn.execute(select(t.runs).where(t.runs.c.id == run["id"])).mappings().one()
-            snapshot = conn.execute(
-                select(t.run_snapshots.c.effective_json).where(
+            snapshot, policy = conn.execute(
+                select(t.run_snapshots.c.effective_json, t.run_snapshots.c.policy_json).where(
                     t.run_snapshots.c.run_id == run["id"]
                 )
-            ).scalar()
+            ).one()
             trial_rows = conn.execute(
                 select(
                     t.trials.c.id,
@@ -895,6 +901,7 @@ class Worker:
             effective_config=snapshot,
             deadline_at=row["deadline_at"],
             labels=self.labels(row["id"]),
+            metric_id=snapshot_contract(policy)["metric_id"],
         )
         return row["id"], lease, spec
 
@@ -995,18 +1002,17 @@ class Worker:
                     if cancel.cancelled:
                         return task_id, None
 
-        images = dict(await asyncio.gather(*(one(task_id) for task_id in by_task)))
-        return RunSpec(
-            run_id=spec.run_id,
+        # An unexpected failure in one task cancels the others (and takes their waiter
+        # rows with them) before it propagates: nothing may keep waiting for a run that
+        # is about to be closed.
+        images = dict(await gather_or_cancel(*(one(task_id) for task_id in by_task)))
+        return replace(
+            spec,
             trials=tuple(
                 replace(trial, prepared_image=images[trial.task_id])
                 for trial in spec.trials
                 if images.get(trial.task_id)
             ),
-            concurrency=spec.concurrency,
-            effective_config=spec.effective_config,
-            deadline_at=spec.deadline_at,
-            labels=spec.labels,
         )
 
     def _close(self, run_id: str, lease: str, cleanup: CleanupState, failure: str | None) -> None:

@@ -61,11 +61,11 @@ class DiskWatch:
     def dispatching(self) -> bool:
         return self.status()["level"] != DISPATCH_PAUSED
 
-    def refuse_if_low(self) -> None:
+    def refuse_if_low(self, work: str = "runs") -> None:
         if not self.accepting():
             raise MaestroError(
                 "STORAGE_LOW",
-                "Free disk space is below the acceptance watermark; new runs are paused",
+                f"Free disk space is below the acceptance watermark; new {work} are paused",
                 503,
                 stage="acceptance",
                 retryable=True,

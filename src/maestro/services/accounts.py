@@ -9,7 +9,7 @@ import os
 import re
 import threading
 import time
-from collections import defaultdict, deque
+from collections import deque
 from pathlib import Path
 
 from sqlalchemy import Connection, func, insert, select, update
@@ -67,28 +67,68 @@ def public_user(row) -> dict:
 
 
 class RateLimiter:
-    """In-process sliding window for login, invitation and setup attempts."""
+    """In-process sliding windows per key: failed logins and password changes, and every
+    invitation or setup attempt. Keys come from callers, so memory is bounded: a key with
+    no event in the last minute is forgotten and only ``max_keys`` are ever kept."""
 
-    def __init__(self, per_minute: int):
+    def __init__(self, per_minute: int, max_keys: int = 4096):
         self.per_minute = per_minute
-        self.hits: dict[str, deque] = defaultdict(deque)
+        self.max_keys = max_keys
+        self.hits: dict[str, deque] = {}  # least recently recorded key first
         self.lock = threading.Lock()
 
-    def check(self, key: str) -> None:
-        now = time.monotonic()
+    def _recent(self, key: str, now: float) -> deque:
+        while self.hits:  # keys are ordered by their newest event: expired ones lead
+            oldest = next(iter(self.hits))
+            if now - self.hits[oldest][-1] <= 60:
+                break
+            del self.hits[oldest]
+        window = self.hits.get(key)
+        if window is None:
+            return deque()
+        while window and now - window[0] > 60:
+            window.popleft()
+        return window
+
+    def _refuse_if_full(self, key: str, limit: int, now: float) -> deque:
+        window = self._recent(key, now)
+        if len(window) >= limit:
+            raise MaestroError(
+                "RATE_LIMITED",
+                "Too many attempts; wait a minute",
+                429,
+                retryable=True,
+                headers={"Retry-After": "60"},
+            )
+        return window
+
+    def _add(self, key: str, window: deque, now: float) -> None:
+        self.hits.pop(key, None)
+        if len(self.hits) >= self.max_keys:
+            del self.hits[next(iter(self.hits))]
+        window.append(now)
+        self.hits[key] = window
+
+    def check(self, key: str, limit: int | None = None) -> None:
+        """Refuse when the key already has ``limit`` events; records nothing."""
         with self.lock:
-            hits = self.hits[key]
-            while hits and now - hits[0] > 60:
-                hits.popleft()
-            if len(hits) >= self.per_minute:
-                raise MaestroError(
-                    "RATE_LIMITED",
-                    "Too many attempts; wait a minute",
-                    429,
-                    retryable=True,
-                    headers={"Retry-After": "60"},
-                )
-            hits.append(now)
+            self._refuse_if_full(key, limit or self.per_minute, time.monotonic())
+
+    def record(self, key: str) -> None:
+        with self.lock:
+            now = time.monotonic()
+            self._add(key, self._recent(key, now), now)
+
+    def hit(self, key: str) -> None:
+        """Count this attempt, whatever its outcome."""
+        with self.lock:
+            now = time.monotonic()
+            self._add(key, self._refuse_if_full(key, self.per_minute, now), now)
+
+
+# Failed logins one address may cause in a minute, as a multiple of the per-account limit:
+# several colleagues behind one NAT address must not lock each other out.
+SOURCE_FAILURE_FACTOR = 5
 
 
 class Accounts:
@@ -128,7 +168,7 @@ class Accounts:
     def initialize_admin(
         self, setup_token: str, username: str, display_name: str | None, password: str, source: str
     ) -> tuple[dict, str]:
-        self.limiter.check(f"setup:{source}")
+        self.limiter.hit(f"setup:{source}")
         username = check_username(username)
         display_name = check_display_name(display_name, username)
         password_hash = passwords.hash_password(password)
@@ -218,11 +258,25 @@ class Accounts:
             )
         return [public_user(r) for r in rows]
 
+    @staticmethod
+    def _refuse_stale_admin(conn: Connection, principal: Principal) -> None:
+        """The principal was read before this write lock: the acting account may have been
+        disabled or demoted since, and must not still be able to act (or lock out the
+        others, so that no active administrator remains)."""
+        row = conn.execute(
+            select(t.users.c.role, t.users.c.status).where(t.users.c.id == principal.user_id)
+        ).first()
+        if row is None or row.status != UserStatus.ACTIVE:
+            raise MaestroError("UNAUTHENTICATED", "Session expired; sign in again", 401)
+        if row.role != Role.ADMIN:
+            raise MaestroError("FORBIDDEN", "Administrator role required", 403)
+
     def set_status(
         self, principal: Principal, user_id: str, status: UserStatus, expected_revision: int
     ) -> dict:
         require_admin_session(principal)
         with self.db.write() as conn:
+            self._refuse_stale_admin(conn, principal)
             user = self._user(conn, user_id)
             self._refuse_deleted(conn, user_id)
             if user["revision"] != expected_revision:
@@ -264,10 +318,14 @@ class Accounts:
     def change_password(self, principal: Principal, current: str, new: str) -> None:
         if principal.channel != Channel.WEB_SESSION:
             raise MaestroError("WEB_SESSION_REQUIRED", "This action requires a web session", 403)
+        # A stolen session must not be able to guess the current password at will.
+        attempts = f"password:{principal.user_id}"
+        self.limiter.check(attempts)
         new_hash = passwords.hash_password(new)
         with self.db.read() as conn:
             stored = self._user(conn, principal.user_id)["password_hash"]
         if not passwords.verify(stored, current):
+            self.limiter.record(attempts)
             raise MaestroError(
                 "PASSWORD_INCORRECT",
                 "Current password is incorrect",
@@ -316,6 +374,7 @@ class Accounts:
         now = clock.now()
         inv_id = new_id("inv")
         with self.db.write() as conn:
+            self._refuse_stale_admin(conn, principal)
             if target_user_id is not None:
                 target = self._user(conn, target_user_id)
                 self._refuse_deleted(conn, target_user_id)
@@ -377,6 +436,7 @@ class Accounts:
     def revoke_invitation(self, principal: Principal, inv_id: str) -> dict:
         require_admin_session(principal)
         with self.db.write() as conn:
+            self._refuse_stale_admin(conn, principal)
             row = conn.execute(select(t.invitations).where(t.invitations.c.id == inv_id))
             row = row.mappings().first()
             if row is None:
@@ -407,10 +467,17 @@ class Accounts:
             )
         if row is None or self._public_invitation(row)["state"] != "pending":
             raise MaestroError("INVITATION_INVALID", "Invitation is invalid, used or expired", 410)
+        # The link carries its issuer's authority: once that administrator is disabled or
+        # demoted, nothing they issued may still create accounts or reset passwords.
+        issuer = conn.execute(
+            select(t.users.c.role, t.users.c.status).where(t.users.c.id == row["created_by"])
+        ).first()
+        if issuer is None or issuer.status != UserStatus.ACTIVE or issuer.role != Role.ADMIN:
+            raise MaestroError("INVITATION_INVALID", "Invitation is invalid, used or expired", 410)
         return row
 
     def inspect_invitation(self, token: str, source: str) -> dict:
-        self.limiter.check(f"invite:{source}")
+        self.limiter.hit(f"invite:{source}")
         with self.db.read() as conn:
             row = self._pending_invitation(conn, token)
             username = None
@@ -431,7 +498,7 @@ class Accounts:
         password: str,
         source: str,
     ) -> tuple[dict, str]:
-        self.limiter.check(f"invite:{source}")
+        self.limiter.hit(f"invite:{source}")
         password_hash = passwords.hash_password(password)
         with self.db.write() as conn:
             row = self._pending_invitation(conn, token)
@@ -453,8 +520,18 @@ class Accounts:
                     .where(t.sessions.c.user_id == user_id, t.sessions.c.revoked_at.is_(None))
                     .values(revoked_at=at)
                 )
+                # A reset answers a lost or leaked password: tokens issued under the old
+                # credentials end with the sessions (a self-service change keeps them).
+                detail = {
+                    "revoked_pats": conn.execute(
+                        update(t.pats)
+                        .where(t.pats.c.owner_id == user_id, t.pats.c.revoked_at.is_(None))
+                        .values(revoked_at=at, revision=t.pats.c.revision + 1)
+                    ).rowcount
+                }
                 action = "user.reset_password"
             else:
+                detail = None
                 username = check_username(username)
                 user_id = self._insert_user(
                     conn,
@@ -476,6 +553,7 @@ class Accounts:
                 action,
                 object_type="invitation",
                 object_id=row["id"],
+                detail=detail,
                 actor_user_id=user_id,
             )
             session_token = self._open_session(conn, user_id)
@@ -499,8 +577,11 @@ class Accounts:
         return token
 
     def login(self, username: str, password: str, source: str) -> tuple[dict, str]:
-        self.limiter.check(f"login:{source}")
-        self.limiter.check(f"login-user:{username}")
+        # Only failures count. The account bucket includes the address, so a stranger
+        # guessing from elsewhere cannot lock the real owner out.
+        by_source, by_account = f"login:{source}", f"login-user:{username}@{source}"
+        self.limiter.check(by_source, self.limiter.per_minute * SOURCE_FAILURE_FACTOR)
+        self.limiter.check(by_account)
         with self.db.read() as conn:
             row = (
                 conn.execute(select(t.users).where(t.users.c.username == username))
@@ -509,6 +590,8 @@ class Accounts:
             )
         ok = passwords.verify(row["password_hash"] if row else None, password)
         if not ok or row["status"] != UserStatus.ACTIVE:
+            self.limiter.record(by_source)
+            self.limiter.record(by_account)
             with self.db.write() as conn:
                 audit.record(
                     conn,

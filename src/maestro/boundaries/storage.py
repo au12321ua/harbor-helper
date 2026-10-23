@@ -30,6 +30,10 @@ class ArtifactStore(Protocol):
         """Every published key, for reconciliation against the index."""
         ...
 
+    def modified_at(self, key: str) -> float | None:
+        """When the key was last written (epoch seconds); None if it does not exist."""
+        ...
+
     def discard_partial(self) -> int:
         """Remove half-written files a crash left behind; returns how many."""
         ...
@@ -80,6 +84,12 @@ class LocalArtifactStore:
             key = path.relative_to(self.root).as_posix()
             if path.is_file() and not path.name.startswith(".") and _KEY.fullmatch(key):
                 yield key
+
+    def modified_at(self, key: str) -> float | None:
+        try:
+            return self._path(key).stat().st_mtime
+        except FileNotFoundError:
+            return None
 
     def discard_partial(self) -> int:
         removed = 0

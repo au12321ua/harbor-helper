@@ -74,7 +74,7 @@ retryable 表示相同业务请求是否适合重试，不代表 SDK 可以换�
 
 | 资源 | 核心接口 |
 | --- | --- |
-| 数据集来源 | GET /dataset-sources；GET /dataset-search；GET /dataset-search/versions |
+| 数据集来源 | GET /dataset-sources；GET /dataset-search；GET /dataset-search/versions；GET /dataset-search/version（后三个检索外部来源，只有管理员网页会话，U-20） |
 | 目录与准备 | GET /datasets；GET /dataset-versions/{id}；GET /dataset-versions/{id}/tasks；GET /preparations/{id} |
 | 模型与 Harness | GET /model-configs；GET /harness-versions |
 | 附件 | GET /attachment-versions；POST /attachment-uploads；POST /attachment-uploads/{id}/publish |

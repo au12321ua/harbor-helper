@@ -1,8 +1,10 @@
 """Dataset sources and administration (02, 09 section 3).
 
-Searching and reading a source is open to every authenticated caller (read PATs
-included); adding versions, first preparation and its retry, cache eviction and
-admission revocation need an administrator's web session. The long work runs as
+Listing the source kinds is open to every authenticated caller. Searching a source
+uses the team Hub credential, and adding versions, first preparation and its retry,
+cache eviction and admission revocation change the platform: all of them need an
+administrator's web session (U-20). Reading what is already imported is in
+``services.catalog``. The long work runs as
 Operations on the worker loop (``services.preparation``); these methods only
 validate, record and return the Operation.
 """
@@ -23,6 +25,9 @@ from maestro.services.preparation import (
     first_in_progress,
 )
 from maestro.services.principal import Principal, require_admin_session
+
+# Contract fields whose only supported value is the platform default's.
+_FIXED_RULES = ("task_aggregation", "bench_aggregation", "count_as_failure")
 
 SOURCE_ERRORS = {
     "auth": ("SOURCE_AUTH_FAILED", 502),
@@ -52,7 +57,7 @@ class Datasets:
         self.sources = sources
         self.credentials = credentials
 
-    # --- sources (any authenticated caller) ----------------------------------------
+    # --- sources ---------------------------------------------------------------------
 
     def source_list(self) -> list[dict]:
         return [{"kind": kind, "available": True} for kind in sorted(self.sources)]
@@ -72,6 +77,7 @@ class Datasets:
                     t.credentials.c.id == credential_id
                 )
             ).first()
+            removed = deleted.state(conn, "credential", credential_id)
         if row is None or row.kind != "hub_token":
             raise MaestroError(
                 "CONFIG_VALIDATION_FAILED",
@@ -79,6 +85,8 @@ class Datasets:
                 422,
                 field_errors=[FieldError("/credential_id", "INVALID")],
             )
+        if removed:  # the refusal of Credentials._live, before an import can be accepted
+            raise MaestroError("CREDENTIAL_DELETED", "Credential was deleted", 409)
         if not row.enabled:
             raise MaestroError("CREDENTIAL_DISABLED", "Credential is disabled", 409)
 
@@ -86,7 +94,10 @@ class Datasets:
         self._check_credential(credential_id)
         return self.credentials.resolve_value(credential_id)[0] if credential_id else None
 
-    async def search(self, kind: str, query: str, credential_id: str | None) -> list[dict]:
+    async def search(
+        self, principal: Principal, kind: str, query: str, credential_id: str | None
+    ) -> list[dict]:
+        require_admin_session(principal)
         if not 1 <= len(query.strip()) <= 128:
             raise MaestroError(
                 "CONFIG_VALIDATION_FAILED",
@@ -99,7 +110,10 @@ class Datasets:
         except SourceError as error:
             raise _source_error(error) from None
 
-    async def versions(self, kind: str, namespace: str, name: str, credential_id: str | None):
+    async def versions(
+        self, principal: Principal, kind: str, namespace: str, name: str, credential_id: str | None
+    ):
+        require_admin_session(principal)
         try:
             return await self._source(kind).list_versions(
                 namespace, name, self._value(credential_id)
@@ -108,9 +122,16 @@ class Datasets:
             raise _source_error(error) from None
 
     async def describe(
-        self, kind: str, namespace: str, name: str, ref: str, credential_id: str | None
+        self,
+        principal: Principal,
+        kind: str,
+        namespace: str,
+        name: str,
+        ref: str,
+        credential_id: str | None,
     ) -> dict:
         """Preview of a fixed version: digest and task list, nothing is recorded."""
+        require_admin_session(principal)
         try:
             version = await self._source(kind).describe(
                 namespace, name, ref, self._value(credential_id)
@@ -266,8 +287,8 @@ class Datasets:
         freeze it in their snapshot; accepted runs keep the contract they started with."""
         require_admin_session(principal)
         contract = {
-            "metric_id": body.get("metric_id") or "reward",
-            "name": body.get("name") or "Reward",
+            "metric_id": body.get("metric_id", "reward"),
+            "name": body.get("name", "Reward"),
             "unit": body.get("unit"),
             "direction": body.get("direction"),
             "passed": (
@@ -275,13 +296,26 @@ class Datasets:
                 if body.get("pass_threshold") is not None
                 else None
             ),
+            # Aggregation rules the maths does not apply are refused here, not stored
+            # and later echoed in summaries as if they had been used.
+            **{key: body[key] for key in _FIXED_RULES if key in body},
         }
-        if scoring.contract_for({"scoring_contract": contract})["source"] != "dataset_version":
+        errors = scoring.contract_errors({**scoring.DEFAULT_CONTRACT, **contract})
+        if errors:
             raise MaestroError(
                 "CONFIG_VALIDATION_FAILED",
-                "Choose a direction and a finite pass threshold",
+                "The scoring contract has fields the platform cannot compute",
                 422,
-                field_errors=[FieldError("/direction", "INVALID")],
+                field_errors=[
+                    FieldError(
+                        "/pass_threshold" if name == "passed" else f"/{name}",
+                        "INVALID",
+                        f"Only {scoring.DEFAULT_CONTRACT[name]!r} is supported"
+                        if name in _FIXED_RULES
+                        else None,
+                    )
+                    for name in errors
+                ],
             )
         with self.db.write() as conn:
             row = (

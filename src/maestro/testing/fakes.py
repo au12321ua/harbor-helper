@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import io
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,7 @@ from maestro.boundaries.executor import (
     RunSpec,
 )
 from maestro.core.digests import digest_json
+from maestro.execution.policy import harbor_outcome
 
 
 class FakeDatasetSource:
@@ -160,9 +162,11 @@ def failed(cause: str, *, retry: bool = False, exception: str = "FakeError") -> 
 class FakeExecutor:
     """Scripted per task key: a list of outcomes, one per attempt.
 
-    A ``"hang"`` entry blocks until cancellation. Retries happen when an outcome
-    recommends it and attempts remain, mirroring Job-internal retries (D-020).
-    Cleanup and reconciliation calls are recorded instead of touching Docker.
+    A dict entry is a verifier's rewards, scored like Harbor's by the run's metric
+    (``RunSpec.metric_id``). A ``"hang"`` entry blocks until cancellation. Retries
+    happen when an outcome recommends it and attempts remain, mirroring Job-internal
+    retries (D-020). Cleanup and reconciliation calls are recorded instead of
+    touching Docker.
     """
 
     script: dict[str, list] = field(default_factory=dict)
@@ -187,6 +191,8 @@ class FakeExecutor:
                     if cancel.cancelled:
                         return
                     outcome = plan[min(attempt - 1, len(plan) - 1)]
+                    if isinstance(outcome, dict):
+                        outcome = harbor_outcome(None, None, outcome, True, spec.metric_id)
                     await sink.attempt_started(trial.trial_id, attempt)
                     self.started.set()
                     for step in ("environment", "agent", "verifying"):
@@ -317,12 +323,14 @@ class FakeEnvironment:
 class MemoryArtifactStore:
     def __init__(self):
         self.files: dict[str, bytes] = {}
+        self.written: dict[str, float] = {}  # when each key was last put; tests may backdate
         self.fail_put = False
 
     def put(self, key: str, data: bytes) -> tuple[str, int]:
         if self.fail_put:
             raise OSError("fake storage failure")
         self.files[key] = data
+        self.written[key] = time.time()
         return "sha256:" + hashlib.sha256(data).hexdigest(), len(data)
 
     def get(self, key: str) -> bytes:
@@ -339,6 +347,9 @@ class MemoryArtifactStore:
 
     def keys(self):
         return iter(list(self.files))
+
+    def modified_at(self, key: str) -> float | None:
+        return self.written.get(key, 0.0) if key in self.files else None
 
     def discard_partial(self) -> int:
         return 0

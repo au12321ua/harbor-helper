@@ -8,7 +8,7 @@ plain strings: the service never imports Harbor.
 import math
 from dataclasses import dataclass
 
-from maestro.boundaries.executor import AttemptOutcome
+from maestro.boundaries.executor import DEFAULT_METRIC_ID, AttemptOutcome
 from maestro.core.digests import digest_json
 
 POLICY_VERSION = "platform-1"
@@ -104,13 +104,15 @@ def legal_score(value) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def primary_score(rewards) -> float | None:
-    """The ``reward`` key, or the only value. Scoring contracts (06 section 2) arrive in M6."""
+def primary_score(rewards, metric_id: str = DEFAULT_METRIC_ID) -> float | None:
+    """The reward the run's scoring contract names (06 section 2). Harbor writes a lone
+    unnamed verifier value as ``reward``, so only the default metric also accepts the
+    only value; any other metric must be present by name."""
     if not isinstance(rewards, dict) or not rewards:
         return None
-    if "reward" in rewards:
-        return rewards["reward"]
-    if len(rewards) == 1:
+    if metric_id in rewards:
+        return rewards[metric_id]
+    if metric_id == DEFAULT_METRIC_ID and len(rewards) == 1:
         return next(iter(rewards.values()))
     return None
 
@@ -120,14 +122,18 @@ def harbor_outcome(
     message: str | None,
     rewards,
     verifier_ran: bool,
+    metric_id: str = DEFAULT_METRIC_ID,
 ) -> AttemptOutcome:
-    raw = primary_score(rewards)
+    raw = primary_score(rewards, metric_id)
+    # Every reward the verifier wrote stays as evidence, not only the scored metric.
     metrics = rewards if isinstance(rewards, dict) else {}
     usable = verifier_ran and legal_score(raw)
     raw = raw if legal_score(raw) else None
     if exception_type is None:
         if usable:
-            return AttemptOutcome(raw_score=raw, reward_valid=True, verifier_status="ok")
+            return AttemptOutcome(
+                raw_score=raw, reward_valid=True, verifier_status="ok", metrics=metrics
+            )
         rule = RULES["verifier_failed"]
         return AttemptOutcome(
             raw_score=raw,

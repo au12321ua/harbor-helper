@@ -10,6 +10,9 @@ from typing import Protocol
 
 from maestro.boundaries.environment import CleanupReport
 
+# The platform default scoring contract's metric (domain.scoring.DEFAULT_CONTRACT).
+DEFAULT_METRIC_ID = "reward"
+
 # Steps an attempt reports, and the trial phase each one implies (05 section 4).
 # Collection has no upstream event in Harbor 0.24.0: it spans agent end to verification.
 STEPS = {
@@ -43,6 +46,9 @@ class RunSpec:
     effective_config: dict
     deadline_at: str
     labels: dict[str, str] = field(default_factory=dict)
+    metric_id: str = DEFAULT_METRIC_ID
+    """The reward the run's frozen scoring contract scores by (06 section 2); the executor
+    maps its raw reward for ``raw_score`` from this key and reports the rest as metrics."""
 
 
 @dataclass(frozen=True)

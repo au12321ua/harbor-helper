@@ -3,12 +3,17 @@ retention and export expiry (07 sections 6 and 7), plus start-up reconciliation.
 
 import asyncio
 import logging
+import time
 
 from maestro.services.artifacts import Artifacts
 from maestro.services.exports import Exports
 
 log = logging.getLogger(__name__)
 SWEEP_SECONDS = 60.0
+UNINDEXED_SWEEP_SECONDS = 600.0
+# Retention goes first and each step stands alone; builds per pass are bounded so a steady
+# stream of exports, or one that keeps failing, cannot hold retention back.
+BUILDS_PER_CYCLE = 4
 
 
 class Maintenance:
@@ -19,11 +24,14 @@ class Maintenance:
         *,
         poll_seconds: float = 1.0,
         sweep_seconds: float = SWEEP_SECONDS,
+        unindexed_seconds: float = UNINDEXED_SWEEP_SECONDS,
     ):
         self.artifacts = artifacts
         self.exports = exports
         self.poll_seconds = poll_seconds
         self.sweep_seconds = sweep_seconds
+        self.unindexed_seconds = unindexed_seconds
+        self._last_unindexed = float("-inf")
         self._wake = asyncio.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stopping = False
@@ -36,17 +44,30 @@ class Maintenance:
         }
         return report
 
+    def upkeep(self) -> dict:
+        """Reclaim what has expired. Every step has its own failure handling: one that
+        keeps failing must not stop the others."""
+        steps = [("artifacts", self.artifacts.sweep), ("exports_expired", self.exports.expire)]
+        # Walking the whole store is the costly step, so it runs less often.
+        if time.monotonic() - self._last_unindexed >= self.unindexed_seconds:
+            self._last_unindexed = time.monotonic()
+            steps.append(("unindexed_files", self.artifacts.sweep_unindexed))
+        report = {}
+        for name, step in steps:
+            try:
+                report[name] = step()
+            except Exception:
+                log.exception("maintenance step %s failed", name)
+        return report
+
     def run_once(self) -> dict:
-        """Build every queued export, then reclaim what has expired."""
+        """Retention first, then a bounded number of export builds."""
+        report = self.upkeep()
         built = 0
-        while (export_id := self.exports.next_queued()) is not None:
+        while built < BUILDS_PER_CYCLE and (export_id := self.exports.next_queued()) is not None:
             self.exports.build(export_id)
             built += 1
-        return {
-            "exports_built": built,
-            "artifacts": self.artifacts.sweep(),
-            "exports_expired": self.exports.expire(),
-        }
+        return {"exports_built": built, **report}
 
     def wake(self) -> None:
         loop = self._loop
@@ -57,15 +78,23 @@ class Maintenance:
         self._loop = asyncio.get_running_loop()
         last_sweep = float("-inf")
         while not self._stopping:
+            more = False
+            if self._loop.time() - last_sweep >= self.sweep_seconds:
+                last_sweep = self._loop.time()
+                await asyncio.to_thread(self.upkeep)
             try:
-                while (export_id := self.exports.next_queued()) is not None:
+                built = 0
+                while (
+                    built < BUILDS_PER_CYCLE
+                    and (export_id := self.exports.next_queued()) is not None
+                ):
                     await asyncio.to_thread(self.exports.build, export_id)
-                if self._loop.time() - last_sweep >= self.sweep_seconds:
-                    last_sweep = self._loop.time()
-                    await asyncio.to_thread(self.artifacts.sweep)
-                    await asyncio.to_thread(self.exports.expire)
+                    built += 1
+                more = built == BUILDS_PER_CYCLE  # still queued: come back after retention
             except Exception:
-                log.exception("maintenance pass failed")
+                log.exception("export builds failed")
+            if more:
+                continue
             self._wake.clear()
             try:
                 await asyncio.wait_for(self._wake.wait(), self.poll_seconds)

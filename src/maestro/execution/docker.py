@@ -75,7 +75,8 @@ class DockerResources:
         return CleanupReport(released=not remaining, remaining=remaining)
 
     async def cleanup(self, labels: dict[str, str]) -> CleanupReport:
-        if LABEL_INSTANCE not in labels:
+        # An empty label set (or an empty instance id) would sweep the whole host.
+        if not labels.get(LABEL_INSTANCE):
             raise ValueError("cleanup must be scoped to an instance label")
         try:
             return await asyncio.wait_for(self._sweep(labels), self.timeout)
