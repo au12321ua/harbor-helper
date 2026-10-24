@@ -127,7 +127,9 @@ def test_agent_runs_a_complete_experiment_with_only_a_pat(service, version_id, e
         assert accepted["config_digest"] == resolution["config_digest"]
         provenance = run["snapshot"]["provenance"]
         assert provenance["resolution_id"] == resolution["resolution_id"]
-        assert provenance["credential_ids"] == [credential_of(admin, model_id)]
+        assert provenance["credential_ids"] == []  # a PAT never sees the binding (U-27)
+        bound = admin.get(f"/api/v1/runs/{accepted['run_id']}").json()["data"]["snapshot"]
+        assert bound["provenance"]["credential_ids"] == [credential_of(admin, model_id)]
         assert run["pat_id"] is not None
 
         trials = agent.get(f"/api/v1/runs/{accepted['run_id']}/trials").json()["data"]

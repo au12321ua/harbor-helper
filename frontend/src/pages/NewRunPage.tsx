@@ -909,11 +909,13 @@ export function NewRunPage() {
                       <option value="">
                         {info.default != null ? "用作者默认值" : "选择凭据"}
                       </option>
-                      {(credentials.data ?? []).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}（{c.provider}）
-                        </option>
-                      ))}
+                      {(credentials.data ?? [])
+                        .filter((c) => c.kind === "generic_secret")
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}（{c.provider}）
+                          </option>
+                        ))}
                     </SelectField>
                   ) : (
                     <TextField

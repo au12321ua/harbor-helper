@@ -37,7 +37,9 @@ from maestro.services.model_configs import MODEL_KINDS
 EXECUTION_MODES = ("agent", "oracle")
 PARAMETER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 PARAMETER_VALUE_MAX = 4096
-SECRET_KINDS = ("generic_secret", "model_api_key")
+# Secret author parameters take generic secrets only: a model API key goes to the
+# platform's own model calls, never into a task container (U-28).
+PARAMETER_KINDS = ("generic_secret",)
 
 
 def _validation(errors: list[FieldError]) -> MaestroError:
@@ -356,6 +358,42 @@ def differences(old: dict | None, new: dict | None, path: str = "") -> list[dict
             found.extend(differences(a, b, f"{path}/{a['task_key']}"))
         return found
     return [{"path": path or "/", "before": old, "after": new}]
+
+
+def hide_model_credential(data):
+    """A copy without the model's bound credential (U-27): members see that a model has a
+    usable key, not which one. Digests are computed before, over the full configuration;
+    credential references the member chose for author parameters stay."""
+    found: set[str] = set()
+
+    def collect(value) -> None:
+        if isinstance(value, list):
+            for x in value:
+                collect(x)
+        elif isinstance(value, dict):
+            model = value.get("model")
+            if isinstance(model, dict) and "config_id" in model and model.get("credential_id"):
+                found.add(model["credential_id"])
+            for x in value.values():
+                collect(x)
+
+    def scrub(value):
+        if isinstance(value, list):
+            return [scrub(x) for x in value]
+        if not isinstance(value, dict):
+            return value
+        if value.get("path") == "/model/credential_id" and {"before", "after"} <= set(value):
+            return {**value, "before": None, "after": None, "hidden": True}
+        copy = {k: scrub(v) for k, v in value.items()}
+        model = copy.get("model")
+        if isinstance(model, dict) and "config_id" in model:
+            copy["model"] = {k: v for k, v in model.items() if k != "credential_id"}
+        if isinstance(copy.get("credential_ids"), list):
+            copy["credential_ids"] = [x for x in copy["credential_ids"] if x not in found]
+        return copy
+
+    collect(data)
+    return scrub(data)
 
 
 def pinned_request(request: dict, effective: dict) -> dict:
@@ -984,7 +1022,7 @@ class Resolver:
                 )
                 continue
             if "credential_id" in given:
-                problem = credential_problem(conn, given["credential_id"], SECRET_KINDS)
+                problem = credential_problem(conn, given["credential_id"], PARAMETER_KINDS)
                 if problem:
                     res.blockers.append(
                         Blocker(
@@ -1196,7 +1234,8 @@ class Resolver:
             for index, attachment_id in enumerate(attachments):
                 if not enabled.get(attachment_id) or attachment_id in gone:
                     changed.append(f"/attachments/{index}")
+        # Kinds never change; resolution already checked each reference's kind.
         for credential_id in res.credential_ids:
-            if credential_problem(conn, credential_id, SECRET_KINDS):
+            if credential_problem(conn, credential_id, PARAMETER_KINDS + MODEL_KINDS):
                 changed.append(f"/credentials/{credential_id}")
         return changed

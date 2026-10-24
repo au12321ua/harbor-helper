@@ -56,6 +56,7 @@ from maestro.services.configuration import (
     check_request,
     comparison_view,
     differences,
+    hide_model_credential,
     pinned_request,
 )
 from maestro.services.plans import Plans
@@ -136,14 +137,19 @@ def _source_provenance(source: dict | None) -> dict | None:
     return found
 
 
-def public_resolution(row, result: dict | None = None) -> dict:
-    return {
+def public_resolution(row, principal: Principal | None) -> dict:
+    found = {
         "resolution_id": row["id"],
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
         "request": row["request_json"],
-        **(result if result is not None else row["result_json"]),
+        **row["result_json"],
     }
+    return found if _sees_model_credential(principal) else hide_model_credential(found)
+
+
+def _sees_model_credential(principal: Principal | None) -> bool:
+    return principal is not None and principal.is_admin_session
 
 
 def public_run(
@@ -305,7 +311,7 @@ class Runs:
         }
         with self.db.write() as conn:
             conn.execute(insert(t.config_resolutions).values(**row))
-        return public_resolution(row)
+        return public_resolution(row, principal)
 
     def sweep_resolutions(self) -> int:
         """Drop resolutions a day past their expiry: they reserve nothing, and accepted
@@ -319,7 +325,7 @@ class Runs:
     def get_resolution(self, principal: Principal, resolution_id: str) -> dict:
         with self.db.read() as conn:
             row = self._resolution_row(conn, principal, resolution_id)
-        return public_resolution(row)
+        return public_resolution(row, principal)
 
     @staticmethod
     def _resolution_row(conn: Connection, principal: Principal, resolution_id: str):
@@ -1072,12 +1078,15 @@ class Runs:
                 .mappings()
                 .one()
             )
+        effective, provenance = snapshot["effective_json"], snapshot["provenance_json"]
+        if not _sees_model_credential(principal):
+            effective, provenance = hide_model_credential([effective, provenance])
         return {
             **public_run(row, counts, principal, summary, marks),
             "snapshot": {
                 "schema_version": snapshot["schema_version"],
-                "effective": snapshot["effective_json"],
-                "provenance": snapshot["provenance_json"],
+                "effective": effective,
+                "provenance": provenance,
                 "policy": snapshot["policy_json"],
                 "config_digest": snapshot["config_digest"],
                 "snapshot_digest": snapshot["snapshot_digest"],
