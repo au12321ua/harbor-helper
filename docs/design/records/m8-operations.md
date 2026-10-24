@@ -40,6 +40,8 @@
 - 安装生命周期（opt-in）：`MAESTRO_INSTALL_TESTS=1 DOCKER_HOST=unix:///run/user/1000/docker.sock uv run pytest -q tests/maestro/test_install.py` 通过（约 16 秒，uv 缓存已热）：从包安装、初始化令牌只出现一次、建管理员、状态与日志、更新（Runner 环境复用、更新前自动备份）、迁移失败与启动失败各自回退到旧版本和旧数据库、备份后改数据再恢复、卸载保留数据、在原数据上重装不发新令牌、未确认的清除什么也不删、确认后全部清除。
 - 验收缺口：`test_acceptance_p0.py` 8 项通过（含修复后的预期摘要）。核对时其余 P0 场景已有对应测试；仍只部分覆盖的见“未覆盖”。
 - 真实 Runner 的探测：本机 `runner/.venv` 对 `probe` 返回 `network_restriction: true`。
+- 真实 Docker 测试：`MAESTRO_DOCKER_TESTS=1` 下 `test_harbor_docker.py` 9 项通过（rootless，真实模型 2 项按默认跳过）。
+- 本机真实系统级安装（用户以 sudo 执行，发布包 `0.3.0.dev0-15e7e8f1a7d9`）：第一次安装在下载 Runner 依赖时因代理节点超时失败（随后把下载代理与服务代理分开），重跑成功；`maestro.service` 以 `maestro:maestro` 运行，附加组 docker，`/opt/maestro` 归 root，`/etc/maestro` 为 root:maestro 0750，数据、缓存、备份目录归 maestro 且 0700，命令链接指向当前版本，服务就绪。系统 Docker 守护进程的代理由用户自行配置。管理员在网页从 Hub 导入 `harbor/hello-world` 并完成首次准备（真实构建）；随后只经 SDK 与 experiment PAT：能力接口报告 `restricted_network: true`，解析、提交 Oracle 运行（1 个试次），110 秒后得分 1.0，产物与清理均完整，下载 10 个证据文件并核对摘要，证据中没有 PAT；服务日志无警告。
 
 ### 未覆盖
 
