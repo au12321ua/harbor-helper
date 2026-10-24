@@ -15,7 +15,7 @@ import {
 import { api } from "@/lib/api";
 import { RUN_STATE, RUN_TERMINAL, fmtTime, label } from "@/lib/format";
 import { useInterval, useLoad, useSession } from "@/lib/hooks";
-import type { Dataset, Health, Me, Operation, Run } from "@/lib/types";
+import type { Dataset, Me, Operation, Run, SystemStatus } from "@/lib/types";
 
 const RECENT = 8;
 /** How far back the pending list looks; older problems stay visible on their own pages. */
@@ -124,7 +124,7 @@ function pendingItems(me: Me, mine: Run[], team: Run[], datasets: Dataset[], ops
         key: `op-${op.id}`,
         to: "/datasets",
         title: `${OPERATION_KIND[op.kind]}${op.status === "failed" ? "失败" : "被中断"}`,
-        code: String(op.error?.code ?? op.status.toUpperCase()),
+        code: op.error?.code ?? op.status.toUpperCase(),
         at: op.finished_at ?? op.updated_at,
         who: "admin",
         action: "在数据集页处理",
@@ -139,11 +139,11 @@ export function WorkbenchPage() {
   const admin = me.role === "admin" && me.auth_channel === "web_session";
   const data = useLoad(async () => {
     const [mine, team, health, datasets, ops] = await Promise.all([
-      api.get<Run[]>("runs", { owner_id: me.id, limit: SCAN }),
-      api.get<Run[]>("runs", { limit: SCAN }),
-      api.get<Health>("system-status"),
-      admin ? api.get<Dataset[]>("datasets", { limit: 200 }) : null,
-      admin ? api.get<Operation[]>("operations", { limit: SCAN }) : null,
+      api.get("/runs", { query: { owner_id: me.id, limit: SCAN } }),
+      api.get("/runs", { query: { limit: SCAN } }),
+      api.get("/system-status"),
+      admin ? api.get("/datasets", { query: { limit: 200 } }) : null,
+      admin ? api.get("/operations", { query: { limit: SCAN } }) : null,
     ]);
     return {
       mine: mine.data,
@@ -225,7 +225,7 @@ export function WorkbenchPage() {
   );
 }
 
-function SystemCard({ health }: { health: Health }) {
+function SystemCard({ health }: { health: SystemStatus }) {
   const ready = health.status === "ready";
   return (
     <Card>

@@ -195,7 +195,9 @@ def test_harness_versions_are_fixed_and_checked_against_the_executor(service):
             "/api/v1/admin/harness-versions",
             json={**body, "parameter_schema": {"parameters": {"x": {"type": "date"}}}},
         )
-        assert error(broken) == (422, "HARNESS_INVALID")
+        assert error(broken) == (422, "REQUEST_INVALID")  # the contract lists the types
+        path = broken.json()["error"]["field_errors"][0]["path"]
+        assert path == "/parameter_schema/parameters/x/type"
         created = admin.post("/api/v1/admin/harness-versions", json=body, expect=201).json()["data"]
         assert created["content_digest"].startswith("sha256:")
         again = admin.post("/api/v1/admin/harness-versions", json=body)
@@ -535,6 +537,25 @@ def test_author_parameter_values_are_resolved_and_secrets_stay_references(servic
         run = admin.get(f"/api/v1/runs/{accepted['run_id']}").json()["data"]
         assert run["snapshot"]["provenance"]["credential_ids"] == [secret["id"]]
         assert "grader-secret-xyz" not in str(run["snapshot"])
+
+        # A plan keeps parameter values in request form, so a run from the plan resolves.
+        values = {"REGION": "eu", "GRADER_TOKEN": {"credential_id": secret["id"]}}
+        plan = admin.post(
+            "/api/v1/plans",
+            json={
+                "name": "params",
+                "template": {
+                    "dataset_version_id": version_id,
+                    "execution_mode": "oracle",
+                    "parameters": values,
+                },
+            },
+            expect=201,
+        ).json()["data"]
+        assert plan["template"]["parameters"] == values
+        planned = admin.post("/api/v1/config-resolutions", json={"plan_id": plan["id"]})
+        assert planned.status_code == 201, planned.text
+        assert planned.json()["data"]["effective_config"]["parameters"]["REGION"] == {"value": "eu"}
 
 
 def test_everyone_sees_usable_credential_names_but_never_values(service):

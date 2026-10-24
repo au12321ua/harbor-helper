@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 
 from maestro import __version__
 from maestro.api.deps import maestro, ok, principal
-from maestro.api.models import Capabilities, Envelope, Health
+from maestro.api.models import Capabilities, Envelope, Health, SystemStatus
 from maestro.domain import limits
 from maestro.execution.policy import POLICY_VERSION
 from maestro.services.principal import Principal
@@ -55,7 +55,7 @@ def health_ready(request: Request):
     return {"status": state["status"], "accepting_runs": state["accepting_runs"]}
 
 
-@router.get("/api/v1/system-status", response_model=Envelope[Health], tags=["system"])
+@router.get("/api/v1/system-status", response_model=Envelope[SystemStatus], tags=["system"])
 def system_status(request: Request, _: Principal = Depends(principal)):
     return ok(request, readiness(request))
 

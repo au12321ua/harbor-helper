@@ -1,12 +1,33 @@
 """Public API models. They define the OpenAPI contract shared by web and SDK."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_serializer
+
+# Free-form JSON. Only for values that are open by design (provider request parameters,
+# executor references, evidence, audit details); test_api_contract keeps the list.
+JsonObject = dict[str, JsonValue]
+Number = int | float
 
 
 class Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+    model_config = ConfigDict(
+        extra="forbid",
+        protected_namespaces=(),
+        # A response carries every field, defaults included, so the response schema marks
+        # them required even where a request may leave them out.
+        json_schema_serialization_defaults_required=True,
+    )
+
+
+class Sparse(Model):
+    """Fields that do not apply are left out of the JSON rather than sent as null."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+
+    @model_serializer(mode="wrap")
+    def _without_nulls(self, handler):
+        return {k: v for k, v in handler(self).items() if v is not None}
 
 
 class Meta(Model):
@@ -26,13 +47,32 @@ class FieldErrorModel(Model):
     limit: int | float | None = None
 
 
+class SuggestedAction(Model):
+    """A next step; ``type`` says which, and the other fields depend on it."""
+
+    model_config = ConfigDict(extra="allow")
+    type: str
+
+
 class ErrorBody(Model):
     code: str
     message: str
     stage: str | None = None
     field_errors: list[FieldErrorModel] = []
     retryable: bool = False
-    suggested_actions: list[dict[str, Any]] = []
+    suggested_actions: list[SuggestedAction] = []
+
+
+class Problem(Sparse):
+    """A recorded failure: a stable code and a message, with the cause's kind, evidence
+    and next steps when it has them. Further fields depend on the code."""
+
+    model_config = ConfigDict(extra="allow")
+    code: str
+    message: str | None = None
+    kind: str | None = None
+    evidence: JsonObject | None = None
+    suggested_actions: list[SuggestedAction] | None = None
 
 
 class ErrorResponse(Model):
@@ -244,11 +284,31 @@ class DeletionState(Model):
     purged_at: str | None
 
 
+class PassRule(Model):
+    rule: Literal["threshold"]
+    threshold: Number = Field(description="A trial passes when its score reaches this")
+
+
+class ScoringContract(Model):
+    model_config = ConfigDict(extra="allow")
+
+    contract_version: int
+    source: Literal["platform_default", "dataset_version"]
+    metric_id: str
+    name: str
+    unit: str | None
+    direction: Literal["higher_is_better", "lower_is_better"]
+    passed: PassRule | None = Field(description="Explicit pass rule; null: no pass rate")
+    task_aggregation: str
+    bench_aggregation: str
+    count_as_failure: list[str]
+
+
 class DatasetVersionDetail(DatasetVersion):
     namespace: str
     name: str
     first_preparation_operation_id: str | None
-    scoring_contract: dict[str, Any] = Field(
+    scoring_contract: ScoringContract = Field(
         description="Contract new runs freeze; source is dataset_version or platform_default"
     )
     deletion: DeletionState | None = Field(
@@ -292,27 +352,45 @@ class LocalPreparation(Model):
     id: str | None
     location_id: str
     cache_state: Literal["absent", "restoring", "ready", "stale"]
-    last_restore_error: dict[str, Any] | None
+    last_restore_error: Problem | None
     operation_id: str | None
     prepared_at: str | None
     last_used_at: str | None
 
 
-class TaskBlocker(Model):
+class ContentEvidence(Sparse):
+    reason: str | None = None
+    message: str | None = None
+
+
+class ParameterIssue(Sparse):
+    code: Literal["CONFLICTING_DEFAULTS", "COMPOSE_DISCOVERY_FAILED"]
+    name: str | None = Field(None, description="The parameter (CONFLICTING_DEFAULTS)")
+    file: str | None = Field(None, description="The compose file (COMPOSE_DISCOVERY_FAILED)")
+
+
+class TaskBlocker(Sparse):
+    """Why a task cannot be chosen; the fields that apply depend on the code."""
+
     code: Literal[
         "TASK_NOT_ADMITTED",
         "TASK_ADMISSION_REVOKED",
         "RESOURCE_CONTENT_UNAVAILABLE",
         "CONFIG_REQUIRED_MISSING",
         "AUTHOR_PARAMETERS_UNRESOLVED",
+        "TEAM_LIMIT_EXCEEDED",
+        "NOT_FOUND",
     ]
     admission_state: str | None = None
-    first_preparation_error: dict[str, Any] | None = None
+    first_preparation_error: Problem | None = None
     resource_kind: str | None = None
     expected_digest: str | None = None
-    evidence: dict[str, Any] | None = None
+    evidence: ContentEvidence | None = None
     parameters: list[str] | None = None
-    issues: list[dict[str, Any]] | None = None
+    issues: list[ParameterIssue] | None = None
+    field: str | None = Field(None, description="TEAM_LIMIT_EXCEEDED: the task setting")
+    value: Number | None = None
+    limit: Number | None = None
 
 
 class TaskWarning(Model):
@@ -333,8 +411,22 @@ class AuthorParameter(Model):
     required: bool
     sensitive: bool
     description: str
-    hard_constraints: dict[str, Any]
     used_in: list[str]
+
+
+class TaskResources(Model):
+    """What the task's author asks for; a run may raise CPU and memory, never lower them."""
+
+    cpus: Number | None = None
+    memory_mb: int | None = None
+    storage_mb: int | None = None
+    constraint_strength: str | None = None
+
+
+class TaskTimeouts(Model):
+    agent_sec: Number | None = None
+    verifier_sec: Number | None = None
+    build_sec: Number | None = None
 
 
 class Task(Model):
@@ -345,8 +437,8 @@ class Task(Model):
     content: TaskContent
     local_preparation: LocalPreparation
     spec_digest: str | None
-    resources: dict[str, Any]
-    timeouts: dict[str, Any]
+    resources: TaskResources
+    timeouts: TaskTimeouts
     parameters: list[AuthorParameter]
     required_parameters: list[str] = []
     instruction: str
@@ -368,11 +460,18 @@ class PreparationPin(Model):
     holder_id: str
 
 
+class PreparationArchive(Model):
+    """The saved original the cache is restored from (U-17)."""
+
+    digest: str | None
+    size_bytes: int | None
+
+
 class Preparation(LocalPreparation):
     spec_digest: str
     generation: int
     image_id: str | None
-    archive: dict[str, Any] | None
+    archive: PreparationArchive | None
     waiters: list[PreparationWaiter]
     pins: list[PreparationPin]
 
@@ -456,6 +555,10 @@ class AdmissionRevoked(Model):
 # --- runs and operations -------------------------------------------------------------
 
 
+# A harness parameter value; the harness version's parameter_schema says which type.
+HarnessParamValue = str | int | float | bool
+
+
 class TaskSelection(Model):
     mode: Literal["all_eligible", "explicit"] = "all_eligible"
     task_ids: list[str] | None = None
@@ -465,12 +568,12 @@ class CredentialRef(Model):
     credential_id: str
 
 
-class ResourceOverrides(Model):
+class ResourceOverrides(Sparse):
     cpus: int | None = None
     memory_mb: int | None = None
 
 
-class TimeoutOverrides(Model):
+class TimeoutOverrides(Sparse):
     agent_sec: float | None = None
     verifier_sec: float | None = None
     bootstrap_sec: float | None = Field(
@@ -494,7 +597,7 @@ class RunConfigFields(Model):
         None, description="An earlier revision of the model configuration; unset: current"
     )
     harness_version_id: str | None = None
-    harness_params: dict[str, Any] = {}
+    harness_params: dict[str, HarnessParamValue] = {}
     attachments: list[str] = Field(
         [], description="Attachment version ids in load order (model runs only)"
     )
@@ -533,19 +636,37 @@ class RunCreate(RunConfigFields):
     )
 
 
+class PlanTemplate(Sparse):
+    """Any fields of a configuration request (see ConfigRequest). A field the plan does
+    not set is left out; a run's own value wins over the plan's."""
+
+    dataset_version_id: str | None = None
+    task_selection: TaskSelection | None = None
+    execution_mode: Literal["agent", "oracle"] | None = None
+    model_config_id: str | None = None
+    model_revision: int | None = None
+    harness_version_id: str | None = None
+    harness_params: dict[str, HarnessParamValue] | None = None
+    attachments: list[str] | None = None
+    repetitions: int | None = None
+    concurrency: int | None = None
+    run_deadline_hours: int | None = None
+    resources: ResourceOverrides | None = None
+    timeouts: TimeoutOverrides | None = None
+    parameters: dict[str, str | CredentialRef] | None = None
+
+
 class PlanCreate(Model):
     name: str
     description: str = ""
-    template: dict[str, Any] = Field(
-        {}, description="Fields of a configuration request (see ConfigRequest)"
-    )
+    template: PlanTemplate = PlanTemplate()
 
 
 class PlanUpdate(Model):
     expected_revision: int
     name: str | None = None
     description: str | None = None
-    template: dict[str, Any] | None = None
+    template: PlanTemplate | None = None
 
 
 class PlanCopy(Model):
@@ -563,13 +684,13 @@ class Plan(Model):
     owner_id: str
     owner_username: str | None
     revision: int
-    template: dict[str, Any]
+    template: PlanTemplate
     copied_from: str | None
     created_at: str
     updated_at: str
     archived_at: str | None
     allowed_actions: list[str]
-    deletion: dict[str, Any] | None = None
+    deletion: DeletionState | None = None
 
 
 class RerunSelection(Model):
@@ -589,33 +710,210 @@ class RunRerun(Model):
     client_request_id: str | None = None
 
 
-class ConfigBlocker(Model):
-    model_config = ConfigDict(extra="allow")
+class BlockedTask(Model):
+    task_id: str
+    blockers: list[TaskBlocker]
+
+
+class ConfigBlocker(Sparse):
+    """Why this configuration cannot be submitted; ``path`` points at the field."""
+
     code: str
     path: str
     message: str
+    limit: Number | None = None
+    reason: str | None = None
+    kind: str | None = Field(None, description="ATTACHMENT_CONFLICT: name, tool or env")
+    name: str | None = Field(None, description="ATTACHMENT_CONFLICT: the claimed name")
+    tasks: list[BlockedTask] | None = Field(None, description="TASKS_NOT_SUBMITTABLE")
+    task_count: int | None = Field(None, description="RUN_TOO_LARGE")
+    trial_count: int | None = Field(None, description="RUN_TOO_LARGE")
+
+
+class ConfigWarning(Model):
+    code: str
+    path: str
+    message: str
+
+
+class FieldSource(Sparse):
+    """Which layer gave a value: author, team policy, plan, harness default or override."""
+
+    layer: Literal["author", "team", "plan", "override", "harness"]
+    source_id: str | None = None
+    revision: int | None = None
+
+
+class BaselineDifference(Model):
+    path: str
+    value: Number
+    tasks_lower: int = Field(description="Tasks whose author value is higher")
+    tasks_higher: int = Field(description="Tasks whose author value is lower or unset")
+
+
+class ExcludedTask(Model):
+    task_id: str
+    task_key: str
+    blockers: list[TaskBlocker]
+
+
+class CacheObservation(Model):
+    task_key: str
+    cache_state: Literal["ready", "cold"]
+    action: Literal["restore_on_run"] | None
+
+
+class PlannedRestore(Model):
+    task_id: str
+    task_key: str
+    action: Literal["restore_cache"]
+    spec_digest: str
+
+
+class RevisionRef(Model):
+    id: str
+    revision: int
+
+
+class ReferenceRevisions(Sparse):
+    team_policy: int | None = None
+    model_config_ref: RevisionRef | None = Field(None, alias="model_config")
+    harness_version: str | None = None
+    attachments: list[str] | None = None
+    plan: RevisionRef | None = None
+
+
+class ParameterChoice(Sparse):
+    """An author parameter value: a literal, or the team credential that holds it."""
+
+    value: str | None = None
+    credential_id: str | None = None
+
+
+class PlanUse(Model):
+    plan_id: str
+    revision: int
+    fields: list[str] = Field(description="JSON pointers of the fields the plan supplied")
+
+
+class NormalizedRequest(Model):
+    """A configuration request after checking: what resolution and reruns start from."""
+
+    plan: PlanUse | None = None
+    dataset_version_id: str
+    task_selection: TaskSelection
+    execution_mode: Literal["agent", "oracle"]
+    model_config_id: str | None
+    model_revision: int | None
+    harness_version_id: str | None
+    harness_params: dict[str, HarnessParamValue]
+    attachments: list[str]
+    repetitions: int | None
+    concurrency: int | None
+    run_deadline_hours: int | None
+    resources: ResourceOverrides
+    timeouts: TimeoutOverrides
+    parameters: dict[str, ParameterChoice]
+
+
+Protocol = Literal["openai-compatible", "openai", "anthropic"]
+
+
+class AttachmentProvides(Model):
+    tools: list[str]
+    env: list[str]
+
+
+class EffectiveDataset(Model):
+    source_kind: str
+    namespace: str
+    name: str
+    version_id: str
+    resolved_digest: str
+
+
+class EffectiveModel(Model):
+    config_id: str
+    revision: int
+    provider: str
+    protocol: Protocol
+    endpoint: str
+    model_id: str
+    params: JsonObject = Field(description="Provider request parameters, as configured")
+    credential_id: str | None
+
+
+class EffectiveHarness(Model):
+    version_id: str
+    name: str
+    version: str
+    agent: str
+    content_digest: str
+    params: dict[str, HarnessParamValue]
+
+
+class EffectiveAttachment(Model):
+    version_id: str
+    name: str
+    version: str
+    content_digest: str
+    effects: list[str]
+    provides: AttachmentProvides
+    has_bootstrap: bool
+
+
+class EffectiveTask(Model):
+    task_key: str
+    content_digest: str
+    spec_digest: str
+    cpus: Number
+    memory_mb: int
+    agent_timeout_sec: Number | None = Field(description="null: the executor's default")
+    verifier_timeout_sec: Number | None
+
+
+class EffectiveOverrides(Sparse):
+    cpus: int | None = None
+    memory_mb: int | None = None
+    agent_timeout_sec: Number | None = None
+    verifier_timeout_sec: Number | None = None
+
+
+class EffectiveConfig(Model):
+    """The fixed configuration of a run (03 section 5); ``config_digest`` is its digest."""
+
+    dataset: EffectiveDataset
+    execution_mode: Literal["agent", "oracle"]
+    repetitions: int
+    concurrency: int
+    run_deadline_hours: int
+    model: EffectiveModel | None
+    harness: EffectiveHarness | None
+    attachments: list[EffectiveAttachment] = Field(description="In load order")
+    bootstrap_timeout_sec: Number | None
+    overrides: EffectiveOverrides = Field(description="Values this run set for every task")
+    tasks: list[EffectiveTask]
+    parameters: dict[str, ParameterChoice]
+    deviates_from_author_baseline: bool
 
 
 class ConfigResolution(Model):
     resolution_id: str
     created_at: str
     expires_at: str
-    request: dict[str, Any]
-    effective_config: dict[str, Any] | None
-    field_sources: dict[str, dict[str, Any]]
-    baseline_differences: list[dict[str, Any]]
-    excluded_tasks: list[dict[str, Any]]
-    required_preparation: list[dict[str, Any]]
-    cache_observations: list[dict[str, Any]]
-    warnings: list[dict[str, Any]]
+    request: NormalizedRequest
+    effective_config: EffectiveConfig | None
+    field_sources: dict[str, FieldSource] = Field(description="Keyed by JSON pointer")
+    baseline_differences: list[BaselineDifference]
+    excluded_tasks: list[ExcludedTask]
+    required_preparation: list[PlannedRestore]
+    cache_observations: list[CacheObservation]
+    warnings: list[ConfigWarning]
     blockers: list[ConfigBlocker]
     config_digest: str | None
-    reference_revisions: dict[str, Any]
-    labels: dict[str, str]
+    reference_revisions: ReferenceRevisions
+    labels: dict[str, str] = Field(description="Display names: model, harness, attachments")
     planned_trials: int
-
-
-Protocol = Literal["openai-compatible", "openai", "anthropic"]
 
 
 class CredentialName(Model):
@@ -633,7 +931,7 @@ class ModelConfigFields(Model):
     protocol: Protocol
     endpoint: str = Field(description="http(s) base URL, no credentials or query")
     model_id: str
-    params: dict[str, Any] = {}
+    params: JsonObject = Field({}, description="Provider request parameters; no secrets")
     credential_id: str | None = None
     description: str = ""
 
@@ -652,7 +950,7 @@ class ModelRevision(Model):
     protocol: Protocol
     endpoint: str
     model_id: str
-    params: dict[str, Any]
+    params: JsonObject
     credential_bound: bool
     credential_id: str | None = None
     created_at: str
@@ -668,15 +966,28 @@ class ModelConfig(Model):
     protocol: Protocol
     endpoint: str
     model_id: str
-    params: dict[str, Any]
+    params: JsonObject
     credential_bound: bool
     credential_problem: str | None
     credential_id: str | None = Field(None, description="Administrators only")
     credential_name: str | None = Field(None, description="Administrators only")
     created_at: str
     updated_at: str
-    deletion: dict[str, Any] | None = None
+    deletion: DeletionState | None = None
     revisions: list[ModelRevision] | None = None
+
+
+class HarnessParameterSpec(Sparse):
+    type: Literal["string", "integer", "number", "boolean"]
+    description: str | None = None
+    default: HarnessParamValue | None = None
+    enum: list[HarnessParamValue] | None = None
+    minimum: Number | None = None
+    maximum: Number | None = None
+
+
+class HarnessParameterSchema(Model):
+    parameters: dict[str, HarnessParameterSpec] = {}
 
 
 class HarnessCreate(Model):
@@ -684,7 +995,7 @@ class HarnessCreate(Model):
     version: str
     agent: str = Field(description="Executor adapter; see /admin/harness-adapters")
     protocols: list[Protocol]
-    parameter_schema: dict[str, Any] = {"parameters": {}}
+    parameter_schema: HarnessParameterSchema = HarnessParameterSchema()
     description: str = ""
 
 
@@ -695,11 +1006,11 @@ class Harness(Model):
     agent: str
     description: str
     protocols: list[Protocol]
-    parameter_schema: dict[str, Any]
+    parameter_schema: HarnessParameterSchema
     content_digest: str
     enabled: bool
     created_at: str
-    deletion: dict[str, Any] | None = None
+    deletion: DeletionState | None = None
 
 
 class HarnessAdapter(Model):
@@ -712,11 +1023,6 @@ class HarnessAdapter(Model):
 
 class EnabledChange(Model):
     enabled: bool
-
-
-class AttachmentProvides(Model):
-    tools: list[str]
-    env: list[str]
 
 
 class AttachmentFile(Model):
@@ -743,7 +1049,7 @@ class Attachment(Model):
     enabled: bool
     created_at: str
     files: list[AttachmentFile] | None = None
-    deletion: dict[str, Any] | None = None
+    deletion: DeletionState | None = None
 
 
 class PolicySetting(Model):
@@ -781,8 +1087,8 @@ class RunAccepted(Model):
     config_digest: str
     snapshot_digest: str
     planned_trials: int
-    excluded_tasks: list[dict[str, Any]]
-    cache_observations: list[dict[str, Any]]
+    excluded_tasks: list[ExcludedTask]
+    cache_observations: list[CacheObservation]
     links: dict[str, str]
 
 
@@ -862,11 +1168,65 @@ class Run(Model):
     links: dict[str, str]
 
 
+class AdmissionRecord(Model):
+    """The admission and preparation a run's task was accepted with."""
+
+    task_key: str
+    admission_id: str | None
+    admission_revision: int | None
+    preparation_method_digest: str | None
+    spec_digest: str
+    expected_image_id: str | None
+
+
+class ConfigDifference(Model):
+    path: str = Field(description="JSON pointer into the effective configuration")
+    before: JsonValue
+    after: JsonValue
+
+
+class RunSource(Sparse):
+    """Where a rerun or modified run came from (RUN-06)."""
+
+    run_id: str
+    relation: Literal["rerun", "modified"]
+    snapshot_digest: str
+    config_digest: str
+    differences: list[ConfigDifference] | None = None
+    task_causes: dict[str, list[str]] | None = Field(
+        None, description="Rerun: why each chosen task of the source was not scored"
+    )
+    source_field_sources: dict[str, FieldSource] | None = None
+
+
+class RunProvenance(Model):
+    submitted_via: Literal["web_session", "pat"]
+    resolution_id: str | None
+    request: NormalizedRequest
+    task_selection: TaskSelection
+    excluded_tasks: list[ExcludedTask]
+    field_sources: dict[str, FieldSource]
+    baseline_differences: list[BaselineDifference]
+    reference_revisions: ReferenceRevisions
+    labels: dict[str, str]
+    source: RunSource | None
+    credential_ids: list[str] = Field(description="Bound credentials, by reference only")
+    admissions: list[AdmissionRecord]
+
+
+class RunPolicy(Model):
+    aggregation_version: int
+    policy_version: str
+    team_policy_revision: int
+    executor_id: str | None
+    scoring: ScoringContract
+
+
 class RunSnapshot(Model):
     schema_version: int
-    effective: dict[str, Any]
-    provenance: dict[str, Any]
-    policy: dict[str, Any]
+    effective: EffectiveConfig
+    provenance: RunProvenance
+    policy: RunPolicy
     config_digest: str
     snapshot_digest: str
     comparison_digest: str
@@ -874,21 +1234,6 @@ class RunSnapshot(Model):
 
 class RunDetail(Run):
     snapshot: RunSnapshot
-
-
-class ScoringContract(Model):
-    model_config = ConfigDict(extra="allow")
-
-    contract_version: int
-    source: Literal["platform_default", "dataset_version"]
-    metric_id: str
-    name: str
-    unit: str | None
-    direction: Literal["higher_is_better", "lower_is_better"]
-    passed: dict[str, Any] | None = Field(description="Explicit pass rule; null: no pass rate")
-    task_aggregation: str
-    bench_aggregation: str
-    count_as_failure: list[str]
 
 
 class TaskSummary(Model):
@@ -957,6 +1302,21 @@ class AttemptStep(Model):
     at: str
 
 
+class AttemptError(Model):
+    """Why an attempt did not produce a score, as the platform error policy classified it."""
+
+    stage: str
+    code: str
+    failure_cause: str | None
+    exception_type: str | None
+    message: str
+    reward_valid: bool | None
+    retry_recommended: bool | None
+    grade_requested: bool | None
+    policy_version: str
+    detail: JsonObject | None = None
+
+
 class Attempt(Model):
     id: str
     attempt_index: int
@@ -974,10 +1334,10 @@ class Attempt(Model):
     steps: list[AttemptStep] = Field(
         description="Step start times; a step ends when the next starts or the attempt ends"
     )
-    executor_ref: dict[str, Any] | None
+    executor_ref: JsonObject | None = Field(description="Executor-specific, e.g. Harbor's ids")
     started_at: str
     ended_at: str | None
-    error: dict[str, Any] | None
+    error: AttemptError | None
 
 
 class ArtifactCounts(Model):
@@ -1046,6 +1406,16 @@ class ExportRequest(Model):
     task_keys: list[str] | None
 
 
+class ExportSummary(Model):
+    runs: int
+    files: int
+    missing: int = Field(description="Files listed in the manifest's missing section")
+    warnings: int
+    artifact_bytes: int
+    size_bytes: int = Field(description="Size of the package")
+    digest: str
+
+
 class Export(Model):
     id: str
     owner_id: str
@@ -1054,10 +1424,8 @@ class Export(Model):
     request: ExportRequest
     size_bytes: int | None
     digest: str | None
-    summary: dict[str, Any] | None = Field(
-        description="runs, files, missing, warnings, size_bytes and digest of the package"
-    )
-    error: dict[str, Any] | None
+    summary: ExportSummary | None
+    error: Problem | None
     created_at: str
     finished_at: str | None
     expires_at: str | None
@@ -1094,7 +1462,7 @@ class RecycleEntry(Model):
     deleted_at: str
     purged_by: str | None
     purged_at: str | None
-    detail: dict[str, Any]
+    detail: JsonObject = Field(description="What a purge removed; depends on the object type")
 
 
 class PurgeRequest(Model):
@@ -1106,22 +1474,187 @@ class OperationResource(Model):
     id: str
 
 
-class Operation(Model):
+class OperationBase(Model):
     id: str
-    kind: str
     resource: OperationResource | None
     owner_id: str | None
     status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
     phase: str | None
-    progress: dict[str, Any]
-    error: dict[str, Any] | None
-    result: dict[str, Any] | None
+    error: Problem | None
     allowed_actions: list[str]
     links: dict[str, str]
     revision: int
     created_at: str
     updated_at: str
     finished_at: str | None
+
+
+class RunProgress(Model):
+    planned: int
+    terminal: int
+    scored: int
+    errors: int
+    active: int
+
+
+class RunOperationResult(Model):
+    run_id: str
+    state: RunStateName
+    counts: RunCounts
+
+
+class RunOperation(OperationBase):
+    kind: Literal["run"]
+    progress: RunProgress
+    result: RunOperationResult | None
+
+
+class BatchProgress(Model):
+    runs: int
+    terminal_runs: int
+    finished: int
+    cancelled: int
+    interrupted: int
+    planned_trials: int
+    scored_trials: int
+    error_trials: int
+
+
+class BatchOperationResult(BatchProgress):
+    batch_id: str
+
+
+class BatchOperation(OperationBase):
+    kind: Literal["batch"]
+    progress: BatchProgress
+    result: BatchOperationResult | None
+
+
+class ExportProgress(Model):
+    runs: int
+    files: int
+
+
+class ExportOperationResult(Model):
+    export_id: str
+    runs: int | None = None
+    files: int | None = None
+    missing: int | None = None
+    warnings: int | None = None
+    artifact_bytes: int | None = None
+    size_bytes: int | None = None
+    digest: str | None = None
+
+
+class ExportOperation(OperationBase):
+    kind: Literal["export"]
+    progress: ExportProgress
+    result: ExportOperationResult | None
+
+
+class ImportRequest(Model):
+    source_kind: str
+    namespace: str
+    name: str
+    ref: str
+    credential_id: str | None
+    accept_changed_content: bool
+    prepare: bool
+
+
+class ImportProgress(Model):
+    request: ImportRequest
+    resolved_digest: str | None = None
+    tasks_total: int | None = None
+    tasks_done: int | None = None
+
+
+class ImportResult(Sparse):
+    dataset_version_id: str
+    existing: bool = Field(description="The same version was imported before")
+    preparation_operation_id: str | None = None
+
+
+class DatasetImportOperation(OperationBase):
+    kind: Literal["dataset_import"]
+    progress: ImportProgress
+    result: ImportResult | None
+
+
+class FirstPreparationProgress(Model):
+    task_ids: list[str]
+    tasks_total: int
+    tasks_done: int
+    admitted: int | None = None
+    failed: int | None = None
+
+
+class FirstPreparationTask(Sparse):
+    state: Literal["pending", "admitted", "first_failed", "revoked"]
+    skipped: bool | None = Field(None, description="Already decided by an earlier attempt")
+    image_id: str | None = None
+    error: Problem | None = None
+
+
+class FirstPreparationResult(Model):
+    tasks: dict[str, FirstPreparationTask] = Field(description="Keyed by task id")
+
+
+class FirstPreparationOperation(OperationBase):
+    kind: Literal["preparation_first"]
+    progress: FirstPreparationProgress
+    result: FirstPreparationResult | None
+
+
+class RestoreProgress(Model):
+    spec_digest: str
+    task_key: str
+    waiters: int | None = None
+
+
+class PreparedOutputView(Model):
+    image_id: str
+    image_ref: str
+    archive: JsonObject | None = Field(description="The saved original (U-17)")
+    detail: JsonObject = Field(description="How it was prepared; depends on the environment")
+
+
+class RestoreResult(Model):
+    output: PreparedOutputView
+    waiters: int
+
+
+class RestoreOperation(OperationBase):
+    kind: Literal["preparation_restore"]
+    progress: RestoreProgress
+    result: RestoreResult | None
+
+
+class NoProgress(Model):
+    pass
+
+
+class EvictionOperation(OperationBase):
+    kind: Literal["preparation_eviction"]
+    progress: NoProgress
+    result: None
+
+
+class Operation(
+    RootModel[
+        Annotated[
+            RunOperation
+            | BatchOperation
+            | ExportOperation
+            | DatasetImportOperation
+            | FirstPreparationOperation
+            | RestoreOperation
+            | EvictionOperation,
+            Field(discriminator="kind"),
+        ]
+    ]
+):
+    """A long operation; ``kind`` decides the shape of ``progress`` and ``result``."""
 
 
 class AuditEvent(Model):
@@ -1133,24 +1666,9 @@ class AuditEvent(Model):
     object_type: str | None
     object_id: str | None
     outcome: str
-    detail: dict[str, Any] | None
+    detail: JsonObject | None = Field(description="Depends on the action")
     request_id: str | None
     created_at: str
-
-
-class Capabilities(Model):
-    api_version: str
-    service_version: str
-    schema_revision: str
-    contract_digest: str = Field(
-        description="sha256 of the OpenAPI document; clients generated from another one warn"
-    )
-    features: dict[str, bool]
-    limits: dict[str, int]
-    team_policy_revision: int
-    auth: dict[str, Any]
-    actions: dict[str, dict[str, Any]]
-    execution: dict[str, Any]
 
 
 class HostCapacityView(Model):
@@ -1181,10 +1699,79 @@ class ProviderLimit(Model):
     max_concurrent_trials: int | None = Field(description="null removes the limit")
 
 
+class ActionRule(Model):
+    """Who may do an action: a web session (of an admin when ``role`` says so) and PATs
+    of the listed scopes."""
+
+    web_session: bool
+    pat_scopes: list[Scope]
+    role: Role | None = None
+
+
+class AuthInfo(Model):
+    pat_header: str
+    session_cookie: bool
+    csrf_header: str
+
+
+class ExecutionInfo(Model):
+    executor: str | None
+    modes: list[Literal["agent", "oracle"]]
+    harness_adapters: list[HarnessAdapter]
+    policy_version: str
+    capacity: HostCapacityView
+
+
+class Capabilities(Model):
+    api_version: str
+    service_version: str
+    schema_revision: str
+    contract_digest: str = Field(
+        description="sha256 of the OpenAPI document; clients generated from another one warn"
+    )
+    features: dict[str, bool]
+    limits: dict[str, int]
+    team_policy_revision: int
+    auth: AuthInfo
+    actions: dict[str, ActionRule]
+    execution: ExecutionInfo
+
+
 class Health(Model):
-    status: str
+    status: Literal["alive", "ready", "maintenance"]
     accepting_runs: bool | None = None
-    detail: dict[str, Any] = {}
+
+
+class StorageThreshold(Model):
+    gib: Number
+    percent: Number
+
+
+class StorageStatus(Model):
+    level: Literal["ok", "accept_paused", "dispatch_paused"]
+    free_bytes: int
+    total_bytes: int
+    accept_min_free: StorageThreshold
+    dispatch_min_free: StorageThreshold
+
+
+class SchemaState(Model):
+    current: str | None
+    head: str
+    compatible: bool
+
+
+class SystemDetail(Model):
+    storage: StorageStatus
+    database: SchemaState = Field(alias="schema")
+    master_key_available: bool
+    executor: str | None
+    worker_running: bool
+    needs_setup: bool | None
+
+
+class SystemStatus(Health):
+    detail: SystemDetail
 
 
 # --- batches (04 section 4) ------------------------------------------------------
@@ -1206,12 +1793,34 @@ class BatchAccepted(Model):
     links: dict[str, str]
 
 
-class BatchPreview(Model):
-    runs: list[dict[str, Any]]
+class BatchPreviewRun(Sparse):
+    index: int
+    config_digest: str | None = None
     planned_trials: int
-    pat_quota: dict[str, int] | None
+    labels: dict[str, str] | None = None
+    blockers: list[ConfigBlocker] | None = None
+    warnings: list[ConfigWarning] | None = None
+
+
+class PatQuota(Model):
+    needed: int
+    left: int
+
+
+class BatchBlocker(Sparse):
+    code: str
+    path: str
+    limit: int | None = None
+    needed: int | None = None
+    left: int | None = None
+
+
+class BatchPreview(Model):
+    runs: list[BatchPreviewRun]
+    planned_trials: int
+    pat_quota: PatQuota | None
     duplicate_configs: list[str] = Field(description="Configuration digests given twice")
-    blockers: list[dict[str, Any]]
+    blockers: list[BatchBlocker]
     can_submit: bool
 
 
@@ -1226,6 +1835,6 @@ class Batch(Model):
     created_at: str
     status: str
     operation_id: str
-    progress: dict[str, int]
+    progress: BatchProgress
     runs: list[Run]
     allowed_actions: list[str]

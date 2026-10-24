@@ -18,7 +18,7 @@ import type { Export } from "@/lib/types";
 
 const PENDING = new Set(["queued", "building"]);
 
-function count(summary: Export["summary"], key: string): string {
+function count(summary: Export["summary"], key: keyof NonNullable<Export["summary"]>): string {
   const value = summary?.[key];
   return typeof value === "number" ? String(value) : "—";
 }
@@ -32,7 +32,7 @@ export function ExportsPage() {
   const load = useCallback(async (after: string | null) => {
     setLoading(true);
     try {
-      const res = await api.get<Export[]>("exports", { cursor: after });
+      const res = await api.get("/exports", { query: { cursor: after } });
       setExports((prev) => (after ? [...prev, ...res.data] : res.data));
       setCursor(res.meta.next_cursor ?? null);
       setError(undefined);
@@ -100,8 +100,7 @@ export function ExportsPage() {
                     <StatusPill value={label(EXPORT_STATE, item.state)} />
                     {item.state === "failed" && item.error && (
                       <div className="mt-1 max-w-xs text-xs text-red-700">
-                        {String(item.error.message ?? item.error.code ?? JSON.stringify(item.error))}
-                        {item.error.code ? `（${String(item.error.code)}）` : ""}
+                        {item.error.message ?? item.error.code}（{item.error.code}）
                       </div>
                     )}
                   </TableCell>

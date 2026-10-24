@@ -17,7 +17,7 @@ import { EmptyNote, ErrorAlert, Loading, PageTitle, Pill, TextField } from "@/co
 import { ApiError, api } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
 import { useLoad } from "@/lib/hooks";
-import type { Plan } from "@/lib/types";
+import type { Plan, PlanTemplate } from "@/lib/types";
 
 const FIELD_NAME: Record<string, string> = {
   dataset_version_id: "数据集版本",
@@ -50,11 +50,14 @@ function Editor({ plan, onDone }: { plan: Plan; onDone: () => void }) {
       } catch {
         throw new Error("配置不是合法的 JSON");
       }
-      await api.put(`plans/${plan.id}`, {
-        expected_revision: plan.revision,
-        name,
-        description,
-        template: parsed,
+      await api.put("/plans/{plan_id}", {
+        path: { plan_id: plan.id },
+        body: {
+          expected_revision: plan.revision,
+          name,
+          description,
+          template: parsed as PlanTemplate,
+        },
       });
       toast.success("已保存为新修订；已经用过旧修订的运行不受影响");
       onDone();
@@ -106,7 +109,7 @@ function Editor({ plan, onDone }: { plan: Plan; onDone: () => void }) {
 export function PlansPage() {
   const [archived, setArchived] = useState(false);
   const list = useLoad(
-    async () => (await api.get<Plan[]>("plans", { include_archived: archived ? "true" : "" })).data,
+    async () => (await api.get("/plans", { query: { include_archived: archived } })).data,
     [archived],
   );
   const [editing, setEditing] = useState<string | null>(null);
@@ -126,7 +129,11 @@ export function PlansPage() {
     <div className="grid gap-4">
       <PageTitle title="实验方案">
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={archived}
+            onChange={(e) => setArchived(e.target.checked)}
+          />
           显示已归档
         </label>
       </PageTitle>
@@ -205,7 +212,14 @@ export function PlansPage() {
                           size="sm"
                           variant="outline"
                           onClick={() =>
-                            void act(() => api.post(`plans/${plan.id}/copy`, {}), "已复制为你的方案")
+                            void act(
+                              () =>
+                                api.post("/plans/{plan_id}/copy", {
+                                  path: { plan_id: plan.id },
+                                  body: {},
+                                }),
+                              "已复制为你的方案",
+                            )
                           }
                         >
                           复制
@@ -217,8 +231,11 @@ export function PlansPage() {
                             onClick={() =>
                               void act(
                                 () =>
-                                  api.post(`plans/${plan.id}/archive`, {
-                                    archived: plan.archived_at == null,
+                                  api.post("/plans/{plan_id}/archive", {
+                                    path: { plan_id: plan.id },
+                                    body: {
+                                      archived: plan.archived_at == null,
+                                    },
                                   }),
                                 plan.archived_at == null ? "已归档" : "已取消归档",
                               )
@@ -231,7 +248,12 @@ export function PlansPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => void act(() => api.del(`plans/${plan.id}`), "已移入回收站")}
+                            onClick={() =>
+                              void act(
+                                () => api.del("/plans/{plan_id}", { path: { plan_id: plan.id } }),
+                                "已移入回收站",
+                              )
+                            }
                           >
                             删除
                           </Button>

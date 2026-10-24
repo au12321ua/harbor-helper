@@ -154,7 +154,11 @@ def task_view(task, admission, availability: dict, preparation, location_id: str
         "spec_digest": task["spec_digest"] or None,
         "resources": definition.get("resources") or {},
         "timeouts": definition.get("timeouts") or {},
-        "parameters": definition.get("parameters") or [],
+        # Author constraints are not modelled yet (always empty): not part of the API.
+        "parameters": [
+            {k: v for k, v in x.items() if k != "hard_constraints"}
+            for x in definition.get("parameters") or []
+        ],
         # Values a run must supply (03); not a blocker of the task itself.
         "required_parameters": required_parameters(definition),
         "instruction": definition.get("instruction") or "",

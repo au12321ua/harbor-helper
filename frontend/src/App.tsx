@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ErrorAlert, Loading, Pill } from "@/components/common";
 import { ApiError, api, errorText, setCsrfToken, setUnauthorizedHandler } from "@/lib/api";
 import { SessionContext, useInterval, useSession, type SessionState } from "@/lib/hooks";
-import type { Capabilities, Health, Me, SessionInfo } from "@/lib/types";
+import type { Capabilities, Me, SessionInfo, SystemStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { InvitePage, LoginPage, SetupPage } from "@/pages/AuthPages";
 import { RunListPage } from "@/pages/RunListPage";
@@ -33,13 +33,13 @@ function useBoot() {
 
   const load = useCallback(async () => {
     try {
-      const setup = await api.get<{ needs_setup: boolean }>("setup");
+      const setup = await api.get("/setup");
       if (setup.data.needs_setup) {
         setBoot({ phase: "setup" });
         return;
       }
       try {
-        const session = await api.get<SessionInfo>("session");
+        const session = await api.get("/session");
         setCsrfToken(session.data.csrf_token);
         setBoot({ phase: "signed-in", me: session.data.user });
       } catch (err) {
@@ -131,7 +131,7 @@ function SignedIn({
 
   useEffect(() => {
     api
-      .get<Capabilities>("capabilities")
+      .get("/capabilities")
       .then((res) => setCapabilities(res.data))
       .catch(() => setCapabilities(null));
   }, []);
@@ -142,7 +142,7 @@ function SignedIn({
       capabilities: capabilities ?? null,
       signOut: async () => {
         try {
-          await api.del("session");
+          await api.del("/session");
         } catch (err) {
           if (!(err instanceof ApiError && err.status === 401)) {
             toast.error(`退出失败：${errorText(err)}`);
@@ -153,7 +153,7 @@ function SignedIn({
         onSignedOut();
       },
       refreshMe: async () => {
-        const res = await api.get<Me>("me");
+        const res = await api.get("/me");
         onMe(res.data);
       },
     }),
@@ -200,11 +200,11 @@ function NotFound() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { me, signOut } = useSession();
-  const [health, setHealth] = useState<Health | null>(null);
+  const [health, setHealth] = useState<SystemStatus | null>(null);
   const [healthError, setHealthError] = useState<unknown>();
   const pollHealth = useCallback(async () => {
     try {
-      const res = await api.get<Health>("system-status");
+      const res = await api.get("/system-status");
       setHealth(res.data);
       setHealthError(undefined);
     } catch (err) {
@@ -275,8 +275,13 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SystemIndicator({ health, error }: { health: Health | null; error: unknown }) {
-  if (error) return <Pill tone="bad" title={errorText(error)}>状态未知</Pill>;
+function SystemIndicator({ health, error }: { health: SystemStatus | null; error: unknown }) {
+  if (error)
+    return (
+      <Pill tone="bad" title={errorText(error)}>
+        状态未知
+      </Pill>
+    );
   if (!health) return null;
   if (health.status !== "ready") return <Pill tone="bad">维护中</Pill>;
   return health.accepting_runs ? (
@@ -286,16 +291,15 @@ function SystemIndicator({ health, error }: { health: Health | null; error: unkn
   );
 }
 
-function SystemNotice({ health }: { health: Health | null }) {
+function SystemNotice({ health }: { health: SystemStatus | null }) {
   if (!health || (health.accepting_runs && health.status === "ready")) return null;
-  const detail = health.detail ?? {};
+  const detail = health.detail;
   const reasons: string[] = [];
   if (health.status !== "ready") reasons.push(`服务状态：${health.status}`);
   if (detail.master_key_available === false) reasons.push("主密钥不可用");
   if (!detail.executor) reasons.push("未配置执行器");
   if (detail.worker_running === false) reasons.push("执行进程未运行");
-  const storage = detail.storage as { level?: string } | undefined;
-  if (storage?.level && storage.level !== "ok") reasons.push("存储空间不足");
+  if (detail.storage.level !== "ok") reasons.push("存储空间不足");
   return (
     <div className="border-b border-amber-300 bg-amber-50 text-amber-900">
       <div className="mx-auto flex max-w-7xl items-start gap-2 px-4 py-2 text-sm">

@@ -26,6 +26,7 @@ from maestro.api.models import (
     ProviderLimit,
     PurgeRequest,
     RecycleEntry,
+    ScoringContract,
     ScoringContractInput,
     StatusChange,
     User,
@@ -278,7 +279,9 @@ def revoke_admission(
     )
 
 
-@router.put("/dataset-versions/{version_id}/scoring-contract", response_model=Envelope[dict])
+@router.put(
+    "/dataset-versions/{version_id}/scoring-contract", response_model=Envelope[ScoringContract]
+)
 def scoring_contract(
     version_id: str,
     body: ScoringContractInput,

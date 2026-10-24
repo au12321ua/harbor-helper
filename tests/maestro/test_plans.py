@@ -113,8 +113,10 @@ def test_plans_belong_to_their_creator_and_are_shared_for_reading(service, versi
         )
         assert error(used) == (409, "PLAN_ARCHIVED")
         # Templates are checked like requests, field by field.
+        # The contract itself refuses unknown fields; values are checked like a request's.
         bad = create_plan(alice, expect=None, template={"repetitions": 0, "surprise": 1})
-        assert error(bad) == (422, "CONFIG_VALIDATION_FAILED")
+        assert error(bad) == (422, "REQUEST_INVALID")
+        assert bad.json()["error"]["field_errors"][0]["path"] == "/template/surprise"
         bad = create_plan(alice, expect=None, template={"repetitions": 0})
         assert bad.json()["error"]["field_errors"][0]["path"] == "/template/repetitions"
         alice.delete(f"/api/v1/plans/{plan['id']}", expect=200)

@@ -5,9 +5,9 @@ import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
-from maestro.api.deps import maestro, ok, principal
+from maestro.api.deps import maestro, ok, principal, respond
 from maestro.api.models import (
     Artifact,
     ConfigRequest,
@@ -74,7 +74,7 @@ def submit_run(
     service.worker.wake()
     # A replay returns the original response; the header lets clients tell them apart.
     headers = {"Idempotent-Replayed": "true"} if replayed else {}
-    return JSONResponse(status_code=status, content=ok(request, data), headers=headers)
+    return respond(request, Envelope[RunAccepted], data, status, headers)
 
 
 @router.get("/runs", response_model=Envelope[list[Run]], tags=["runs"])
@@ -155,7 +155,7 @@ def rerun(
     status, data, replayed = service.runs.rerun(who, idempotency_key, run_id, body.model_dump())
     service.worker.wake()
     headers = {"Idempotent-Replayed": "true"} if replayed else {}
-    return JSONResponse(status_code=status, content=ok(request, data), headers=headers)
+    return respond(request, Envelope[RunAccepted], data, status, headers)
 
 
 @router.get("/runs/{run_id}/request", response_model=Envelope[ConfigRequest], tags=["runs"])
@@ -233,7 +233,7 @@ def create_export(body: ExportCreate, request: Request, who: Principal = Depends
     service = maestro(request)
     export = service.exports.create(who, body.model_dump())
     service.maintenance.wake()
-    return JSONResponse(status_code=202, content=ok(request, export))
+    return respond(request, Envelope[Export], export, 202)
 
 
 @router.get("/exports", response_model=Envelope[list[Export]], tags=["exports"])

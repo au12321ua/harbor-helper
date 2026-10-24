@@ -55,9 +55,11 @@ export function SetupPage({ onSignedIn }: { onSignedIn: SignedIn }) {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.post<SessionInfo>("setup", {
-        ...form,
-        display_name: form.display_name || null,
+      const res = await api.post("/setup", {
+        body: {
+          ...form,
+          display_name: form.display_name || null,
+        },
       });
       onSignedIn(res.data);
     } catch (err) {
@@ -133,7 +135,7 @@ export function LoginPage({ onSignedIn }: { onSignedIn: SignedIn }) {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.post<SessionInfo>("session", { username, password });
+      const res = await api.post("/session", { body: { username, password } });
       onSignedIn(res.data);
     } catch (err) {
       setError(err);
@@ -196,7 +198,7 @@ export function InvitePage({ onSignedIn }: { onSignedIn: SignedIn }) {
     }
     if (!token) return;
     api
-      .post<InvitationInfo>("invitations/lookup", { token })
+      .post("/invitations/lookup", { body: { token } })
       .then((res) => setInfo(res.data))
       .catch(setLookupError);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,7 +219,7 @@ export function InvitePage({ onSignedIn }: { onSignedIn: SignedIn }) {
               password: form.password,
             }
           : { token, password: form.password };
-      const res = await api.post<SessionInfo>("invitations/accept", body);
+      const res = await api.post("/invitations/accept", { body: body });
       onSignedIn(res.data);
       navigate("/", { replace: true });
     } catch (err) {

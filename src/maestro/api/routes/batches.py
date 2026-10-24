@@ -1,9 +1,8 @@
 """Batches: several runs accepted together, all or none (04 section 4)."""
 
 from fastapi import APIRouter, Depends, Header, Request
-from fastapi.responses import JSONResponse
 
-from maestro.api.deps import maestro, ok, principal
+from maestro.api.deps import maestro, ok, principal, respond
 from maestro.api.models import Batch, BatchAccepted, BatchCreate, BatchPreview, Envelope
 from maestro.core.errors import MaestroError
 from maestro.services.principal import Principal
@@ -38,7 +37,7 @@ def submit_batch(
     )
     service.worker.wake()
     headers = {"Idempotent-Replayed": "true"} if replayed else {}
-    return JSONResponse(status_code=status, content=ok(request, data), headers=headers)
+    return respond(request, Envelope[BatchAccepted], data, status, headers)
 
 
 @router.get("/run-batches", response_model=Envelope[list[Batch]])

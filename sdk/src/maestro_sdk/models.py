@@ -11,6 +11,36 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
+class ActionRule(BaseModel):
+    """
+    Who may do an action: a web session (of an admin when ``role`` says so) and PATs
+    of the listed scopes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    pat_scopes: list[Literal["read", "experiment"]]
+    role: Literal["admin", "member"] | None
+    web_session: bool
+
+
+class AdmissionRecord(BaseModel):
+    """
+    The admission and preparation a run's task was accepted with.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    admission_id: str | None
+    admission_revision: int | None
+    expected_image_id: str | None
+    preparation_method_digest: str | None
+    spec_digest: str
+    task_key: str
+
+
 class AdmissionRevocation(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -91,21 +121,13 @@ class AttemptStep(BaseModel):
     step: Annotated[str, Field(description="starting, environment, agent, collecting or verifying")]
 
 
-class AuditEvent(BaseModel):
+class AuthInfo(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    action: str
-    actor_user_id: str | None
-    auth_channel: str | None
-    created_at: str
-    detail: dict[str, Any] | None
-    id: str
-    object_id: str | None
-    object_type: str | None
-    outcome: str
-    pat_id: str | None
-    request_id: str | None
+    csrf_header: str
+    pat_header: str
+    session_cookie: bool
 
 
 class AuthorParameter(BaseModel):
@@ -118,44 +140,69 @@ class AuthorParameter(BaseModel):
     )
     default: str | None
     description: str
-    hard_constraints: dict[str, Any]
     name: str
     required: bool
     sensitive: bool
     used_in: list[str]
 
 
-class BatchPreview(BaseModel):
+class BaselineDifference(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    blockers: list[dict[str, Any]]
-    can_submit: bool
-    duplicate_configs: Annotated[list[str], Field(description="Configuration digests given twice")]
-    pat_quota: dict[str, int] | None
+    path: str
+    tasks_higher: Annotated[int, Field(description="Tasks whose author value is lower or unset")]
+    tasks_lower: Annotated[int, Field(description="Tasks whose author value is higher")]
+    value: int | float
+
+
+class BatchBlocker(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    left: int | None = None
+    limit: int | None = None
+    needed: int | None = None
+    path: str
+
+
+class BatchOperationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    batch_id: str
+    cancelled: int
+    error_trials: int
+    finished: int
+    interrupted: int
     planned_trials: int
-    runs: list[dict[str, Any]]
+    runs: int
+    scored_trials: int
+    terminal_runs: int
 
 
-class Capabilities(BaseModel):
+class BatchProgress(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    actions: dict[str, dict[str, Any]]
-    api_version: str
-    auth: dict[str, Any]
-    contract_digest: Annotated[
-        str,
-        Field(
-            description="sha256 of the OpenAPI document; clients generated from another one warn"
-        ),
-    ]
-    execution: dict[str, Any]
-    features: dict[str, bool]
-    limits: dict[str, int]
-    schema_revision: str
-    service_version: str
-    team_policy_revision: int
+    cancelled: int
+    error_trials: int
+    finished: int
+    interrupted: int
+    planned_trials: int
+    runs: int
+    scored_trials: int
+    terminal_runs: int
+
+
+class CacheObservation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    action: Literal["restore_on_run"] | None
+    cache_state: Literal["ready", "cold"]
+    task_key: str
 
 
 class CapacityUse(BaseModel):
@@ -167,7 +214,7 @@ class CapacityUse(BaseModel):
     slots: int
 
 
-class ConfigBlocker(BaseModel):
+class ConfigWarning(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
@@ -176,26 +223,12 @@ class ConfigBlocker(BaseModel):
     path: str
 
 
-class ConfigResolution(BaseModel):
+class ContentEvidence(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    baseline_differences: list[dict[str, Any]]
-    blockers: list[ConfigBlocker]
-    cache_observations: list[dict[str, Any]]
-    config_digest: str | None
-    created_at: str
-    effective_config: dict[str, Any] | None
-    excluded_tasks: list[dict[str, Any]]
-    expires_at: str
-    field_sources: dict[str, dict[str, Any]]
-    labels: dict[str, str]
-    planned_trials: int
-    reference_revisions: dict[str, Any]
-    request: dict[str, Any]
-    required_preparation: list[dict[str, Any]]
-    resolution_id: str
-    warnings: list[dict[str, Any]]
+    message: str | None = None
+    reason: str | None = None
 
 
 class ContentResource(BaseModel):
@@ -328,6 +361,67 @@ class DeletionState(BaseModel):
     ]
 
 
+class EffectiveAttachment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    content_digest: str
+    effects: list[str]
+    has_bootstrap: bool
+    name: str
+    provides: AttachmentProvides
+    version: str
+    version_id: str
+
+
+class EffectiveDataset(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    namespace: str
+    resolved_digest: str
+    source_kind: str
+    version_id: str
+
+
+class EffectiveHarness(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    agent: str
+    content_digest: str
+    name: str
+    params: dict[str, str | int | float | bool]
+    version: str
+    version_id: str
+
+
+class EffectiveOverrides(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    agent_timeout_sec: int | float | None = None
+    cpus: int | None = None
+    memory_mb: int | None = None
+    verifier_timeout_sec: int | float | None = None
+
+
+class EffectiveTask(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    agent_timeout_sec: Annotated[
+        int | float | None, Field(description="null: the executor's default")
+    ]
+    content_digest: str
+    cpus: int | float
+    memory_mb: int
+    spec_digest: str
+    task_key: str
+    verifier_timeout_sec: int | float | None
+
+
 class EnabledChange(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -345,6 +439,28 @@ class ExportCreate(BaseModel):
     task_keys: list[str] | None = None
 
 
+class ExportOperationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact_bytes: int | None
+    digest: str | None
+    export_id: str
+    files: int | None
+    missing: int | None
+    runs: int | None
+    size_bytes: int | None
+    warnings: int | None
+
+
+class ExportProgress(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    files: int
+    runs: int
+
+
 class ExportRequest(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -353,6 +469,19 @@ class ExportRequest(BaseModel):
     include_artifacts: bool
     run_ids: list[str]
     task_keys: list[str] | None
+
+
+class ExportSummary(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact_bytes: int
+    digest: str
+    files: int
+    missing: Annotated[int, Field(description="Files listed in the manifest's missing section")]
+    runs: int
+    size_bytes: Annotated[int, Field(description="Size of the package")]
+    warnings: int
 
 
 class FieldErrorModel(BaseModel):
@@ -365,6 +494,19 @@ class FieldErrorModel(BaseModel):
     path: str
 
 
+class FieldSource(BaseModel):
+    """
+    Which layer gave a value: author, team policy, plan, harness default or override.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    layer: Literal["author", "team", "plan", "override", "harness"]
+    revision: int | None = None
+    source_id: str | None = None
+
+
 class FirstPreparation(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -375,21 +517,15 @@ class FirstPreparation(BaseModel):
     ] = None
 
 
-class Harness(BaseModel):
+class FirstPreparationProgress(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    agent: str
-    content_digest: str
-    created_at: str
-    deletion: dict[str, Any] | None = None
-    description: str
-    enabled: bool
-    id: str
-    name: str
-    parameter_schema: dict[str, Any]
-    protocols: list[Literal["openai-compatible", "openai", "anthropic"]]
-    version: str
+    admitted: int | None
+    failed: int | None
+    task_ids: list[str]
+    tasks_done: int
+    tasks_total: int
 
 
 class HarnessAdapter(BaseModel):
@@ -400,29 +536,28 @@ class HarnessAdapter(BaseModel):
     parameters: Annotated[
         list[str] | None,
         Field(description="Parameters a harness version may declare; null means any"),
-    ] = None
+    ]
     protocols: list[Literal["openai-compatible", "openai", "anthropic"]]
 
 
-class HarnessCreate(BaseModel):
+class HarnessParameterSpec(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    agent: Annotated[str, Field(description="Executor adapter; see /admin/harness-adapters")]
-    description: str | None = ""
-    name: str
-    parameter_schema: dict[str, Any] | None = {"parameters": {}}
-    protocols: list[Literal["openai-compatible", "openai", "anthropic"]]
-    version: str
+    default: str | int | float | bool | None = None
+    description: str | None = None
+    enum: list[str | int | float | bool] | None = None
+    maximum: int | float | None = None
+    minimum: int | float | None = None
+    type: Literal["string", "integer", "number", "boolean"]
 
 
 class Health(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    accepting_runs: bool | None = None
-    detail: dict[str, Any] | None = {}
-    status: str
+    accepting_runs: bool | None
+    status: Literal["alive", "ready", "maintenance"]
 
 
 class HostCapacityView(BaseModel):
@@ -432,6 +567,28 @@ class HostCapacityView(BaseModel):
     cpus: float
     memory_mb: int
     slots: int
+
+
+class ImportRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    accept_changed_content: bool
+    credential_id: str | None
+    name: str
+    namespace: str
+    prepare: bool
+    ref: str
+    source_kind: str
+
+
+class ImportResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dataset_version_id: str
+    existing: Annotated[bool, Field(description="The same version was imported before")]
+    preparation_operation_id: str | None = None
 
 
 class Invitation(BaseModel):
@@ -533,17 +690,8 @@ class IssuedPat(BaseModel):
     token_prefix: str
 
 
-class LocalPreparation(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    cache_state: Literal["absent", "restoring", "ready", "stale"]
-    id: str | None
-    last_restore_error: dict[str, Any] | None
-    last_used_at: str | None
-    location_id: str
-    operation_id: str | None
-    prepared_at: str | None
+class JsonValue(RootModel[Any]):
+    root: Any
 
 
 class LoginRequest(BaseModel):
@@ -568,7 +716,7 @@ class MasterKeyStatus(BaseModel):
     available: bool
     generation: int | None
     initialized: bool
-    reencrypted_credentials: int | None = None
+    reencrypted_credentials: int | None
     rotated_at: str | None
 
 
@@ -606,7 +754,10 @@ class ModelConfigCreate(BaseModel):
     endpoint: Annotated[str, Field(description="http(s) base URL, no credentials or query")]
     model_id: str
     name: str
-    params: dict[str, Any] | None = {}
+    params: Annotated[
+        dict[str, JsonValue] | None,
+        Field(description="Provider request parameters; no secrets", validate_default=True),
+    ] = {}
     protocol: Literal["openai-compatible", "openai", "anthropic"]
     provider: Annotated[
         str, Field(description="Provider name; concurrency limits apply per provider")
@@ -622,7 +773,10 @@ class ModelConfigRevise(BaseModel):
     endpoint: Annotated[str, Field(description="http(s) base URL, no credentials or query")]
     expected_revision: int
     model_id: str
-    params: dict[str, Any] | None = {}
+    params: Annotated[
+        dict[str, JsonValue] | None,
+        Field(description="Provider request parameters; no secrets", validate_default=True),
+    ] = {}
     protocol: Literal["openai-compatible", "openai", "anthropic"]
     provider: Annotated[
         str, Field(description="Provider name; concurrency limits apply per provider")
@@ -635,13 +789,19 @@ class ModelRevision(BaseModel):
     )
     created_at: str
     credential_bound: bool
-    credential_id: str | None = None
+    credential_id: str | None
     endpoint: str
     model_id: str
-    params: dict[str, Any]
+    params: dict[str, JsonValue]
     protocol: Literal["openai-compatible", "openai", "anthropic"]
     provider: str
     revision: int
+
+
+class NoProgress(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class OperationResource(BaseModel):
@@ -659,6 +819,39 @@ class Owner(BaseModel):
     deleted: Annotated[bool, Field(description="The account was deleted; history keeps its name")]
     display_name: str
     username: str
+
+
+class ParameterChoice(BaseModel):
+    """
+    An author parameter value: a literal, or the team credential that holds it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    credential_id: str | None = None
+    value: str | None = None
+
+
+class ParameterIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: Literal["CONFLICTING_DEFAULTS", "COMPOSE_DISCOVERY_FAILED"]
+    file: Annotated[
+        str | None, Field(description="The compose file (COMPOSE_DISCOVERY_FAILED)")
+    ] = None
+    name: Annotated[str | None, Field(description="The parameter (CONFLICTING_DEFAULTS)")] = None
+
+
+class PassRule(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    rule: Literal["threshold"]
+    threshold: Annotated[
+        int | float, Field(description="A trial passes when its score reaches this")
+    ]
 
 
 class PasswordChange(BaseModel):
@@ -698,23 +891,12 @@ class PatCreate(BaseModel):
     scope: Literal["read", "experiment"]
 
 
-class Plan(BaseModel):
+class PatQuota(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    allowed_actions: list[str]
-    archived_at: str | None
-    copied_from: str | None
-    created_at: str
-    deletion: dict[str, Any] | None = None
-    description: str
-    id: str
-    name: str
-    owner_id: str
-    owner_username: str | None
-    revision: int
-    template: dict[str, Any]
-    updated_at: str
+    left: int
+    needed: int
 
 
 class PlanArchive(BaseModel):
@@ -731,26 +913,23 @@ class PlanCopy(BaseModel):
     name: str | None = None
 
 
-class PlanCreate(BaseModel):
+class PlanUse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    description: str | None = ""
-    name: str
-    template: Annotated[
-        dict[str, Any] | None,
-        Field(description="Fields of a configuration request (see ConfigRequest)"),
-    ] = {}
+    fields: Annotated[list[str], Field(description="JSON pointers of the fields the plan supplied")]
+    plan_id: str
+    revision: int
 
 
-class PlanUpdate(BaseModel):
+class PlannedRestore(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    description: str | None = None
-    expected_revision: int
-    name: str | None = None
-    template: dict[str, Any] | None = None
+    action: Literal["restore_cache"]
+    spec_digest: str
+    task_id: str
+    task_key: str
 
 
 class PolicySetting(BaseModel):
@@ -763,6 +942,18 @@ class PolicySetting(BaseModel):
     max: int
     min: int
     name: str
+
+
+class PreparationArchive(BaseModel):
+    """
+    The saved original the cache is restored from (U-17).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str | None
+    size_bytes: int | None
 
 
 class PreparationPin(BaseModel):
@@ -781,6 +972,19 @@ class PreparationWaiter(BaseModel):
     run_id: str | None
     since: str
     state: str
+
+
+class PreparedOutputView(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    archive: Annotated[dict[str, JsonValue] | None, Field(description="The saved original (U-17)")]
+    detail: Annotated[
+        dict[str, JsonValue],
+        Field(description="How it was prepared; depends on the environment"),
+    ]
+    image_id: str
+    image_ref: str
 
 
 class ProviderCapacity(BaseModel):
@@ -815,7 +1019,10 @@ class RecycleEntry(BaseModel):
     deleted_at: str
     deleted_by: str
     deleted_by_username: str | None
-    detail: dict[str, Any]
+    detail: Annotated[
+        dict[str, JsonValue],
+        Field(description="What a purge removed; depends on the object type"),
+    ]
     id: str
     label: Annotated[str, Field(description="The object's name when it was deleted")]
     object_id: str
@@ -868,19 +1075,29 @@ class ResourceOverrides(BaseModel):
     memory_mb: int | None = None
 
 
-class RunAccepted(BaseModel):
+class RestoreProgress(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    cache_observations: list[dict[str, Any]]
-    config_digest: str
-    excluded_tasks: list[dict[str, Any]]
-    links: dict[str, str]
-    operation_id: str
-    planned_trials: int
-    run_id: str
-    snapshot_digest: str
-    state: str
+    spec_digest: str
+    task_key: str
+    waiters: int | None
+
+
+class RestoreResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    output: PreparedOutputView
+    waiters: int
+
+
+class RevisionRef(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    revision: int
 
 
 class RunCounts(BaseModel):
@@ -894,6 +1111,28 @@ class RunCounts(BaseModel):
     not_started: int
     planned: int
     queued: int
+    scored: int
+    terminal: int
+
+
+class RunOperationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    counts: RunCounts
+    run_id: str
+    state: Literal[
+        "queued", "preparing", "running", "finalizing", "finished", "cancelled", "interrupted"
+    ]
+
+
+class RunProgress(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    active: int
+    errors: int
+    planned: int
     scored: int
     terminal: int
 
@@ -938,17 +1177,13 @@ class RunScoring(BaseModel):
     unfinished_trials: int
 
 
-class RunSnapshot(BaseModel):
+class SchemaState(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    comparison_digest: str
-    config_digest: str
-    effective: dict[str, Any]
-    policy: dict[str, Any]
-    provenance: dict[str, Any]
-    schema_version: int
-    snapshot_digest: str
+    compatible: bool
+    current: str | None
+    head: str
 
 
 class ScoringContract(BaseModel):
@@ -961,10 +1196,7 @@ class ScoringContract(BaseModel):
     direction: Literal["higher_is_better", "lower_is_better"]
     metric_id: str
     name: str
-    passed: Annotated[
-        dict[str, Any] | None,
-        Field(description="Explicit pass rule; null: no pass rate"),
-    ]
+    passed: Annotated[PassRule | None, Field(description="Explicit pass rule; null: no pass rate")]
     source: Literal["platform_default", "dataset_version"]
     task_aggregation: str
     unit: str | None
@@ -1018,7 +1250,7 @@ class SourceDataset(BaseModel):
     )
     name: str
     namespace: str
-    visibility: str | None = None
+    visibility: str | None
 
 
 class SourceTask(BaseModel):
@@ -1033,13 +1265,13 @@ class SourceVersion(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    published_at: str | None = None
+    published_at: str | None
     ref: str
     resolved_digest: str
-    revision: int | None = None
-    tags: list[str] | None = []
-    yanked: bool | None = False
-    yanked_reason: str | None = None
+    revision: int | None
+    tags: list[str]
+    yanked: bool
+    yanked_reason: str | None
 
 
 class SourceVersionDetail(BaseModel):
@@ -1063,6 +1295,25 @@ class StatusChange(BaseModel):
     expected_revision: int
 
 
+class StorageThreshold(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    gib: int | float
+    percent: int | float
+
+
+class SuggestedAction(BaseModel):
+    """
+    A next step; ``type`` says which, and the other fields depend on it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    type: str
+
+
 class TaskAdmission(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1071,26 +1322,6 @@ class TaskAdmission(BaseModel):
     id: str
     revision: int
     state: Literal["pending", "admitted", "first_failed", "revoked"]
-
-
-class TaskBlocker(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    admission_state: str | None = None
-    code: Literal[
-        "TASK_NOT_ADMITTED",
-        "TASK_ADMISSION_REVOKED",
-        "RESOURCE_CONTENT_UNAVAILABLE",
-        "CONFIG_REQUIRED_MISSING",
-        "AUTHOR_PARAMETERS_UNRESOLVED",
-    ]
-    evidence: dict[str, Any] | None = None
-    expected_digest: str | None = None
-    first_preparation_error: dict[str, Any] | None = None
-    issues: list[dict[str, Any]] | None = None
-    parameters: list[str] | None = None
-    resource_kind: str | None = None
 
 
 class TaskContent(BaseModel):
@@ -1104,12 +1335,34 @@ class TaskContent(BaseModel):
     resources: list[ContentResource]
 
 
-class TaskSelection(BaseModel):
+class TaskResources(BaseModel):
+    """
+    What the task's author asks for; a run may raise CPU and memory, never lower them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    constraint_strength: str | None
+    cpus: int | float | None
+    memory_mb: int | None
+    storage_mb: int | None
+
+
+class TaskSelectionInput(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
     mode: Literal["all_eligible", "explicit"] | None = "all_eligible"
     task_ids: list[str] | None = None
+
+
+class TaskSelectionOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    mode: Literal["all_eligible", "explicit"]
+    task_ids: list[str] | None
 
 
 class TaskSummary(BaseModel):
@@ -1125,6 +1378,15 @@ class TaskSummary(BaseModel):
     scored_trials: int
     stddev: float | None
     task_key: str
+
+
+class TaskTimeouts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    agent_sec: int | float | None
+    build_sec: int | float | None
+    verifier_sec: int | float | None
 
 
 class TaskWarning(BaseModel):
@@ -1224,12 +1486,12 @@ class Attachment(BaseModel):
     ]
     content_digest: Annotated[str, Field(description="Covers every file's path, SHA-256 and mode")]
     created_at: str
-    deletion: dict[str, Any] | None = None
+    deletion: DeletionState | None
     description: str
     effects: list[str]
     enabled: bool
     file_count: int
-    files: list[AttachmentFile] | None = None
+    files: list[AttachmentFile] | None
     has_bootstrap: Annotated[bool, Field(description="Has bootstrap.sh, run in each trial's setup")]
     id: str
     name: str
@@ -1240,42 +1502,41 @@ class Attachment(BaseModel):
     version: str
 
 
-class Attempt(BaseModel):
+class AttemptError(BaseModel):
+    """
+    Why an attempt did not produce a score, as the platform error policy classified it.
+    """
+
     model_config = ConfigDict(
         extra="allow",
     )
-    attempt_index: int
-    ended_at: str | None
-    error: dict[str, Any] | None
-    executor_ref: dict[str, Any] | None
+    code: str
+    detail: dict[str, JsonValue] | None
+    exception_type: str | None
+    failure_cause: str | None
+    grade_requested: bool | None
+    message: str
+    policy_version: str
+    retry_recommended: bool | None
+    reward_valid: bool | None
+    stage: str
+
+
+class AuditEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    action: str
+    actor_user_id: str | None
+    auth_channel: str | None
+    created_at: str
+    detail: Annotated[dict[str, JsonValue] | None, Field(description="Depends on the action")]
     id: str
-    phase: str | None
-    started_at: str
-    state: Literal[
-        "starting",
-        "preparing",
-        "executing",
-        "verifying",
-        "completed",
-        "failed",
-        "cancelled",
-        "interrupted",
-    ]
-    steps: Annotated[
-        list[AttemptStep],
-        Field(description="Step start times; a step ends when the next starts or the attempt ends"),
-    ]
-
-
-class BatchAccepted(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    batch_id: str
-    links: dict[str, str]
-    operation_id: str
-    planned_trials: int
-    runs: list[RunAccepted]
+    object_id: str | None
+    object_type: str | None
+    outcome: str
+    pat_id: str | None
+    request_id: str | None
 
 
 class CapacityOverview(BaseModel):
@@ -1287,7 +1548,16 @@ class CapacityOverview(BaseModel):
     providers: list[ProviderCapacity]
 
 
-class ConfigRequest(BaseModel):
+class ConfigDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    after: JsonValue
+    before: JsonValue
+    path: Annotated[str, Field(description="JSON pointer into the effective configuration")]
+
+
+class ConfigRequestInput(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
@@ -1305,7 +1575,7 @@ class ConfigRequest(BaseModel):
             description="agent: a model through a harness; oracle: each task's reference solution, a test mode never compared with model results. Required unless the plan has it"
         ),
     ] = None
-    harness_params: dict[str, Any] | None = {}
+    harness_params: dict[str, str | int | float | bool] | None = {}
     harness_version_id: str | None = None
     model_config_id: str | None = None
     model_revision: Annotated[
@@ -1330,10 +1600,52 @@ class ConfigRequest(BaseModel):
     repetitions: int | None = None
     resources: Annotated[ResourceOverrides | None, Field(validate_default=True)] = {}
     run_deadline_hours: int | None = None
-    task_selection: Annotated[TaskSelection | None, Field(validate_default=True)] = {
+    task_selection: Annotated[TaskSelectionInput | None, Field(validate_default=True)] = {
         "mode": "all_eligible"
     }
     timeouts: Annotated[TimeoutOverrides | None, Field(validate_default=True)] = {}
+
+
+class ConfigRequestOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attachments: Annotated[
+        list[str],
+        Field(description="Attachment version ids in load order (model runs only)"),
+    ]
+    concurrency: int | None
+    dataset_version_id: Annotated[str | None, Field(description="Required unless the plan has it")]
+    execution_mode: Annotated[
+        Literal["agent", "oracle"] | None,
+        Field(
+            description="agent: a model through a harness; oracle: each task's reference solution, a test mode never compared with model results. Required unless the plan has it"
+        ),
+    ]
+    harness_params: dict[str, str | int | float | bool]
+    harness_version_id: str | None
+    model_config_id: str | None
+    model_revision: Annotated[
+        int | None,
+        Field(description="An earlier revision of the model configuration; unset: current"),
+    ]
+    parameters: Annotated[
+        dict[str, str | CredentialRef],
+        Field(description="Author parameter values; secret ones as a credential reference"),
+    ]
+    plan_id: Annotated[
+        str | None,
+        Field(description="An experiment plan; fields set here win, the plan fills in the rest"),
+    ]
+    plan_revision: Annotated[
+        int | None,
+        Field(description="Refuse unless the plan is still at this revision"),
+    ]
+    repetitions: int | None
+    resources: ResourceOverrides
+    run_deadline_hours: int | None
+    task_selection: TaskSelectionOutput
+    timeouts: TimeoutOverrides
 
 
 class Dataset(BaseModel):
@@ -1372,7 +1684,7 @@ class DatasetVersionDetail(BaseModel):
     ref_kind: str
     resolved_digest: str
     scoring_contract: Annotated[
-        dict[str, Any],
+        ScoringContract,
         Field(
             description="Contract new runs freeze; source is dataset_version or platform_default"
         ),
@@ -1381,6 +1693,23 @@ class DatasetVersionDetail(BaseModel):
     submittable_task_count: int
     task_count: int
     upstream_ref: str
+
+
+class EffectiveModel(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    config_id: str
+    credential_id: str | None
+    endpoint: str
+    model_id: str
+    params: Annotated[
+        dict[str, JsonValue],
+        Field(description="Provider request parameters, as configured"),
+    ]
+    protocol: Literal["openai-compatible", "openai", "anthropic"]
+    provider: str
+    revision: int
 
 
 class EnvelopeAdmissionRevoked(BaseModel):
@@ -1399,30 +1728,6 @@ class EnvelopeAttachment(BaseModel):
     meta: Meta
 
 
-class EnvelopeBatchAccepted(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: BatchAccepted
-    meta: Meta
-
-
-class EnvelopeBatchPreview(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: BatchPreview
-    meta: Meta
-
-
-class EnvelopeCapabilities(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: Capabilities
-    meta: Meta
-
-
 class EnvelopeCapacityOverview(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1435,15 +1740,7 @@ class EnvelopeConfigRequest(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: ConfigRequest
-    meta: Meta
-
-
-class EnvelopeConfigResolution(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: ConfigResolution
+    data: ConfigRequestOutput
     meta: Meta
 
 
@@ -1460,22 +1757,6 @@ class EnvelopeDatasetVersionDetail(BaseModel):
         extra="allow",
     )
     data: DatasetVersionDetail
-    meta: Meta
-
-
-class EnvelopeHarness(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: Harness
-    meta: Meta
-
-
-class EnvelopeHealth(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: Health
     meta: Meta
 
 
@@ -1535,14 +1816,6 @@ class EnvelopePat(BaseModel):
     meta: Meta
 
 
-class EnvelopePlan(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: Plan
-    meta: Meta
-
-
 class EnvelopeRecycleEntry(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1551,11 +1824,11 @@ class EnvelopeRecycleEntry(BaseModel):
     meta: Meta
 
 
-class EnvelopeRunAccepted(BaseModel):
+class EnvelopeScoringContract(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: RunAccepted
+    data: ScoringContract
     meta: Meta
 
 
@@ -1596,14 +1869,6 @@ class EnvelopeUser(BaseModel):
         extra="allow",
     )
     data: User
-    meta: Meta
-
-
-class EnvelopeDict(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: dict[str, Any]
     meta: Meta
 
 
@@ -1671,14 +1936,6 @@ class EnvelopeListHarnessAdapter(BaseModel):
     meta: Meta
 
 
-class EnvelopeListHarness(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: list[Harness]
-    meta: Meta
-
-
 class EnvelopeListInvitation(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1692,14 +1949,6 @@ class EnvelopeListPat(BaseModel):
         extra="allow",
     )
     data: list[Pat]
-    meta: Meta
-
-
-class EnvelopeListPlan(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: list[Plan]
     meta: Meta
 
 
@@ -1752,7 +2001,7 @@ class ErrorBody(BaseModel):
     message: str
     retryable: bool | None = False
     stage: str | None = None
-    suggested_actions: list[dict[str, Any]] | None = []
+    suggested_actions: Annotated[list[SuggestedAction] | None, Field(validate_default=True)] = []
 
 
 class ErrorResponse(BaseModel):
@@ -1763,26 +2012,39 @@ class ErrorResponse(BaseModel):
     meta: Meta
 
 
-class Export(BaseModel):
+class ExecutionInfo(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    created_at: str
-    digest: str | None
-    error: dict[str, Any] | None
-    expires_at: str | None
-    finished_at: str | None
-    id: str
-    links: dict[str, str]
-    operation_id: str
-    owner_id: str
-    request: ExportRequest
-    size_bytes: int | None
-    state: Literal["queued", "building", "ready", "failed", "expired"]
-    summary: Annotated[
-        dict[str, Any] | None,
-        Field(description="runs, files, missing, warnings, size_bytes and digest of the package"),
-    ]
+    capacity: HostCapacityView
+    executor: str | None
+    harness_adapters: list[HarnessAdapter]
+    modes: list[Literal["agent", "oracle"]]
+    policy_version: str
+
+
+class HarnessParameterSchemaInput(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    parameters: Annotated[dict[str, HarnessParameterSpec] | None, Field(validate_default=True)] = {}
+
+
+class HarnessParameterSchemaOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    parameters: dict[str, HarnessParameterSpec]
+
+
+class ImportProgress(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    request: ImportRequest
+    resolved_digest: str | None
+    tasks_done: int | None
+    tasks_total: int | None
 
 
 class ModelConfig(BaseModel):
@@ -1791,62 +2053,155 @@ class ModelConfig(BaseModel):
     )
     created_at: str
     credential_bound: bool
-    credential_id: Annotated[str | None, Field(description="Administrators only")] = None
-    credential_name: Annotated[str | None, Field(description="Administrators only")] = None
+    credential_id: Annotated[str | None, Field(description="Administrators only")]
+    credential_name: Annotated[str | None, Field(description="Administrators only")]
     credential_problem: str | None
-    deletion: dict[str, Any] | None = None
+    deletion: DeletionState | None
     description: str
     enabled: bool
     endpoint: str
     id: str
     model_id: str
     name: str
-    params: dict[str, Any]
+    params: dict[str, JsonValue]
     protocol: Literal["openai-compatible", "openai", "anthropic"]
     provider: str
     revision: int
-    revisions: list[ModelRevision] | None = None
+    revisions: list[ModelRevision] | None
     updated_at: str
 
 
-class Operation(BaseModel):
+class NormalizedRequest(BaseModel):
+    """
+    A configuration request after checking: what resolution and reruns start from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attachments: list[str]
+    concurrency: int | None
+    dataset_version_id: str
+    execution_mode: Literal["agent", "oracle"]
+    harness_params: dict[str, str | int | float | bool]
+    harness_version_id: str | None
+    model_config_id: str | None
+    model_revision: int | None
+    parameters: dict[str, ParameterChoice]
+    plan: PlanUse | None
+    repetitions: int | None
+    resources: ResourceOverrides
+    run_deadline_hours: int | None
+    task_selection: TaskSelectionOutput
+    timeouts: TimeoutOverrides
+
+
+class PlanTemplateInput(BaseModel):
+    """
+    Any fields of a configuration request (see ConfigRequest). A field the plan does
+    not set is left out; a run's own value wins over the plan's.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attachments: list[str] | None = None
+    concurrency: int | None = None
+    dataset_version_id: str | None = None
+    execution_mode: Literal["agent", "oracle"] | None = None
+    harness_params: dict[str, str | int | float | bool] | None = None
+    harness_version_id: str | None = None
+    model_config_id: str | None = None
+    model_revision: int | None = None
+    parameters: dict[str, str | CredentialRef] | None = None
+    repetitions: int | None = None
+    resources: ResourceOverrides | None = None
+    run_deadline_hours: int | None = None
+    task_selection: TaskSelectionInput | None = None
+    timeouts: TimeoutOverrides | None = None
+
+
+class PlanTemplateOutput(BaseModel):
+    """
+    Any fields of a configuration request (see ConfigRequest). A field the plan does
+    not set is left out; a run's own value wins over the plan's.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attachments: list[str] | None = None
+    concurrency: int | None = None
+    dataset_version_id: str | None = None
+    execution_mode: Literal["agent", "oracle"] | None = None
+    harness_params: dict[str, str | int | float | bool] | None = None
+    harness_version_id: str | None = None
+    model_config_id: str | None = None
+    model_revision: int | None = None
+    parameters: dict[str, str | CredentialRef] | None = None
+    repetitions: int | None = None
+    resources: ResourceOverrides | None = None
+    run_deadline_hours: int | None = None
+    task_selection: TaskSelectionOutput | None = None
+    timeouts: TimeoutOverrides | None = None
+
+
+class PlanUpdate(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    description: str | None = None
+    expected_revision: int
+    name: str | None = None
+    template: PlanTemplateInput | None = None
+
+
+class Problem(BaseModel):
+    """
+    A recorded failure: a stable code and a message, with the cause's kind, evidence
+    and next steps when it has them. Further fields depend on the code.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    evidence: dict[str, JsonValue] | None = None
+    kind: str | None = None
+    message: str | None = None
+    suggested_actions: list[SuggestedAction] | None = None
+
+
+class ReferenceRevisions(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attachments: list[str] | None = None
+    harness_version: str | None = None
+    model_config_: Annotated[RevisionRef | None, Field(alias="model_config")] = None
+    plan: RevisionRef | None = None
+    team_policy: int | None = None
+
+
+class RestoreOperation(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
     allowed_actions: list[str]
     created_at: str
-    error: dict[str, Any] | None
+    error: Problem | None
     finished_at: str | None
     id: str
-    kind: str
+    kind: Literal["preparation_restore"]
     links: dict[str, str]
     owner_id: str | None
     phase: str | None
-    progress: dict[str, Any]
+    progress: RestoreProgress
     resource: OperationResource | None
-    result: dict[str, Any] | None
+    result: RestoreResult | None
     revision: int
     status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
     updated_at: str
-
-
-class Preparation(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    archive: dict[str, Any] | None
-    cache_state: Literal["absent", "restoring", "ready", "stale"]
-    generation: int
-    id: str | None
-    image_id: str | None
-    last_restore_error: dict[str, Any] | None
-    last_used_at: str | None
-    location_id: str
-    operation_id: str | None
-    pins: list[PreparationPin]
-    prepared_at: str | None
-    spec_digest: str
-    waiters: list[PreparationWaiter]
 
 
 class Run(BaseModel):
@@ -1856,7 +2211,7 @@ class Run(BaseModel):
     accepted_at: str
     allowed_actions: list[str]
     artifact_state: Literal["pending", "saving", "complete", "partial", "failed", "expired"]
-    batch_id: str | None = None
+    batch_id: str | None
     cleanup_state: Literal["pending", "running", "complete", "failed", "not_required"]
     client_request_id: str | None
     counts: RunCounts
@@ -1878,8 +2233,8 @@ class Run(BaseModel):
     owner: Owner
     owner_id: str
     pat_id: str | None
-    plan_id: str | None = None
-    plan_revision: int | None = None
+    plan_id: str | None
+    plan_revision: int | None
     queue_reason: Annotated[
         str | None,
         Field(
@@ -1914,7 +2269,7 @@ class RunCreate(BaseModel):
     concurrency: int | None = None
     dataset_version_id: str | None = None
     execution_mode: Literal["agent", "oracle"] | None = None
-    harness_params: dict[str, Any] | None = {}
+    harness_params: dict[str, str | int | float | bool] | None = {}
     harness_version_id: str | None = None
     model_config_id: str | None = None
     model_revision: Annotated[
@@ -1947,60 +2302,62 @@ class RunCreate(BaseModel):
             description="Makes this a modified run of that run: its differences are recorded (start from GET /runs/{run_id}/request)"
         ),
     ] = None
-    task_selection: Annotated[TaskSelection | None, Field(validate_default=True)] = {
+    task_selection: Annotated[TaskSelectionInput | None, Field(validate_default=True)] = {
         "mode": "all_eligible"
     }
     timeouts: Annotated[TimeoutOverrides | None, Field(validate_default=True)] = {}
 
 
-class RunDetail(BaseModel):
+class RunOperation(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    accepted_at: str
     allowed_actions: list[str]
-    artifact_state: Literal["pending", "saving", "complete", "partial", "failed", "expired"]
-    batch_id: str | None = None
-    cleanup_state: Literal["pending", "running", "complete", "failed", "not_required"]
-    client_request_id: str | None
-    counts: RunCounts
-    dataset_version_deletion: DeletionState | None
-    dataset_version_id: str
-    deadline_at: str
-    deletion: Annotated[
-        DeletionState | None,
-        Field(description="Set when the run is in the recycle bin"),
-    ]
+    created_at: str
+    error: Problem | None
     finished_at: str | None
-    heartbeat_at: Annotated[
-        str | None, Field(description="Last sign of life from the run's Runner")
-    ]
     id: str
+    kind: Literal["run"]
     links: dict[str, str]
-    name: str
-    operation_id: str
-    owner: Owner
-    owner_id: str
-    pat_id: str | None
-    plan_id: str | None = None
-    plan_revision: int | None = None
-    queue_reason: Annotated[
-        str | None,
-        Field(
-            description="Why a queued run waits: CAPACITY_SLOTS, CAPACITY_CPU, CAPACITY_MEMORY or PROVIDER_LIMIT"
-        ),
-    ]
-    relation: Literal["initial", "rerun", "modified"]
-    result_completeness: Literal["none", "partial", "complete"]
-    scoring: RunScoring | None
-    snapshot: RunSnapshot
-    source_run_id: str | None
-    started_at: str | None
-    state: Literal[
-        "queued", "preparing", "running", "finalizing", "finished", "cancelled", "interrupted"
-    ]
-    stop_reason: str | None
-    stop_requested: bool
+    owner_id: str | None
+    phase: str | None
+    progress: RunProgress
+    resource: OperationResource | None
+    result: RunOperationResult | None
+    revision: int
+    status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
+    updated_at: str
+
+
+class RunPolicy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    aggregation_version: int
+    executor_id: str | None
+    policy_version: str
+    scoring: ScoringContract
+    team_policy_revision: int
+
+
+class RunSource(BaseModel):
+    """
+    Where a rerun or modified run came from (RUN-06).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    config_digest: str
+    differences: list[ConfigDifference] | None = None
+    relation: Literal["rerun", "modified"]
+    run_id: str
+    snapshot_digest: str
+    source_field_sources: dict[str, FieldSource] | None = None
+    task_causes: Annotated[
+        dict[str, list[str]] | None,
+        Field(description="Rerun: why each chosen task of the source was not scored"),
+    ] = None
 
 
 class RunSummary(BaseModel):
@@ -2044,6 +2401,536 @@ class RunSummary(BaseModel):
     usage: UsageSummary
 
 
+class StorageStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    accept_min_free: StorageThreshold
+    dispatch_min_free: StorageThreshold
+    free_bytes: int
+    level: Literal["ok", "accept_paused", "dispatch_paused"]
+    total_bytes: int
+
+
+class SystemDetail(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    executor: str | None
+    master_key_available: bool
+    needs_setup: bool | None
+    schema_: Annotated[SchemaState, Field(alias="schema")]
+    storage: StorageStatus
+    worker_running: bool
+
+
+class SystemStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    accepting_runs: bool | None
+    detail: SystemDetail
+    status: Literal["alive", "ready", "maintenance"]
+
+
+class TaskBlocker(BaseModel):
+    """
+    Why a task cannot be chosen; the fields that apply depend on the code.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    admission_state: str | None = None
+    code: Literal[
+        "TASK_NOT_ADMITTED",
+        "TASK_ADMISSION_REVOKED",
+        "RESOURCE_CONTENT_UNAVAILABLE",
+        "CONFIG_REQUIRED_MISSING",
+        "AUTHOR_PARAMETERS_UNRESOLVED",
+        "TEAM_LIMIT_EXCEEDED",
+        "NOT_FOUND",
+    ]
+    evidence: ContentEvidence | None = None
+    expected_digest: str | None = None
+    field: Annotated[str | None, Field(description="TEAM_LIMIT_EXCEEDED: the task setting")] = None
+    first_preparation_error: Problem | None = None
+    issues: list[ParameterIssue] | None = None
+    limit: int | float | None = None
+    parameters: list[str] | None = None
+    resource_kind: str | None = None
+    value: int | float | None = None
+
+
+class Attempt(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attempt_index: int
+    ended_at: str | None
+    error: AttemptError | None
+    executor_ref: Annotated[
+        dict[str, JsonValue] | None,
+        Field(description="Executor-specific, e.g. Harbor's ids"),
+    ]
+    id: str
+    phase: str | None
+    started_at: str
+    state: Literal[
+        "starting",
+        "preparing",
+        "executing",
+        "verifying",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ]
+    steps: Annotated[
+        list[AttemptStep],
+        Field(description="Step start times; a step ends when the next starts or the attempt ends"),
+    ]
+
+
+class Batch(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowed_actions: list[str]
+    client_request_id: str | None
+    created_at: str
+    id: str
+    name: str
+    operation_id: str
+    owner_id: str
+    owner_username: str | None
+    pat_id: str | None
+    progress: BatchProgress
+    runs: list[Run]
+    status: str
+    stop_requested: bool
+
+
+class BatchCreate(BaseModel):
+    """
+    Runs accepted together, all or none; each costs one unit of PAT quota.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    client_request_id: str | None = None
+    name: str
+    runs: list[RunCreate]
+
+
+class BatchOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowed_actions: list[str]
+    created_at: str
+    error: Problem | None
+    finished_at: str | None
+    id: str
+    kind: Literal["batch"]
+    links: dict[str, str]
+    owner_id: str | None
+    phase: str | None
+    progress: BatchProgress
+    resource: OperationResource | None
+    result: BatchOperationResult | None
+    revision: int
+    status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
+    updated_at: str
+
+
+class BlockedTask(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    blockers: list[TaskBlocker]
+    task_id: str
+
+
+class Capabilities(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    actions: dict[str, ActionRule]
+    api_version: str
+    auth: AuthInfo
+    contract_digest: Annotated[
+        str,
+        Field(
+            description="sha256 of the OpenAPI document; clients generated from another one warn"
+        ),
+    ]
+    execution: ExecutionInfo
+    features: dict[str, bool]
+    limits: dict[str, int]
+    schema_revision: str
+    service_version: str
+    team_policy_revision: int
+
+
+class ConfigBlocker(BaseModel):
+    """
+    Why this configuration cannot be submitted; ``path`` points at the field.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    kind: Annotated[str | None, Field(description="ATTACHMENT_CONFLICT: name, tool or env")] = None
+    limit: int | float | None = None
+    message: str
+    name: Annotated[str | None, Field(description="ATTACHMENT_CONFLICT: the claimed name")] = None
+    path: str
+    reason: str | None = None
+    task_count: Annotated[int | None, Field(description="RUN_TOO_LARGE")] = None
+    tasks: Annotated[list[BlockedTask] | None, Field(description="TASKS_NOT_SUBMITTABLE")] = None
+    trial_count: Annotated[int | None, Field(description="RUN_TOO_LARGE")] = None
+
+
+class DatasetImportOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowed_actions: list[str]
+    created_at: str
+    error: Problem | None
+    finished_at: str | None
+    id: str
+    kind: Literal["dataset_import"]
+    links: dict[str, str]
+    owner_id: str | None
+    phase: str | None
+    progress: ImportProgress
+    resource: OperationResource | None
+    result: ImportResult | None
+    revision: int
+    status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
+    updated_at: str
+
+
+class EffectiveConfig(BaseModel):
+    """
+    The fixed configuration of a run (03 section 5); ``config_digest`` is its digest.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attachments: Annotated[list[EffectiveAttachment], Field(description="In load order")]
+    bootstrap_timeout_sec: int | float | None
+    concurrency: int
+    dataset: EffectiveDataset
+    deviates_from_author_baseline: bool
+    execution_mode: Literal["agent", "oracle"]
+    harness: EffectiveHarness | None
+    model: EffectiveModel | None
+    overrides: Annotated[
+        EffectiveOverrides, Field(description="Values this run set for every task")
+    ]
+    parameters: dict[str, ParameterChoice]
+    repetitions: int
+    run_deadline_hours: int
+    tasks: list[EffectiveTask]
+
+
+class EnvelopeBatch(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: Batch
+    meta: Meta
+
+
+class EnvelopeCapabilities(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: Capabilities
+    meta: Meta
+
+
+class EnvelopeModelConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: ModelConfig
+    meta: Meta
+
+
+class EnvelopeRunSummary(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: RunSummary
+    meta: Meta
+
+
+class EnvelopeRun(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: Run
+    meta: Meta
+
+
+class EnvelopeSystemStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: SystemStatus
+    meta: Meta
+
+
+class EnvelopeListBatch(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: list[Batch]
+    meta: Meta
+
+
+class EnvelopeListModelConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: list[ModelConfig]
+    meta: Meta
+
+
+class EnvelopeListRun(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: list[Run]
+    meta: Meta
+
+
+class EvictionOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowed_actions: list[str]
+    created_at: str
+    error: Problem | None
+    finished_at: str | None
+    id: str
+    kind: Literal["preparation_eviction"]
+    links: dict[str, str]
+    owner_id: str | None
+    phase: str | None
+    progress: NoProgress
+    resource: OperationResource | None
+    result: None
+    revision: int
+    status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
+    updated_at: str
+
+
+class ExcludedTask(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    blockers: list[TaskBlocker]
+    task_id: str
+    task_key: str
+
+
+class Export(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created_at: str
+    digest: str | None
+    error: Problem | None
+    expires_at: str | None
+    finished_at: str | None
+    id: str
+    links: dict[str, str]
+    operation_id: str
+    owner_id: str
+    request: ExportRequest
+    size_bytes: int | None
+    state: Literal["queued", "building", "ready", "failed", "expired"]
+    summary: ExportSummary | None
+
+
+class ExportOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowed_actions: list[str]
+    created_at: str
+    error: Problem | None
+    finished_at: str | None
+    id: str
+    kind: Literal["export"]
+    links: dict[str, str]
+    owner_id: str | None
+    phase: str | None
+    progress: ExportProgress
+    resource: OperationResource | None
+    result: ExportOperationResult | None
+    revision: int
+    status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
+    updated_at: str
+
+
+class FirstPreparationTask(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    error: Problem | None = None
+    image_id: str | None = None
+    skipped: Annotated[bool | None, Field(description="Already decided by an earlier attempt")] = (
+        None
+    )
+    state: Literal["pending", "admitted", "first_failed", "revoked"]
+
+
+class Harness(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    agent: str
+    content_digest: str
+    created_at: str
+    deletion: DeletionState | None
+    description: str
+    enabled: bool
+    id: str
+    name: str
+    parameter_schema: HarnessParameterSchemaOutput
+    protocols: list[Literal["openai-compatible", "openai", "anthropic"]]
+    version: str
+
+
+class HarnessCreate(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    agent: Annotated[str, Field(description="Executor adapter; see /admin/harness-adapters")]
+    description: str | None = ""
+    name: str
+    parameter_schema: Annotated[
+        HarnessParameterSchemaInput | None, Field(validate_default=True)
+    ] = {"parameters": {}}
+    protocols: list[Literal["openai-compatible", "openai", "anthropic"]]
+    version: str
+
+
+class LocalPreparation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cache_state: Literal["absent", "restoring", "ready", "stale"]
+    id: str | None
+    last_restore_error: Problem | None
+    last_used_at: str | None
+    location_id: str
+    operation_id: str | None
+    prepared_at: str | None
+
+
+class Plan(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowed_actions: list[str]
+    archived_at: str | None
+    copied_from: str | None
+    created_at: str
+    deletion: DeletionState | None
+    description: str
+    id: str
+    name: str
+    owner_id: str
+    owner_username: str | None
+    revision: int
+    template: PlanTemplateOutput
+    updated_at: str
+
+
+class PlanCreate(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    description: str | None = ""
+    name: str
+    template: Annotated[PlanTemplateInput | None, Field(validate_default=True)] = {}
+
+
+class Preparation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    archive: PreparationArchive | None
+    cache_state: Literal["absent", "restoring", "ready", "stale"]
+    generation: int
+    id: str | None
+    image_id: str | None
+    last_restore_error: Problem | None
+    last_used_at: str | None
+    location_id: str
+    operation_id: str | None
+    pins: list[PreparationPin]
+    prepared_at: str | None
+    spec_digest: str
+    waiters: list[PreparationWaiter]
+
+
+class RunAccepted(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cache_observations: list[CacheObservation]
+    config_digest: str
+    excluded_tasks: list[ExcludedTask]
+    links: dict[str, str]
+    operation_id: str
+    planned_trials: int
+    run_id: str
+    snapshot_digest: str
+    state: str
+
+
+class RunProvenance(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    admissions: list[AdmissionRecord]
+    baseline_differences: list[BaselineDifference]
+    credential_ids: Annotated[list[str], Field(description="Bound credentials, by reference only")]
+    excluded_tasks: list[ExcludedTask]
+    field_sources: dict[str, FieldSource]
+    labels: dict[str, str]
+    reference_revisions: ReferenceRevisions
+    request: NormalizedRequest
+    resolution_id: str | None
+    source: RunSource | None
+    submitted_via: Literal["web_session", "pat"]
+    task_selection: TaskSelectionOutput
+
+
+class RunSnapshot(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    comparison_digest: str
+    config_digest: str
+    effective: EffectiveConfig
+    policy: RunPolicy
+    provenance: RunProvenance
+    schema_version: int
+    snapshot_digest: str
+
+
 class Task(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -2057,12 +2944,12 @@ class Task(BaseModel):
     instruction: str
     local_preparation: LocalPreparation
     parameters: list[AuthorParameter]
-    required_parameters: list[str] | None = []
+    required_parameters: list[str]
     required_preparation: list[RequiredPreparation]
-    resources: dict[str, Any]
+    resources: TaskResources
     spec_digest: str | None
     task_key: str
-    timeouts: dict[str, Any]
+    timeouts: TaskTimeouts
     warnings: list[TaskWarning]
 
 
@@ -2094,43 +2981,66 @@ class Trial(BaseModel):
     task_key: str
 
 
-class Batch(BaseModel):
+class BatchAccepted(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    allowed_actions: list[str]
-    client_request_id: str | None
-    created_at: str
-    id: str
-    name: str
+    batch_id: str
+    links: dict[str, str]
     operation_id: str
-    owner_id: str
-    owner_username: str | None
-    pat_id: str | None
-    progress: dict[str, int]
-    runs: list[Run]
-    status: str
-    stop_requested: bool
+    planned_trials: int
+    runs: list[RunAccepted]
 
 
-class BatchCreate(BaseModel):
-    """
-    Runs accepted together, all or none; each costs one unit of PAT quota.
-    """
-
+class BatchPreviewRun(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    client_request_id: str | None = None
-    name: str
-    runs: list[RunCreate]
+    blockers: list[ConfigBlocker] | None = None
+    config_digest: str | None = None
+    index: int
+    labels: dict[str, str] | None = None
+    planned_trials: int
+    warnings: list[ConfigWarning] | None = None
 
 
-class EnvelopeBatch(BaseModel):
+class ConfigResolution(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: Batch
+    baseline_differences: list[BaselineDifference]
+    blockers: list[ConfigBlocker]
+    cache_observations: list[CacheObservation]
+    config_digest: str | None
+    created_at: str
+    effective_config: EffectiveConfig | None
+    excluded_tasks: list[ExcludedTask]
+    expires_at: str
+    field_sources: Annotated[dict[str, FieldSource], Field(description="Keyed by JSON pointer")]
+    labels: Annotated[
+        dict[str, str], Field(description="Display names: model, harness, attachments")
+    ]
+    planned_trials: int
+    reference_revisions: ReferenceRevisions
+    request: NormalizedRequest
+    required_preparation: list[PlannedRestore]
+    resolution_id: str
+    warnings: list[ConfigWarning]
+
+
+class EnvelopeBatchAccepted(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: BatchAccepted
+    meta: Meta
+
+
+class EnvelopeConfigResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: ConfigResolution
     meta: Meta
 
 
@@ -2142,19 +3052,19 @@ class EnvelopeExport(BaseModel):
     meta: Meta
 
 
-class EnvelopeModelConfig(BaseModel):
+class EnvelopeHarness(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: ModelConfig
+    data: Harness
     meta: Meta
 
 
-class EnvelopeOperation(BaseModel):
+class EnvelopePlan(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: Operation
+    data: Plan
     meta: Meta
 
 
@@ -2166,35 +3076,11 @@ class EnvelopePreparation(BaseModel):
     meta: Meta
 
 
-class EnvelopeRunDetail(BaseModel):
+class EnvelopeRunAccepted(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: RunDetail
-    meta: Meta
-
-
-class EnvelopeRunSummary(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: RunSummary
-    meta: Meta
-
-
-class EnvelopeRun(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: Run
-    meta: Meta
-
-
-class EnvelopeListBatch(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: list[Batch]
+    data: RunAccepted
     meta: Meta
 
 
@@ -2206,27 +3092,19 @@ class EnvelopeListExport(BaseModel):
     meta: Meta
 
 
-class EnvelopeListModelConfig(BaseModel):
+class EnvelopeListHarness(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: list[ModelConfig]
+    data: list[Harness]
     meta: Meta
 
 
-class EnvelopeListOperation(BaseModel):
+class EnvelopeListPlan(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: list[Operation]
-    meta: Meta
-
-
-class EnvelopeListRun(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    data: list[Run]
+    data: list[Plan]
     meta: Meta
 
 
@@ -2243,4 +3121,152 @@ class EnvelopeListTrial(BaseModel):
         extra="allow",
     )
     data: list[Trial]
+    meta: Meta
+
+
+class FirstPreparationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    tasks: Annotated[dict[str, FirstPreparationTask], Field(description="Keyed by task id")]
+
+
+class RunDetail(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    accepted_at: str
+    allowed_actions: list[str]
+    artifact_state: Literal["pending", "saving", "complete", "partial", "failed", "expired"]
+    batch_id: str | None
+    cleanup_state: Literal["pending", "running", "complete", "failed", "not_required"]
+    client_request_id: str | None
+    counts: RunCounts
+    dataset_version_deletion: DeletionState | None
+    dataset_version_id: str
+    deadline_at: str
+    deletion: Annotated[
+        DeletionState | None,
+        Field(description="Set when the run is in the recycle bin"),
+    ]
+    finished_at: str | None
+    heartbeat_at: Annotated[
+        str | None, Field(description="Last sign of life from the run's Runner")
+    ]
+    id: str
+    links: dict[str, str]
+    name: str
+    operation_id: str
+    owner: Owner
+    owner_id: str
+    pat_id: str | None
+    plan_id: str | None
+    plan_revision: int | None
+    queue_reason: Annotated[
+        str | None,
+        Field(
+            description="Why a queued run waits: CAPACITY_SLOTS, CAPACITY_CPU, CAPACITY_MEMORY or PROVIDER_LIMIT"
+        ),
+    ]
+    relation: Literal["initial", "rerun", "modified"]
+    result_completeness: Literal["none", "partial", "complete"]
+    scoring: RunScoring | None
+    snapshot: RunSnapshot
+    source_run_id: str | None
+    started_at: str | None
+    state: Literal[
+        "queued", "preparing", "running", "finalizing", "finished", "cancelled", "interrupted"
+    ]
+    stop_reason: str | None
+    stop_requested: bool
+
+
+class BatchPreview(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    blockers: list[BatchBlocker]
+    can_submit: bool
+    duplicate_configs: Annotated[list[str], Field(description="Configuration digests given twice")]
+    pat_quota: PatQuota | None
+    planned_trials: int
+    runs: list[BatchPreviewRun]
+
+
+class EnvelopeBatchPreview(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: BatchPreview
+    meta: Meta
+
+
+class EnvelopeRunDetail(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: RunDetail
+    meta: Meta
+
+
+class FirstPreparationOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowed_actions: list[str]
+    created_at: str
+    error: Problem | None
+    finished_at: str | None
+    id: str
+    kind: Literal["preparation_first"]
+    links: dict[str, str]
+    owner_id: str | None
+    phase: str | None
+    progress: FirstPreparationProgress
+    resource: OperationResource | None
+    result: FirstPreparationResult | None
+    revision: int
+    status: Literal["accepted", "running", "succeeded", "failed", "cancelled", "interrupted"]
+    updated_at: str
+
+
+class Operation(
+    RootModel[
+        RunOperation
+        | BatchOperation
+        | ExportOperation
+        | DatasetImportOperation
+        | FirstPreparationOperation
+        | RestoreOperation
+        | EvictionOperation
+    ]
+):
+    root: Annotated[
+        RunOperation
+        | BatchOperation
+        | ExportOperation
+        | DatasetImportOperation
+        | FirstPreparationOperation
+        | RestoreOperation
+        | EvictionOperation,
+        Field(
+            description="A long operation; ``kind`` decides the shape of ``progress`` and ``result``.",
+            discriminator="kind",
+        ),
+    ]
+
+
+class EnvelopeOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: Operation
+    meta: Meta
+
+
+class EnvelopeListOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: list[Operation]
     meta: Meta

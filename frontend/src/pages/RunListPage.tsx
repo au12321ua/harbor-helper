@@ -31,7 +31,7 @@ import {
   shortId,
 } from "@/lib/format";
 import { useSession } from "@/lib/hooks";
-import type { Export, Run } from "@/lib/types";
+import type { Run } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function RunListPage() {
@@ -51,11 +51,13 @@ export function RunListPage() {
     async (after: string | null) => {
       setLoading(true);
       try {
-        const res = await api.get<Run[]>("runs", {
-          owner_id: scope === "mine" ? me.id : undefined,
-          accepted_after: dayToApiTime(from),
-          accepted_before: dayToApiTime(to, 1),
-          cursor: after,
+        const res = await api.get("/runs", {
+          query: {
+            owner_id: scope === "mine" ? me.id : undefined,
+            accepted_after: dayToApiTime(from),
+            accepted_before: dayToApiTime(to, 1),
+            cursor: after,
+          },
         });
         setRuns((prev) => (after ? [...prev, ...res.data] : res.data));
         if (!after) setSelected(new Set());
@@ -85,7 +87,7 @@ export function RunListPage() {
   const exportSelected = async () => {
     setExporting(true);
     try {
-      await api.post<Export>("exports", { run_ids: [...selected] });
+      await api.post("/exports", { body: { run_ids: [...selected] } });
       toast.success(`已创建导出（${selected.size} 个运行），正在打包`);
       navigate("/exports");
     } catch (err) {

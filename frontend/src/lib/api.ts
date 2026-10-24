@@ -1,5 +1,9 @@
-// Thin client for the Maestro /api/v1 contract: envelope unwrapping, CSRF header
-// for cookie sessions, and typed errors. The CSRF token lives in memory only.
+// Client for the Maestro /api/v1 contract: envelope unwrapping, CSRF header for cookie
+// sessions and typed errors. Every call is typed by its OpenAPI path (`paths` in the
+// generated schema.d.ts): path parameters, query, body, required headers and the returned
+// `data` all come from the contract, so a caller cannot pick the wrong response type.
+// The CSRF token lives in memory only.
+import type { paths } from "./schema";
 import type { ApiErrorBody, Meta } from "./types";
 
 export const API = "/api/v1";
@@ -50,37 +54,89 @@ export interface Page<T> {
   meta: Meta;
 }
 
-type Method = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+// --- types derived from the contract ---------------------------------------------------
 
-interface RequestOptions {
+type Prefix = "/api/v1";
+type Method = "get" | "post" | "put" | "delete" | "patch";
+/** API paths as callers write them: the OpenAPI key without the /api/v1 prefix. */
+type ApiPath = {
+  [K in keyof paths]: K extends `${Prefix}${infer Rest}` ? Rest : never;
+}[keyof paths];
+type Operation<P extends ApiPath, M extends Method> = paths[`${Prefix}${P}`][M];
+/** The paths that have an operation for this method. */
+export type PathsFor<M extends Method> = {
+  [P in ApiPath]: paths[`${Prefix}${P}`] extends Record<M, { responses: unknown }> ? P : never;
+}[ApiPath];
+
+type SuccessCode = 200 | 201 | 202 | 204;
+type Successes<O> = O extends { responses: infer R }
+  ? { [C in keyof R]: C extends SuccessCode ? R[C] : never }[keyof R]
+  : never;
+type JsonContent<R> = R extends { content: { "application/json": infer J } } ? J : never;
+type EnvelopeData<E> = E extends { data: infer D } ? D : never;
+/** What `data` holds on success; `undefined` for 204 answers. */
+export type DataOf<O> = [JsonContent<Successes<O>>] extends [never]
+  ? undefined
+  : EnvelopeData<JsonContent<Successes<O>>>;
+
+type Params<O> = O extends { parameters: infer P } ? P : never;
+type Part<O, K extends string> = K extends keyof Params<O> ? NonNullable<Params<O>[K]> : never;
+type BodyOf<O> = O extends { requestBody?: infer R } ? NonNullable<R> : never;
+type JsonBody<O> = [BodyOf<O>] extends [never]
+  ? { body?: never }
+  : BodyOf<O> extends { content: { "application/json": infer B } }
+    ? O extends { requestBody: unknown }
+      ? { body: B }
+      : { body?: B }
+    : { body?: never };
+
+/** Options of one call: only what the operation declares, required when it is required. */
+export type Options<O> = ([Part<O, "path">] extends [never]
+  ? { path?: never }
+  : { path: Part<O, "path"> }) &
+  ([Part<O, "query">] extends [never] ? { query?: never } : { query?: Part<O, "query"> }) &
+  ([Part<O, "header">] extends [never]
+    ? { headers?: Record<string, string> }
+    : { headers: Part<O, "header"> & Record<string, string> }) &
+  JsonBody<O>;
+
+/** The options argument may be left out when nothing in it is required. */
+type Args<O> = object extends Options<O> ? [options?: Options<O>] : [options: Options<O>];
+
+// --- transport -----------------------------------------------------------------------------
+
+interface Request {
+  path?: Record<string, string | number>;
+  query?: Record<string, unknown>;
+  headers?: Record<string, string>;
   body?: unknown;
   /** Sent as is (a file upload) instead of JSON. */
   raw?: Blob;
-  headers?: Record<string, string>;
-  query?: Record<string, string | number | null | undefined>;
 }
 
-export async function request<T>(
-  method: Method,
-  path: string,
-  options: RequestOptions = {},
-): Promise<Page<T>> {
+function url(template: string, options: Request): string {
+  const path = template.replace(/\{(\w+)\}/g, (_, name: string) => {
+    const value = options.path?.[name];
+    if (value === undefined) throw new Error(`missing path parameter ${name} for ${template}`);
+    return encodeURIComponent(String(value));
+  });
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  }
+  const text = params.toString();
+  return `${API}${path}${text ? `?${text}` : ""}`;
+}
+
+async function send<T>(method: string, template: string, options: Request = {}): Promise<Page<T>> {
   const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (options.raw !== undefined) headers["Content-Type"] ??= options.raw.type || "application/octet-stream";
+  if (options.raw !== undefined)
+    headers["Content-Type"] ??= options.raw.type || "application/octet-stream";
   if (method !== "GET" && csrfToken) headers["X-CSRF-Token"] = csrfToken;
-  let url = path.startsWith("/") ? path : `${API}/${path}`;
-  if (options.query) {
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(options.query)) {
-      if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
-    }
-    const text = params.toString();
-    if (text) url += `?${text}`;
-  }
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(url(template, options), {
       method,
       headers,
       credentials: "same-origin",
@@ -122,20 +178,29 @@ export async function request<T>(
             suggested_actions: [],
           };
     body.field_errors ??= [];
-    if (response.status === 401 && onUnauthorized && !path.endsWith("/session")) onUnauthorized();
+    if (response.status === 401 && onUnauthorized && template !== "/session") onUnauthorized();
     throw new ApiError(response.status, body, requestId, response.status >= 500);
   }
   return payload as Page<T>;
 }
 
+function call<M extends Method>(method: M) {
+  return <P extends PathsFor<M>>(path: P, ...[options]: Args<Operation<P, M>>) =>
+    send<DataOf<Operation<P, M>>>(method.toUpperCase(), path, (options ?? {}) as Request);
+}
+
 export const api = {
-  get: <T>(path: string, query?: RequestOptions["query"]) => request<T>("GET", path, { query }),
-  post: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
-    request<T>("POST", path, { body: body ?? {}, headers }),
-  put: <T>(path: string, body?: unknown) => request<T>("PUT", path, { body: body ?? {} }),
-  del: <T>(path: string) => request<T>("DELETE", path),
-  upload: <T>(path: string, file: Blob, contentType?: string) =>
-    request<T>("POST", path, { raw: file, headers: contentType ? { "Content-Type": contentType } : {} }),
+  get: call("get"),
+  post: call("post"),
+  put: call("put"),
+  patch: call("patch"),
+  del: call("delete"),
+  /** A binary request body (an attachment package), typed by the same path. */
+  upload: <P extends PathsFor<"post">>(path: P, file: Blob, contentType?: string) =>
+    send<DataOf<Operation<P, "post">>>("POST", path, {
+      raw: file,
+      headers: contentType ? { "Content-Type": contentType } : {},
+    }),
 };
 
 export function errorText(error: unknown): string {

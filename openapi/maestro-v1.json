@@ -1,6 +1,117 @@
 {
   "components": {
     "schemas": {
+      "ActionRule": {
+        "additionalProperties": false,
+        "description": "Who may do an action: a web session (of an admin when ``role`` says so) and PATs\nof the listed scopes.",
+        "properties": {
+          "pat_scopes": {
+            "items": {
+              "enum": [
+                "read",
+                "experiment"
+              ],
+              "type": "string"
+            },
+            "title": "Pat Scopes",
+            "type": "array"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "admin",
+                  "member"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "web_session": {
+            "title": "Web Session",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "web_session",
+          "pat_scopes",
+          "role"
+        ],
+        "title": "ActionRule",
+        "type": "object"
+      },
+      "AdmissionRecord": {
+        "additionalProperties": false,
+        "description": "The admission and preparation a run's task was accepted with.",
+        "properties": {
+          "admission_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admission Id"
+          },
+          "admission_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admission Revision"
+          },
+          "expected_image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Image Id"
+          },
+          "preparation_method_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preparation Method Digest"
+          },
+          "spec_digest": {
+            "title": "Spec Digest",
+            "type": "string"
+          },
+          "task_key": {
+            "title": "Task Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_key",
+          "admission_id",
+          "admission_revision",
+          "preparation_method_digest",
+          "spec_digest",
+          "expected_image_id"
+        ],
+        "title": "AdmissionRecord",
+        "type": "object"
+      },
       "AdmissionRevocation": {
         "additionalProperties": false,
         "properties": {
@@ -215,14 +326,12 @@
           "deletion": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/DeletionState"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Deletion"
+            ]
           },
           "description": {
             "title": "Description",
@@ -312,7 +421,9 @@
           "file_count",
           "size_bytes",
           "enabled",
-          "created_at"
+          "created_at",
+          "files",
+          "deletion"
         ],
         "title": "Attachment",
         "type": "object"
@@ -392,25 +503,26 @@
           "error": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/AttemptError"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Error"
+            ]
           },
           "executor_ref": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
                 "type": "object"
               },
               {
                 "type": "null"
               }
             ],
+            "description": "Executor-specific, e.g. Harbor's ids",
             "title": "Executor Ref"
           },
           "id": {
@@ -469,6 +581,111 @@
         "title": "Attempt",
         "type": "object"
       },
+      "AttemptError": {
+        "additionalProperties": false,
+        "description": "Why an attempt did not produce a score, as the platform error policy classified it.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "exception_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Type"
+          },
+          "failure_cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Cause"
+          },
+          "grade_requested": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade Requested"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "retry_recommended": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Recommended"
+          },
+          "reward_valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reward Valid"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "code",
+          "failure_cause",
+          "exception_type",
+          "message",
+          "reward_valid",
+          "retry_recommended",
+          "grade_requested",
+          "policy_version",
+          "detail"
+        ],
+        "title": "AttemptError",
+        "type": "object"
+      },
       "AttemptStep": {
         "additionalProperties": false,
         "properties": {
@@ -525,13 +742,16 @@
           "detail": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
                 "type": "object"
               },
               {
                 "type": "null"
               }
             ],
+            "description": "Depends on the action",
             "title": "Detail"
           },
           "id": {
@@ -603,6 +823,30 @@
         "title": "AuditEvent",
         "type": "object"
       },
+      "AuthInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "csrf_header": {
+            "title": "Csrf Header",
+            "type": "string"
+          },
+          "pat_header": {
+            "title": "Pat Header",
+            "type": "string"
+          },
+          "session_cookie": {
+            "title": "Session Cookie",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pat_header",
+          "session_cookie",
+          "csrf_header"
+        ],
+        "title": "AuthInfo",
+        "type": "object"
+      },
       "AuthorParameter": {
         "additionalProperties": false,
         "description": "Author parameter contract (03): defaults, requirement, constraints.",
@@ -621,11 +865,6 @@
           "description": {
             "title": "Description",
             "type": "string"
-          },
-          "hard_constraints": {
-            "additionalProperties": true,
-            "title": "Hard Constraints",
-            "type": "object"
           },
           "name": {
             "title": "Name",
@@ -653,10 +892,47 @@
           "required",
           "sensitive",
           "description",
-          "hard_constraints",
           "used_in"
         ],
         "title": "AuthorParameter",
+        "type": "object"
+      },
+      "BaselineDifference": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "tasks_higher": {
+            "description": "Tasks whose author value is lower or unset",
+            "title": "Tasks Higher",
+            "type": "integer"
+          },
+          "tasks_lower": {
+            "description": "Tasks whose author value is higher",
+            "title": "Tasks Lower",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "path",
+          "value",
+          "tasks_lower",
+          "tasks_higher"
+        ],
+        "title": "BaselineDifference",
         "type": "object"
       },
       "Batch": {
@@ -723,11 +999,7 @@
             "title": "Pat Id"
           },
           "progress": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Progress",
-            "type": "object"
+            "$ref": "#/components/schemas/BatchProgress"
           },
           "runs": {
             "items": {
@@ -803,6 +1075,58 @@
         "title": "BatchAccepted",
         "type": "object"
       },
+      "BatchBlocker": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "needed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needed"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "path"
+        ],
+        "title": "BatchBlocker",
+        "type": "object"
+      },
       "BatchCreate": {
         "additionalProperties": false,
         "description": "Runs accepted together, all or none; each costs one unit of PAT quota.",
@@ -837,13 +1161,203 @@
         "title": "BatchCreate",
         "type": "object"
       },
+      "BatchOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "batch",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/BatchProgress"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchOperationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "owner_id",
+          "status",
+          "phase",
+          "error",
+          "allowed_actions",
+          "links",
+          "revision",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "kind",
+          "progress",
+          "result"
+        ],
+        "title": "BatchOperation",
+        "type": "object"
+      },
+      "BatchOperationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "integer"
+          },
+          "error_trials": {
+            "title": "Error Trials",
+            "type": "integer"
+          },
+          "finished": {
+            "title": "Finished",
+            "type": "integer"
+          },
+          "interrupted": {
+            "title": "Interrupted",
+            "type": "integer"
+          },
+          "planned_trials": {
+            "title": "Planned Trials",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "scored_trials": {
+            "title": "Scored Trials",
+            "type": "integer"
+          },
+          "terminal_runs": {
+            "title": "Terminal Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runs",
+          "terminal_runs",
+          "finished",
+          "cancelled",
+          "interrupted",
+          "planned_trials",
+          "scored_trials",
+          "error_trials",
+          "batch_id"
+        ],
+        "title": "BatchOperationResult",
+        "type": "object"
+      },
       "BatchPreview": {
         "additionalProperties": false,
         "properties": {
           "blockers": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/BatchBlocker"
             },
             "title": "Blockers",
             "type": "array"
@@ -863,16 +1377,12 @@
           "pat_quota": {
             "anyOf": [
               {
-                "additionalProperties": {
-                  "type": "integer"
-                },
-                "type": "object"
+                "$ref": "#/components/schemas/PatQuota"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Pat Quota"
+            ]
           },
           "planned_trials": {
             "title": "Planned Trials",
@@ -880,8 +1390,7 @@
           },
           "runs": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/BatchPreviewRun"
             },
             "title": "Runs",
             "type": "array"
@@ -898,13 +1407,191 @@
         "title": "BatchPreview",
         "type": "object"
       },
+      "BatchPreviewRun": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConfigBlocker"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockers"
+          },
+          "config_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Digest"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Labels"
+          },
+          "planned_trials": {
+            "title": "Planned Trials",
+            "type": "integer"
+          },
+          "warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConfigWarning"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warnings"
+          }
+        },
+        "required": [
+          "index",
+          "planned_trials"
+        ],
+        "title": "BatchPreviewRun",
+        "type": "object"
+      },
+      "BatchProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "integer"
+          },
+          "error_trials": {
+            "title": "Error Trials",
+            "type": "integer"
+          },
+          "finished": {
+            "title": "Finished",
+            "type": "integer"
+          },
+          "interrupted": {
+            "title": "Interrupted",
+            "type": "integer"
+          },
+          "planned_trials": {
+            "title": "Planned Trials",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "scored_trials": {
+            "title": "Scored Trials",
+            "type": "integer"
+          },
+          "terminal_runs": {
+            "title": "Terminal Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runs",
+          "terminal_runs",
+          "finished",
+          "cancelled",
+          "interrupted",
+          "planned_trials",
+          "scored_trials",
+          "error_trials"
+        ],
+        "title": "BatchProgress",
+        "type": "object"
+      },
+      "BlockedTask": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/TaskBlocker"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "blockers"
+        ],
+        "title": "BlockedTask",
+        "type": "object"
+      },
+      "CacheObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "const": "restore_on_run",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "cache_state": {
+            "enum": [
+              "ready",
+              "cold"
+            ],
+            "title": "Cache State",
+            "type": "string"
+          },
+          "task_key": {
+            "title": "Task Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_key",
+          "cache_state",
+          "action"
+        ],
+        "title": "CacheObservation",
+        "type": "object"
+      },
       "Capabilities": {
         "additionalProperties": false,
         "properties": {
           "actions": {
             "additionalProperties": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/ActionRule"
             },
             "title": "Actions",
             "type": "object"
@@ -914,9 +1601,7 @@
             "type": "string"
           },
           "auth": {
-            "additionalProperties": true,
-            "title": "Auth",
-            "type": "object"
+            "$ref": "#/components/schemas/AuthInfo"
           },
           "contract_digest": {
             "description": "sha256 of the OpenAPI document; clients generated from another one warn",
@@ -924,9 +1609,7 @@
             "type": "string"
           },
           "execution": {
-            "additionalProperties": true,
-            "title": "Execution",
-            "type": "object"
+            "$ref": "#/components/schemas/ExecutionInfo"
           },
           "features": {
             "additionalProperties": {
@@ -1020,19 +1703,108 @@
         "type": "object"
       },
       "ConfigBlocker": {
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "description": "Why this configuration cannot be submitted; ``path`` points at the field.",
         "properties": {
           "code": {
             "title": "Code",
             "type": "string"
           },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ATTACHMENT_CONFLICT: name, tool or env",
+            "title": "Kind"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
           "message": {
             "title": "Message",
             "type": "string"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ATTACHMENT_CONFLICT: the claimed name",
+            "title": "Name"
+          },
           "path": {
             "title": "Path",
             "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "task_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RUN_TOO_LARGE",
+            "title": "Task Count"
+          },
+          "tasks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BlockedTask"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TASKS_NOT_SUBMITTABLE",
+            "title": "Tasks"
+          },
+          "trial_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RUN_TOO_LARGE",
+            "title": "Trial Count"
           }
         },
         "required": [
@@ -1043,7 +1815,30 @@
         "title": "ConfigBlocker",
         "type": "object"
       },
-      "ConfigRequest": {
+      "ConfigDifference": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "before": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "path": {
+            "description": "JSON pointer into the effective configuration",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "before",
+          "after"
+        ],
+        "title": "ConfigDifference",
+        "type": "object"
+      },
+      "ConfigRequest-Input": {
         "additionalProperties": false,
         "properties": {
           "attachments": {
@@ -1095,7 +1890,22 @@
             "title": "Execution Mode"
           },
           "harness_params": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
             "default": {},
             "title": "Harness Params",
             "type": "object"
@@ -1201,7 +2011,7 @@
             "title": "Run Deadline Hours"
           },
           "task_selection": {
-            "$ref": "#/components/schemas/TaskSelection",
+            "$ref": "#/components/schemas/TaskSelection-Input",
             "default": {
               "mode": "all_eligible"
             }
@@ -1214,13 +2024,216 @@
         "title": "ConfigRequest",
         "type": "object"
       },
+      "ConfigRequest-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "default": [],
+            "description": "Attachment version ids in load order (model runs only)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "concurrency": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency"
+          },
+          "dataset_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required unless the plan has it",
+            "title": "Dataset Version Id"
+          },
+          "execution_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "agent",
+                  "oracle"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "agent: a model through a harness; oracle: each task's reference solution, a test mode never compared with model results. Required unless the plan has it",
+            "title": "Execution Mode"
+          },
+          "harness_params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "default": {},
+            "title": "Harness Params",
+            "type": "object"
+          },
+          "harness_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Version Id"
+          },
+          "model_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Id"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An earlier revision of the model configuration; unset: current",
+            "title": "Model Revision"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/components/schemas/CredentialRef"
+                }
+              ]
+            },
+            "default": {},
+            "description": "Author parameter values; secret ones as a credential reference",
+            "title": "Parameters",
+            "type": "object"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An experiment plan; fields set here win, the plan fills in the rest",
+            "title": "Plan Id"
+          },
+          "plan_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Refuse unless the plan is still at this revision",
+            "title": "Plan Revision"
+          },
+          "repetitions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repetitions"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResourceOverrides",
+            "default": {}
+          },
+          "run_deadline_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Deadline Hours"
+          },
+          "task_selection": {
+            "$ref": "#/components/schemas/TaskSelection-Output",
+            "default": {
+              "mode": "all_eligible"
+            }
+          },
+          "timeouts": {
+            "$ref": "#/components/schemas/TimeoutOverrides",
+            "default": {}
+          }
+        },
+        "required": [
+          "plan_id",
+          "plan_revision",
+          "task_selection",
+          "model_config_id",
+          "model_revision",
+          "harness_version_id",
+          "harness_params",
+          "attachments",
+          "repetitions",
+          "concurrency",
+          "run_deadline_hours",
+          "resources",
+          "timeouts",
+          "parameters",
+          "dataset_version_id",
+          "execution_mode"
+        ],
+        "title": "ConfigRequest",
+        "type": "object"
+      },
       "ConfigResolution": {
         "additionalProperties": false,
         "properties": {
           "baseline_differences": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/BaselineDifference"
             },
             "title": "Baseline Differences",
             "type": "array"
@@ -1234,8 +2247,7 @@
           },
           "cache_observations": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/CacheObservation"
             },
             "title": "Cache Observations",
             "type": "array"
@@ -1258,19 +2270,16 @@
           "effective_config": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/EffectiveConfig"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Effective Config"
+            ]
           },
           "excluded_tasks": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/ExcludedTask"
             },
             "title": "Excluded Tasks",
             "type": "array"
@@ -1281,9 +2290,9 @@
           },
           "field_sources": {
             "additionalProperties": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/FieldSource"
             },
+            "description": "Keyed by JSON pointer",
             "title": "Field Sources",
             "type": "object"
           },
@@ -1291,6 +2300,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Display names: model, harness, attachments",
             "title": "Labels",
             "type": "object"
           },
@@ -1299,19 +2309,14 @@
             "type": "integer"
           },
           "reference_revisions": {
-            "additionalProperties": true,
-            "title": "Reference Revisions",
-            "type": "object"
+            "$ref": "#/components/schemas/ReferenceRevisions"
           },
           "request": {
-            "additionalProperties": true,
-            "title": "Request",
-            "type": "object"
+            "$ref": "#/components/schemas/NormalizedRequest"
           },
           "required_preparation": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/PlannedRestore"
             },
             "title": "Required Preparation",
             "type": "array"
@@ -1322,8 +2327,7 @@
           },
           "warnings": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/ConfigWarning"
             },
             "title": "Warnings",
             "type": "array"
@@ -1348,6 +2352,59 @@
           "planned_trials"
         ],
         "title": "ConfigResolution",
+        "type": "object"
+      },
+      "ConfigWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "path",
+          "message"
+        ],
+        "title": "ConfigWarning",
+        "type": "object"
+      },
+      "ContentEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ContentEvidence",
         "type": "object"
       },
       "ContentResource": {
@@ -1678,6 +2735,143 @@
         "title": "DatasetImport",
         "type": "object"
       },
+      "DatasetImportOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "dataset_import",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/ImportProgress"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "owner_id",
+          "status",
+          "phase",
+          "error",
+          "allowed_actions",
+          "links",
+          "revision",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "kind",
+          "progress",
+          "result"
+        ],
+        "title": "DatasetImportOperation",
+        "type": "object"
+      },
       "DatasetSource": {
         "additionalProperties": false,
         "properties": {
@@ -1902,10 +3096,8 @@
             "type": "string"
           },
           "scoring_contract": {
-            "additionalProperties": true,
-            "description": "Contract new runs freeze; source is dataset_version or platform_default",
-            "title": "Scoring Contract",
-            "type": "object"
+            "$ref": "#/components/schemas/ScoringContract",
+            "description": "Contract new runs freeze; source is dataset_version or platform_default"
           },
           "status": {
             "const": "ready",
@@ -1984,6 +3176,445 @@
           "purged_at"
         ],
         "title": "DeletionState",
+        "type": "object"
+      },
+      "EffectiveAttachment": {
+        "additionalProperties": false,
+        "properties": {
+          "content_digest": {
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Effects",
+            "type": "array"
+          },
+          "has_bootstrap": {
+            "title": "Has Bootstrap",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provides": {
+            "$ref": "#/components/schemas/AttachmentProvides"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "name",
+          "version",
+          "content_digest",
+          "effects",
+          "provides",
+          "has_bootstrap"
+        ],
+        "title": "EffectiveAttachment",
+        "type": "object"
+      },
+      "EffectiveConfig": {
+        "additionalProperties": false,
+        "description": "The fixed configuration of a run (03 section 5); ``config_digest`` is its digest.",
+        "properties": {
+          "attachments": {
+            "description": "In load order",
+            "items": {
+              "$ref": "#/components/schemas/EffectiveAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "bootstrap_timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bootstrap Timeout Sec"
+          },
+          "concurrency": {
+            "title": "Concurrency",
+            "type": "integer"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/EffectiveDataset"
+          },
+          "deviates_from_author_baseline": {
+            "title": "Deviates From Author Baseline",
+            "type": "boolean"
+          },
+          "execution_mode": {
+            "enum": [
+              "agent",
+              "oracle"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EffectiveHarness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EffectiveModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/EffectiveOverrides",
+            "description": "Values this run set for every task"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ParameterChoice"
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "repetitions": {
+            "title": "Repetitions",
+            "type": "integer"
+          },
+          "run_deadline_hours": {
+            "title": "Run Deadline Hours",
+            "type": "integer"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveTask"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset",
+          "execution_mode",
+          "repetitions",
+          "concurrency",
+          "run_deadline_hours",
+          "model",
+          "harness",
+          "attachments",
+          "bootstrap_timeout_sec",
+          "overrides",
+          "tasks",
+          "parameters",
+          "deviates_from_author_baseline"
+        ],
+        "title": "EffectiveConfig",
+        "type": "object"
+      },
+      "EffectiveDataset": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "namespace": {
+            "title": "Namespace",
+            "type": "string"
+          },
+          "resolved_digest": {
+            "title": "Resolved Digest",
+            "type": "string"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_kind",
+          "namespace",
+          "name",
+          "version_id",
+          "resolved_digest"
+        ],
+        "title": "EffectiveDataset",
+        "type": "object"
+      },
+      "EffectiveHarness": {
+        "additionalProperties": false,
+        "properties": {
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "content_digest": {
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Params",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "name",
+          "version",
+          "agent",
+          "content_digest",
+          "params"
+        ],
+        "title": "EffectiveHarness",
+        "type": "object"
+      },
+      "EffectiveModel": {
+        "additionalProperties": false,
+        "properties": {
+          "config_id": {
+            "title": "Config Id",
+            "type": "string"
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "Provider request parameters, as configured",
+            "title": "Params",
+            "type": "object"
+          },
+          "protocol": {
+            "enum": [
+              "openai-compatible",
+              "openai",
+              "anthropic"
+            ],
+            "title": "Protocol",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "config_id",
+          "revision",
+          "provider",
+          "protocol",
+          "endpoint",
+          "model_id",
+          "params",
+          "credential_id"
+        ],
+        "title": "EffectiveModel",
+        "type": "object"
+      },
+      "EffectiveOverrides": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Timeout Sec"
+          },
+          "cpus": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpus"
+          },
+          "memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Mb"
+          },
+          "verifier_timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verifier Timeout Sec"
+          }
+        },
+        "title": "EffectiveOverrides",
+        "type": "object"
+      },
+      "EffectiveTask": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null: the executor's default",
+            "title": "Agent Timeout Sec"
+          },
+          "content_digest": {
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "cpus": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Cpus"
+          },
+          "memory_mb": {
+            "title": "Memory Mb",
+            "type": "integer"
+          },
+          "spec_digest": {
+            "title": "Spec Digest",
+            "type": "string"
+          },
+          "task_key": {
+            "title": "Task Key",
+            "type": "string"
+          },
+          "verifier_timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verifier Timeout Sec"
+          }
+        },
+        "required": [
+          "task_key",
+          "content_digest",
+          "spec_digest",
+          "cpus",
+          "memory_mb",
+          "agent_timeout_sec",
+          "verifier_timeout_sec"
+        ],
+        "title": "EffectiveTask",
         "type": "object"
       },
       "EnabledChange": {
@@ -2123,7 +3754,7 @@
         "additionalProperties": false,
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/ConfigRequest"
+            "$ref": "#/components/schemas/ConfigRequest-Output"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -2219,23 +3850,6 @@
           "meta"
         ],
         "title": "Envelope[Harness]",
-        "type": "object"
-      },
-      "Envelope_Health_": {
-        "additionalProperties": false,
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/Health"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "required": [
-          "data",
-          "meta"
-        ],
-        "title": "Envelope[Health]",
         "type": "object"
       },
       "Envelope_InvitationInfo_": {
@@ -2510,6 +4124,23 @@
         "title": "Envelope[Run]",
         "type": "object"
       },
+      "Envelope_ScoringContract_": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ScoringContract"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[ScoringContract]",
+        "type": "object"
+      },
       "Envelope_SessionInfo_": {
         "additionalProperties": false,
         "properties": {
@@ -2561,6 +4192,23 @@
         "title": "Envelope[SourceVersionDetail]",
         "type": "object"
       },
+      "Envelope_SystemStatus_": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SystemStatus"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[SystemStatus]",
+        "type": "object"
+      },
       "Envelope_TeamPolicy_": {
         "additionalProperties": false,
         "properties": {
@@ -2593,25 +4241,6 @@
           "meta"
         ],
         "title": "Envelope[User]",
-        "type": "object"
-      },
-      "Envelope_dict_": {
-        "additionalProperties": false,
-        "properties": {
-          "data": {
-            "additionalProperties": true,
-            "title": "Data",
-            "type": "object"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "required": [
-          "data",
-          "meta"
-        ],
-        "title": "Envelope[dict]",
         "type": "object"
       },
       "Envelope_list_Artifact__": {
@@ -3157,8 +4786,7 @@
           "suggested_actions": {
             "default": [],
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/SuggestedAction"
             },
             "title": "Suggested Actions",
             "type": "array"
@@ -3188,6 +4816,214 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EvictionOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "preparation_eviction",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/NoProgress"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "title": "Result",
+            "type": "null"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "owner_id",
+          "status",
+          "phase",
+          "error",
+          "allowed_actions",
+          "links",
+          "revision",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "kind",
+          "progress",
+          "result"
+        ],
+        "title": "EvictionOperation",
+        "type": "object"
+      },
+      "ExcludedTask": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/TaskBlocker"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_key": {
+            "title": "Task Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "task_key",
+          "blockers"
+        ],
+        "title": "ExcludedTask",
+        "type": "object"
+      },
+      "ExecutionInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/HostCapacityView"
+          },
+          "executor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executor"
+          },
+          "harness_adapters": {
+            "items": {
+              "$ref": "#/components/schemas/HarnessAdapter"
+            },
+            "title": "Harness Adapters",
+            "type": "array"
+          },
+          "modes": {
+            "items": {
+              "enum": [
+                "agent",
+                "oracle"
+              ],
+              "type": "string"
+            },
+            "title": "Modes",
+            "type": "array"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "executor",
+          "modes",
+          "harness_adapters",
+          "policy_version",
+          "capacity"
+        ],
+        "title": "ExecutionInfo",
+        "type": "object"
+      },
       "Export": {
         "additionalProperties": false,
         "properties": {
@@ -3209,14 +5045,12 @@
           "error": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/Problem"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Error"
+            ]
           },
           "expires_at": {
             "anyOf": [
@@ -3287,15 +5121,12 @@
           "summary": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ExportSummary"
               },
               {
                 "type": "null"
               }
-            ],
-            "description": "runs, files, missing, warnings, size_bytes and digest of the package",
-            "title": "Summary"
+            ]
           }
         },
         "required": [
@@ -3366,6 +5197,260 @@
         "title": "ExportCreate",
         "type": "object"
       },
+      "ExportOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "export",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/ExportProgress"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportOperationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "owner_id",
+          "status",
+          "phase",
+          "error",
+          "allowed_actions",
+          "links",
+          "revision",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "kind",
+          "progress",
+          "result"
+        ],
+        "title": "ExportOperation",
+        "type": "object"
+      },
+      "ExportOperationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Bytes"
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing"
+          },
+          "runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runs"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "warnings": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warnings"
+          }
+        },
+        "required": [
+          "export_id",
+          "runs",
+          "files",
+          "missing",
+          "warnings",
+          "artifact_bytes",
+          "size_bytes",
+          "digest"
+        ],
+        "title": "ExportOperationResult",
+        "type": "object"
+      },
+      "ExportProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runs",
+          "files"
+        ],
+        "title": "ExportProgress",
+        "type": "object"
+      },
       "ExportRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3418,6 +5503,52 @@
         "title": "ExportRequest",
         "type": "object"
       },
+      "ExportSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_bytes": {
+            "title": "Artifact Bytes",
+            "type": "integer"
+          },
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "missing": {
+            "description": "Files listed in the manifest's missing section",
+            "title": "Missing",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "size_bytes": {
+            "description": "Size of the package",
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "warnings": {
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runs",
+          "files",
+          "missing",
+          "warnings",
+          "artifact_bytes",
+          "size_bytes",
+          "digest"
+        ],
+        "title": "ExportSummary",
+        "type": "object"
+      },
       "FieldErrorModel": {
         "additionalProperties": false,
         "properties": {
@@ -3464,6 +5595,50 @@
         "title": "FieldErrorModel",
         "type": "object"
       },
+      "FieldSource": {
+        "additionalProperties": false,
+        "description": "Which layer gave a value: author, team policy, plan, harness default or override.",
+        "properties": {
+          "layer": {
+            "enum": [
+              "author",
+              "team",
+              "plan",
+              "override",
+              "harness"
+            ],
+            "title": "Layer",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          }
+        },
+        "required": [
+          "layer"
+        ],
+        "title": "FieldSource",
+        "type": "object"
+      },
       "FirstPreparation": {
         "additionalProperties": false,
         "properties": {
@@ -3486,6 +5661,265 @@
         "title": "FirstPreparation",
         "type": "object"
       },
+      "FirstPreparationOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "preparation_first",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/FirstPreparationProgress"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FirstPreparationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "owner_id",
+          "status",
+          "phase",
+          "error",
+          "allowed_actions",
+          "links",
+          "revision",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "kind",
+          "progress",
+          "result"
+        ],
+        "title": "FirstPreparationOperation",
+        "type": "object"
+      },
+      "FirstPreparationProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "admitted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admitted"
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed"
+          },
+          "task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Task Ids",
+            "type": "array"
+          },
+          "tasks_done": {
+            "title": "Tasks Done",
+            "type": "integer"
+          },
+          "tasks_total": {
+            "title": "Tasks Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_ids",
+          "tasks_total",
+          "tasks_done",
+          "admitted",
+          "failed"
+        ],
+        "title": "FirstPreparationProgress",
+        "type": "object"
+      },
+      "FirstPreparationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "tasks": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FirstPreparationTask"
+            },
+            "description": "Keyed by task id",
+            "title": "Tasks",
+            "type": "object"
+          }
+        },
+        "required": [
+          "tasks"
+        ],
+        "title": "FirstPreparationResult",
+        "type": "object"
+      },
+      "FirstPreparationTask": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Already decided by an earlier attempt",
+            "title": "Skipped"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "admitted",
+              "first_failed",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "FirstPreparationTask",
+        "type": "object"
+      },
       "Harness": {
         "additionalProperties": false,
         "properties": {
@@ -3504,14 +5938,12 @@
           "deletion": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/DeletionState"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Deletion"
+            ]
           },
           "description": {
             "title": "Description",
@@ -3530,9 +5962,7 @@
             "type": "string"
           },
           "parameter_schema": {
-            "additionalProperties": true,
-            "title": "Parameter Schema",
-            "type": "object"
+            "$ref": "#/components/schemas/HarnessParameterSchema-Output"
           },
           "protocols": {
             "items": {
@@ -3561,7 +5991,8 @@
           "parameter_schema",
           "content_digest",
           "enabled",
-          "created_at"
+          "created_at",
+          "deletion"
         ],
         "title": "Harness",
         "type": "object"
@@ -3603,7 +6034,8 @@
         },
         "required": [
           "agent",
-          "protocols"
+          "protocols",
+          "parameters"
         ],
         "title": "HarnessAdapter",
         "type": "object"
@@ -3626,12 +6058,10 @@
             "type": "string"
           },
           "parameter_schema": {
-            "additionalProperties": true,
+            "$ref": "#/components/schemas/HarnessParameterSchema-Input",
             "default": {
               "parameters": {}
-            },
-            "title": "Parameter Schema",
-            "type": "object"
+            }
           },
           "protocols": {
             "items": {
@@ -3659,6 +6089,145 @@
         "title": "HarnessCreate",
         "type": "object"
       },
+      "HarnessParameterSchema-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HarnessParameterSpec"
+            },
+            "default": {},
+            "title": "Parameters",
+            "type": "object"
+          }
+        },
+        "title": "HarnessParameterSchema",
+        "type": "object"
+      },
+      "HarnessParameterSchema-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HarnessParameterSpec"
+            },
+            "default": {},
+            "title": "Parameters",
+            "type": "object"
+          }
+        },
+        "required": [
+          "parameters"
+        ],
+        "title": "HarnessParameterSchema",
+        "type": "object"
+      },
+      "HarnessParameterSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enum": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enum"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "type": {
+            "enum": [
+              "string",
+              "integer",
+              "number",
+              "boolean"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "HarnessParameterSpec",
+        "type": "object"
+      },
       "Health": {
         "additionalProperties": false,
         "properties": {
@@ -3673,19 +6242,19 @@
             ],
             "title": "Accepting Runs"
           },
-          "detail": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Detail",
-            "type": "object"
-          },
           "status": {
+            "enum": [
+              "alive",
+              "ready",
+              "maintenance"
+            ],
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
-          "status"
+          "status",
+          "accepting_runs"
         ],
         "title": "Health",
         "type": "object"
@@ -3712,6 +6281,137 @@
           "memory_mb"
         ],
         "title": "HostCapacityView",
+        "type": "object"
+      },
+      "ImportProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/ImportRequest"
+          },
+          "resolved_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Digest"
+          },
+          "tasks_done": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tasks Done"
+          },
+          "tasks_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tasks Total"
+          }
+        },
+        "required": [
+          "request",
+          "resolved_digest",
+          "tasks_total",
+          "tasks_done"
+        ],
+        "title": "ImportProgress",
+        "type": "object"
+      },
+      "ImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "accept_changed_content": {
+            "title": "Accept Changed Content",
+            "type": "boolean"
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "namespace": {
+            "title": "Namespace",
+            "type": "string"
+          },
+          "prepare": {
+            "title": "Prepare",
+            "type": "boolean"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_kind",
+          "namespace",
+          "name",
+          "ref",
+          "credential_id",
+          "accept_changed_content",
+          "prepare"
+        ],
+        "title": "ImportRequest",
+        "type": "object"
+      },
+      "ImportResult": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "existing": {
+            "description": "The same version was imported before",
+            "title": "Existing",
+            "type": "boolean"
+          },
+          "preparation_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preparation Operation Id"
+          }
+        },
+        "required": [
+          "dataset_version_id",
+          "existing"
+        ],
+        "title": "ImportResult",
         "type": "object"
       },
       "Invitation": {
@@ -4157,6 +6857,7 @@
         "title": "IssuedPat",
         "type": "object"
       },
+      "JsonValue": {},
       "LocalPreparation": {
         "additionalProperties": false,
         "properties": {
@@ -4184,14 +6885,12 @@
           "last_restore_error": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/Problem"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Last Restore Error"
+            ]
           },
           "last_used_at": {
             "anyOf": [
@@ -4327,7 +7026,8 @@
           "initialized",
           "available",
           "generation",
-          "rotated_at"
+          "rotated_at",
+          "reencrypted_credentials"
         ],
         "title": "MasterKeyStatus",
         "type": "object"
@@ -4508,14 +7208,12 @@
           "deletion": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/DeletionState"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Deletion"
+            ]
           },
           "description": {
             "title": "Description",
@@ -4542,7 +7240,9 @@
             "type": "string"
           },
           "params": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "title": "Params",
             "type": "object"
           },
@@ -4595,8 +7295,12 @@
           "params",
           "credential_bound",
           "credential_problem",
+          "credential_id",
+          "credential_name",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "deletion",
+          "revisions"
         ],
         "title": "ModelConfig",
         "type": "object"
@@ -4634,8 +7338,11 @@
             "type": "string"
           },
           "params": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "default": {},
+            "description": "Provider request parameters; no secrets",
             "title": "Params",
             "type": "object"
           },
@@ -4697,8 +7404,11 @@
             "type": "string"
           },
           "params": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "default": {},
+            "description": "Provider request parameters; no secrets",
             "title": "Params",
             "type": "object"
           },
@@ -4758,7 +7468,9 @@
             "type": "string"
           },
           "params": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "title": "Params",
             "type": "object"
           },
@@ -4788,64 +7500,73 @@
           "model_id",
           "params",
           "credential_bound",
+          "credential_id",
           "created_at"
         ],
         "title": "ModelRevision",
         "type": "object"
       },
-      "Operation": {
+      "NoProgress": {
         "additionalProperties": false,
+        "properties": {},
+        "title": "NoProgress",
+        "type": "object"
+      },
+      "NormalizedRequest": {
+        "additionalProperties": false,
+        "description": "A configuration request after checking: what resolution and reruns start from.",
         "properties": {
-          "allowed_actions": {
+          "attachments": {
             "items": {
               "type": "string"
             },
-            "title": "Allowed Actions",
+            "title": "Attachments",
             "type": "array"
           },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "error": {
+          "concurrency": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Error"
+            "title": "Concurrency"
           },
-          "finished_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "execution_mode": {
+            "enum": [
+              "agent",
+              "oracle"
             ],
-            "title": "Finished At"
-          },
-          "id": {
-            "title": "Id",
+            "title": "Execution Mode",
             "type": "string"
           },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "links": {
+          "harness_params": {
             "additionalProperties": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
             },
-            "title": "Links",
+            "title": "Harness Params",
             "type": "object"
           },
-          "owner_id": {
+          "harness_version_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -4854,9 +7575,9 @@
                 "type": "null"
               }
             ],
-            "title": "Owner Id"
+            "title": "Harness Version Id"
           },
-          "phase": {
+          "model_config_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -4865,75 +7586,126 @@
                 "type": "null"
               }
             ],
-            "title": "Phase"
+            "title": "Model Config Id"
           },
-          "progress": {
-            "additionalProperties": true,
-            "title": "Progress",
-            "type": "object"
-          },
-          "resource": {
+          "model_revision": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/OperationResource"
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ParameterChoice"
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanUse"
               },
               {
                 "type": "null"
               }
             ]
           },
-          "result": {
+          "repetitions": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Result"
+            "title": "Repetitions"
           },
-          "revision": {
-            "title": "Revision",
-            "type": "integer"
+          "resources": {
+            "$ref": "#/components/schemas/ResourceOverrides"
           },
-          "status": {
-            "enum": [
-              "accepted",
-              "running",
-              "succeeded",
-              "failed",
-              "cancelled",
-              "interrupted"
+          "run_deadline_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Status",
-            "type": "string"
+            "title": "Run Deadline Hours"
           },
-          "updated_at": {
-            "title": "Updated At",
-            "type": "string"
+          "task_selection": {
+            "$ref": "#/components/schemas/TaskSelection-Output"
+          },
+          "timeouts": {
+            "$ref": "#/components/schemas/TimeoutOverrides"
           }
         },
         "required": [
-          "id",
-          "kind",
-          "resource",
-          "owner_id",
-          "status",
-          "phase",
-          "progress",
-          "error",
-          "result",
-          "allowed_actions",
-          "links",
-          "revision",
-          "created_at",
-          "updated_at",
-          "finished_at"
+          "plan",
+          "dataset_version_id",
+          "task_selection",
+          "execution_mode",
+          "model_config_id",
+          "model_revision",
+          "harness_version_id",
+          "harness_params",
+          "attachments",
+          "repetitions",
+          "concurrency",
+          "run_deadline_hours",
+          "resources",
+          "timeouts",
+          "parameters"
         ],
-        "title": "Operation",
+        "title": "NormalizedRequest",
         "type": "object"
+      },
+      "Operation": {
+        "description": "A long operation; ``kind`` decides the shape of ``progress`` and ``result``.",
+        "discriminator": {
+          "mapping": {
+            "batch": "#/components/schemas/BatchOperation",
+            "dataset_import": "#/components/schemas/DatasetImportOperation",
+            "export": "#/components/schemas/ExportOperation",
+            "preparation_eviction": "#/components/schemas/EvictionOperation",
+            "preparation_first": "#/components/schemas/FirstPreparationOperation",
+            "preparation_restore": "#/components/schemas/RestoreOperation",
+            "run": "#/components/schemas/RunOperation"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RunOperation"
+          },
+          {
+            "$ref": "#/components/schemas/BatchOperation"
+          },
+          {
+            "$ref": "#/components/schemas/ExportOperation"
+          },
+          {
+            "$ref": "#/components/schemas/DatasetImportOperation"
+          },
+          {
+            "$ref": "#/components/schemas/FirstPreparationOperation"
+          },
+          {
+            "$ref": "#/components/schemas/RestoreOperation"
+          },
+          {
+            "$ref": "#/components/schemas/EvictionOperation"
+          }
+        ],
+        "title": "Operation"
       },
       "OperationResource": {
         "additionalProperties": false,
@@ -4977,6 +7749,106 @@
           "deleted"
         ],
         "title": "Owner",
+        "type": "object"
+      },
+      "ParameterChoice": {
+        "additionalProperties": false,
+        "description": "An author parameter value: a literal, or the team credential that holds it.",
+        "properties": {
+          "credential_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "ParameterChoice",
+        "type": "object"
+      },
+      "ParameterIssue": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "CONFLICTING_DEFAULTS",
+              "COMPOSE_DISCOVERY_FAILED"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The compose file (COMPOSE_DISCOVERY_FAILED)",
+            "title": "File"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parameter (CONFLICTING_DEFAULTS)",
+            "title": "Name"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ParameterIssue",
+        "type": "object"
+      },
+      "PassRule": {
+        "additionalProperties": false,
+        "properties": {
+          "rule": {
+            "const": "threshold",
+            "title": "Rule",
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "A trial passes when its score reaches this",
+            "title": "Threshold"
+          }
+        },
+        "required": [
+          "rule",
+          "threshold"
+        ],
+        "title": "PassRule",
         "type": "object"
       },
       "PasswordChange": {
@@ -5142,6 +8014,25 @@
         "title": "PatCreate",
         "type": "object"
       },
+      "PatQuota": {
+        "additionalProperties": false,
+        "properties": {
+          "left": {
+            "title": "Left",
+            "type": "integer"
+          },
+          "needed": {
+            "title": "Needed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "needed",
+          "left"
+        ],
+        "title": "PatQuota",
+        "type": "object"
+      },
       "Plan": {
         "additionalProperties": false,
         "properties": {
@@ -5181,14 +8072,12 @@
           "deletion": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/DeletionState"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Deletion"
+            ]
           },
           "description": {
             "title": "Description",
@@ -5222,9 +8111,7 @@
             "type": "integer"
           },
           "template": {
-            "additionalProperties": true,
-            "title": "Template",
-            "type": "object"
+            "$ref": "#/components/schemas/PlanTemplate-Output"
           },
           "updated_at": {
             "title": "Updated At",
@@ -5243,7 +8130,8 @@
           "created_at",
           "updated_at",
           "archived_at",
-          "allowed_actions"
+          "allowed_actions",
+          "deletion"
         ],
         "title": "Plan",
         "type": "object"
@@ -5293,17 +8181,398 @@
             "type": "string"
           },
           "template": {
-            "additionalProperties": true,
-            "default": {},
-            "description": "Fields of a configuration request (see ConfigRequest)",
-            "title": "Template",
-            "type": "object"
+            "$ref": "#/components/schemas/PlanTemplate-Input",
+            "default": {}
           }
         },
         "required": [
           "name"
         ],
         "title": "PlanCreate",
+        "type": "object"
+      },
+      "PlanTemplate-Input": {
+        "additionalProperties": false,
+        "description": "Any fields of a configuration request (see ConfigRequest). A field the plan does\nnot set is left out; a run's own value wins over the plan's.",
+        "properties": {
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachments"
+          },
+          "concurrency": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency"
+          },
+          "dataset_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Version Id"
+          },
+          "execution_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "agent",
+                  "oracle"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Mode"
+          },
+          "harness_params": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Params"
+          },
+          "harness_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Version Id"
+          },
+          "model_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Id"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CredentialRef"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          },
+          "repetitions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repetitions"
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceOverrides"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_deadline_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Deadline Hours"
+          },
+          "task_selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskSelection-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeouts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeoutOverrides"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "PlanTemplate",
+        "type": "object"
+      },
+      "PlanTemplate-Output": {
+        "additionalProperties": false,
+        "description": "Any fields of a configuration request (see ConfigRequest). A field the plan does\nnot set is left out; a run's own value wins over the plan's.",
+        "properties": {
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachments"
+          },
+          "concurrency": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency"
+          },
+          "dataset_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Version Id"
+          },
+          "execution_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "agent",
+                  "oracle"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Mode"
+          },
+          "harness_params": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Params"
+          },
+          "harness_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Version Id"
+          },
+          "model_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Id"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CredentialRef"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          },
+          "repetitions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repetitions"
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceOverrides"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_deadline_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Deadline Hours"
+          },
+          "task_selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskSelection-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeouts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeoutOverrides"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "PlanTemplate",
         "type": "object"
       },
       "PlanUpdate": {
@@ -5338,20 +8607,76 @@
           "template": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/PlanTemplate-Input"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Template"
+            ]
           }
         },
         "required": [
           "expected_revision"
         ],
         "title": "PlanUpdate",
+        "type": "object"
+      },
+      "PlanUse": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "description": "JSON pointers of the fields the plan supplied",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_id",
+          "revision",
+          "fields"
+        ],
+        "title": "PlanUse",
+        "type": "object"
+      },
+      "PlannedRestore": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "restore_cache",
+            "title": "Action",
+            "type": "string"
+          },
+          "spec_digest": {
+            "title": "Spec Digest",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_key": {
+            "title": "Task Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "task_key",
+          "action",
+          "spec_digest"
+        ],
+        "title": "PlannedRestore",
         "type": "object"
       },
       "PolicySetting": {
@@ -5399,14 +8724,12 @@
           "archive": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/PreparationArchive"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Archive"
+            ]
           },
           "cache_state": {
             "enum": [
@@ -5447,14 +8770,12 @@
           "last_restore_error": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/Problem"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Last Restore Error"
+            ]
           },
           "last_used_at": {
             "anyOf": [
@@ -5530,6 +8851,40 @@
         "title": "Preparation",
         "type": "object"
       },
+      "PreparationArchive": {
+        "additionalProperties": false,
+        "description": "The saved original the cache is restored from (U-17).",
+        "properties": {
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          }
+        },
+        "required": [
+          "digest",
+          "size_bytes"
+        ],
+        "title": "PreparationArchive",
+        "type": "object"
+      },
       "PreparationPin": {
         "additionalProperties": false,
         "properties": {
@@ -5590,6 +8945,115 @@
           "since"
         ],
         "title": "PreparationWaiter",
+        "type": "object"
+      },
+      "PreparedOutputView": {
+        "additionalProperties": false,
+        "properties": {
+          "archive": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The saved original (U-17)",
+            "title": "Archive"
+          },
+          "detail": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "How it was prepared; depends on the environment",
+            "title": "Detail",
+            "type": "object"
+          },
+          "image_id": {
+            "title": "Image Id",
+            "type": "string"
+          },
+          "image_ref": {
+            "title": "Image Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_id",
+          "image_ref",
+          "archive",
+          "detail"
+        ],
+        "title": "PreparedOutputView",
+        "type": "object"
+      },
+      "Problem": {
+        "additionalProperties": true,
+        "description": "A recorded failure: a stable code and a message, with the cause's kind, evidence\nand next steps when it has them. Further fields depend on the code.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "suggested_actions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SuggestedAction"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Actions"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "Problem",
         "type": "object"
       },
       "ProviderCapacity": {
@@ -5684,7 +9148,10 @@
             "title": "Deleted By Username"
           },
           "detail": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "What a purge removed; depends on the object type",
             "title": "Detail",
             "type": "object"
           },
@@ -5790,6 +9257,69 @@
         "title": "RecycleEntry",
         "type": "object"
       },
+      "ReferenceRevisions": {
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachments"
+          },
+          "harness_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Version"
+          },
+          "model_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team_policy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Policy"
+          }
+        },
+        "title": "ReferenceRevisions",
+        "type": "object"
+      },
       "RequiredPreparation": {
         "additionalProperties": false,
         "properties": {
@@ -5869,6 +9399,211 @@
           }
         },
         "title": "ResourceOverrides",
+        "type": "object"
+      },
+      "RestoreOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "preparation_restore",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/RestoreProgress"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RestoreResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "owner_id",
+          "status",
+          "phase",
+          "error",
+          "allowed_actions",
+          "links",
+          "revision",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "kind",
+          "progress",
+          "result"
+        ],
+        "title": "RestoreOperation",
+        "type": "object"
+      },
+      "RestoreProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "spec_digest": {
+            "title": "Spec Digest",
+            "type": "string"
+          },
+          "task_key": {
+            "title": "Task Key",
+            "type": "string"
+          },
+          "waiters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiters"
+          }
+        },
+        "required": [
+          "spec_digest",
+          "task_key",
+          "waiters"
+        ],
+        "title": "RestoreProgress",
+        "type": "object"
+      },
+      "RestoreResult": {
+        "additionalProperties": false,
+        "properties": {
+          "output": {
+            "$ref": "#/components/schemas/PreparedOutputView"
+          },
+          "waiters": {
+            "title": "Waiters",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "output",
+          "waiters"
+        ],
+        "title": "RestoreResult",
+        "type": "object"
+      },
+      "RevisionRef": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "revision"
+        ],
+        "title": "RevisionRef",
         "type": "object"
       },
       "Run": {
@@ -6143,6 +9878,9 @@
           "pat_id",
           "relation",
           "source_run_id",
+          "plan_id",
+          "plan_revision",
+          "batch_id",
           "dataset_version_id",
           "operation_id",
           "client_request_id",
@@ -6173,8 +9911,7 @@
         "properties": {
           "cache_observations": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/CacheObservation"
             },
             "title": "Cache Observations",
             "type": "array"
@@ -6185,8 +9922,7 @@
           },
           "excluded_tasks": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/ExcludedTask"
             },
             "title": "Excluded Tasks",
             "type": "array"
@@ -6349,7 +10085,22 @@
             "title": "Execution Mode"
           },
           "harness_params": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
             "default": {},
             "title": "Harness Params",
             "type": "object"
@@ -6482,7 +10233,7 @@
             "title": "Source Run Id"
           },
           "task_selection": {
-            "$ref": "#/components/schemas/TaskSelection",
+            "$ref": "#/components/schemas/TaskSelection-Input",
             "default": {
               "mode": "all_eligible"
             }
@@ -6773,6 +10524,9 @@
           "pat_id",
           "relation",
           "source_run_id",
+          "plan_id",
+          "plan_revision",
+          "batch_id",
           "dataset_version_id",
           "operation_id",
           "client_request_id",
@@ -6797,6 +10551,351 @@
           "snapshot"
         ],
         "title": "RunDetail",
+        "type": "object"
+      },
+      "RunOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "run",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/RunProgress"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunOperationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "owner_id",
+          "status",
+          "phase",
+          "error",
+          "allowed_actions",
+          "links",
+          "revision",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "kind",
+          "progress",
+          "result"
+        ],
+        "title": "RunOperation",
+        "type": "object"
+      },
+      "RunOperationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/RunCounts"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "preparing",
+              "running",
+              "finalizing",
+              "finished",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "state",
+          "counts"
+        ],
+        "title": "RunOperationResult",
+        "type": "object"
+      },
+      "RunPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "aggregation_version": {
+            "title": "Aggregation Version",
+            "type": "integer"
+          },
+          "executor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executor Id"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "scoring": {
+            "$ref": "#/components/schemas/ScoringContract"
+          },
+          "team_policy_revision": {
+            "title": "Team Policy Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aggregation_version",
+          "policy_version",
+          "team_policy_revision",
+          "executor_id",
+          "scoring"
+        ],
+        "title": "RunPolicy",
+        "type": "object"
+      },
+      "RunProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
+          "errors": {
+            "title": "Errors",
+            "type": "integer"
+          },
+          "planned": {
+            "title": "Planned",
+            "type": "integer"
+          },
+          "scored": {
+            "title": "Scored",
+            "type": "integer"
+          },
+          "terminal": {
+            "title": "Terminal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "planned",
+          "terminal",
+          "scored",
+          "errors",
+          "active"
+        ],
+        "title": "RunProgress",
+        "type": "object"
+      },
+      "RunProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "admissions": {
+            "items": {
+              "$ref": "#/components/schemas/AdmissionRecord"
+            },
+            "title": "Admissions",
+            "type": "array"
+          },
+          "baseline_differences": {
+            "items": {
+              "$ref": "#/components/schemas/BaselineDifference"
+            },
+            "title": "Baseline Differences",
+            "type": "array"
+          },
+          "credential_ids": {
+            "description": "Bound credentials, by reference only",
+            "items": {
+              "type": "string"
+            },
+            "title": "Credential Ids",
+            "type": "array"
+          },
+          "excluded_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedTask"
+            },
+            "title": "Excluded Tasks",
+            "type": "array"
+          },
+          "field_sources": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldSource"
+            },
+            "title": "Field Sources",
+            "type": "object"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "object"
+          },
+          "reference_revisions": {
+            "$ref": "#/components/schemas/ReferenceRevisions"
+          },
+          "request": {
+            "$ref": "#/components/schemas/NormalizedRequest"
+          },
+          "resolution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submitted_via": {
+            "enum": [
+              "web_session",
+              "pat"
+            ],
+            "title": "Submitted Via",
+            "type": "string"
+          },
+          "task_selection": {
+            "$ref": "#/components/schemas/TaskSelection-Output"
+          }
+        },
+        "required": [
+          "submitted_via",
+          "resolution_id",
+          "request",
+          "task_selection",
+          "excluded_tasks",
+          "field_sources",
+          "baseline_differences",
+          "reference_revisions",
+          "labels",
+          "source",
+          "credential_ids",
+          "admissions"
+        ],
+        "title": "RunProvenance",
         "type": "object"
       },
       "RunRerun": {
@@ -6958,19 +11057,13 @@
             "type": "string"
           },
           "effective": {
-            "additionalProperties": true,
-            "title": "Effective",
-            "type": "object"
+            "$ref": "#/components/schemas/EffectiveConfig"
           },
           "policy": {
-            "additionalProperties": true,
-            "title": "Policy",
-            "type": "object"
+            "$ref": "#/components/schemas/RunPolicy"
           },
           "provenance": {
-            "additionalProperties": true,
-            "title": "Provenance",
-            "type": "object"
+            "$ref": "#/components/schemas/RunProvenance"
           },
           "schema_version": {
             "title": "Schema Version",
@@ -6991,6 +11084,86 @@
           "comparison_digest"
         ],
         "title": "RunSnapshot",
+        "type": "object"
+      },
+      "RunSource": {
+        "additionalProperties": false,
+        "description": "Where a rerun or modified run came from (RUN-06).",
+        "properties": {
+          "config_digest": {
+            "title": "Config Digest",
+            "type": "string"
+          },
+          "differences": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConfigDifference"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Differences"
+          },
+          "relation": {
+            "enum": [
+              "rerun",
+              "modified"
+            ],
+            "title": "Relation",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "snapshot_digest": {
+            "title": "Snapshot Digest",
+            "type": "string"
+          },
+          "source_field_sources": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/FieldSource"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Field Sources"
+          },
+          "task_causes": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rerun: why each chosen task of the source was not scored",
+            "title": "Task Causes"
+          }
+        },
+        "required": [
+          "run_id",
+          "relation",
+          "snapshot_digest",
+          "config_digest"
+        ],
+        "title": "RunSource",
         "type": "object"
       },
       "RunSummary": {
@@ -7200,6 +11373,37 @@
         "title": "RunSummary",
         "type": "object"
       },
+      "SchemaState": {
+        "additionalProperties": false,
+        "properties": {
+          "compatible": {
+            "title": "Compatible",
+            "type": "boolean"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "head": {
+            "title": "Head",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current",
+          "head",
+          "compatible"
+        ],
+        "title": "SchemaState",
+        "type": "object"
+      },
       "ScoringContract": {
         "additionalProperties": true,
         "properties": {
@@ -7237,15 +11441,13 @@
           "passed": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/PassRule"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Explicit pass rule; null: no pass rate",
-            "title": "Passed"
+            "description": "Explicit pass rule; null: no pass rate"
           },
           "source": {
             "enum": [
@@ -7442,7 +11644,8 @@
         },
         "required": [
           "namespace",
-          "name"
+          "name",
+          "visibility"
         ],
         "title": "SourceDataset",
         "type": "object"
@@ -7526,7 +11729,12 @@
         },
         "required": [
           "ref",
-          "resolved_digest"
+          "revision",
+          "tags",
+          "resolved_digest",
+          "published_at",
+          "yanked",
+          "yanked_reason"
         ],
         "title": "SourceVersion",
         "type": "object"
@@ -7604,6 +11812,177 @@
         "title": "StatusChange",
         "type": "object"
       },
+      "StorageStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "accept_min_free": {
+            "$ref": "#/components/schemas/StorageThreshold"
+          },
+          "dispatch_min_free": {
+            "$ref": "#/components/schemas/StorageThreshold"
+          },
+          "free_bytes": {
+            "title": "Free Bytes",
+            "type": "integer"
+          },
+          "level": {
+            "enum": [
+              "ok",
+              "accept_paused",
+              "dispatch_paused"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "free_bytes",
+          "total_bytes",
+          "accept_min_free",
+          "dispatch_min_free"
+        ],
+        "title": "StorageStatus",
+        "type": "object"
+      },
+      "StorageThreshold": {
+        "additionalProperties": false,
+        "properties": {
+          "gib": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Gib"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Percent"
+          }
+        },
+        "required": [
+          "gib",
+          "percent"
+        ],
+        "title": "StorageThreshold",
+        "type": "object"
+      },
+      "SuggestedAction": {
+        "additionalProperties": true,
+        "description": "A next step; ``type`` says which, and the other fields depend on it.",
+        "properties": {
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "SuggestedAction",
+        "type": "object"
+      },
+      "SystemDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "executor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executor"
+          },
+          "master_key_available": {
+            "title": "Master Key Available",
+            "type": "boolean"
+          },
+          "needs_setup": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needs Setup"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SchemaState"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/StorageStatus"
+          },
+          "worker_running": {
+            "title": "Worker Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "storage",
+          "schema",
+          "master_key_available",
+          "executor",
+          "worker_running",
+          "needs_setup"
+        ],
+        "title": "SystemDetail",
+        "type": "object"
+      },
+      "SystemStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "accepting_runs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepting Runs"
+          },
+          "detail": {
+            "$ref": "#/components/schemas/SystemDetail"
+          },
+          "status": {
+            "enum": [
+              "alive",
+              "ready",
+              "maintenance"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "accepting_runs",
+          "detail"
+        ],
+        "title": "SystemStatus",
+        "type": "object"
+      },
       "Task": {
         "additionalProperties": false,
         "properties": {
@@ -7669,9 +12048,7 @@
             "type": "array"
           },
           "resources": {
-            "additionalProperties": true,
-            "title": "Resources",
-            "type": "object"
+            "$ref": "#/components/schemas/TaskResources"
           },
           "spec_digest": {
             "anyOf": [
@@ -7689,9 +12066,7 @@
             "type": "string"
           },
           "timeouts": {
-            "additionalProperties": true,
-            "title": "Timeouts",
-            "type": "object"
+            "$ref": "#/components/schemas/TaskTimeouts"
           },
           "warnings": {
             "items": {
@@ -7712,6 +12087,7 @@
           "resources",
           "timeouts",
           "parameters",
+          "required_parameters",
           "instruction",
           "can_submit",
           "blockers",
@@ -7765,6 +12141,7 @@
       },
       "TaskBlocker": {
         "additionalProperties": false,
+        "description": "Why a task cannot be chosen; the fields that apply depend on the code.",
         "properties": {
           "admission_state": {
             "anyOf": [
@@ -7783,7 +12160,9 @@
               "TASK_ADMISSION_REVOKED",
               "RESOURCE_CONTENT_UNAVAILABLE",
               "CONFIG_REQUIRED_MISSING",
-              "AUTHOR_PARAMETERS_UNRESOLVED"
+              "AUTHOR_PARAMETERS_UNRESOLVED",
+              "TEAM_LIMIT_EXCEEDED",
+              "NOT_FOUND"
             ],
             "title": "Code",
             "type": "string"
@@ -7791,14 +12170,12 @@
           "evidence": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ContentEvidence"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Evidence"
+            ]
           },
           "expected_digest": {
             "anyOf": [
@@ -7811,24 +12188,33 @@
             ],
             "title": "Expected Digest"
           },
-          "first_preparation_error": {
+          "field": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "First Preparation Error"
+            "description": "TEAM_LIMIT_EXCEEDED: the task setting",
+            "title": "Field"
+          },
+          "first_preparation_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Problem"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "issues": {
             "anyOf": [
               {
                 "items": {
-                  "additionalProperties": true,
-                  "type": "object"
+                  "$ref": "#/components/schemas/ParameterIssue"
                 },
                 "type": "array"
               },
@@ -7837,6 +12223,20 @@
               }
             ],
             "title": "Issues"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
           },
           "parameters": {
             "anyOf": [
@@ -7862,6 +12262,20 @@
               }
             ],
             "title": "Resource Kind"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
           }
         },
         "required": [
@@ -7926,7 +12340,68 @@
         "title": "TaskContent",
         "type": "object"
       },
-      "TaskSelection": {
+      "TaskResources": {
+        "additionalProperties": false,
+        "description": "What the task's author asks for; a run may raise CPU and memory, never lower them.",
+        "properties": {
+          "constraint_strength": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Constraint Strength"
+          },
+          "cpus": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpus"
+          },
+          "memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Mb"
+          },
+          "storage_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Mb"
+          }
+        },
+        "required": [
+          "cpus",
+          "memory_mb",
+          "storage_mb",
+          "constraint_strength"
+        ],
+        "title": "TaskResources",
+        "type": "object"
+      },
+      "TaskSelection-Input": {
         "additionalProperties": false,
         "properties": {
           "mode": {
@@ -7953,6 +12428,40 @@
             "title": "Task Ids"
           }
         },
+        "title": "TaskSelection",
+        "type": "object"
+      },
+      "TaskSelection-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "all_eligible",
+            "enum": [
+              "all_eligible",
+              "explicit"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "task_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Ids"
+          }
+        },
+        "required": [
+          "mode",
+          "task_ids"
+        ],
         "title": "TaskSelection",
         "type": "object"
       },
@@ -8033,6 +12542,60 @@
           "failure_causes"
         ],
         "title": "TaskSummary",
+        "type": "object"
+      },
+      "TaskTimeouts": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Sec"
+          },
+          "build_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Sec"
+          },
+          "verifier_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verifier Sec"
+          }
+        },
+        "required": [
+          "agent_sec",
+          "verifier_sec",
+          "build_sec"
+        ],
+        "title": "TaskTimeouts",
         "type": "object"
       },
       "TaskWarning": {
@@ -9103,7 +13666,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_dict_"
+                  "$ref": "#/components/schemas/Envelope_ScoringContract_"
                 }
               }
             },
@@ -10746,7 +15309,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConfigRequest"
+                "$ref": "#/components/schemas/ConfigRequest-Input"
               }
             }
           },
@@ -13492,7 +18055,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_Health_"
+                  "$ref": "#/components/schemas/Envelope_SystemStatus_"
                 }
               }
             },

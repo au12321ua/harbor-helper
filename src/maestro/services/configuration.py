@@ -109,6 +109,10 @@ def check_template(template) -> dict:
             found[key] = {k: v for k, v in checked[key].items() if k in value}
         else:
             found[key] = checked[key]
+    if "parameters" in found:
+        # Kept in request form (a string, or a credential reference): a run request
+        # merges them in and is checked again, and check_request takes no {"value": ...}.
+        found["parameters"] = {k: v.get("value", v) for k, v in found["parameters"].items()}
     return found
 
 
@@ -1122,7 +1126,7 @@ class Resolver:
                     "Run exceeds task or trial limits",
                     error="RUN_TOO_LARGE",
                     status=413,
-                    extra={"tasks": len(res.tasks), "trials": trials},
+                    extra={"task_count": len(res.tasks), "trial_count": trials},
                 )
             )
         provider = (effective.get("model") or {}).get("provider")

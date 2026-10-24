@@ -21,7 +21,7 @@ import type { Batch } from "@/lib/types";
 const ENDED = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
 
 export function BatchListPage() {
-  const list = useLoad(async () => (await api.get<Batch[]>("run-batches")).data);
+  const list = useLoad(async () => (await api.get("/run-batches")).data);
   return (
     <div className="grid gap-4">
       <PageTitle title="批次" />
@@ -69,12 +69,12 @@ export function BatchListPage() {
 }
 
 export function BatchPage() {
-  const { batchId } = useParams();
+  const { batchId = "" } = useParams();
   const [batch, setBatch] = useState<Batch | null>(null);
   const [error, setError] = useState<unknown>();
   const load = useCallback(async () => {
     try {
-      setBatch((await api.get<Batch>(`run-batches/${batchId}`)).data);
+      setBatch((await api.get("/run-batches/{batch_id}", { path: { batch_id: batchId } })).data);
       setError(undefined);
     } catch (err) {
       setError(err);
@@ -88,7 +88,9 @@ export function BatchPage() {
   const cancel = async () => {
     if (!window.confirm("取消整个批次？还没结束的运行会停止，已得到的评分保留。")) return;
     try {
-      setBatch((await api.post<Batch>(`run-batches/${batchId}/cancel`)).data);
+      setBatch(
+        (await api.post("/run-batches/{batch_id}/cancel", { path: { batch_id: batchId } })).data,
+      );
       toast.success("已请求取消批次");
     } catch (err) {
       toast.error(`取消失败：${errorText(err)}`);

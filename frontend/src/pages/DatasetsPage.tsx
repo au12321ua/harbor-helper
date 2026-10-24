@@ -26,7 +26,6 @@ import { api, errorText } from "@/lib/api";
 import { fmtTime, OPERATION_STATUS, shortId } from "@/lib/format";
 import { useInterval, useLoad, useSession } from "@/lib/hooks";
 import type {
-  Credential,
   Dataset,
   DatasetVersion,
   DatasetVersionDetail,
@@ -65,7 +64,10 @@ function OperationLine({
   onDone?: (op: Operation) => void;
 }) {
   const [notified, setNotified] = useState(false);
-  const op = useLoad(async () => (await api.get<Operation>(`operations/${id}`)).data, [id]);
+  const op = useLoad(
+    async () => (await api.get("/operations/{operation_id}", { path: { operation_id: id } })).data,
+    [id],
+  );
   const running = !op.data || !TERMINAL.has(op.data.status);
   useInterval(() => void op.reload(), 1000, running);
   if (op.data && !running && !notified) {
@@ -73,7 +75,12 @@ function OperationLine({
     onDone?.(op.data);
   }
   if (!op.data) return <Loading text={`${label}…`} />;
-  const progress = op.data.progress as Record<string, number | undefined>;
+  // Imports and first preparations count tasks; other kinds have no task count.
+  const progress =
+    op.data.kind === "dataset_import" || op.data.kind === "preparation_first"
+      ? op.data.progress
+      : null;
+  const prepared = op.data.kind === "preparation_first" ? op.data.progress : null;
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
       <span className="font-medium">{label}</span>
@@ -81,16 +88,16 @@ function OperationLine({
       {op.data.phase && running && (
         <span className="text-muted-foreground">{PHASES[op.data.phase] ?? op.data.phase}</span>
       )}
-      {progress.tasks_total != null && (
+      {progress?.tasks_total != null && (
         <span className="text-xs text-muted-foreground">
           {progress.tasks_done ?? 0}/{progress.tasks_total} 个任务
-          {progress.admitted != null && ` · 准入 ${progress.admitted}`}
-          {progress.failed ? ` · 失败 ${progress.failed}` : ""}
+          {prepared?.admitted != null && ` · 准入 ${prepared.admitted}`}
+          {prepared?.failed ? ` · 失败 ${prepared.failed}` : ""}
         </span>
       )}
       {op.data.error && (
         <span className="text-xs text-destructive">
-          {String(op.data.error.message ?? op.data.error.code)}（{String(op.data.error.code)}）
+          {op.data.error.message ?? op.data.error.code}（{op.data.error.code}）
         </span>
       )}
       <code className="ml-auto text-xs text-muted-foreground">{shortId(op.data.id, 16)}</code>
@@ -101,7 +108,9 @@ function OperationLine({
 export function DatasetsPage() {
   const { me } = useSession();
   const isAdmin = me.role === "admin" && me.auth_channel === "web_session";
-  const datasets = useLoad(async () => (await api.get<Dataset[]>("datasets", { limit: 200 })).data);
+  const datasets = useLoad(
+    async () => (await api.get("/datasets", { query: { limit: 200 } })).data,
+  );
   const [chosen, setVersionId] = useState<string>("");
   const visible = datasets.data?.some((d) => d.versions.some((v) => v.id === chosen));
   const versionId =
@@ -117,7 +126,7 @@ export function DatasetsPage() {
     )
       return;
     try {
-      await api.del(`admin/datasets/${dataset.id}`);
+      await api.del("/admin/datasets/{dataset_id}", { path: { dataset_id: dataset.id } });
       toast.success("已移入回收站");
     } catch (err) {
       toast.error(`删除失败：${errorText(err)}`);
@@ -133,7 +142,7 @@ export function DatasetsPage() {
     )
       return;
     try {
-      await api.del(`admin/dataset-versions/${version.id}`);
+      await api.del("/admin/dataset-versions/{version_id}", { path: { version_id: version.id } });
       toast.success("已移入回收站");
     } catch (err) {
       toast.error(`删除失败：${errorText(err)}`);
@@ -239,12 +248,9 @@ export function DatasetsPage() {
 }
 
 function AddDataset({ onImported }: { onImported: (versionId?: string) => Promise<void> }) {
-  const sources = useLoad(async () => (await api.get<{ kind: string }[]>("dataset-sources")).data);
-  const credentials = useLoad(
-    async () =>
-      (await api.get<Credential[]>("admin/credentials")).data.filter(
-        (c) => c.kind === "hub_token" && c.enabled,
-      ),
+  const sources = useLoad(async () => (await api.get("/dataset-sources")).data);
+  const credentials = useLoad(async () =>
+    (await api.get("/admin/credentials")).data.filter((c) => c.kind === "hub_token" && c.enabled),
   );
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState("");
@@ -277,32 +283,34 @@ function AddDataset({ onImported }: { onImported: (versionId?: string) => Promis
       setTarget(undefined);
       setVersions(undefined);
       setPreview(undefined);
-      setFound((await api.get<SourceDataset[]>("dataset-search", { q: query, ...common })).data);
+      setFound((await api.get("/dataset-search", { query: { q: query, ...common } })).data);
     });
   const pick = (item: SourceDataset) =>
     run(async () => {
       setTarget(item);
       setPreview(undefined);
       const query = { namespace: item.namespace, name: item.name, ...common };
-      setVersions((await api.get<SourceVersion[]>("dataset-search/versions", query)).data);
+      setVersions((await api.get("/dataset-search/versions", { query: query })).data);
     });
   const look = (ref: string) =>
     run(async () => {
       if (!target) return;
       const query = { namespace: target.namespace, name: target.name, ref, ...common };
-      setPreview((await api.get<SourceVersionDetail>("dataset-search/version", query)).data);
+      setPreview((await api.get("/dataset-search/version", { query: query })).data);
     });
   const add = (accept = false) =>
     run(async () => {
       if (!preview) return;
-      const op = await api.post<Operation>("admin/dataset-imports", {
-        source_kind: sourceKind,
-        namespace: preview.namespace,
-        name: preview.name,
-        ref: preview.upstream_ref,
-        credential_id: credentialId || null,
-        prepare,
-        accept_changed_content: accept,
+      const op = await api.post("/admin/dataset-imports", {
+        body: {
+          source_kind: sourceKind,
+          namespace: preview.namespace,
+          name: preview.name,
+          ref: preview.upstream_ref,
+          credential_id: credentialId || null,
+          prepare,
+          accept_changed_content: accept,
+        },
       });
       setOperation(op.data.id);
     });
@@ -406,7 +414,7 @@ function AddDataset({ onImported }: { onImported: (versionId?: string) => Promis
                 {versions.map((v) => (
                   <TableRow key={v.ref}>
                     <TableCell>{v.ref}</TableCell>
-                    <TableCell className="text-xs">{(v.tags ?? []).join(", ") || "—"}</TableCell>
+                    <TableCell className="text-xs">{v.tags.join(", ") || "—"}</TableCell>
                     <TableCell className="font-mono text-xs" title={v.resolved_digest}>
                       {shortId(v.resolved_digest, 19)}
                     </TableCell>
@@ -469,16 +477,17 @@ function AddDataset({ onImported }: { onImported: (versionId?: string) => Promis
             label="添加版本"
             onDone={(op) => {
               setOperation(undefined);
+              const imported = op.kind === "dataset_import" ? op.result : null;
               if (op.status === "succeeded") {
-                toast.success(op.result?.existing ? "该内容已登记，未重复创建" : "版本已添加");
-                void onImported(op.result?.dataset_version_id as string | undefined);
+                toast.success(imported?.existing ? "该内容已登记，未重复创建" : "版本已添加");
+                void onImported(imported?.dataset_version_id);
               } else if (op.error?.code === "CONTENT_REFERENCE_CHANGED") {
                 const ok = window.confirm(
                   "此引用现在指向不同的内容。作为新的内部版本添加？旧版本保持不变。",
                 );
                 if (ok) void add(true);
               } else {
-                toast.error(`添加失败：${String(op.error?.message ?? op.status)}`);
+                toast.error(`添加失败：${op.error?.message ?? op.status}`);
               }
             }}
           />
@@ -498,11 +507,14 @@ function VersionTasks({
   onChange: () => Promise<void>;
 }) {
   const detail = useLoad(
-    async () => (await api.get<DatasetVersionDetail>(`dataset-versions/${versionId}`)).data,
+    async () =>
+      (await api.get("/dataset-versions/{version_id}", { path: { version_id: versionId } })).data,
     [versionId],
   );
   const tasks = useLoad(
-    async () => (await api.get<Task[]>(`dataset-versions/${versionId}/tasks`)).data,
+    async () =>
+      (await api.get("/dataset-versions/{version_id}/tasks", { path: { version_id: versionId } }))
+        .data,
     [versionId],
   );
   const [open, setOpen] = useState<string>();
@@ -529,9 +541,12 @@ function VersionTasks({
     const reason = window.prompt(`撤销 ${task.task_key} 的准入原因（已受理的运行不受影响）`);
     if (!reason || !task.admission) return;
     try {
-      await api.post(`admin/task-admissions/${task.admission.id}/revoke`, {
-        reason,
-        expected_revision: task.admission.revision,
+      await api.post("/admin/task-admissions/{admission_id}/revoke", {
+        path: { admission_id: task.admission.id },
+        body: {
+          reason,
+          expected_revision: task.admission.revision,
+        },
       });
       toast.success("已撤销准入");
       await refresh();
@@ -562,9 +577,8 @@ function VersionTasks({
               · 登记于 {fmtTime(detail.data.created_at)}
             </div>
             <div className="text-sm text-foreground">
-              共 {detail.data.task_count} 个任务 · 已准入 {detail.data.admitted_task_count} ·
-              可提交 {detail.data.submittable_task_count} · 缓存就绪{" "}
-              {detail.data.cache_ready_task_count}
+              共 {detail.data.task_count} 个任务 · 已准入 {detail.data.admitted_task_count} · 可提交{" "}
+              {detail.data.submittable_task_count} · 缓存就绪 {detail.data.cache_ready_task_count}
             </div>
             <ScoringContract
               versionId={versionId}
@@ -574,7 +588,8 @@ function VersionTasks({
             />
             {detail.data.deletion && (
               <div className="text-sm text-amber-800">
-                该版本已删除（{detail.data.deletion.state === "purged" ? "已彻底删除" : "在回收站中"}，
+                该版本已删除（
+                {detail.data.deletion.state === "purged" ? "已彻底删除" : "在回收站中"}，
                 {fmtTime(detail.data.deletion.deleted_at)}）。
               </div>
             )}
@@ -586,7 +601,10 @@ function VersionTasks({
               size="sm"
               onClick={() =>
                 void act("首次准备", () =>
-                  api.post<Operation>(`admin/dataset-versions/${versionId}/preparations`, {}),
+                  api.post("/admin/dataset-versions/{version_id}/preparations", {
+                    path: { version_id: versionId },
+                    body: {},
+                  }),
                 )
               }
             >
@@ -649,13 +667,15 @@ function VersionTasks({
                                 size="sm"
                                 variant="ghost"
                                 title="删除本机镜像；准入与原件保留"
-                                onClick={() =>
+                                onClick={() => {
+                                  const preparationId = task.local_preparation.id;
+                                  if (!preparationId) return;
                                   void act(`回收 ${task.task_key} 的缓存`, () =>
-                                    api.post<Operation>(
-                                      `admin/preparations/${task.local_preparation.id}/evict`,
-                                    ),
-                                  )
-                                }
+                                    api.post("/admin/preparations/{preparation_id}/evict", {
+                                      path: { preparation_id: preparationId },
+                                    }),
+                                  );
+                                }}
                               >
                                 回收缓存
                               </Button>
@@ -698,16 +718,19 @@ function ScoringContract({
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [direction, setDirection] = useState<string>(contract.direction);
+  const [direction, setDirection] = useState(contract.direction);
   const [threshold, setThreshold] = useState(String(contract.passed?.threshold ?? ""));
   const [error, setError] = useState<unknown>();
   const save = async () => {
     setError(undefined);
     try {
-      await api.put(`admin/dataset-versions/${versionId}/scoring-contract`, {
-        name: contract.name,
-        direction,
-        pass_threshold: threshold.trim() === "" ? null : Number(threshold),
+      await api.put("/admin/dataset-versions/{version_id}/scoring-contract", {
+        path: { version_id: versionId },
+        body: {
+          name: contract.name,
+          direction,
+          pass_threshold: threshold.trim() === "" ? null : Number(threshold),
+        },
       });
       toast.success("评分规则已确认，之后提交的运行使用它");
       setEditing(false);
@@ -719,8 +742,9 @@ function ScoringContract({
   return (
     <div className="grid gap-1">
       <div>
-        评分规则：{contract.name}，{contract.direction === "higher_is_better" ? "越高越好" : "越低越好"}
-        ，{contract.passed ? `达到 ${contract.passed.threshold} 记为通过` : "不计通过率"}（
+        评分规则：{contract.name}，
+        {contract.direction === "higher_is_better" ? "越高越好" : "越低越好"}，
+        {contract.passed ? `达到 ${contract.passed.threshold} 记为通过` : "不计通过率"}（
         {contract.source === "dataset_version" ? "管理员已确认" : "平台默认"}）
         {editable && !editing && (
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
@@ -734,7 +758,7 @@ function ScoringContract({
             id="direction"
             label="方向"
             value={direction}
-            onChange={(e) => setDirection(e.target.value)}
+            onChange={(e) => setDirection(e.target.value as typeof direction)}
           >
             <option value="higher_is_better">越高越好</option>
             <option value="lower_is_better">越低越好</option>

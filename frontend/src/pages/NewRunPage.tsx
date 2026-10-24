@@ -36,23 +36,15 @@ import {
 } from "@/lib/format";
 import { limit, useLoad, useSession } from "@/lib/hooks";
 import type {
-  Attachment,
-  BatchAccepted,
   BatchPreview,
   ConfigRequest,
   ConfigResolution,
-  CredentialName,
-  Dataset,
-  DatasetVersionDetail,
   ExecutionMode,
-  Harness,
-  ModelConfig,
+  PartialRequest,
   ParameterValue,
-  Plan,
-  Run,
-  RunAccepted,
   RunCreate,
   Task,
+  EffectiveTask,
 } from "@/lib/types";
 import { TaskStatusCells } from "@/components/TaskStatusCells";
 
@@ -64,10 +56,7 @@ const NESTED = new Set(["resources", "timeouts", "parameters", "harness_params"]
 
 /** The fields of a full request that differ from the plan's: the rest the plan supplies,
  *  and the resolution reports those with the plan as their source. */
-function ownFields(
-  full: ConfigRequest,
-  template: Partial<ConfigRequest>,
-): Partial<ConfigRequest> {
+function ownFields(full: ConfigRequest, template: PartialRequest): Partial<ConfigRequest> {
   const own: Record<string, unknown> = {};
   const plan = template as Record<string, unknown>;
   for (const [key, value] of Object.entries(full)) {
@@ -121,23 +110,15 @@ export function NewRunPage() {
   const [params] = useSearchParams();
   // A modified run starts from that run's request; its differences are recorded.
   const sourceRunId = params.get("from");
-  const plans = useLoad(async () => (await api.get<Plan[]>("plans")).data);
+  const plans = useLoad(async () => (await api.get("/plans")).data);
   const datasets = useLoad(
-    async () => (await api.get<Dataset[]>("datasets", { limit: 200 })).data,
+    async () => (await api.get("/datasets", { query: { limit: 200 } })).data,
   );
-  const models = useLoad(
-    async () => (await api.get<ModelConfig[]>("model-configs")).data,
-  );
-  const harnesses = useLoad(
-    async () => (await api.get<Harness[]>("harness-versions")).data,
-  );
-  const credentials = useLoad(
-    async () => (await api.get<CredentialName[]>("credentials")).data,
-  );
+  const models = useLoad(async () => (await api.get("/model-configs")).data);
+  const harnesses = useLoad(async () => (await api.get("/harness-versions")).data);
+  const credentials = useLoad(async () => (await api.get("/credentials")).data);
   const attachments = useLoad(
-    async () =>
-      (await api.get<Attachment[]>("attachments", { include_disabled: "false" }))
-        .data,
+    async () => (await api.get("/attachments", { query: { include_disabled: false } })).data,
   );
   const versions = useMemo(
     () =>
@@ -153,14 +134,18 @@ export function NewRunPage() {
   const tasks = useLoad(
     async () =>
       versionId
-        ? (await api.get<Task[]>(`dataset-versions/${versionId}/tasks`)).data
+        ? (
+            await api.get("/dataset-versions/{version_id}/tasks", {
+              path: { version_id: versionId },
+            })
+          ).data
         : ([] as Task[]),
     [versionId],
   );
   const detail = useLoad(
     async () =>
       versionId
-        ? (await api.get<DatasetVersionDetail>(`dataset-versions/${versionId}`))
+        ? (await api.get("/dataset-versions/{version_id}", { path: { version_id: versionId } }))
             .data
         : undefined,
     [versionId],
@@ -240,9 +225,7 @@ export function NewRunPage() {
         const known = found.get(p.name);
         found.set(p.name, {
           sensitive: (known?.sensitive ?? false) || p.sensitive,
-          required:
-            (known?.required ?? false) ||
-            (task.required_parameters ?? []).includes(p.name),
+          required: (known?.required ?? false) || task.required_parameters.includes(p.name),
           default: known?.default ?? p.default,
         });
       }
@@ -272,7 +255,7 @@ export function NewRunPage() {
         ? { credential_id: entry.value.trim() }
         : entry.value;
     }
-    const typedHarnessParams: Record<string, unknown> = {};
+    const typedHarnessParams: Record<string, string | number | boolean> = {};
     for (const [pname, text] of Object.entries(harnessParams)) {
       if (text.trim() === "") continue;
       const spec = harness?.parameter_schema.parameters[pname];
@@ -323,7 +306,7 @@ export function NewRunPage() {
       : request();
 
   /** Fill the form from a (partial) request: a plan's template or a run's request. */
-  const applyRequest = (req: Partial<ConfigRequest>) => {
+  const applyRequest = (req: PartialRequest) => {
     if (req.dataset_version_id) setChosenVersion(req.dataset_version_id);
     if (req.execution_mode) setExecutionMode(req.execution_mode);
     if (req.model_config_id) setModelId(req.model_config_id);
@@ -380,8 +363,8 @@ export function NewRunPage() {
     void (async () => {
       try {
         const [req, run] = await Promise.all([
-          api.get<ConfigRequest>(`runs/${sourceRunId}/request`),
-          api.get<Run>(`runs/${sourceRunId}`),
+          api.get("/runs/{run_id}/request", { path: { run_id: sourceRunId } }),
+          api.get("/runs/{run_id}", { path: { run_id: sourceRunId } }),
         ]);
         applyRequest(req.data);
         setName(`${run.data.name}（修改）`);
@@ -396,9 +379,11 @@ export function NewRunPage() {
   const savePlan = async () => {
     setError(undefined);
     try {
-      const res = await api.post<Plan>("plans", {
-        name: planName.trim(),
-        template: setFields(request()),
+      const res = await api.post("/plans", {
+        body: {
+          name: planName.trim(),
+          template: setFields(request()),
+        },
       });
       toast.success(`已保存方案“${res.data.name}”`);
       setPlanName("");
@@ -427,7 +412,7 @@ export function NewRunPage() {
   const previewBatch = async () => {
     setError(undefined);
     try {
-      setBatchPreview((await api.post<BatchPreview>("run-batches/preview", batchBody())).data);
+      setBatchPreview((await api.post("/run-batches/preview", { body: batchBody() })).data);
     } catch (err) {
       setError(err);
     }
@@ -436,8 +421,11 @@ export function NewRunPage() {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.post<BatchAccepted>("run-batches", batchBody(), {
-        "Idempotency-Key": batchKey.current,
+      const res = await api.post("/run-batches", {
+        body: batchBody(),
+        headers: {
+          "Idempotency-Key": batchKey.current,
+        },
       });
       batchKey.current = newKey();
       toast.success(`批次已受理：${res.data.runs.length} 个运行，${res.data.planned_trials} 个试次`);
@@ -456,10 +444,7 @@ export function NewRunPage() {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.post<ConfigResolution>(
-        "config-resolutions",
-        outgoing(),
-      );
+      const res = await api.post("/config-resolutions", { body: outgoing() });
       setResolution(res.data);
     } catch (err) {
       setError(err);
@@ -480,8 +465,11 @@ export function NewRunPage() {
       source_run_id: sourceRunId,
     };
     try {
-      const res = await api.post<RunAccepted>("runs", body, {
-        "Idempotency-Key": key.current,
+      const res = await api.post("/runs", {
+        body: body,
+        headers: {
+          "Idempotency-Key": key.current,
+        },
       });
       key.current = newKey();
       setPendingKey(null);
@@ -538,15 +526,16 @@ export function NewRunPage() {
       {datasets.loading && !datasets.data && <Loading />}
       <ErrorAlert error={datasets.error} title="无法加载数据集" />
       {datasets.data && versions.length === 0 && (
-        <EmptyNote>
-          还没有可用的数据集版本，请管理员先在“数据集”页添加。
-        </EmptyNote>
+        <EmptyNote>还没有可用的数据集版本，请管理员先在“数据集”页添加。</EmptyNote>
       )}
       {versions.length > 0 && (
         <form className="grid gap-4" onSubmit={check}>
           {sourceRunId && (
             <div className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900">
-              基于运行 <Link to={`/runs/${sourceRunId}`} className="underline">{sourceRunId}</Link>{" "}
+              基于运行{" "}
+              <Link to={`/runs/${sourceRunId}`} className="underline">
+                {sourceRunId}
+              </Link>{" "}
               修改：表单按原运行实际用的值填好（团队默认与模型修订已固定）。提交后会记录与原运行的差异。
             </div>
           )}
@@ -625,8 +614,7 @@ export function NewRunPage() {
               >
                 {versions.map(({ dataset, version }) => (
                   <option key={version.id} value={version.id}>
-                    {dataset.namespace}/{dataset.name} @ {version.upstream_ref}{" "}
-                    ({version.status})
+                    {dataset.namespace}/{dataset.name} @ {version.upstream_ref} ({version.status})
                   </option>
                 ))}
               </SelectField>
@@ -648,8 +636,7 @@ export function NewRunPage() {
                     checked={executionMode === "oracle"}
                     onChange={() => changed(setExecutionMode)("oracle")}
                   />
-                  Oracle
-                  测试模式：执行任务自带的参考解法，不调用模型，不参与模型比较
+                  Oracle 测试模式：执行任务自带的参考解法，不调用模型，不参与模型比较
                 </label>
               </fieldset>
               <TextField
@@ -667,15 +654,11 @@ export function NewRunPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">模型与 Harness</CardTitle>
-                <CardDescription>
-                  模型配置与 Harness 由管理员维护；这里只能选择。
-                </CardDescription>
+                <CardDescription>模型配置与 Harness 由管理员维护；这里只能选择。</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
                 {models.data && models.data.length === 0 && (
-                  <EmptyNote>
-                    还没有启用的模型配置，请管理员在“管理 → 模型”中添加。
-                  </EmptyNote>
+                  <EmptyNote>还没有启用的模型配置，请管理员在“管理 → 模型”中添加。</EmptyNote>
                 )}
                 {models.data && models.data.length > 0 && (
                   <SelectField
@@ -690,8 +673,8 @@ export function NewRunPage() {
                   >
                     {models.data.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.name} — {m.model_id}（{m.provider}，修订 {m.revision}
-                        ）{m.credential_problem ? " ⚠ 凭据不可用" : ""}
+                        {m.name} — {m.model_id}（{m.provider}，修订 {m.revision}）
+                        {m.credential_problem ? " ⚠ 凭据不可用" : ""}
                       </option>
                     ))}
                   </SelectField>
@@ -730,28 +713,24 @@ export function NewRunPage() {
                   </SelectField>
                 )}
                 {harness &&
-                  Object.entries(harness.parameter_schema.parameters ?? {}).map(
-                    ([pname, spec]) => (
-                      <TextField
-                        key={pname}
-                        id={`harness-param-${pname}`}
-                        label={`Harness 参数 ${pname}（${spec.type}）`}
-                        placeholder={
-                          spec.default !== undefined
-                            ? `默认 ${String(spec.default)}`
-                            : "未设置"
-                        }
-                        value={harnessParams[pname] ?? ""}
-                        onChange={(e) =>
-                          changed(setHarnessParams)({
-                            ...harnessParams,
-                            [pname]: e.target.value,
-                          })
-                        }
-                        hint={spec.description}
-                      />
-                    ),
-                  )}
+                  Object.entries(harness.parameter_schema.parameters).map(([pname, spec]) => (
+                    <TextField
+                      key={pname}
+                      id={`harness-param-${pname}`}
+                      label={`Harness 参数 ${pname}（${spec.type}）`}
+                      placeholder={
+                        spec.default !== undefined ? `默认 ${String(spec.default)}` : "未设置"
+                      }
+                      value={harnessParams[pname] ?? ""}
+                      onChange={(e) =>
+                        changed(setHarnessParams)({
+                          ...harnessParams,
+                          [pname]: e.target.value,
+                        })
+                      }
+                      hint={spec.description ?? undefined}
+                    />
+                  ))}
                 <div className="grid gap-2 md:col-span-2">
                   <p className="text-sm font-medium">附件（按加载顺序）</p>
                   <p className="text-xs text-muted-foreground">
@@ -815,10 +794,7 @@ export function NewRunPage() {
                       value=""
                       onChange={(e) =>
                         e.target.value &&
-                        changed(setChosenAttachments)([
-                          ...chosenAttachments,
-                          e.target.value,
-                        ])
+                        changed(setChosenAttachments)([...chosenAttachments, e.target.value])
                       }
                       error={fieldErr("attachments")}
                     >
@@ -864,16 +840,8 @@ export function NewRunPage() {
                 "运行总时限（小时，含排队）",
                 `团队默认 ${limit(capabilities, "run_deadline_hours", 72)}，上限 ${limit(capabilities, "run_deadline_hours_max", 72)}`,
               )}
-              {override(
-                "agent_sec",
-                "Agent 时限（秒）",
-                "留空用各任务作者的设定",
-              )}
-              {override(
-                "cpus",
-                "每试次 CPU",
-                "留空用作者设定；只能调高，不能低于作者设定",
-              )}
+              {override("agent_sec", "Agent 时限（秒）", "留空用各任务作者的设定")}
+              {override("cpus", "每试次 CPU", "留空用作者设定；只能调高，不能低于作者设定")}
               {override(
                 "memory_mb",
                 "每试次内存（MiB）",
@@ -906,9 +874,7 @@ export function NewRunPage() {
                       }
                       error={fieldErr(pname)}
                     >
-                      <option value="">
-                        {info.default != null ? "用作者默认值" : "选择凭据"}
-                      </option>
+                      <option value="">{info.default != null ? "用作者默认值" : "选择凭据"}</option>
                       {(credentials.data ?? []).map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}（{c.provider}）
@@ -920,9 +886,7 @@ export function NewRunPage() {
                       key={pname}
                       id={`param-${pname}`}
                       label={`${pname}${info.required ? "（必填）" : ""}`}
-                      placeholder={
-                        info.default != null ? `默认 ${info.default}` : ""
-                      }
+                      placeholder={info.default != null ? `默认 ${info.default}` : ""}
                       value={parameters[pname]?.value ?? ""}
                       onChange={(e) =>
                         changed(setParameters)({
@@ -945,9 +909,8 @@ export function NewRunPage() {
             <CardContent className="grid gap-3">
               {detail.data && (
                 <p className="text-sm text-muted-foreground">
-                  共 {detail.data.task_count} 个任务；已准入{" "}
-                  {detail.data.admitted_task_count}； 可提交{" "}
-                  {detail.data.submittable_task_count}。
+                  共 {detail.data.task_count} 个任务；已准入 {detail.data.admitted_task_count}；
+                  可提交 {detail.data.submittable_task_count}。
                 </p>
               )}
               <div className="flex flex-wrap gap-4 text-sm">
@@ -1002,9 +965,9 @@ export function NewRunPage() {
                           )}
                           <TableCell className="font-mono text-xs">
                             {task.task_key}
-                            {(task.required_parameters ?? []).length > 0 && (
+                            {task.required_parameters.length > 0 && (
                               <div className="text-[11px] text-muted-foreground">
-                                需要参数：{(task.required_parameters ?? []).join("、")}
+                                需要参数：{task.required_parameters.join("、")}
                               </div>
                             )}
                           </TableCell>
@@ -1018,25 +981,14 @@ export function NewRunPage() {
             </CardContent>
           </Card>
 
-          <ErrorAlert
-            error={error}
-            title={resolution ? "提交失败" : "检查失败"}
-          />
+          <ErrorAlert error={error} title={resolution ? "提交失败" : "检查失败"} />
           <div>
             <Button
               type="submit"
               variant={resolution ? "outline" : "default"}
-              disabled={
-                busy ||
-                !versionId ||
-                (mode === "explicit" && selected.size === 0)
-              }
+              disabled={busy || !versionId || (mode === "explicit" && selected.size === 0)}
             >
-              {busy && !resolution
-                ? "检查中…"
-                : resolution
-                  ? "重新检查"
-                  : "检查配置"}
+              {busy && !resolution ? "检查中…" : resolution ? "重新检查" : "检查配置"}
             </Button>{" "}
             <Button
               type="button"
@@ -1073,14 +1025,18 @@ export function NewRunPage() {
                     const found = batchPreview?.runs[i];
                     return (
                       <li key={i} className="flex flex-wrap items-center gap-2">
-                        <span className="w-5 text-right text-xs text-muted-foreground">{i + 1}.</span>
+                        <span className="w-5 text-right text-xs text-muted-foreground">
+                          {i + 1}.
+                        </span>
                         <span className="font-medium">{m.name}</span>
                         <span className="text-xs text-muted-foreground">{m.label}</span>
                         {found && (
                           <span className="text-xs">
                             {found.blockers && found.blockers.length > 0 ? (
                               <span className="text-destructive">
-                                {found.blockers.map((b) => CONFIG_BLOCKER[b.code] ?? b.message).join("；")}
+                                {found.blockers
+                                  .map((b) => CONFIG_BLOCKER[b.code] ?? b.message)
+                                  .join("；")}
                               </span>
                             ) : (
                               `${found.planned_trials} 个试次`
@@ -1152,7 +1108,7 @@ const FIELD_LABEL: Record<string, string> = {
   "/timeouts/bootstrap_sec": "附件安装时限（秒）",
 };
 
-const TASK_FIELD: Record<string, string> = {
+const TASK_FIELD: Record<string, keyof EffectiveTask> = {
   "/resources/cpus": "cpus",
   "/resources/memory_mb": "memory_mb",
   "/timeouts/agent_sec": "agent_timeout_sec",
@@ -1184,8 +1140,8 @@ function ResolutionReview({
     if (taskField) {
       // Per-task values: one value when all tasks agree, otherwise the distinct ones.
       const values = new Set(
-        (effective.tasks ?? []).map((task) => {
-          const v = (task as Record<string, unknown>)[taskField];
+        effective.tasks.map((task) => {
+          const v = task[taskField];
           return v == null ? "执行器默认" : String(v);
         }),
       );

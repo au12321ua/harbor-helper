@@ -23,13 +23,9 @@ import { ApiError, api } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
 import { useLoad } from "@/lib/hooks";
 import type {
-  Credential,
-  Harness,
-  HarnessAdapter,
   ModelConfig,
   ModelProtocol,
   PolicySetting,
-  TeamPolicy,
 } from "@/lib/types";
 
 const PROTOCOLS: [ModelProtocol, string][] = [
@@ -79,9 +75,9 @@ const EMPTY_MODEL: ModelForm = {
 
 export function ModelsTab() {
   const models = useLoad(
-    async () => (await api.get<ModelConfig[]>("model-configs", { include_disabled: "true" })).data,
+    async () => (await api.get("/model-configs", { query: { include_disabled: true } })).data,
   );
-  const credentials = useLoad(async () => (await api.get<Credential[]>("admin/credentials")).data);
+  const credentials = useLoad(async () => (await api.get("/admin/credentials")).data);
   const [editing, setEditing] = useState<ModelConfig | null>(null);
   const [form, setForm] = useState<ModelForm>(EMPTY_MODEL);
   const [error, setError] = useState<unknown>();
@@ -122,13 +118,16 @@ export function ModelsTab() {
         description: form.description,
       };
       if (editing) {
-        await api.put(`admin/model-configs/${editing.id}`, {
-          ...body,
-          expected_revision: editing.revision,
+        await api.put("/admin/model-configs/{config_id}", {
+          path: { config_id: editing.id },
+          body: {
+            ...body,
+            expected_revision: editing.revision,
+          },
         });
         toast.success(`${editing.name} 已保存为新修订；已受理的运行不受影响`);
       } else {
-        await api.post("admin/model-configs", { ...body, name: form.name.trim() });
+        await api.post("/admin/model-configs", { body: { ...body, name: form.name.trim() } });
         toast.success("模型配置已创建");
       }
       edit(null);
@@ -186,11 +185,16 @@ export function ModelsTab() {
                       <TableCell className="font-medium">{m.name}</TableCell>
                       <TableCell>
                         <div className="font-mono text-xs">{m.provider}</div>
-                        <div className="text-xs text-muted-foreground">{protocolLabel(m.protocol)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {protocolLabel(m.protocol)}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="font-mono text-xs">{m.model_id}</div>
-                        <div className="max-w-64 truncate text-xs text-muted-foreground" title={m.endpoint}>
+                        <div
+                          className="max-w-64 truncate text-xs text-muted-foreground"
+                          title={m.endpoint}
+                        >
                           {m.endpoint}
                         </div>
                       </TableCell>
@@ -204,7 +208,9 @@ export function ModelsTab() {
                       </TableCell>
                       <TableCell className="tabular-nums">{m.revision}</TableCell>
                       <TableCell>
-                        <Pill tone={m.enabled ? "good" : "muted"}>{m.enabled ? "启用" : "停用"}</Pill>
+                        <Pill tone={m.enabled ? "good" : "muted"}>
+                          {m.enabled ? "启用" : "停用"}
+                        </Pill>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-right">
                         <Button size="sm" variant="outline" onClick={() => edit(m)}>
@@ -216,8 +222,11 @@ export function ModelsTab() {
                           onClick={() =>
                             void act(
                               () =>
-                                api.post(`admin/model-configs/${m.id}/enabled`, {
-                                  enabled: !m.enabled,
+                                api.post("/admin/model-configs/{config_id}/enabled", {
+                                  path: { config_id: m.id },
+                                  body: {
+                                    enabled: !m.enabled,
+                                  },
                                 }),
                               m.enabled ? "已停用：新运行不能再选择它" : "已启用",
                             )
@@ -230,7 +239,10 @@ export function ModelsTab() {
                           variant="outline"
                           onClick={() =>
                             void act(
-                              () => api.del(`admin/model-configs/${m.id}`),
+                              () =>
+                                api.del("/admin/model-configs/{config_id}", {
+                                  path: { config_id: m.id },
+                                }),
                               "已移入回收站",
                             )
                           }
@@ -249,7 +261,9 @@ export function ModelsTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{editing ? `修改 ${editing.name}` : "新建模型配置"}</CardTitle>
+          <CardTitle className="text-base">
+            {editing ? `修改 ${editing.name}` : "新建模型配置"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 md:grid-cols-2" onSubmit={save}>
@@ -315,14 +329,16 @@ export function ModelsTab() {
               ))}
             </SelectField>
             <label className="grid gap-1 text-sm md:col-span-2" htmlFor="model-params">
-              <span>请求参数（JSON 对象，例如 {"{\"temperature\": 0}"}）</span>
+              <span>请求参数（JSON 对象，例如 {'{"temperature": 0}'}）</span>
               <textarea
                 id="model-params"
                 className="min-h-24 rounded-md border bg-background p-2 font-mono text-xs"
                 value={form.params}
                 onChange={(e) => setForm({ ...form, params: e.target.value })}
               />
-              {fieldErr("params") && <span className="text-xs text-destructive">{fieldErr("params")}</span>}
+              {fieldErr("params") && (
+                <span className="text-xs text-destructive">{fieldErr("params")}</span>
+              )}
             </label>
             <TextField
               id="model-description"
@@ -353,8 +369,8 @@ export function ModelsTab() {
 // --- harness versions -----------------------------------------------------------------------
 
 export function HarnessesTab() {
-  const harnesses = useLoad(async () => (await api.get<Harness[]>("harness-versions")).data);
-  const adapters = useLoad(async () => (await api.get<HarnessAdapter[]>("admin/harness-adapters")).data);
+  const harnesses = useLoad(async () => (await api.get("/harness-versions")).data);
+  const adapters = useLoad(async () => (await api.get("/admin/harness-adapters")).data);
   const [form, setForm] = useState({
     name: "",
     version: "",
@@ -368,20 +384,22 @@ export function HarnessesTab() {
   const agent = form.agent || adapters.data?.[0]?.agent || "";
   const adapter = adapters.data?.find((a) => a.agent === agent);
   // The contract types protocols as plain strings; the adapters list only these three.
-  const supported = (adapter?.protocols ?? []) as ModelProtocol[];
+  const supported = adapter?.protocols ?? [];
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(undefined);
     try {
-      await api.post("admin/harness-versions", {
-        name: form.name.trim(),
-        version: form.version.trim(),
-        agent,
-        protocols: form.protocols.filter((p) => supported.includes(p)),
-        parameter_schema: parseJson(form.schema, "参数定义"),
-        description: form.description,
+      await api.post("/admin/harness-versions", {
+        body: {
+          name: form.name.trim(),
+          version: form.version.trim(),
+          agent,
+          protocols: form.protocols.filter((p) => supported.includes(p)),
+          parameter_schema: parseJson(form.schema, "参数定义"),
+          description: form.description,
+        },
       });
       toast.success("Harness 版本已发布；之后内容不能修改，修改需发布新版本");
       setForm({ ...form, version: "" });
@@ -410,13 +428,16 @@ export function HarnessesTab() {
         <CardHeader>
           <CardTitle className="text-base">Harness 版本</CardTitle>
           <CardDescription>
-            Harness 是驱动模型完成任务的程序。每个版本发布后内容固定；执行器以适配器实现它，并声明能调用哪些协议的模型。
+            Harness
+            是驱动模型完成任务的程序。每个版本发布后内容固定；执行器以适配器实现它，并声明能调用哪些协议的模型。
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
           {harnesses.loading && !harnesses.data && <Loading />}
           <ErrorAlert error={harnesses.error} />
-          {harnesses.data && harnesses.data.length === 0 && <EmptyNote>还没有发布 Harness 版本。</EmptyNote>}
+          {harnesses.data && harnesses.data.length === 0 && (
+            <EmptyNote>还没有发布 Harness 版本。</EmptyNote>
+          )}
           {harnesses.data && harnesses.data.length > 0 && (
             <div className="overflow-auto rounded-md border">
               <Table>
@@ -436,17 +457,24 @@ export function HarnessesTab() {
                       <TableCell>
                         <span className="font-medium">{h.name}</span>{" "}
                         <span className="font-mono text-xs">{h.version}</span>
-                        <div className="font-mono text-[11px] text-muted-foreground" title={h.content_digest}>
+                        <div
+                          className="font-mono text-[11px] text-muted-foreground"
+                          title={h.content_digest}
+                        >
                           {h.content_digest.slice(0, 19)}…
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{h.agent}</TableCell>
-                      <TableCell className="text-xs">{h.protocols.map(protocolLabel).join("、")}</TableCell>
+                      <TableCell className="text-xs">
+                        {h.protocols.map(protocolLabel).join("、")}
+                      </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {Object.keys(h.parameter_schema.parameters ?? {}).join(", ") || "—"}
+                        {Object.keys(h.parameter_schema.parameters).join(", ") || "—"}
                       </TableCell>
                       <TableCell>
-                        <Pill tone={h.enabled ? "good" : "muted"}>{h.enabled ? "启用" : "停用"}</Pill>
+                        <Pill tone={h.enabled ? "good" : "muted"}>
+                          {h.enabled ? "启用" : "停用"}
+                        </Pill>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-right">
                         <Button
@@ -454,7 +482,11 @@ export function HarnessesTab() {
                           variant="outline"
                           onClick={() =>
                             void act(
-                              () => api.post(`admin/harness-versions/${h.id}/enabled`, { enabled: !h.enabled }),
+                              () =>
+                                api.post("/admin/harness-versions/{harness_id}/enabled", {
+                                  path: { harness_id: h.id },
+                                  body: { enabled: !h.enabled },
+                                }),
                               h.enabled ? "已停用" : "已启用",
                             )
                           }
@@ -464,7 +496,15 @@ export function HarnessesTab() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void act(() => api.del(`admin/harness-versions/${h.id}`), "已移入回收站")}
+                          onClick={() =>
+                            void act(
+                              () =>
+                                api.del("/admin/harness-versions/{harness_id}", {
+                                  path: { harness_id: h.id },
+                                }),
+                              "已移入回收站",
+                            )
+                          }
                         >
                           删除
                         </Button>
@@ -535,11 +575,14 @@ export function HarnessesTab() {
                   {protocolLabel(p)}
                 </label>
               ))}
-              {fieldErr("protocols") && <span className="text-xs text-destructive">{fieldErr("protocols")}</span>}
+              {fieldErr("protocols") && (
+                <span className="text-xs text-destructive">{fieldErr("protocols")}</span>
+              )}
             </fieldset>
             <label className="grid gap-1 text-sm md:col-span-2" htmlFor="harness-schema">
               <span>
-                参数定义（JSON）：{"{\"parameters\": {\"max_turns\": {\"type\": \"integer\", \"default\": 30}}}"}
+                参数定义（JSON）：
+                {'{"parameters": {"max_turns": {"type": "integer", "default": 30}}}'}
               </span>
               {adapter?.parameters && (
                 <span className="text-xs text-muted-foreground">
@@ -609,7 +652,7 @@ const SETTING_LABEL: Record<string, string> = {
 };
 
 export function PolicyTab() {
-  const policy = useLoad(async () => (await api.get<TeamPolicy>("team-policy")).data);
+  const policy = useLoad(async () => (await api.get("/team-policy")).data);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
@@ -629,7 +672,9 @@ export function PolicyTab() {
     setBusy(true);
     setError(undefined);
     try {
-      await api.put("admin/team-policy", { values: changed, expected_revision: data.revision });
+      await api.put("/admin/team-policy", {
+        body: { values: changed, expected_revision: data.revision },
+      });
       toast.success("已保存为新修订；对之后的新提交生效，已受理的运行不变");
       setDraft({});
       await policy.reload();
@@ -702,12 +747,7 @@ export function PolicyTab() {
 
 function PolicyHistory({ revision }: { revision?: number }) {
   const history = useLoad(
-    async () =>
-      (
-        await api.get<{ revision: number; values: Record<string, number>; created_by_username: string; created_at: string }[]>(
-          "admin/team-policy/revisions",
-        )
-      ).data,
+    async () => (await api.get("/admin/team-policy/revisions")).data,
     [revision],
   );
   if (!history.data || history.data.length === 0) return null;

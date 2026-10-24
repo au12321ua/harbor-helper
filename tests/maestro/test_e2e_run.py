@@ -173,11 +173,7 @@ def test_service_without_executor_refuses_runs_honestly(settings, source, enviro
 
 def test_readiness_and_openapi(service):
     with running(service) as client:
-        assert client.get("/health/live").json() == {
-            "status": "alive",
-            "detail": {},
-            "accepting_runs": None,
-        }
+        assert client.get("/health/live").json() == {"status": "alive", "accepting_runs": None}
         ready = client.get("/health/ready").json()
         assert ready["status"] == "ready" and ready["accepting_runs"] is True
         spec = client.get("/api/v1/openapi.json").json()

@@ -7,6 +7,8 @@ per-session CSRF header on unsafe methods. PATs never receive admin rights.
 import secrets
 
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
+from pydantic import TypeAdapter
 
 from maestro.application import Maestro
 from maestro.core.errors import MaestroError
@@ -70,3 +72,19 @@ def ok(request: Request, data, next_cursor: str | None = None) -> dict:
     if next_cursor is not None:
         meta["next_cursor"] = next_cursor
     return {"data": data, "meta": meta}
+
+
+def respond(
+    request: Request, model, data, status: int = 200, headers: dict | None = None
+) -> JSONResponse:
+    """A response with its own status or headers, checked against the declared model.
+
+    FastAPI checks returned dicts against ``response_model`` but not a JSONResponse built
+    by hand; this keeps every answer to the published contract.
+    """
+    body = TypeAdapter(model).validate_python(ok(request, data))
+    return JSONResponse(
+        status_code=status,
+        content=TypeAdapter(model).dump_python(body, mode="json", by_alias=True),
+        headers=headers,
+    )

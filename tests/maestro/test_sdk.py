@@ -96,7 +96,7 @@ def test_story_two_agent_runs_a_complete_experiment(service, version_id, executo
         agent = sdk(create_pat(admin, "experiment", run_limit=3))
 
         caps = agent.require("runs", "execution", "configuration_resolution")
-        assert caps.actions["runs.submit"]["pat_scopes"] == ["experiment"]
+        assert caps.actions["runs.submit"].pat_scopes == ["experiment"]
         with pytest.raises(UnsupportedCapability):
             agent.require("collections")  # P1, switched off
 
@@ -106,7 +106,7 @@ def test_story_two_agent_runs_a_complete_experiment(service, version_id, executo
         assert model.id == model_id and model.credential_bound and model.credential_id is None
         assert [h.id for h in agent.configs.harnesses()] == [harness_id]
 
-        config = models.ConfigRequest(
+        config = models.ConfigRequestInput(
             dataset_version_id=version_id,
             execution_mode="agent",
             model_config_id=model_id,
@@ -118,7 +118,7 @@ def test_story_two_agent_runs_a_complete_experiment(service, version_id, executo
             blocked.raise_for_blockers()
         resolution = agent.configs.resolve(config).raise_for_blockers()
         assert resolution.planned_trials == 6
-        assert resolution.field_sources["/repetitions"] == {"layer": "override"}
+        assert resolution.field_sources["/repetitions"].layer == "override"
         assert agent.configs.resolution(resolution.resolution_id).config_digest == (
             resolution.config_digest
         )

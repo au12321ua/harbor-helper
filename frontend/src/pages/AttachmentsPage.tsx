@@ -37,7 +37,7 @@ function contentType(file: File): string {
 
 export function AttachmentsPage() {
   const { me } = useSession();
-  const list = useLoad(async () => (await api.get<Attachment[]>("attachments")).data);
+  const list = useLoad(async () => (await api.get("/attachments")).data);
   const [open, setOpen] = useState<string | null>(null);
   const [detail, setDetail] = useState<Attachment | null>(null);
   const [error, setError] = useState<unknown>();
@@ -50,7 +50,7 @@ export function AttachmentsPage() {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.upload<Attachment>("attachments", file, contentType(file));
+      const res = await api.upload("/attachments", file, contentType(file));
       toast.success(`已发布 ${res.data.name} ${res.data.version}`);
       if (input.current) input.current.value = "";
       await list.reload();
@@ -68,7 +68,9 @@ export function AttachmentsPage() {
     setOpen(a.id);
     setDetail(null);
     try {
-      setDetail((await api.get<Attachment>(`attachments/${a.id}`)).data);
+      setDetail(
+        (await api.get("/attachments/{attachment_id}", { path: { attachment_id: a.id } })).data,
+      );
     } catch (err) {
       setError(err);
     }
@@ -93,9 +95,11 @@ export function AttachmentsPage() {
         <CardHeader>
           <CardTitle className="text-base">已发布的附件</CardTitle>
           <CardDescription>
-            附件是随模型运行加载的文件包，例如工具、SDK 或安装脚本。每个版本发布后内容固定。运行时，每个试次在自己的容器里复制附件到
+            附件是随模型运行加载的文件包，例如工具、SDK
+            或安装脚本。每个版本发布后内容固定。运行时，每个试次在自己的容器里复制附件到
             <code className="mx-1">/opt/maestro/attachments/</code>
-            并运行其中的 <code>bootstrap.sh</code>，然后才开始 Agent；安装可以联网，Agent 和验证阶段仍按平台网络限制执行。
+            并运行其中的 <code>bootstrap.sh</code>，然后才开始 Agent；安装可以联网，Agent
+            和验证阶段仍按平台网络限制执行。
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
@@ -121,11 +125,20 @@ export function AttachmentsPage() {
                     <Fragment key={a.id}>
                       <TableRow>
                         <TableCell>
-                          <button type="button" className="text-left" onClick={() => void toggle(a)}>
-                            <span className="font-medium underline-offset-2 hover:underline">{a.name}</span>{" "}
+                          <button
+                            type="button"
+                            className="text-left"
+                            onClick={() => void toggle(a)}
+                          >
+                            <span className="font-medium underline-offset-2 hover:underline">
+                              {a.name}
+                            </span>{" "}
                             <span className="font-mono text-xs">{a.version}</span>
                           </button>
-                          <div className="font-mono text-[11px] text-muted-foreground" title={a.content_digest}>
+                          <div
+                            className="font-mono text-[11px] text-muted-foreground"
+                            title={a.content_digest}
+                          >
                             {a.content_digest.slice(0, 19)}…
                           </div>
                         </TableCell>
@@ -137,7 +150,9 @@ export function AttachmentsPage() {
                           {a.effects.map((e) => ATTACHMENT_EFFECT[e] ?? e).join("、")}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {a.compatible_harnesses.includes("*") ? "任意" : a.compatible_harnesses.join(", ")}
+                          {a.compatible_harnesses.includes("*")
+                            ? "任意"
+                            : a.compatible_harnesses.join(", ")}
                         </TableCell>
                         <TableCell className="text-xs">
                           {a.file_count} 个文件 · {fmtBytes(a.size_bytes)}
@@ -148,7 +163,9 @@ export function AttachmentsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Pill tone={a.enabled ? "good" : "muted"}>{a.enabled ? "可用" : "停用"}</Pill>
+                          <Pill tone={a.enabled ? "good" : "muted"}>
+                            {a.enabled ? "可用" : "停用"}
+                          </Pill>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right">
                           {mayManage(a) && (
@@ -158,7 +175,11 @@ export function AttachmentsPage() {
                                 variant="outline"
                                 onClick={() =>
                                   void act(
-                                    () => api.post(`attachments/${a.id}/enabled`, { enabled: !a.enabled }),
+                                    () =>
+                                      api.post("/attachments/{attachment_id}/enabled", {
+                                        path: { attachment_id: a.id },
+                                        body: { enabled: !a.enabled },
+                                      }),
                                     a.enabled ? "已停用" : "已启用",
                                   )
                                 }
@@ -168,7 +189,15 @@ export function AttachmentsPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => void act(() => api.del(`attachments/${a.id}`), "已移入回收站")}
+                                onClick={() =>
+                                  void act(
+                                    () =>
+                                      api.del("/attachments/{attachment_id}", {
+                                        path: { attachment_id: a.id },
+                                      }),
+                                    "已移入回收站",
+                                  )
+                                }
                               >
                                 删除
                               </Button>
@@ -183,7 +212,8 @@ export function AttachmentsPage() {
                             {detail && (
                               <div className="grid gap-2 text-xs">
                                 {detail.description && <p>{detail.description}</p>}
-                                {(detail.provides.tools.length > 0 || detail.provides.env.length > 0) && (
+                                {(detail.provides.tools.length > 0 ||
+                                  detail.provides.env.length > 0) && (
                                   <p>
                                     提供：
                                     {[
@@ -196,7 +226,10 @@ export function AttachmentsPage() {
                                   {(detail.files ?? []).map((f) => (
                                     <li key={f.path} title={f.sha256}>
                                       {f.executable ? "x " : "  "}
-                                      {f.path} <span className="text-muted-foreground">({fmtBytes(f.size)})</span>
+                                      {f.path}{" "}
+                                      <span className="text-muted-foreground">
+                                        ({fmtBytes(f.size)})
+                                      </span>
                                     </li>
                                   ))}
                                 </ul>
@@ -218,8 +251,9 @@ export function AttachmentsPage() {
         <CardHeader>
           <CardTitle className="text-base">发布新版本</CardTitle>
           <CardDescription>
-            上传 .tar.gz、.tar 或 .zip 包，根目录（或唯一的顶层目录）里放 manifest.json；可选 bootstrap.sh 由 bash
-            运行，工作目录是附件目录，环境变量 MAESTRO_ATTACHMENT_DIR 指向它。上传只检查不运行；文件名只能用字母、数字和
+            上传 .tar.gz、.tar 或 .zip 包，根目录（或唯一的顶层目录）里放 manifest.json；可选
+            bootstrap.sh 由 bash 运行，工作目录是附件目录，环境变量 MAESTRO_ATTACHMENT_DIR
+            指向它。上传只检查不运行；文件名只能用字母、数字和
             ._+@-，不能有链接。同名同版本再次上传相同内容会得到原版本，内容不同需改版本号。
           </CardDescription>
         </CardHeader>
@@ -242,10 +276,13 @@ export function AttachmentsPage() {
             </ul>
           )}
           <details>
-            <summary className="cursor-pointer text-xs text-muted-foreground">manifest.json 示例</summary>
+            <summary className="cursor-pointer text-xs text-muted-foreground">
+              manifest.json 示例
+            </summary>
             <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">{EXAMPLE}</pre>
             <p className="mt-1 text-xs text-muted-foreground">
-              effects 目前支持 model_call、agent_tools、task_environment；改变验证或评分的附件暂不支持。compatible_harnesses
+              effects 目前支持
+              model_call、agent_tools、task_environment；改变验证或评分的附件暂不支持。compatible_harnesses
               填 Harness 适配器名，或 ["*"] 表示任意。provides 用于发现两个附件之间的冲突。
             </p>
           </details>

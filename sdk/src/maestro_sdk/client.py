@@ -22,7 +22,7 @@ from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, RootModel, TypeAdapter, ValidationError
 
 from maestro_sdk import models
 from maestro_sdk._contract import CONTRACT_DIGEST
@@ -243,12 +243,18 @@ class MaestroClient:
     @staticmethod
     def _parse(model: Any, data: Any) -> Any:
         try:
-            return TypeAdapter(model).validate_python(data)
+            parsed = TypeAdapter(model).validate_python(data)
         except ValidationError as error:
             raise MaestroError(
                 f"Unexpected response shape ({error.error_count()} problems); the SDK may not "
                 "match the service version"
             ) from error
+        # A union (an Operation of some kind) is a root model: hand out the member itself.
+        if isinstance(parsed, RootModel):
+            return parsed.root
+        if isinstance(parsed, list):
+            return [x.root if isinstance(x, RootModel) else x for x in parsed]
+        return parsed
 
     def _call(
         self,
@@ -373,7 +379,7 @@ class Configs(_Resource):
     def team_policy(self) -> models.TeamPolicy:
         return self._c._get("team-policy", models.TeamPolicy)
 
-    def resolve(self, config: models.ConfigRequest | Mapping[str, Any]) -> Resolution:
+    def resolve(self, config: models.ConfigRequestInput | Mapping[str, Any]) -> Resolution:
         """Effective values, their sources, blockers and ``config_digest``; reserves nothing."""
         return self._c._send("POST", "config-resolutions", Resolution, config)
 
@@ -469,7 +475,7 @@ def _key(value: str | None) -> str:
 class Runs(_Resource):
     def submit(
         self,
-        config: models.ConfigRequest | Mapping[str, Any] | None = None,
+        config: models.ConfigRequestInput | Mapping[str, Any] | None = None,
         *,
         name: str,
         resolution_id: str | None = None,
@@ -525,9 +531,9 @@ class Runs(_Resource):
             replayed=response.headers.get("Idempotent-Replayed") == "true",
         )
 
-    def request(self, run_id: str) -> models.ConfigRequest:
+    def request(self, run_id: str) -> models.ConfigRequestOutput:
         """The request that reproduces a run; edit it and submit with ``source_run_id``."""
-        return self._c._get(f"runs/{run_id}/request", models.ConfigRequest)
+        return self._c._get(f"runs/{run_id}/request", models.ConfigRequestOutput)
 
     def get(self, run_id: str) -> models.RunDetail:
         return self._c._get(f"runs/{run_id}", models.RunDetail)

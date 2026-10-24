@@ -1677,6 +1677,37 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActionRule
+         * @description Who may do an action: a web session (of an admin when ``role`` says so) and PATs
+         *     of the listed scopes.
+         */
+        ActionRule: {
+            /** Pat Scopes */
+            pat_scopes: ("read" | "experiment")[];
+            /** Role */
+            role: ("admin" | "member") | null;
+            /** Web Session */
+            web_session: boolean;
+        };
+        /**
+         * AdmissionRecord
+         * @description The admission and preparation a run's task was accepted with.
+         */
+        AdmissionRecord: {
+            /** Admission Id */
+            admission_id: string | null;
+            /** Admission Revision */
+            admission_revision: number | null;
+            /** Expected Image Id */
+            expected_image_id: string | null;
+            /** Preparation Method Digest */
+            preparation_method_digest: string | null;
+            /** Spec Digest */
+            spec_digest: string;
+            /** Task Key */
+            task_key: string;
+        };
         /** AdmissionRevocation */
         AdmissionRevocation: {
             /** Expected Revision */
@@ -1758,10 +1789,7 @@ export interface components {
             content_digest: string;
             /** Created At */
             created_at: string;
-            /** Deletion */
-            deletion?: {
-                [key: string]: unknown;
-            } | null;
+            deletion: components["schemas"]["DeletionState"] | null;
             /** Description */
             description: string;
             /** Effects */
@@ -1771,7 +1799,7 @@ export interface components {
             /** File Count */
             file_count: number;
             /** Files */
-            files?: components["schemas"]["AttachmentFile"][] | null;
+            files: components["schemas"]["AttachmentFile"][] | null;
             /**
              * Has Bootstrap
              * @description Has bootstrap.sh, run in each trial's setup
@@ -1815,13 +1843,13 @@ export interface components {
             attempt_index: number;
             /** Ended At */
             ended_at: string | null;
-            /** Error */
-            error: {
-                [key: string]: unknown;
-            } | null;
-            /** Executor Ref */
+            error: components["schemas"]["AttemptError"] | null;
+            /**
+             * Executor Ref
+             * @description Executor-specific, e.g. Harbor's ids
+             */
             executor_ref: {
-                [key: string]: unknown;
+                [key: string]: components["schemas"]["JsonValue"];
             } | null;
             /** Id */
             id: string;
@@ -1839,6 +1867,34 @@ export interface components {
              * @description Step start times; a step ends when the next starts or the attempt ends
              */
             steps: components["schemas"]["AttemptStep"][];
+        };
+        /**
+         * AttemptError
+         * @description Why an attempt did not produce a score, as the platform error policy classified it.
+         */
+        AttemptError: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Exception Type */
+            exception_type: string | null;
+            /** Failure Cause */
+            failure_cause: string | null;
+            /** Grade Requested */
+            grade_requested: boolean | null;
+            /** Message */
+            message: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Retry Recommended */
+            retry_recommended: boolean | null;
+            /** Reward Valid */
+            reward_valid: boolean | null;
+            /** Stage */
+            stage: string;
         };
         /** AttemptStep */
         AttemptStep: {
@@ -1860,9 +1916,12 @@ export interface components {
             auth_channel: string | null;
             /** Created At */
             created_at: string;
-            /** Detail */
+            /**
+             * Detail
+             * @description Depends on the action
+             */
             detail: {
-                [key: string]: unknown;
+                [key: string]: components["schemas"]["JsonValue"];
             } | null;
             /** Id */
             id: string;
@@ -1877,6 +1936,15 @@ export interface components {
             /** Request Id */
             request_id: string | null;
         };
+        /** AuthInfo */
+        AuthInfo: {
+            /** Csrf Header */
+            csrf_header: string;
+            /** Pat Header */
+            pat_header: string;
+            /** Session Cookie */
+            session_cookie: boolean;
+        };
         /**
          * AuthorParameter
          * @description Author parameter contract (03): defaults, requirement, constraints.
@@ -1886,10 +1954,6 @@ export interface components {
             default: string | null;
             /** Description */
             description: string;
-            /** Hard Constraints */
-            hard_constraints: {
-                [key: string]: unknown;
-            };
             /** Name */
             name: string;
             /** Required */
@@ -1898,6 +1962,23 @@ export interface components {
             sensitive: boolean;
             /** Used In */
             used_in: string[];
+        };
+        /** BaselineDifference */
+        BaselineDifference: {
+            /** Path */
+            path: string;
+            /**
+             * Tasks Higher
+             * @description Tasks whose author value is lower or unset
+             */
+            tasks_higher: number;
+            /**
+             * Tasks Lower
+             * @description Tasks whose author value is higher
+             */
+            tasks_lower: number;
+            /** Value */
+            value: number;
         };
         /** Batch */
         Batch: {
@@ -1919,10 +2000,7 @@ export interface components {
             owner_username: string | null;
             /** Pat Id */
             pat_id: string | null;
-            /** Progress */
-            progress: {
-                [key: string]: number;
-            };
+            progress: components["schemas"]["BatchProgress"];
             /** Runs */
             runs: components["schemas"]["Run"][];
             /** Status */
@@ -1945,6 +2023,19 @@ export interface components {
             /** Runs */
             runs: components["schemas"]["RunAccepted"][];
         };
+        /** BatchBlocker */
+        BatchBlocker: {
+            /** Code */
+            code: string;
+            /** Left */
+            left?: number | null;
+            /** Limit */
+            limit?: number | null;
+            /** Needed */
+            needed?: number | null;
+            /** Path */
+            path: string;
+        };
         /**
          * BatchCreate
          * @description Runs accepted together, all or none; each costs one unit of PAT quota.
@@ -1957,12 +2048,68 @@ export interface components {
             /** Runs */
             runs: components["schemas"]["RunCreate"][];
         };
+        /** BatchOperation */
+        BatchOperation: {
+            /** Allowed Actions */
+            allowed_actions: string[];
+            /** Created At */
+            created_at: string;
+            error: components["schemas"]["Problem"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "batch";
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Owner Id */
+            owner_id: string | null;
+            /** Phase */
+            phase: string | null;
+            progress: components["schemas"]["BatchProgress"];
+            resource: components["schemas"]["OperationResource"] | null;
+            result: components["schemas"]["BatchOperationResult"] | null;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+            /** Updated At */
+            updated_at: string;
+        };
+        /** BatchOperationResult */
+        BatchOperationResult: {
+            /** Batch Id */
+            batch_id: string;
+            /** Cancelled */
+            cancelled: number;
+            /** Error Trials */
+            error_trials: number;
+            /** Finished */
+            finished: number;
+            /** Interrupted */
+            interrupted: number;
+            /** Planned Trials */
+            planned_trials: number;
+            /** Runs */
+            runs: number;
+            /** Scored Trials */
+            scored_trials: number;
+            /** Terminal Runs */
+            terminal_runs: number;
+        };
         /** BatchPreview */
         BatchPreview: {
             /** Blockers */
-            blockers: {
-                [key: string]: unknown;
-            }[];
+            blockers: components["schemas"]["BatchBlocker"][];
             /** Can Submit */
             can_submit: boolean;
             /**
@@ -1970,40 +2117,82 @@ export interface components {
              * @description Configuration digests given twice
              */
             duplicate_configs: string[];
-            /** Pat Quota */
-            pat_quota: {
-                [key: string]: number;
-            } | null;
+            pat_quota: components["schemas"]["PatQuota"] | null;
             /** Planned Trials */
             planned_trials: number;
             /** Runs */
-            runs: {
-                [key: string]: unknown;
-            }[];
+            runs: components["schemas"]["BatchPreviewRun"][];
+        };
+        /** BatchPreviewRun */
+        BatchPreviewRun: {
+            /** Blockers */
+            blockers?: components["schemas"]["ConfigBlocker"][] | null;
+            /** Config Digest */
+            config_digest?: string | null;
+            /** Index */
+            index: number;
+            /** Labels */
+            labels?: {
+                [key: string]: string;
+            } | null;
+            /** Planned Trials */
+            planned_trials: number;
+            /** Warnings */
+            warnings?: components["schemas"]["ConfigWarning"][] | null;
+        };
+        /** BatchProgress */
+        BatchProgress: {
+            /** Cancelled */
+            cancelled: number;
+            /** Error Trials */
+            error_trials: number;
+            /** Finished */
+            finished: number;
+            /** Interrupted */
+            interrupted: number;
+            /** Planned Trials */
+            planned_trials: number;
+            /** Runs */
+            runs: number;
+            /** Scored Trials */
+            scored_trials: number;
+            /** Terminal Runs */
+            terminal_runs: number;
+        };
+        /** BlockedTask */
+        BlockedTask: {
+            /** Blockers */
+            blockers: components["schemas"]["TaskBlocker"][];
+            /** Task Id */
+            task_id: string;
+        };
+        /** CacheObservation */
+        CacheObservation: {
+            /** Action */
+            action: "restore_on_run" | null;
+            /**
+             * Cache State
+             * @enum {string}
+             */
+            cache_state: "ready" | "cold";
+            /** Task Key */
+            task_key: string;
         };
         /** Capabilities */
         Capabilities: {
             /** Actions */
             actions: {
-                [key: string]: {
-                    [key: string]: unknown;
-                };
+                [key: string]: components["schemas"]["ActionRule"];
             };
             /** Api Version */
             api_version: string;
-            /** Auth */
-            auth: {
-                [key: string]: unknown;
-            };
+            auth: components["schemas"]["AuthInfo"];
             /**
              * Contract Digest
              * @description sha256 of the OpenAPI document; clients generated from another one warn
              */
             contract_digest: string;
-            /** Execution */
-            execution: {
-                [key: string]: unknown;
-            };
+            execution: components["schemas"]["ExecutionInfo"];
             /** Features */
             features: {
                 [key: string]: boolean;
@@ -2035,19 +2224,59 @@ export interface components {
             /** Slots */
             slots: number;
         };
-        /** ConfigBlocker */
+        /**
+         * ConfigBlocker
+         * @description Why this configuration cannot be submitted; ``path`` points at the field.
+         */
         ConfigBlocker: {
             /** Code */
             code: string;
+            /**
+             * Kind
+             * @description ATTACHMENT_CONFLICT: name, tool or env
+             */
+            kind?: string | null;
+            /** Limit */
+            limit?: number | null;
             /** Message */
             message: string;
+            /**
+             * Name
+             * @description ATTACHMENT_CONFLICT: the claimed name
+             */
+            name?: string | null;
             /** Path */
             path: string;
-        } & {
-            [key: string]: unknown;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Task Count
+             * @description RUN_TOO_LARGE
+             */
+            task_count?: number | null;
+            /**
+             * Tasks
+             * @description TASKS_NOT_SUBMITTABLE
+             */
+            tasks?: components["schemas"]["BlockedTask"][] | null;
+            /**
+             * Trial Count
+             * @description RUN_TOO_LARGE
+             */
+            trial_count?: number | null;
+        };
+        /** ConfigDifference */
+        ConfigDifference: {
+            after: components["schemas"]["JsonValue"];
+            before: components["schemas"]["JsonValue"];
+            /**
+             * Path
+             * @description JSON pointer into the effective configuration
+             */
+            path: string;
         };
         /** ConfigRequest */
-        ConfigRequest: {
+        "ConfigRequest-Input": {
             /**
              * Attachments
              * @description Attachment version ids in load order (model runs only)
@@ -2071,7 +2300,7 @@ export interface components {
              * @default {}
              */
             harness_params?: {
-                [key: string]: unknown;
+                [key: string]: string | number | boolean;
             };
             /** Harness Version Id */
             harness_version_id?: string | null;
@@ -2111,66 +2340,136 @@ export interface components {
              *       "mode": "all_eligible"
              *     }
              */
-            task_selection?: components["schemas"]["TaskSelection"];
+            task_selection?: components["schemas"]["TaskSelection-Input"];
             /** @default {} */
             timeouts?: components["schemas"]["TimeoutOverrides"];
+        };
+        /** ConfigRequest */
+        "ConfigRequest-Output": {
+            /**
+             * Attachments
+             * @description Attachment version ids in load order (model runs only)
+             * @default []
+             */
+            attachments: string[];
+            /** Concurrency */
+            concurrency: number | null;
+            /**
+             * Dataset Version Id
+             * @description Required unless the plan has it
+             */
+            dataset_version_id: string | null;
+            /**
+             * Execution Mode
+             * @description agent: a model through a harness; oracle: each task's reference solution, a test mode never compared with model results. Required unless the plan has it
+             */
+            execution_mode: ("agent" | "oracle") | null;
+            /**
+             * Harness Params
+             * @default {}
+             */
+            harness_params: {
+                [key: string]: string | number | boolean;
+            };
+            /** Harness Version Id */
+            harness_version_id: string | null;
+            /** Model Config Id */
+            model_config_id: string | null;
+            /**
+             * Model Revision
+             * @description An earlier revision of the model configuration; unset: current
+             */
+            model_revision: number | null;
+            /**
+             * Parameters
+             * @description Author parameter values; secret ones as a credential reference
+             * @default {}
+             */
+            parameters: {
+                [key: string]: string | components["schemas"]["CredentialRef"];
+            };
+            /**
+             * Plan Id
+             * @description An experiment plan; fields set here win, the plan fills in the rest
+             */
+            plan_id: string | null;
+            /**
+             * Plan Revision
+             * @description Refuse unless the plan is still at this revision
+             */
+            plan_revision: number | null;
+            /** Repetitions */
+            repetitions: number | null;
+            /** @default {} */
+            resources: components["schemas"]["ResourceOverrides"];
+            /** Run Deadline Hours */
+            run_deadline_hours: number | null;
+            /**
+             * @default {
+             *       "mode": "all_eligible"
+             *     }
+             */
+            task_selection: components["schemas"]["TaskSelection-Output"];
+            /** @default {} */
+            timeouts: components["schemas"]["TimeoutOverrides"];
         };
         /** ConfigResolution */
         ConfigResolution: {
             /** Baseline Differences */
-            baseline_differences: {
-                [key: string]: unknown;
-            }[];
+            baseline_differences: components["schemas"]["BaselineDifference"][];
             /** Blockers */
             blockers: components["schemas"]["ConfigBlocker"][];
             /** Cache Observations */
-            cache_observations: {
-                [key: string]: unknown;
-            }[];
+            cache_observations: components["schemas"]["CacheObservation"][];
             /** Config Digest */
             config_digest: string | null;
             /** Created At */
             created_at: string;
-            /** Effective Config */
-            effective_config: {
-                [key: string]: unknown;
-            } | null;
+            effective_config: components["schemas"]["EffectiveConfig"] | null;
             /** Excluded Tasks */
-            excluded_tasks: {
-                [key: string]: unknown;
-            }[];
+            excluded_tasks: components["schemas"]["ExcludedTask"][];
             /** Expires At */
             expires_at: string;
-            /** Field Sources */
+            /**
+             * Field Sources
+             * @description Keyed by JSON pointer
+             */
             field_sources: {
-                [key: string]: {
-                    [key: string]: unknown;
-                };
+                [key: string]: components["schemas"]["FieldSource"];
             };
-            /** Labels */
+            /**
+             * Labels
+             * @description Display names: model, harness, attachments
+             */
             labels: {
                 [key: string]: string;
             };
             /** Planned Trials */
             planned_trials: number;
-            /** Reference Revisions */
-            reference_revisions: {
-                [key: string]: unknown;
-            };
-            /** Request */
-            request: {
-                [key: string]: unknown;
-            };
+            reference_revisions: components["schemas"]["ReferenceRevisions"];
+            request: components["schemas"]["NormalizedRequest"];
             /** Required Preparation */
-            required_preparation: {
-                [key: string]: unknown;
-            }[];
+            required_preparation: components["schemas"]["PlannedRestore"][];
             /** Resolution Id */
             resolution_id: string;
             /** Warnings */
-            warnings: {
-                [key: string]: unknown;
-            }[];
+            warnings: components["schemas"]["ConfigWarning"][];
+        };
+        /** ConfigWarning */
+        ConfigWarning: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Path */
+            path: string;
+        };
+        /** ContentEvidence */
+        ContentEvidence: {
+            /** Message */
+            message?: string | null;
+            /** Reason */
+            reason?: string | null;
         };
         /** ContentResource */
         ContentResource: {
@@ -2312,6 +2611,43 @@ export interface components {
              */
             source_kind?: string;
         };
+        /** DatasetImportOperation */
+        DatasetImportOperation: {
+            /** Allowed Actions */
+            allowed_actions: string[];
+            /** Created At */
+            created_at: string;
+            error: components["schemas"]["Problem"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "dataset_import";
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Owner Id */
+            owner_id: string | null;
+            /** Phase */
+            phase: string | null;
+            progress: components["schemas"]["ImportProgress"];
+            resource: components["schemas"]["OperationResource"] | null;
+            result: components["schemas"]["ImportResult"] | null;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+            /** Updated At */
+            updated_at: string;
+        };
         /** DatasetSource */
         DatasetSource: {
             /** Available */
@@ -2387,13 +2723,8 @@ export interface components {
             ref_kind: string;
             /** Resolved Digest */
             resolved_digest: string;
-            /**
-             * Scoring Contract
-             * @description Contract new runs freeze; source is dataset_version or platform_default
-             */
-            scoring_contract: {
-                [key: string]: unknown;
-            };
+            /** @description Contract new runs freeze; source is dataset_version or platform_default */
+            scoring_contract: components["schemas"]["ScoringContract"];
             /**
              * Status
              * @constant
@@ -2418,6 +2749,147 @@ export interface components {
              * @enum {string}
              */
             state: "recycled" | "purged";
+        };
+        /** EffectiveAttachment */
+        EffectiveAttachment: {
+            /** Content Digest */
+            content_digest: string;
+            /** Effects */
+            effects: string[];
+            /** Has Bootstrap */
+            has_bootstrap: boolean;
+            /** Name */
+            name: string;
+            provides: components["schemas"]["AttachmentProvides"];
+            /** Version */
+            version: string;
+            /** Version Id */
+            version_id: string;
+        };
+        /**
+         * EffectiveConfig
+         * @description The fixed configuration of a run (03 section 5); ``config_digest`` is its digest.
+         */
+        EffectiveConfig: {
+            /**
+             * Attachments
+             * @description In load order
+             */
+            attachments: components["schemas"]["EffectiveAttachment"][];
+            /** Bootstrap Timeout Sec */
+            bootstrap_timeout_sec: number | null;
+            /** Concurrency */
+            concurrency: number;
+            dataset: components["schemas"]["EffectiveDataset"];
+            /** Deviates From Author Baseline */
+            deviates_from_author_baseline: boolean;
+            /**
+             * Execution Mode
+             * @enum {string}
+             */
+            execution_mode: "agent" | "oracle";
+            harness: components["schemas"]["EffectiveHarness"] | null;
+            model: components["schemas"]["EffectiveModel"] | null;
+            /** @description Values this run set for every task */
+            overrides: components["schemas"]["EffectiveOverrides"];
+            /** Parameters */
+            parameters: {
+                [key: string]: components["schemas"]["ParameterChoice"];
+            };
+            /** Repetitions */
+            repetitions: number;
+            /** Run Deadline Hours */
+            run_deadline_hours: number;
+            /** Tasks */
+            tasks: components["schemas"]["EffectiveTask"][];
+        };
+        /** EffectiveDataset */
+        EffectiveDataset: {
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace: string;
+            /** Resolved Digest */
+            resolved_digest: string;
+            /** Source Kind */
+            source_kind: string;
+            /** Version Id */
+            version_id: string;
+        };
+        /** EffectiveHarness */
+        EffectiveHarness: {
+            /** Agent */
+            agent: string;
+            /** Content Digest */
+            content_digest: string;
+            /** Name */
+            name: string;
+            /** Params */
+            params: {
+                [key: string]: string | number | boolean;
+            };
+            /** Version */
+            version: string;
+            /** Version Id */
+            version_id: string;
+        };
+        /** EffectiveModel */
+        EffectiveModel: {
+            /** Config Id */
+            config_id: string;
+            /** Credential Id */
+            credential_id: string | null;
+            /** Endpoint */
+            endpoint: string;
+            /** Model Id */
+            model_id: string;
+            /**
+             * Params
+             * @description Provider request parameters, as configured
+             */
+            params: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Protocol
+             * @enum {string}
+             */
+            protocol: "openai-compatible" | "openai" | "anthropic";
+            /** Provider */
+            provider: string;
+            /** Revision */
+            revision: number;
+        };
+        /** EffectiveOverrides */
+        EffectiveOverrides: {
+            /** Agent Timeout Sec */
+            agent_timeout_sec?: number | null;
+            /** Cpus */
+            cpus?: number | null;
+            /** Memory Mb */
+            memory_mb?: number | null;
+            /** Verifier Timeout Sec */
+            verifier_timeout_sec?: number | null;
+        };
+        /** EffectiveTask */
+        EffectiveTask: {
+            /**
+             * Agent Timeout Sec
+             * @description null: the executor's default
+             */
+            agent_timeout_sec: number | null;
+            /** Content Digest */
+            content_digest: string;
+            /** Cpus */
+            cpus: number;
+            /** Memory Mb */
+            memory_mb: number;
+            /** Spec Digest */
+            spec_digest: string;
+            /** Task Key */
+            task_key: string;
+            /** Verifier Timeout Sec */
+            verifier_timeout_sec: number | null;
         };
         /** EnabledChange */
         EnabledChange: {
@@ -2461,7 +2933,7 @@ export interface components {
         };
         /** Envelope[ConfigRequest] */
         Envelope_ConfigRequest_: {
-            data: components["schemas"]["ConfigRequest"];
+            data: components["schemas"]["ConfigRequest-Output"];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[ConfigResolution] */
@@ -2487,11 +2959,6 @@ export interface components {
         /** Envelope[Harness] */
         Envelope_Harness_: {
             data: components["schemas"]["Harness"];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[Health] */
-        Envelope_Health_: {
-            data: components["schemas"]["Health"];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[InvitationInfo] */
@@ -2574,6 +3041,11 @@ export interface components {
             data: components["schemas"]["Run"];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[ScoringContract] */
+        Envelope_ScoringContract_: {
+            data: components["schemas"]["ScoringContract"];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[SessionInfo] */
         Envelope_SessionInfo_: {
             data: components["schemas"]["SessionInfo"];
@@ -2589,6 +3061,11 @@ export interface components {
             data: components["schemas"]["SourceVersionDetail"];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[SystemStatus] */
+        Envelope_SystemStatus_: {
+            data: components["schemas"]["SystemStatus"];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[TeamPolicy] */
         Envelope_TeamPolicy_: {
             data: components["schemas"]["TeamPolicy"];
@@ -2597,14 +3074,6 @@ export interface components {
         /** Envelope[User] */
         Envelope_User_: {
             data: components["schemas"]["User"];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[dict] */
-        Envelope_dict_: {
-            /** Data */
-            data: {
-                [key: string]: unknown;
-            };
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[list[Artifact]] */
@@ -2776,14 +3245,71 @@ export interface components {
              * Suggested Actions
              * @default []
              */
-            suggested_actions?: {
-                [key: string]: unknown;
-            }[];
+            suggested_actions?: components["schemas"]["SuggestedAction"][];
         };
         /** ErrorResponse */
         ErrorResponse: {
             error: components["schemas"]["ErrorBody"];
             meta: components["schemas"]["Meta"];
+        };
+        /** EvictionOperation */
+        EvictionOperation: {
+            /** Allowed Actions */
+            allowed_actions: string[];
+            /** Created At */
+            created_at: string;
+            error: components["schemas"]["Problem"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "preparation_eviction";
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Owner Id */
+            owner_id: string | null;
+            /** Phase */
+            phase: string | null;
+            progress: components["schemas"]["NoProgress"];
+            resource: components["schemas"]["OperationResource"] | null;
+            /** Result */
+            result: null;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+            /** Updated At */
+            updated_at: string;
+        };
+        /** ExcludedTask */
+        ExcludedTask: {
+            /** Blockers */
+            blockers: components["schemas"]["TaskBlocker"][];
+            /** Task Id */
+            task_id: string;
+            /** Task Key */
+            task_key: string;
+        };
+        /** ExecutionInfo */
+        ExecutionInfo: {
+            capacity: components["schemas"]["HostCapacityView"];
+            /** Executor */
+            executor: string | null;
+            /** Harness Adapters */
+            harness_adapters: components["schemas"]["HarnessAdapter"][];
+            /** Modes */
+            modes: ("agent" | "oracle")[];
+            /** Policy Version */
+            policy_version: string;
         };
         /** Export */
         Export: {
@@ -2791,10 +3317,7 @@ export interface components {
             created_at: string;
             /** Digest */
             digest: string | null;
-            /** Error */
-            error: {
-                [key: string]: unknown;
-            } | null;
+            error: components["schemas"]["Problem"] | null;
             /** Expires At */
             expires_at: string | null;
             /** Finished At */
@@ -2817,13 +3340,7 @@ export interface components {
              * @enum {string}
              */
             state: "queued" | "building" | "ready" | "failed" | "expired";
-            /**
-             * Summary
-             * @description runs, files, missing, warnings, size_bytes and digest of the package
-             */
-            summary: {
-                [key: string]: unknown;
-            } | null;
+            summary: components["schemas"]["ExportSummary"] | null;
         };
         /** ExportCreate */
         ExportCreate: {
@@ -2839,6 +3356,69 @@ export interface components {
             /** Task Keys */
             task_keys?: string[] | null;
         };
+        /** ExportOperation */
+        ExportOperation: {
+            /** Allowed Actions */
+            allowed_actions: string[];
+            /** Created At */
+            created_at: string;
+            error: components["schemas"]["Problem"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "export";
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Owner Id */
+            owner_id: string | null;
+            /** Phase */
+            phase: string | null;
+            progress: components["schemas"]["ExportProgress"];
+            resource: components["schemas"]["OperationResource"] | null;
+            result: components["schemas"]["ExportOperationResult"] | null;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+            /** Updated At */
+            updated_at: string;
+        };
+        /** ExportOperationResult */
+        ExportOperationResult: {
+            /** Artifact Bytes */
+            artifact_bytes: number | null;
+            /** Digest */
+            digest: string | null;
+            /** Export Id */
+            export_id: string;
+            /** Files */
+            files: number | null;
+            /** Missing */
+            missing: number | null;
+            /** Runs */
+            runs: number | null;
+            /** Size Bytes */
+            size_bytes: number | null;
+            /** Warnings */
+            warnings: number | null;
+        };
+        /** ExportProgress */
+        ExportProgress: {
+            /** Files */
+            files: number;
+            /** Runs */
+            runs: number;
+        };
         /** ExportRequest */
         ExportRequest: {
             /** Artifact Kinds */
@@ -2849,6 +3429,29 @@ export interface components {
             run_ids: string[];
             /** Task Keys */
             task_keys: string[] | null;
+        };
+        /** ExportSummary */
+        ExportSummary: {
+            /** Artifact Bytes */
+            artifact_bytes: number;
+            /** Digest */
+            digest: string;
+            /** Files */
+            files: number;
+            /**
+             * Missing
+             * @description Files listed in the manifest's missing section
+             */
+            missing: number;
+            /** Runs */
+            runs: number;
+            /**
+             * Size Bytes
+             * @description Size of the package
+             */
+            size_bytes: number;
+            /** Warnings */
+            warnings: number;
         };
         /** FieldErrorModel */
         FieldErrorModel: {
@@ -2867,6 +3470,21 @@ export interface components {
             /** Path */
             path: string;
         };
+        /**
+         * FieldSource
+         * @description Which layer gave a value: author, team policy, plan, harness default or override.
+         */
+        FieldSource: {
+            /**
+             * Layer
+             * @enum {string}
+             */
+            layer: "author" | "team" | "plan" | "override" | "harness";
+            /** Revision */
+            revision?: number | null;
+            /** Source Id */
+            source_id?: string | null;
+        };
         /** FirstPreparation */
         FirstPreparation: {
             /**
@@ -2874,6 +3492,82 @@ export interface components {
              * @description Default: every task without a successful first preparation
              */
             task_ids?: string[] | null;
+        };
+        /** FirstPreparationOperation */
+        FirstPreparationOperation: {
+            /** Allowed Actions */
+            allowed_actions: string[];
+            /** Created At */
+            created_at: string;
+            error: components["schemas"]["Problem"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "preparation_first";
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Owner Id */
+            owner_id: string | null;
+            /** Phase */
+            phase: string | null;
+            progress: components["schemas"]["FirstPreparationProgress"];
+            resource: components["schemas"]["OperationResource"] | null;
+            result: components["schemas"]["FirstPreparationResult"] | null;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+            /** Updated At */
+            updated_at: string;
+        };
+        /** FirstPreparationProgress */
+        FirstPreparationProgress: {
+            /** Admitted */
+            admitted: number | null;
+            /** Failed */
+            failed: number | null;
+            /** Task Ids */
+            task_ids: string[];
+            /** Tasks Done */
+            tasks_done: number;
+            /** Tasks Total */
+            tasks_total: number;
+        };
+        /** FirstPreparationResult */
+        FirstPreparationResult: {
+            /**
+             * Tasks
+             * @description Keyed by task id
+             */
+            tasks: {
+                [key: string]: components["schemas"]["FirstPreparationTask"];
+            };
+        };
+        /** FirstPreparationTask */
+        FirstPreparationTask: {
+            error?: components["schemas"]["Problem"] | null;
+            /** Image Id */
+            image_id?: string | null;
+            /**
+             * Skipped
+             * @description Already decided by an earlier attempt
+             */
+            skipped?: boolean | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "admitted" | "first_failed" | "revoked";
         };
         /** Harness */
         Harness: {
@@ -2883,10 +3577,7 @@ export interface components {
             content_digest: string;
             /** Created At */
             created_at: string;
-            /** Deletion */
-            deletion?: {
-                [key: string]: unknown;
-            } | null;
+            deletion: components["schemas"]["DeletionState"] | null;
             /** Description */
             description: string;
             /** Enabled */
@@ -2895,10 +3586,7 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-            /** Parameter Schema */
-            parameter_schema: {
-                [key: string]: unknown;
-            };
+            parameter_schema: components["schemas"]["HarnessParameterSchema-Output"];
             /** Protocols */
             protocols: ("openai-compatible" | "openai" | "anthropic")[];
             /** Version */
@@ -2912,7 +3600,7 @@ export interface components {
              * Parameters
              * @description Parameters a harness version may declare; null means any
              */
-            parameters?: string[] | null;
+            parameters: string[] | null;
             /** Protocols */
             protocols: ("openai-compatible" | "openai" | "anthropic")[];
         };
@@ -2931,32 +3619,63 @@ export interface components {
             /** Name */
             name: string;
             /**
-             * Parameter Schema
              * @default {
              *       "parameters": {}
              *     }
              */
-            parameter_schema?: {
-                [key: string]: unknown;
-            };
+            parameter_schema?: components["schemas"]["HarnessParameterSchema-Input"];
             /** Protocols */
             protocols: ("openai-compatible" | "openai" | "anthropic")[];
             /** Version */
             version: string;
         };
+        /** HarnessParameterSchema */
+        "HarnessParameterSchema-Input": {
+            /**
+             * Parameters
+             * @default {}
+             */
+            parameters?: {
+                [key: string]: components["schemas"]["HarnessParameterSpec"];
+            };
+        };
+        /** HarnessParameterSchema */
+        "HarnessParameterSchema-Output": {
+            /**
+             * Parameters
+             * @default {}
+             */
+            parameters: {
+                [key: string]: components["schemas"]["HarnessParameterSpec"];
+            };
+        };
+        /** HarnessParameterSpec */
+        HarnessParameterSpec: {
+            /** Default */
+            default?: string | number | boolean | null;
+            /** Description */
+            description?: string | null;
+            /** Enum */
+            enum?: (string | number | boolean)[] | null;
+            /** Maximum */
+            maximum?: number | null;
+            /** Minimum */
+            minimum?: number | null;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "string" | "integer" | "number" | "boolean";
+        };
         /** Health */
         Health: {
             /** Accepting Runs */
-            accepting_runs?: boolean | null;
+            accepting_runs: boolean | null;
             /**
-             * Detail
-             * @default {}
+             * Status
+             * @enum {string}
              */
-            detail?: {
-                [key: string]: unknown;
-            };
-            /** Status */
-            status: string;
+            status: "alive" | "ready" | "maintenance";
         };
         /** HostCapacityView */
         HostCapacityView: {
@@ -2966,6 +3685,45 @@ export interface components {
             memory_mb: number;
             /** Slots */
             slots: number;
+        };
+        /** ImportProgress */
+        ImportProgress: {
+            request: components["schemas"]["ImportRequest"];
+            /** Resolved Digest */
+            resolved_digest: string | null;
+            /** Tasks Done */
+            tasks_done: number | null;
+            /** Tasks Total */
+            tasks_total: number | null;
+        };
+        /** ImportRequest */
+        ImportRequest: {
+            /** Accept Changed Content */
+            accept_changed_content: boolean;
+            /** Credential Id */
+            credential_id: string | null;
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace: string;
+            /** Prepare */
+            prepare: boolean;
+            /** Ref */
+            ref: string;
+            /** Source Kind */
+            source_kind: string;
+        };
+        /** ImportResult */
+        ImportResult: {
+            /** Dataset Version Id */
+            dataset_version_id: string;
+            /**
+             * Existing
+             * @description The same version was imported before
+             */
+            existing: boolean;
+            /** Preparation Operation Id */
+            preparation_operation_id?: string | null;
         };
         /** Invitation */
         Invitation: {
@@ -3129,6 +3887,7 @@ export interface components {
             /** Token Prefix */
             token_prefix: string;
         };
+        JsonValue: unknown;
         /** LocalPreparation */
         LocalPreparation: {
             /**
@@ -3138,10 +3897,7 @@ export interface components {
             cache_state: "absent" | "restoring" | "ready" | "stale";
             /** Id */
             id: string | null;
-            /** Last Restore Error */
-            last_restore_error: {
-                [key: string]: unknown;
-            } | null;
+            last_restore_error: components["schemas"]["Problem"] | null;
             /** Last Used At */
             last_used_at: string | null;
             /** Location Id */
@@ -3172,7 +3928,7 @@ export interface components {
             /** Initialized */
             initialized: boolean;
             /** Reencrypted Credentials */
-            reencrypted_credentials?: number | null;
+            reencrypted_credentials: number | null;
             /** Rotated At */
             rotated_at: string | null;
         };
@@ -3230,18 +3986,15 @@ export interface components {
              * Credential Id
              * @description Administrators only
              */
-            credential_id?: string | null;
+            credential_id: string | null;
             /**
              * Credential Name
              * @description Administrators only
              */
-            credential_name?: string | null;
+            credential_name: string | null;
             /** Credential Problem */
             credential_problem: string | null;
-            /** Deletion */
-            deletion?: {
-                [key: string]: unknown;
-            } | null;
+            deletion: components["schemas"]["DeletionState"] | null;
             /** Description */
             description: string;
             /** Enabled */
@@ -3256,7 +4009,7 @@ export interface components {
             name: string;
             /** Params */
             params: {
-                [key: string]: unknown;
+                [key: string]: components["schemas"]["JsonValue"];
             };
             /**
              * Protocol
@@ -3268,7 +4021,7 @@ export interface components {
             /** Revision */
             revision: number;
             /** Revisions */
-            revisions?: components["schemas"]["ModelRevision"][] | null;
+            revisions: components["schemas"]["ModelRevision"][] | null;
             /** Updated At */
             updated_at: string;
         };
@@ -3292,10 +4045,11 @@ export interface components {
             name: string;
             /**
              * Params
+             * @description Provider request parameters; no secrets
              * @default {}
              */
             params?: {
-                [key: string]: unknown;
+                [key: string]: components["schemas"]["JsonValue"];
             };
             /**
              * Protocol
@@ -3328,10 +4082,11 @@ export interface components {
             model_id: string;
             /**
              * Params
+             * @description Provider request parameters; no secrets
              * @default {}
              */
             params?: {
-                [key: string]: unknown;
+                [key: string]: components["schemas"]["JsonValue"];
             };
             /**
              * Protocol
@@ -3351,14 +4106,14 @@ export interface components {
             /** Credential Bound */
             credential_bound: boolean;
             /** Credential Id */
-            credential_id?: string | null;
+            credential_id: string | null;
             /** Endpoint */
             endpoint: string;
             /** Model Id */
             model_id: string;
             /** Params */
             params: {
-                [key: string]: unknown;
+                [key: string]: components["schemas"]["JsonValue"];
             };
             /**
              * Protocol
@@ -3370,49 +4125,52 @@ export interface components {
             /** Revision */
             revision: number;
         };
-        /** Operation */
-        Operation: {
-            /** Allowed Actions */
-            allowed_actions: string[];
-            /** Created At */
-            created_at: string;
-            /** Error */
-            error: {
-                [key: string]: unknown;
-            } | null;
-            /** Finished At */
-            finished_at: string | null;
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Links */
-            links: {
-                [key: string]: string;
-            };
-            /** Owner Id */
-            owner_id: string | null;
-            /** Phase */
-            phase: string | null;
-            /** Progress */
-            progress: {
-                [key: string]: unknown;
-            };
-            resource: components["schemas"]["OperationResource"] | null;
-            /** Result */
-            result: {
-                [key: string]: unknown;
-            } | null;
-            /** Revision */
-            revision: number;
+        /** NoProgress */
+        NoProgress: Record<string, never>;
+        /**
+         * NormalizedRequest
+         * @description A configuration request after checking: what resolution and reruns start from.
+         */
+        NormalizedRequest: {
+            /** Attachments */
+            attachments: string[];
+            /** Concurrency */
+            concurrency: number | null;
+            /** Dataset Version Id */
+            dataset_version_id: string;
             /**
-             * Status
+             * Execution Mode
              * @enum {string}
              */
-            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
-            /** Updated At */
-            updated_at: string;
+            execution_mode: "agent" | "oracle";
+            /** Harness Params */
+            harness_params: {
+                [key: string]: string | number | boolean;
+            };
+            /** Harness Version Id */
+            harness_version_id: string | null;
+            /** Model Config Id */
+            model_config_id: string | null;
+            /** Model Revision */
+            model_revision: number | null;
+            /** Parameters */
+            parameters: {
+                [key: string]: components["schemas"]["ParameterChoice"];
+            };
+            plan: components["schemas"]["PlanUse"] | null;
+            /** Repetitions */
+            repetitions: number | null;
+            resources: components["schemas"]["ResourceOverrides"];
+            /** Run Deadline Hours */
+            run_deadline_hours: number | null;
+            task_selection: components["schemas"]["TaskSelection-Output"];
+            timeouts: components["schemas"]["TimeoutOverrides"];
         };
+        /**
+         * Operation
+         * @description A long operation; ``kind`` decides the shape of ``progress`` and ``result``.
+         */
+        Operation: components["schemas"]["RunOperation"] | components["schemas"]["BatchOperation"] | components["schemas"]["ExportOperation"] | components["schemas"]["DatasetImportOperation"] | components["schemas"]["FirstPreparationOperation"] | components["schemas"]["RestoreOperation"] | components["schemas"]["EvictionOperation"];
         /** OperationResource */
         OperationResource: {
             /** Id */
@@ -3431,6 +4189,47 @@ export interface components {
             display_name: string;
             /** Username */
             username: string;
+        };
+        /**
+         * ParameterChoice
+         * @description An author parameter value: a literal, or the team credential that holds it.
+         */
+        ParameterChoice: {
+            /** Credential Id */
+            credential_id?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /** ParameterIssue */
+        ParameterIssue: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "CONFLICTING_DEFAULTS" | "COMPOSE_DISCOVERY_FAILED";
+            /**
+             * File
+             * @description The compose file (COMPOSE_DISCOVERY_FAILED)
+             */
+            file?: string | null;
+            /**
+             * Name
+             * @description The parameter (CONFLICTING_DEFAULTS)
+             */
+            name?: string | null;
+        };
+        /** PassRule */
+        PassRule: {
+            /**
+             * Rule
+             * @constant
+             */
+            rule: "threshold";
+            /**
+             * Threshold
+             * @description A trial passes when its score reaches this
+             */
+            threshold: number;
         };
         /** PasswordChange */
         PasswordChange: {
@@ -3488,6 +4287,13 @@ export interface components {
              */
             scope: "read" | "experiment";
         };
+        /** PatQuota */
+        PatQuota: {
+            /** Left */
+            left: number;
+            /** Needed */
+            needed: number;
+        };
         /** Plan */
         Plan: {
             /** Allowed Actions */
@@ -3498,10 +4304,7 @@ export interface components {
             copied_from: string | null;
             /** Created At */
             created_at: string;
-            /** Deletion */
-            deletion?: {
-                [key: string]: unknown;
-            } | null;
+            deletion: components["schemas"]["DeletionState"] | null;
             /** Description */
             description: string;
             /** Id */
@@ -3514,10 +4317,7 @@ export interface components {
             owner_username: string | null;
             /** Revision */
             revision: number;
-            /** Template */
-            template: {
-                [key: string]: unknown;
-            };
+            template: components["schemas"]["PlanTemplate-Output"];
             /** Updated At */
             updated_at: string;
         };
@@ -3540,14 +4340,80 @@ export interface components {
             description?: string;
             /** Name */
             name: string;
-            /**
-             * Template
-             * @description Fields of a configuration request (see ConfigRequest)
-             * @default {}
-             */
-            template?: {
-                [key: string]: unknown;
-            };
+            /** @default {} */
+            template?: components["schemas"]["PlanTemplate-Input"];
+        };
+        /**
+         * PlanTemplate
+         * @description Any fields of a configuration request (see ConfigRequest). A field the plan does
+         *     not set is left out; a run's own value wins over the plan's.
+         */
+        "PlanTemplate-Input": {
+            /** Attachments */
+            attachments?: string[] | null;
+            /** Concurrency */
+            concurrency?: number | null;
+            /** Dataset Version Id */
+            dataset_version_id?: string | null;
+            /** Execution Mode */
+            execution_mode?: ("agent" | "oracle") | null;
+            /** Harness Params */
+            harness_params?: {
+                [key: string]: string | number | boolean;
+            } | null;
+            /** Harness Version Id */
+            harness_version_id?: string | null;
+            /** Model Config Id */
+            model_config_id?: string | null;
+            /** Model Revision */
+            model_revision?: number | null;
+            /** Parameters */
+            parameters?: {
+                [key: string]: string | components["schemas"]["CredentialRef"];
+            } | null;
+            /** Repetitions */
+            repetitions?: number | null;
+            resources?: components["schemas"]["ResourceOverrides"] | null;
+            /** Run Deadline Hours */
+            run_deadline_hours?: number | null;
+            task_selection?: components["schemas"]["TaskSelection-Input"] | null;
+            timeouts?: components["schemas"]["TimeoutOverrides"] | null;
+        };
+        /**
+         * PlanTemplate
+         * @description Any fields of a configuration request (see ConfigRequest). A field the plan does
+         *     not set is left out; a run's own value wins over the plan's.
+         */
+        "PlanTemplate-Output": {
+            /** Attachments */
+            attachments?: string[] | null;
+            /** Concurrency */
+            concurrency?: number | null;
+            /** Dataset Version Id */
+            dataset_version_id?: string | null;
+            /** Execution Mode */
+            execution_mode?: ("agent" | "oracle") | null;
+            /** Harness Params */
+            harness_params?: {
+                [key: string]: string | number | boolean;
+            } | null;
+            /** Harness Version Id */
+            harness_version_id?: string | null;
+            /** Model Config Id */
+            model_config_id?: string | null;
+            /** Model Revision */
+            model_revision?: number | null;
+            /** Parameters */
+            parameters?: {
+                [key: string]: string | components["schemas"]["CredentialRef"];
+            } | null;
+            /** Repetitions */
+            repetitions?: number | null;
+            resources?: components["schemas"]["ResourceOverrides"] | null;
+            /** Run Deadline Hours */
+            run_deadline_hours?: number | null;
+            task_selection?: components["schemas"]["TaskSelection-Output"] | null;
+            timeouts?: components["schemas"]["TimeoutOverrides"] | null;
         };
         /** PlanUpdate */
         PlanUpdate: {
@@ -3557,10 +4423,33 @@ export interface components {
             expected_revision: number;
             /** Name */
             name?: string | null;
-            /** Template */
-            template?: {
-                [key: string]: unknown;
-            } | null;
+            template?: components["schemas"]["PlanTemplate-Input"] | null;
+        };
+        /** PlanUse */
+        PlanUse: {
+            /**
+             * Fields
+             * @description JSON pointers of the fields the plan supplied
+             */
+            fields: string[];
+            /** Plan Id */
+            plan_id: string;
+            /** Revision */
+            revision: number;
+        };
+        /** PlannedRestore */
+        PlannedRestore: {
+            /**
+             * Action
+             * @constant
+             */
+            action: "restore_cache";
+            /** Spec Digest */
+            spec_digest: string;
+            /** Task Id */
+            task_id: string;
+            /** Task Key */
+            task_key: string;
         };
         /** PolicySetting */
         PolicySetting: {
@@ -3579,10 +4468,7 @@ export interface components {
         };
         /** Preparation */
         Preparation: {
-            /** Archive */
-            archive: {
-                [key: string]: unknown;
-            } | null;
+            archive: components["schemas"]["PreparationArchive"] | null;
             /**
              * Cache State
              * @enum {string}
@@ -3594,10 +4480,7 @@ export interface components {
             id: string | null;
             /** Image Id */
             image_id: string | null;
-            /** Last Restore Error */
-            last_restore_error: {
-                [key: string]: unknown;
-            } | null;
+            last_restore_error: components["schemas"]["Problem"] | null;
             /** Last Used At */
             last_used_at: string | null;
             /** Location Id */
@@ -3612,6 +4495,16 @@ export interface components {
             spec_digest: string;
             /** Waiters */
             waiters: components["schemas"]["PreparationWaiter"][];
+        };
+        /**
+         * PreparationArchive
+         * @description The saved original the cache is restored from (U-17).
+         */
+        PreparationArchive: {
+            /** Digest */
+            digest: string | null;
+            /** Size Bytes */
+            size_bytes: number | null;
         };
         /** PreparationPin */
         PreparationPin: {
@@ -3630,6 +4523,48 @@ export interface components {
             since: string;
             /** State */
             state: string;
+        };
+        /** PreparedOutputView */
+        PreparedOutputView: {
+            /**
+             * Archive
+             * @description The saved original (U-17)
+             */
+            archive: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /**
+             * Detail
+             * @description How it was prepared; depends on the environment
+             */
+            detail: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Image Id */
+            image_id: string;
+            /** Image Ref */
+            image_ref: string;
+        };
+        /**
+         * Problem
+         * @description A recorded failure: a stable code and a message, with the cause's kind, evidence
+         *     and next steps when it has them. Further fields depend on the code.
+         */
+        Problem: {
+            /** Code */
+            code: string;
+            /** Evidence */
+            evidence?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Kind */
+            kind?: string | null;
+            /** Message */
+            message?: string | null;
+            /** Suggested Actions */
+            suggested_actions?: components["schemas"]["SuggestedAction"][] | null;
+        } & {
+            [key: string]: unknown;
         };
         /** ProviderCapacity */
         ProviderCapacity: {
@@ -3667,9 +4602,12 @@ export interface components {
             deleted_by: string;
             /** Deleted By Username */
             deleted_by_username: string | null;
-            /** Detail */
+            /**
+             * Detail
+             * @description What a purge removed; depends on the object type
+             */
             detail: {
-                [key: string]: unknown;
+                [key: string]: components["schemas"]["JsonValue"];
             };
             /** Id */
             id: string;
@@ -3698,6 +4636,17 @@ export interface components {
              * @enum {string}
              */
             state: "recycled" | "purged" | "restored";
+        };
+        /** ReferenceRevisions */
+        ReferenceRevisions: {
+            /** Attachments */
+            attachments?: string[] | null;
+            /** Harness Version */
+            harness_version?: string | null;
+            model_config?: components["schemas"]["RevisionRef"] | null;
+            plan?: components["schemas"]["RevisionRef"] | null;
+            /** Team Policy */
+            team_policy?: number | null;
         };
         /** RequiredPreparation */
         RequiredPreparation: {
@@ -3728,6 +4677,65 @@ export interface components {
             /** Memory Mb */
             memory_mb?: number | null;
         };
+        /** RestoreOperation */
+        RestoreOperation: {
+            /** Allowed Actions */
+            allowed_actions: string[];
+            /** Created At */
+            created_at: string;
+            error: components["schemas"]["Problem"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "preparation_restore";
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Owner Id */
+            owner_id: string | null;
+            /** Phase */
+            phase: string | null;
+            progress: components["schemas"]["RestoreProgress"];
+            resource: components["schemas"]["OperationResource"] | null;
+            result: components["schemas"]["RestoreResult"] | null;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+            /** Updated At */
+            updated_at: string;
+        };
+        /** RestoreProgress */
+        RestoreProgress: {
+            /** Spec Digest */
+            spec_digest: string;
+            /** Task Key */
+            task_key: string;
+            /** Waiters */
+            waiters: number | null;
+        };
+        /** RestoreResult */
+        RestoreResult: {
+            output: components["schemas"]["PreparedOutputView"];
+            /** Waiters */
+            waiters: number;
+        };
+        /** RevisionRef */
+        RevisionRef: {
+            /** Id */
+            id: string;
+            /** Revision */
+            revision: number;
+        };
         /** Run */
         Run: {
             /** Accepted At */
@@ -3740,7 +4748,7 @@ export interface components {
              */
             artifact_state: "pending" | "saving" | "complete" | "partial" | "failed" | "expired";
             /** Batch Id */
-            batch_id?: string | null;
+            batch_id: string | null;
             /**
              * Cleanup State
              * @enum {string}
@@ -3779,9 +4787,9 @@ export interface components {
             /** Pat Id */
             pat_id: string | null;
             /** Plan Id */
-            plan_id?: string | null;
+            plan_id: string | null;
             /** Plan Revision */
-            plan_revision?: number | null;
+            plan_revision: number | null;
             /**
              * Queue Reason
              * @description Why a queued run waits: CAPACITY_SLOTS, CAPACITY_CPU, CAPACITY_MEMORY or PROVIDER_LIMIT
@@ -3815,15 +4823,11 @@ export interface components {
         /** RunAccepted */
         RunAccepted: {
             /** Cache Observations */
-            cache_observations: {
-                [key: string]: unknown;
-            }[];
+            cache_observations: components["schemas"]["CacheObservation"][];
             /** Config Digest */
             config_digest: string;
             /** Excluded Tasks */
-            excluded_tasks: {
-                [key: string]: unknown;
-            }[];
+            excluded_tasks: components["schemas"]["ExcludedTask"][];
             /** Links */
             links: {
                 [key: string]: string;
@@ -3884,7 +4888,7 @@ export interface components {
              * @default {}
              */
             harness_params?: {
-                [key: string]: unknown;
+                [key: string]: string | number | boolean;
             };
             /** Harness Version Id */
             harness_version_id?: string | null;
@@ -3933,7 +4937,7 @@ export interface components {
              *       "mode": "all_eligible"
              *     }
              */
-            task_selection?: components["schemas"]["TaskSelection"];
+            task_selection?: components["schemas"]["TaskSelection-Input"];
             /** @default {} */
             timeouts?: components["schemas"]["TimeoutOverrides"];
         };
@@ -3949,7 +4953,7 @@ export interface components {
              */
             artifact_state: "pending" | "saving" | "complete" | "partial" | "failed" | "expired";
             /** Batch Id */
-            batch_id?: string | null;
+            batch_id: string | null;
             /**
              * Cleanup State
              * @enum {string}
@@ -3988,9 +4992,9 @@ export interface components {
             /** Pat Id */
             pat_id: string | null;
             /** Plan Id */
-            plan_id?: string | null;
+            plan_id: string | null;
             /** Plan Revision */
-            plan_revision?: number | null;
+            plan_revision: number | null;
             /**
              * Queue Reason
              * @description Why a queued run waits: CAPACITY_SLOTS, CAPACITY_CPU, CAPACITY_MEMORY or PROVIDER_LIMIT
@@ -4021,6 +5025,112 @@ export interface components {
             stop_reason: string | null;
             /** Stop Requested */
             stop_requested: boolean;
+        };
+        /** RunOperation */
+        RunOperation: {
+            /** Allowed Actions */
+            allowed_actions: string[];
+            /** Created At */
+            created_at: string;
+            error: components["schemas"]["Problem"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "run";
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Owner Id */
+            owner_id: string | null;
+            /** Phase */
+            phase: string | null;
+            progress: components["schemas"]["RunProgress"];
+            resource: components["schemas"]["OperationResource"] | null;
+            result: components["schemas"]["RunOperationResult"] | null;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+            /** Updated At */
+            updated_at: string;
+        };
+        /** RunOperationResult */
+        RunOperationResult: {
+            counts: components["schemas"]["RunCounts"];
+            /** Run Id */
+            run_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "preparing" | "running" | "finalizing" | "finished" | "cancelled" | "interrupted";
+        };
+        /** RunPolicy */
+        RunPolicy: {
+            /** Aggregation Version */
+            aggregation_version: number;
+            /** Executor Id */
+            executor_id: string | null;
+            /** Policy Version */
+            policy_version: string;
+            scoring: components["schemas"]["ScoringContract"];
+            /** Team Policy Revision */
+            team_policy_revision: number;
+        };
+        /** RunProgress */
+        RunProgress: {
+            /** Active */
+            active: number;
+            /** Errors */
+            errors: number;
+            /** Planned */
+            planned: number;
+            /** Scored */
+            scored: number;
+            /** Terminal */
+            terminal: number;
+        };
+        /** RunProvenance */
+        RunProvenance: {
+            /** Admissions */
+            admissions: components["schemas"]["AdmissionRecord"][];
+            /** Baseline Differences */
+            baseline_differences: components["schemas"]["BaselineDifference"][];
+            /**
+             * Credential Ids
+             * @description Bound credentials, by reference only
+             */
+            credential_ids: string[];
+            /** Excluded Tasks */
+            excluded_tasks: components["schemas"]["ExcludedTask"][];
+            /** Field Sources */
+            field_sources: {
+                [key: string]: components["schemas"]["FieldSource"];
+            };
+            /** Labels */
+            labels: {
+                [key: string]: string;
+            };
+            reference_revisions: components["schemas"]["ReferenceRevisions"];
+            request: components["schemas"]["NormalizedRequest"];
+            /** Resolution Id */
+            resolution_id: string | null;
+            source: components["schemas"]["RunSource"] | null;
+            /**
+             * Submitted Via
+             * @enum {string}
+             */
+            submitted_via: "web_session" | "pat";
+            task_selection: components["schemas"]["TaskSelection-Output"];
         };
         /**
          * RunRerun
@@ -4084,22 +5194,43 @@ export interface components {
             comparison_digest: string;
             /** Config Digest */
             config_digest: string;
-            /** Effective */
-            effective: {
-                [key: string]: unknown;
-            };
-            /** Policy */
-            policy: {
-                [key: string]: unknown;
-            };
-            /** Provenance */
-            provenance: {
-                [key: string]: unknown;
-            };
+            effective: components["schemas"]["EffectiveConfig"];
+            policy: components["schemas"]["RunPolicy"];
+            provenance: components["schemas"]["RunProvenance"];
             /** Schema Version */
             schema_version: number;
             /** Snapshot Digest */
             snapshot_digest: string;
+        };
+        /**
+         * RunSource
+         * @description Where a rerun or modified run came from (RUN-06).
+         */
+        RunSource: {
+            /** Config Digest */
+            config_digest: string;
+            /** Differences */
+            differences?: components["schemas"]["ConfigDifference"][] | null;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "rerun" | "modified";
+            /** Run Id */
+            run_id: string;
+            /** Snapshot Digest */
+            snapshot_digest: string;
+            /** Source Field Sources */
+            source_field_sources?: {
+                [key: string]: components["schemas"]["FieldSource"];
+            } | null;
+            /**
+             * Task Causes
+             * @description Rerun: why each chosen task of the source was not scored
+             */
+            task_causes?: {
+                [key: string]: string[];
+            } | null;
         };
         /**
          * RunSummary
@@ -4169,6 +5300,15 @@ export interface components {
             unfinished_trials: number;
             usage: components["schemas"]["UsageSummary"];
         };
+        /** SchemaState */
+        SchemaState: {
+            /** Compatible */
+            compatible: boolean;
+            /** Current */
+            current: string | null;
+            /** Head */
+            head: string;
+        };
         /** ScoringContract */
         ScoringContract: {
             /** Bench Aggregation */
@@ -4186,13 +5326,8 @@ export interface components {
             metric_id: string;
             /** Name */
             name: string;
-            /**
-             * Passed
-             * @description Explicit pass rule; null: no pass rate
-             */
-            passed: {
-                [key: string]: unknown;
-            } | null;
+            /** @description Explicit pass rule; null: no pass rate */
+            passed: components["schemas"]["PassRule"] | null;
             /**
              * Source
              * @enum {string}
@@ -4262,7 +5397,7 @@ export interface components {
             /** Namespace */
             namespace: string;
             /** Visibility */
-            visibility?: string | null;
+            visibility: string | null;
         };
         /** SourceTask */
         SourceTask: {
@@ -4274,25 +5409,25 @@ export interface components {
         /** SourceVersion */
         SourceVersion: {
             /** Published At */
-            published_at?: string | null;
+            published_at: string | null;
             /** Ref */
             ref: string;
             /** Resolved Digest */
             resolved_digest: string;
             /** Revision */
-            revision?: number | null;
+            revision: number | null;
             /**
              * Tags
              * @default []
              */
-            tags?: string[];
+            tags: string[];
             /**
              * Yanked
              * @default false
              */
-            yanked?: boolean;
+            yanked: boolean;
             /** Yanked Reason */
-            yanked_reason?: string | null;
+            yanked_reason: string | null;
         };
         /** SourceVersionDetail */
         SourceVersionDetail: {
@@ -4318,6 +5453,61 @@ export interface components {
             /** Expected Revision */
             expected_revision: number;
         };
+        /** StorageStatus */
+        StorageStatus: {
+            accept_min_free: components["schemas"]["StorageThreshold"];
+            dispatch_min_free: components["schemas"]["StorageThreshold"];
+            /** Free Bytes */
+            free_bytes: number;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "ok" | "accept_paused" | "dispatch_paused";
+            /** Total Bytes */
+            total_bytes: number;
+        };
+        /** StorageThreshold */
+        StorageThreshold: {
+            /** Gib */
+            gib: number;
+            /** Percent */
+            percent: number;
+        };
+        /**
+         * SuggestedAction
+         * @description A next step; ``type`` says which, and the other fields depend on it.
+         */
+        SuggestedAction: {
+            /** Type */
+            type: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SystemDetail */
+        SystemDetail: {
+            /** Executor */
+            executor: string | null;
+            /** Master Key Available */
+            master_key_available: boolean;
+            /** Needs Setup */
+            needs_setup: boolean | null;
+            schema: components["schemas"]["SchemaState"];
+            storage: components["schemas"]["StorageStatus"];
+            /** Worker Running */
+            worker_running: boolean;
+        };
+        /** SystemStatus */
+        SystemStatus: {
+            /** Accepting Runs */
+            accepting_runs: boolean | null;
+            detail: components["schemas"]["SystemDetail"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "alive" | "ready" | "maintenance";
+        };
         /** Task */
         Task: {
             admission: components["schemas"]["TaskAdmission"] | null;
@@ -4339,21 +5529,15 @@ export interface components {
              * Required Parameters
              * @default []
              */
-            required_parameters?: string[];
+            required_parameters: string[];
             /** Required Preparation */
             required_preparation: components["schemas"]["RequiredPreparation"][];
-            /** Resources */
-            resources: {
-                [key: string]: unknown;
-            };
+            resources: components["schemas"]["TaskResources"];
             /** Spec Digest */
             spec_digest: string | null;
             /** Task Key */
             task_key: string;
-            /** Timeouts */
-            timeouts: {
-                [key: string]: unknown;
-            };
+            timeouts: components["schemas"]["TaskTimeouts"];
             /** Warnings */
             warnings: components["schemas"]["TaskWarning"][];
         };
@@ -4371,7 +5555,10 @@ export interface components {
              */
             state: "pending" | "admitted" | "first_failed" | "revoked";
         };
-        /** TaskBlocker */
+        /**
+         * TaskBlocker
+         * @description Why a task cannot be chosen; the fields that apply depend on the code.
+         */
         TaskBlocker: {
             /** Admission State */
             admission_state?: string | null;
@@ -4379,25 +5566,26 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "TASK_NOT_ADMITTED" | "TASK_ADMISSION_REVOKED" | "RESOURCE_CONTENT_UNAVAILABLE" | "CONFIG_REQUIRED_MISSING" | "AUTHOR_PARAMETERS_UNRESOLVED";
-            /** Evidence */
-            evidence?: {
-                [key: string]: unknown;
-            } | null;
+            code: "TASK_NOT_ADMITTED" | "TASK_ADMISSION_REVOKED" | "RESOURCE_CONTENT_UNAVAILABLE" | "CONFIG_REQUIRED_MISSING" | "AUTHOR_PARAMETERS_UNRESOLVED" | "TEAM_LIMIT_EXCEEDED" | "NOT_FOUND";
+            evidence?: components["schemas"]["ContentEvidence"] | null;
             /** Expected Digest */
             expected_digest?: string | null;
-            /** First Preparation Error */
-            first_preparation_error?: {
-                [key: string]: unknown;
-            } | null;
+            /**
+             * Field
+             * @description TEAM_LIMIT_EXCEEDED: the task setting
+             */
+            field?: string | null;
+            first_preparation_error?: components["schemas"]["Problem"] | null;
             /** Issues */
-            issues?: {
-                [key: string]: unknown;
-            }[] | null;
+            issues?: components["schemas"]["ParameterIssue"][] | null;
+            /** Limit */
+            limit?: number | null;
             /** Parameters */
             parameters?: string[] | null;
             /** Resource Kind */
             resource_kind?: string | null;
+            /** Value */
+            value?: number | null;
         };
         /** TaskContent */
         TaskContent: {
@@ -4415,8 +5603,22 @@ export interface components {
             /** Resources */
             resources: components["schemas"]["ContentResource"][];
         };
+        /**
+         * TaskResources
+         * @description What the task's author asks for; a run may raise CPU and memory, never lower them.
+         */
+        TaskResources: {
+            /** Constraint Strength */
+            constraint_strength: string | null;
+            /** Cpus */
+            cpus: number | null;
+            /** Memory Mb */
+            memory_mb: number | null;
+            /** Storage Mb */
+            storage_mb: number | null;
+        };
         /** TaskSelection */
-        TaskSelection: {
+        "TaskSelection-Input": {
             /**
              * Mode
              * @default all_eligible
@@ -4425,6 +5627,17 @@ export interface components {
             mode?: "all_eligible" | "explicit";
             /** Task Ids */
             task_ids?: string[] | null;
+        };
+        /** TaskSelection */
+        "TaskSelection-Output": {
+            /**
+             * Mode
+             * @default all_eligible
+             * @enum {string}
+             */
+            mode: "all_eligible" | "explicit";
+            /** Task Ids */
+            task_ids: string[] | null;
         };
         /** TaskSummary */
         TaskSummary: {
@@ -4449,6 +5662,15 @@ export interface components {
             stddev: number | null;
             /** Task Key */
             task_key: string;
+        };
+        /** TaskTimeouts */
+        TaskTimeouts: {
+            /** Agent Sec */
+            agent_sec: number | null;
+            /** Build Sec */
+            build_sec: number | null;
+            /** Verifier Sec */
+            verifier_sec: number | null;
         };
         /** TaskWarning */
         TaskWarning: {
@@ -5030,7 +6252,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Envelope_dict_"];
+                    "application/json": components["schemas"]["Envelope_ScoringContract_"];
                 };
             };
             /** @description Structured error */
@@ -6188,7 +7410,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfigRequest"];
+                "application/json": components["schemas"]["ConfigRequest-Input"];
             };
         };
         responses: {
@@ -7986,7 +9208,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Envelope_Health_"];
+                    "application/json": components["schemas"]["Envelope_SystemStatus_"];
                 };
             };
             /** @description Structured error */

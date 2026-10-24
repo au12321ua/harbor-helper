@@ -62,12 +62,8 @@ import {
 import { useInterval, useSession } from "@/lib/hooks";
 import type {
   Artifact,
-  EffectiveAttachment,
   Attempt,
   DeletionState,
-  Export,
-  Run,
-  RunAccepted,
   RunDetail,
   RunSummary,
   Trial,
@@ -106,10 +102,10 @@ function RunDetailView({ runId }: { runId: string }) {
   const load = useCallback(async () => {
     try {
       const [r, t, a] = await Promise.all([
-        api.get<RunDetail>(`runs/${runId}`),
-        api.get<Trial[]>(`runs/${runId}/trials`),
-        api.get<Artifact[]>(`runs/${runId}/artifacts`),
-        api.get<RunSummary>(`runs/${runId}/summary`).then(
+        api.get("/runs/{run_id}", { path: { run_id: runId } }),
+        api.get("/runs/{run_id}/trials", { path: { run_id: runId } }),
+        api.get("/runs/{run_id}/artifacts", { path: { run_id: runId } }),
+        api.get("/runs/{run_id}/summary", { path: { run_id: runId } }).then(
           (res) => {
             setSummary(res.data);
             setSummaryError(undefined);
@@ -137,7 +133,7 @@ function RunDetailView({ runId }: { runId: string }) {
     if (!window.confirm("确定取消该运行？已获得的评分结果会保留，未完成的试次将停止。")) return;
     setCancelling(true);
     try {
-      const res = await api.post<Run>(`runs/${runId}/cancel`);
+      const res = await api.post("/runs/{run_id}/cancel", { path: { run_id: runId } });
       toast.success(res.data.stop_requested ? "已请求取消" : "已提交取消");
       await load();
     } catch (err) {
@@ -155,11 +151,11 @@ function RunDetailView({ runId }: { runId: string }) {
     if (!window.confirm(text)) return;
     setBusy(true);
     try {
-      const res = await api.post<RunAccepted>(
-        `runs/${runId}/rerun`,
-        { task_selection: { mode } },
-        { "Idempotency-Key": crypto.randomUUID() },
-      );
+      const res = await api.post("/runs/{run_id}/rerun", {
+        path: { run_id: runId },
+        body: { task_selection: { mode } },
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      });
       toast.success(`已受理重跑：计划 ${res.data.planned_trials} 个试次`);
       navigate(`/runs/${res.data.run_id}`);
     } catch (err) {
@@ -172,7 +168,7 @@ function RunDetailView({ runId }: { runId: string }) {
   const exportRun = async () => {
     setBusy(true);
     try {
-      await api.post<Export>("exports", { run_ids: [runId] });
+      await api.post("/exports", { body: { run_ids: [runId] } });
       toast.success("已创建导出，正在打包");
       navigate("/exports");
     } catch (err) {
@@ -190,7 +186,7 @@ function RunDetailView({ runId }: { runId: string }) {
       return;
     setBusy(true);
     try {
-      await api.del(`runs/${runId}`);
+      await api.del("/runs/{run_id}", { path: { run_id: runId } });
       toast.success("已移入回收站");
       await load();
     } catch (err) {
@@ -208,7 +204,7 @@ function RunDetailView({ runId }: { runId: string }) {
     )
       return;
     try {
-      await api.del(`artifacts/${artifact.id}`);
+      await api.del("/artifacts/{artifact_id}", { path: { artifact_id: artifact.id } });
       toast.success("产物已删除");
       await load();
     } catch (err) {
@@ -533,13 +529,8 @@ function isAttachmentFailure(
 }
 
 function AgentSummary({ snapshot }: { snapshot: RunDetail["snapshot"] }) {
-  const model = snapshot.effective.model as
-    | { model_id: string; provider: string; protocol: string; revision: number }
-    | undefined;
-  const harness = snapshot.effective.harness as { name: string; version: string } | undefined;
-  const labels = (snapshot.provenance.labels ?? {}) as Record<string, string>;
-  const attachments = (snapshot.effective.attachments ?? []) as EffectiveAttachment[];
-  const installSec = snapshot.effective.bootstrap_timeout_sec as number | null | undefined;
+  const { model, harness, attachments, bootstrap_timeout_sec: installSec } = snapshot.effective;
+  const labels = snapshot.provenance.labels;
   if (!model) return <span>—</span>;
   return (
     <span>

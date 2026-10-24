@@ -242,10 +242,19 @@ test("score and dimension rendering", async ({ page }) => {
   const routes: Record<string, unknown> = {
     "/api/v1/setup": { needs_setup: false },
     "/api/v1/session": { user: me, csrf_token: "csrf" },
+    // Fixtures follow the contract (SystemStatus, Capabilities in src/lib/schema.d.ts).
     "/api/v1/capabilities": { api_version: "v1", service_version: "t", schema_revision: "t",
-      features: {}, limits: {}, auth: {}, actions: {} },
+      contract_digest: "sha256:t", team_policy_revision: 0, features: {}, limits: {},
+      auth: { pat_header: "Authorization: Bearer <token>", session_cookie: true,
+        csrf_header: "X-CSRF-Token" },
+      actions: {},
+      execution: { executor: null, modes: ["agent", "oracle"], harness_adapters: [],
+        policy_version: "t", capacity: { slots: 1, cpus: 1, memory_mb: 1024 } } },
     "/api/v1/system-status": { status: "ready", accepting_runs: false,
-      detail: { master_key_available: false, executor: null } },
+      detail: { master_key_available: false, executor: null, worker_running: false,
+        needs_setup: false, schema: { compatible: true, current: "t", head: "t" },
+        storage: { level: "ok", free_bytes: 1, total_bytes: 1,
+          accept_min_free: { gib: 0, percent: 0 }, dispatch_min_free: { gib: 0, percent: 0 } } } },
     "/api/v1/runs/run_x": run,
     "/api/v1/runs/run_x/trials": [
       trial("zero", "scored", result(0, null), null),

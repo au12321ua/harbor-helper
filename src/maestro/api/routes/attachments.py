@@ -7,10 +7,9 @@ and the SDK send the same bytes without a form encoding.
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from maestro.api.deps import maestro, ok, principal
+from maestro.api.deps import maestro, ok, principal, respond
 from maestro.api.models import Attachment, EnabledChange, Envelope, RecycleEntry
 from maestro.core.errors import MaestroError
 from maestro.domain import limits
@@ -71,7 +70,7 @@ async def publish_attachment(request: Request, who: Principal = Depends(principa
             raise MaestroError("ATTACHMENT_INVALID", "The request body holds no package", 422)
         spool.flush()
         data, created = await run_in_threadpool(service.publish, who, Path(spool.name))
-    return JSONResponse(status_code=201 if created else 200, content=ok(request, data))
+    return respond(request, Envelope[Attachment], data, 201 if created else 200)
 
 
 @router.post("/attachments/{attachment_id}/enabled", response_model=Envelope[Attachment])

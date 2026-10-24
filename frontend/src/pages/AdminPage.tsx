@@ -37,15 +37,13 @@ import { limit, useLoad, useSession } from "@/lib/hooks";
 import { HarnessesTab, ModelsTab, PolicyTab } from "@/pages/admin/ConfigurationTabs";
 import type {
   AuditEvent,
-  CapacityOverview,
   Credential,
   CredentialKind,
   Health,
   Invitation,
-  IssuedInvitation,
   MasterKeyStatus,
-  Operation,
   RecycleEntry,
+  RecycleObjectType,
   Role,
   User,
 } from "@/lib/types";
@@ -118,14 +116,16 @@ export function AdminPage() {
 
 function MembersTab() {
   const { me } = useSession();
-  const members = useLoad(async () => (await api.get<User[]>("admin/members")).data);
+  const members = useLoad(async () => (await api.get("/admin/members")).data);
   const [reset, setReset] = useState<{ user: User; link: string } | null>(null);
 
   const setStatus = async (user: User, action: "disable" | "enable") => {
     const verb = action === "disable" ? "停用" : "启用";
     if (!window.confirm(`${verb}账户「${user.username}」？`)) return;
     try {
-      await api.post(`admin/members/${user.id}/${action}`, { expected_revision: user.revision });
+      const options = { path: { user_id: user.id }, body: { expected_revision: user.revision } };
+      if (action === "disable") await api.post("/admin/members/{user_id}/disable", options);
+      else await api.post("/admin/members/{user_id}/enable", options);
       toast.success(`已${verb}`);
     } catch (err) {
       toast.error(`${verb}失败：${errorText(err)}`);
@@ -141,7 +141,7 @@ function MembersTab() {
     )
       return;
     try {
-      await api.del(`admin/members/${user.id}`);
+      await api.del("/admin/members/{user_id}", { path: { user_id: user.id } });
       toast.success("已移入回收站");
     } catch (err) {
       toast.error(`删除失败：${errorText(err)}`);
@@ -152,7 +152,9 @@ function MembersTab() {
   const issueReset = async (user: User) => {
     if (!window.confirm(`为「${user.username}」生成重置密码链接？`)) return;
     try {
-      const res = await api.post<IssuedInvitation>(`admin/members/${user.id}/password-reset`);
+      const res = await api.post("/admin/members/{user_id}/password-reset", {
+        path: { user_id: user.id },
+      });
       setReset({ user, link: inviteLink(res.data.token) });
     } catch (err) {
       toast.error(`生成失败：${errorText(err)}`);
@@ -237,7 +239,7 @@ function MembersTab() {
 
 function InvitationsTab() {
   const { capabilities } = useSession();
-  const invitations = useLoad(async () => (await api.get<Invitation[]>("admin/invitations")).data);
+  const invitations = useLoad(async () => (await api.get("/admin/invitations")).data);
   const [role, setRole] = useState<Role>("member");
   const [note, setNote] = useState("");
   const [hours, setHours] = useState(String(limit(capabilities, "invitation_hours", 72)));
@@ -250,10 +252,12 @@ function InvitationsTab() {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.post<IssuedInvitation>("admin/invitations", {
-        role,
-        note,
-        valid_hours: hours ? Number(hours) : null,
+      const res = await api.post("/admin/invitations", {
+        body: {
+          role,
+          note,
+          valid_hours: hours ? Number(hours) : null,
+        },
       });
       setIssued(inviteLink(res.data.token));
       setNote("");
@@ -268,7 +272,9 @@ function InvitationsTab() {
   const revoke = async (inv: Invitation) => {
     if (!window.confirm("撤销这个链接？")) return;
     try {
-      await api.post(`admin/invitations/${inv.id}/revoke`);
+      await api.post("/admin/invitations/{invitation_id}/revoke", {
+        path: { invitation_id: inv.id },
+      });
       toast.success("已撤销");
     } catch (err) {
       toast.error(`撤销失败：${errorText(err)}`);
@@ -375,7 +381,7 @@ const KIND_LABEL: Record<CredentialKind, string> = {
 };
 
 function CredentialsTab() {
-  const credentials = useLoad(async () => (await api.get<Credential[]>("admin/credentials")).data);
+  const credentials = useLoad(async () => (await api.get("/admin/credentials")).data);
   const [form, setForm] = useState({
     name: "",
     kind: "model_api_key" as CredentialKind,
@@ -392,7 +398,7 @@ function CredentialsTab() {
     setBusy(true);
     setError(undefined);
     try {
-      await api.post<Credential>("admin/credentials", form);
+      await api.post("/admin/credentials", { body: form });
       toast.success("凭据已保存");
       setForm({ ...form, name: "", description: "", value: "" });
       await credentials.reload();
@@ -407,7 +413,13 @@ function CredentialsTab() {
   const toggle = async (cred: Credential) => {
     const action = cred.enabled ? "disable" : "enable";
     try {
-      await api.post(`admin/credentials/${cred.id}/${action}`, { expected_revision: cred.revision });
+      const options = {
+        path: { credential_id: cred.id },
+        body: { expected_revision: cred.revision },
+      };
+      if (action === "disable")
+        await api.post("/admin/credentials/{credential_id}/disable", options);
+      else await api.post("/admin/credentials/{credential_id}/enable", options);
       toast.success(cred.enabled ? "已停用" : "已启用");
     } catch (err) {
       toast.error(`操作失败：${errorText(err)}`);
@@ -417,7 +429,7 @@ function CredentialsTab() {
   const remove = async (cred: Credential) => {
     if (!window.confirm(`删除凭据「${cred.name}」？它会移入回收站，之后的运行不能再使用它。`)) return;
     try {
-      await api.del(`admin/credentials/${cred.id}`);
+      await api.del("/admin/credentials/{credential_id}", { path: { credential_id: cred.id } });
       toast.success("已移入回收站");
     } catch (err) {
       const hint =
@@ -575,9 +587,12 @@ function ReplaceValue({ credential, onDone }: { credential: Credential; onDone: 
     setBusy(true);
     setError(undefined);
     try {
-      await api.put(`admin/credentials/${credential.id}/value`, {
-        value,
-        expected_revision: credential.revision,
+      await api.put("/admin/credentials/{credential_id}/value", {
+        path: { credential_id: credential.id },
+        body: {
+          value,
+          expected_revision: credential.revision,
+        },
       });
       setValue("");
       toast.success("已替换；之后的运行使用新值");
@@ -611,7 +626,7 @@ function ReplaceValue({ credential, onDone }: { credential: Credential; onDone: 
 }
 
 function StorageBadge() {
-  const status = useLoad(async () => (await api.get<Health>("system-status")).data);
+  const status = useLoad(async () => (await api.get("/system-status")).data);
   const storage = status.data?.detail?.storage as
     | { level: string; free_bytes: number; total_bytes: number }
     | undefined;
@@ -629,7 +644,7 @@ function StorageBadge() {
 }
 
 function CapacityTab() {
-  const overview = useLoad(async () => (await api.get<CapacityOverview>("admin/capacity")).data);
+  const overview = useLoad(async () => (await api.get("/admin/capacity")).data);
   const [form, setForm] = useState({ provider: "", limit: "" });
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
@@ -639,8 +654,11 @@ function CapacityTab() {
     setError(undefined);
     try {
       const value = limitText.trim() === "" ? null : Number(limitText);
-      await api.put<CapacityOverview>(`admin/capacity/providers/${encodeURIComponent(provider)}`, {
-        max_concurrent_trials: value,
+      await api.put("/admin/capacity/providers/{provider}", {
+        path: { provider: encodeURIComponent(provider) },
+        body: {
+          max_concurrent_trials: value,
+        },
       });
       toast.success(value === null ? `已取消 ${provider} 的并发上限` : `${provider} 上限已设为 ${value}`);
       setForm({ provider: "", limit: "" });
@@ -753,7 +771,7 @@ function Usage({ label, used, total }: { label: string; used: number; total: num
 }
 
 function MasterKeyTab() {
-  const status = useLoad(async () => (await api.get<MasterKeyStatus>("admin/master-key")).data);
+  const status = useLoad(async () => (await api.get("/admin/master-key")).data);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<MasterKeyStatus | null>(null);
 
@@ -768,8 +786,10 @@ function MasterKeyTab() {
       return;
     setBusy(true);
     try {
-      const res = await api.post<MasterKeyStatus>("admin/master-key/rotations", {
-        expected_generation: current.generation,
+      const res = await api.post("/admin/master-key/rotations", {
+        body: {
+          expected_generation: current.generation,
+        },
       });
       setResult(res.data);
       toast.success("主密钥已轮换");
@@ -836,7 +856,7 @@ function AuditTab() {
   const load = useCallback(async (after: string | null) => {
     setLoading(true);
     try {
-      const res = await api.get<AuditEvent[]>("admin/audit-events", { cursor: after });
+      const res = await api.get("/admin/audit-events", { query: { cursor: after } });
       setEvents((prev) => (after ? [...prev, ...res.data] : res.data));
       setCursor(res.meta.next_cursor ?? null);
       setError(undefined);
@@ -923,7 +943,7 @@ const RECYCLE_TYPES = ["run", "artifact", "dataset", "dataset_version", "credent
 
 function RecycleBinTab() {
   const [state, setState] = useState<"recycled" | "purged">("recycled");
-  const [objectType, setObjectType] = useState("");
+  const [objectType, setObjectType] = useState<RecycleObjectType | "">("");
   const [entries, setEntries] = useState<RecycleEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<unknown>();
@@ -934,10 +954,12 @@ function RecycleBinTab() {
     async (after: string | null) => {
       setLoading(true);
       try {
-        const res = await api.get<RecycleEntry[]>("admin/recycle-bin", {
-          state,
-          object_type: objectType || undefined,
-          cursor: after,
+        const res = await api.get("/admin/recycle-bin", {
+          query: {
+            state,
+            object_type: objectType || undefined,
+            cursor: after,
+          },
         });
         setEntries((prev) => (after ? [...prev, ...res.data] : res.data));
         setCursor(res.meta.next_cursor ?? null);
@@ -960,7 +982,7 @@ function RecycleBinTab() {
       return;
     setBusy(entry.id);
     try {
-      await api.post(`admin/recycle-bin/${entry.id}/restore`);
+      await api.post("/admin/recycle-bin/{entry_id}/restore", { path: { entry_id: entry.id } });
       toast.success("已恢复");
     } catch (err) {
       toast.error(`恢复失败：${errorText(err)}`);
@@ -983,7 +1005,10 @@ function RecycleBinTab() {
     }
     setBusy(entry.id);
     try {
-      await api.post(`admin/recycle-bin/${entry.id}/purge`, { confirm_object_id: typed.trim() });
+      await api.post("/admin/recycle-bin/{entry_id}/purge", {
+        path: { entry_id: entry.id },
+        body: { confirm_object_id: typed.trim() },
+      });
       toast.success("已彻底删除");
     } catch (err) {
       toast.error(`彻底删除失败：${errorText(err)}`);
@@ -1023,7 +1048,7 @@ function RecycleBinTab() {
             aria-label="对象类型"
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
             value={objectType}
-            onChange={(e) => setObjectType(e.target.value)}
+            onChange={(e) => setObjectType(e.target.value as RecycleObjectType | "")}
           >
             <option value="">全部类型</option>
             {RECYCLE_TYPES.map((type) => (
@@ -1058,11 +1083,15 @@ function RecycleBinTab() {
                 {entries.map((entry) => (
                   <TableRow key={entry.id} data-testid="recycle-row">
                     <TableCell>
-                      <Pill tone="neutral">{RECYCLE_TYPE[entry.object_type] ?? entry.object_type}</Pill>
+                      <Pill tone="neutral">
+                        {RECYCLE_TYPE[entry.object_type] ?? entry.object_type}
+                      </Pill>
                     </TableCell>
                     <TableCell>
                       {entry.label}
-                      <div className="font-mono text-xs text-muted-foreground">{entry.object_id}</div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {entry.object_id}
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs">{entry.owner_username ?? "—"}</TableCell>
                     <TableCell className="text-xs">
@@ -1126,8 +1155,8 @@ const OPERATION_STATUS_TONE: Record<string, "good" | "bad" | "warn" | "info"> = 
 function DatasetImportsTab() {
   const ops = useLoad(async () => {
     const [imports, firsts] = await Promise.all([
-      api.get<Operation[]>("operations", { kind: "dataset_import", limit: 50 }),
-      api.get<Operation[]>("operations", { kind: "preparation_first", limit: 50 }),
+      api.get("/operations", { query: { kind: "dataset_import", limit: 50 } }),
+      api.get("/operations", { query: { kind: "preparation_first", limit: 50 } }),
     ]);
     return [...imports.data, ...firsts.data].sort((a, b) =>
       b.created_at.localeCompare(a.created_at),
@@ -1172,9 +1201,11 @@ function DatasetImportsTab() {
                   </TableCell>
                   <TableCell className="text-xs">{op.phase ?? "—"}</TableCell>
                   <TableCell className="max-w-80 text-xs break-all">
-                    {op.error ? `${String(op.error.code ?? "")} ${String(op.error.message ?? "")}` : "—"}
+                    {op.error ? `${op.error.code} ${op.error.message ?? ""}` : "—"}
                   </TableCell>
-                  <TableCell className="text-xs">{fmtTime(op.finished_at ?? op.created_at)}</TableCell>
+                  <TableCell className="text-xs">
+                    {fmtTime(op.finished_at ?? op.created_at)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1204,18 +1235,11 @@ function MaintenanceTab() {
     const [live, ready, status] = await Promise.all([
       healthProbe("/health/live"),
       healthProbe("/health/ready"),
-      api.get<Health>("system-status"),
+      api.get("/system-status"),
     ]);
     return { live, ready, status: status.data };
   });
-  const detail = (data.data?.status.detail ?? {}) as {
-    storage?: { level: string; free_bytes: number; total_bytes: number };
-    schema?: { current?: string | null; head?: string; compatible?: boolean };
-    master_key_available?: boolean;
-    executor?: string | null;
-    worker_running?: boolean;
-  };
-  const execution = (capabilities?.execution ?? {}) as { policy_version?: string };
+  const detail = data.data?.status.detail;
   const probe = (value: Health | { error: string } | undefined) =>
     !value ? "—" : "error" in value ? <Pill tone="bad">{value.error}</Pill> : <code>{value.status}</code>;
   return (
@@ -1243,19 +1267,32 @@ function MaintenanceTab() {
           />
           <Field
             label="执行进程"
-            value={detail.worker_running ? <Pill tone="good">运行中</Pill> : <Pill tone="bad">未运行</Pill>}
+            value={
+              detail?.worker_running ? (
+                <Pill tone="good">运行中</Pill>
+              ) : (
+                <Pill tone="bad">未运行</Pill>
+              )
+            }
           />
-          <Field label="执行器" value={detail.executor ?? "未配置"} />
+          <Field label="执行器" value={detail ? (detail.executor ?? "未配置") : "—"} />
           <Field
             label="主密钥"
-            value={detail.master_key_available ? <Pill tone="good">可用</Pill> : <Pill tone="bad">不可用</Pill>}
+            value={
+              detail?.master_key_available ? (
+                <Pill tone="good">可用</Pill>
+              ) : (
+                <Pill tone="bad">不可用</Pill>
+              )
+            }
           />
           <Field
             label="数据库结构"
             value={
-              detail.schema ? (
+              detail ? (
                 <span>
-                  <code>{detail.schema.current ?? "—"}</code>（最新 <code>{detail.schema.head}</code>）
+                  <code>{detail.schema.current ?? "—"}</code>（最新{" "}
+                  <code>{detail.schema.head}</code>）
                   {detail.schema.compatible === false && <Pill tone="bad">不兼容</Pill>}
                 </span>
               ) : (
@@ -1276,10 +1313,15 @@ function MaintenanceTab() {
           <Field label="服务版本" value={<code>{capabilities?.service_version ?? "—"}</code>} />
           <Field label="API 版本" value={<code>{capabilities?.api_version ?? "—"}</code>} />
           <Field label="结构修订" value={<code>{capabilities?.schema_revision ?? "—"}</code>} />
-          <Field label="错误策略版本" value={<code>{execution.policy_version ?? "—"}</code>} />
+          <Field
+            label="错误策略版本"
+            value={<code>{capabilities?.execution.policy_version ?? "—"}</code>}
+          />
           <Field
             label="契约摘要（OpenAPI）"
-            value={<code className="break-all text-xs">{capabilities?.contract_digest ?? "—"}</code>}
+            value={
+              <code className="break-all text-xs">{capabilities?.contract_digest ?? "—"}</code>
+            }
           />
           <Field label="团队策略修订" value={capabilities?.team_policy_revision ?? "—"} />
         </CardContent>

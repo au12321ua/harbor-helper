@@ -126,7 +126,7 @@ function PasswordCard() {
     setBusy(true);
     setError(undefined);
     try {
-      await api.post("me/password", { current_password: current, new_password: next });
+      await api.post("/me/password", { body: { current_password: current, new_password: next } });
       toast.success("密码已修改");
       setCurrent("");
       setNext("");
@@ -189,7 +189,7 @@ function PasswordCard() {
 
 function PatCard() {
   const { capabilities } = useSession();
-  const pats = useLoad(async () => (await api.get<Pat[]>("me/pats")).data);
+  const pats = useLoad(async () => (await api.get("/me/pats")).data);
   const defaultDays = limit(capabilities, "pat_default_days", 30);
   const maxDays = limit(capabilities, "pat_max_days", 365);
   const defaultRuns = limit(capabilities, "pat_default_run_limit", 1000);
@@ -207,11 +207,13 @@ function PatCard() {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await api.post<IssuedPat>("me/pats", {
-        name,
-        scope,
-        expires_in_days: days ? Number(days) : null,
-        run_limit: runs ? Number(runs) : null,
+      const res = await api.post("/me/pats", {
+        body: {
+          name,
+          scope,
+          expires_in_days: days ? Number(days) : null,
+          run_limit: runs ? Number(runs) : null,
+        },
       });
       setIssued(res.data);
       setName("");
@@ -226,7 +228,7 @@ function PatCard() {
   const revoke = async (pat: Pat) => {
     if (!window.confirm(`撤销访问令牌「${pat.name}」？使用它的脚本将立即失效。`)) return;
     try {
-      await api.post(`me/pats/${pat.id}/revoke`);
+      await api.post("/me/pats/{pat_id}/revoke", { path: { pat_id: pat.id } });
       toast.success("已撤销");
       await pats.reload();
     } catch (err) {
@@ -239,7 +241,7 @@ function PatCard() {
     if (!window.confirm(`删除访问令牌「${pat.name}」？${effect}从列表中移除（管理员可在回收站恢复记录）。`))
       return;
     try {
-      await api.del(`me/pats/${pat.id}`);
+      await api.del("/me/pats/{pat_id}", { path: { pat_id: pat.id } });
       toast.success("已删除");
       await pats.reload();
     } catch (err) {

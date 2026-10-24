@@ -384,7 +384,12 @@ class Preparer:
     async def import_and_prepare(self, request: dict, owner_id: str | None) -> dict:
         """Import and first-prepare in this process, without the worker loop.
         For the development command and tests; the API goes through Operations."""
-        request = {"prepare": True, "credential_id": None, **request}
+        request = {
+            "prepare": True,
+            "credential_id": None,
+            "accept_changed_content": False,
+            **request,
+        }
         with self.db.write() as conn:
             op_id = operations.create(
                 conn, KIND_IMPORT, owner_id=owner_id, progress={"request": request}
