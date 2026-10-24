@@ -1,4 +1,4 @@
-# Checks for the rewrite (docs/HANDOFF.md, 验证入口): lint, contract drift, Markdown links,
+# Checks for every push (docs/HANDOFF.md, 验证入口): lint, contract drift, Markdown links,
 # the pytest suite without Docker, Hub or model requests, and the web build.
 name: verify
 on:

@@ -1,6 +1,6 @@
 # Maestro
 
-> 本分支 `feature/rewrite` 按[重写目标设计](docs/design/README.md)把 harbor-helper 整体重写为 Maestro，完成后替换 `dev` 上的旧实现；旧实例的数据不迁移。
+> 本项目按[重写目标设计](docs/design/README.md)把 harbor-helper 整体重写为 Maestro，已替换原来的实现；旧实例的数据不迁移。
 
 Maestro 让受邀的可信团队通过网页和 SDK 提交、观察、比较和重跑基于 Harbor 的实验：数据集可选择，实验配置固定，结果全团队共享，提交身份保留。
 

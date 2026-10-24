@@ -1,6 +1,6 @@
 # 开发交接
 
-本页是重写分支 `feature/rewrite` 的维护入口。分支从 `9ff43b5` 开始，按[重写目标设计](design/README.md)整体重写，完成后替换 `dev` 上的现有实现。分支规则见[分支、协作与发布规则](guides/development-workflow.md)的“重写分支”一节。项目改名为 Maestro，新代码使用 `maestro` 包；不再使用 botmux 协调，用户决定记录在[决策记录](design/14-decisions.md)第 0 节。
+本页是 Maestro 的维护入口。重写从 `9ff43b5` 开始，在 `feature/rewrite` 上按[重写目标设计](design/README.md)整体进行，2026-10-24 替换了 `dev` 上的旧实现；之后的工作从 `dev` 开始，规则见[分支、协作与发布规则](guides/development-workflow.md)。项目改名为 Maestro，新代码使用 `maestro` 包；不再使用 botmux 协调，用户决定记录在[决策记录](design/14-decisions.md)第 0 节。
 
 ## 需求与设计
 
@@ -26,7 +26,7 @@
 ## 代码状态
 
 - 新代码在 `src/maestro/`，Runner 在 `runner/`（单独的 uv 项目和锁文件），Python SDK 在 `sdk/`（单独的包，开发环境以可编辑方式安装），安装管理命令在 `ops/maestroctl.py`，测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。基线的 `harbor_helper` 包已全部删除。
-- 重写过程中允许无法部署。按模块替换，新模块就绪后直接删除对应的基线代码和测试，不保留新旧并行、转发层或兼容分支。
+- 重写期间按模块替换，新模块就绪后直接删除对应的基线代码和测试，不保留新旧并行、转发层或兼容分支。
 - 不承诺向后兼容，不迁移旧 state，新实现从空实例初始化。对外 HTTP、SDK、CLI 契约随重写修改。
 - 可移植的基线与 `dev` 代码见[实施计划](design/13-testing-plan.md)第 2.3 节。移植时先读原代码，按新设计重写接口。
 
