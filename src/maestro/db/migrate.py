@@ -18,6 +18,11 @@ def head() -> str:
     return ScriptDirectory.from_config(_config()).get_current_head()
 
 
+def revisions() -> set[str]:
+    """Every revision this program knows; a database at any of them can be upgraded."""
+    return {script.revision for script in ScriptDirectory.from_config(_config()).walk_revisions()}
+
+
 def current(db: Database) -> str | None:
     with db.engine.connect() as connection:
         return MigrationContext.configure(connection).get_current_revision()

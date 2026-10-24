@@ -1,7 +1,8 @@
-"""``maestro`` command: initialize an instance, migrate, serve, export OpenAPI.
+"""``maestro`` command: initialize an instance, migrate, serve, back up and restore,
+export OpenAPI.
 
-Installation and systemd management arrive with M8 (12); these commands are
-what the installer will call.
+Installation, systemd and updates belong to ``maestroctl`` (``ops/maestroctl.py``, 12),
+which runs these commands as the service account.
 """
 
 import argparse
@@ -214,6 +215,43 @@ def cmd_local_dataset(args) -> int:
     return 0 if prepared.get("status") in (None, "succeeded") else 1
 
 
+def cmd_backup(args) -> int:
+    from maestro import backup
+
+    settings = _settings(args)
+    config_file = Path(args.config) if args.config else config.DEFAULT_CONFIG
+    manifest = backup.create(
+        settings,
+        Path(args.output).absolute(),
+        config_file=config_file,
+        include_files=args.include_files,
+    )
+    print(json.dumps(manifest, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_restore(args) -> int:
+    from maestro import backup
+
+    settings = _settings(args)
+    report = backup.restore(
+        settings,
+        Path(args.source).absolute(),
+        include_files=args.include_files,
+        allow_missing_key=args.allow_missing_key,
+    )
+    _private_database(settings)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_activity(args) -> int:
+    from maestro import backup
+
+    print(json.dumps(backup.activity(_settings(args)), sort_keys=True))
+    return 0
+
+
 def cmd_openapi(args) -> int:
     from maestro.api.openapi import document
 
@@ -242,6 +280,18 @@ def main(argv=None) -> int:
     local.add_argument("name")
     local.add_argument("directory")
     local.set_defaults(func=cmd_local_dataset)
+    backup = sub.add_parser("backup", help="write a backup set (database, config, manifest)")
+    backup.add_argument("--output", required=True, help="new directory for the set")
+    backup.add_argument("--include-files", action="store_true", help="copy business files too")
+    backup.set_defaults(func=cmd_backup)
+    restore = sub.add_parser("restore", help="restore a backup set while the service is stopped")
+    restore.add_argument("source")
+    restore.add_argument("--include-files", action="store_true")
+    restore.add_argument("--allow-missing-key", action="store_true")
+    restore.set_defaults(func=cmd_restore)
+    sub.add_parser("activity", help="work a stop would interrupt, as JSON").set_defaults(
+        func=cmd_activity
+    )
     openapi = sub.add_parser("openapi", help="print the public OpenAPI document")
     openapi.add_argument("--output")
     openapi.set_defaults(func=cmd_openapi)
