@@ -818,6 +818,13 @@ ALLOWED_HOST_MOUNTS = {
     "/logs/artifacts",
     # Docker's init binary, read-only, for the platform's ``init: true`` (zombie reaping).
     "/usr/sbin/docker-init",
+    # Rootless Docker cannot create device nodes in its user namespace, so it binds the
+    # host's character devices, and masks these /proc files with /dev/null the same way.
+    *(f"/dev/{name}" for name in ("null", "zero", "full", "random", "urandom", "tty")),
+    *(
+        f"/proc/{name}"
+        for name in ("interrupts", "kcore", "keys", "latency_stats", "timer_list", "sched_debug")
+    ),
 }
 
 

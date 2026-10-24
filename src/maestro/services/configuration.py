@@ -22,7 +22,7 @@ from maestro.core.digests import digest_json
 from maestro.core.errors import FieldError, MaestroError
 from maestro.db import schema as t
 from maestro.execution.agents import param_problem
-from maestro.execution.materials import DEFAULT_CPUS, DEFAULT_MEMORY_MB
+from maestro.execution.materials import DEFAULT_CPUS, DEFAULT_MEMORY_MB, RESERVED_PARAMETER
 from maestro.services import deleted, policy
 from maestro.services.capacity import never_fits, reservation
 from maestro.services.catalog import (
@@ -36,13 +36,10 @@ from maestro.services.model_configs import MODEL_KINDS
 
 EXECUTION_MODES = ("agent", "oracle")
 PARAMETER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
-# Names the platform or the executor process relies on; a task cannot be given these.
-RESERVED_PARAMETER = re.compile(
-    r"(PATH|HOME|USER|SHELL|PWD|TMPDIR|TZ|LANG|LC_\w+|LD_\w+|PYTHON\w*|DOCKER_\w+|COMPOSE_\w+"
-    r"|HARBOR_\w+|MAESTRO_\w+|LITELLM_\w+|SSL_CERT_\w+|(?i:https?_proxy|no_proxy|all_proxy))"
-)
 PARAMETER_VALUE_MAX = 4096
-SECRET_KINDS = ("generic_secret", "model_api_key")
+# Secret author parameters take generic secrets only: a model API key goes to the
+# platform's own model calls, never into a task container (U-28).
+PARAMETER_KINDS = ("generic_secret",)
 
 
 def _validation(errors: list[FieldError]) -> MaestroError:
@@ -88,7 +85,16 @@ def check_template(template) -> dict:
     if unknown:
         raise _validation([FieldError(f"/template/{k}", "UNKNOWN_FIELD") for k in unknown])
     template = {k: v for k, v in template.items() if v is not None}
-    agent = any(k in template for k in ("model_config_id", "harness_version_id", "attachments"))
+    agent = any(
+        k in template
+        for k in (
+            "model_config_id",
+            "model_revision",
+            "harness_version_id",
+            "harness_params",
+            "attachments",
+        )
+    )
     probe = {
         "dataset_version_id": "-",
         "execution_mode": "agent" if agent else "oracle",
@@ -128,13 +134,15 @@ def check_request(body: dict) -> dict:
     task_ids = selection.get("task_ids") if isinstance(selection, dict) else None
     if mode not in {"all_eligible", "explicit"}:
         errors.append(FieldError("/task_selection/mode", "ENUM"))
-    elif mode == "explicit" and (
+    elif (mode == "explicit" or task_ids is not None) and (
         not isinstance(task_ids, list)
         or not task_ids
         or not all(isinstance(x, str) for x in task_ids)
         or len(set(task_ids)) != len(task_ids)
     ):
         errors.append(FieldError("/task_selection/task_ids", "INVALID"))
+    if mode != "explicit":
+        task_ids = None
     execution_mode = body.get("execution_mode")
     if execution_mode not in EXECUTION_MODES:
         errors.append(FieldError("/execution_mode", "ENUM", "agent or oracle"))
@@ -354,6 +362,42 @@ def differences(old: dict | None, new: dict | None, path: str = "") -> list[dict
             found.extend(differences(a, b, f"{path}/{a['task_key']}"))
         return found
     return [{"path": path or "/", "before": old, "after": new}]
+
+
+def hide_model_credential(data):
+    """A copy without the model's bound credential (U-27): members see that a model has a
+    usable key, not which one. Digests are computed before, over the full configuration;
+    credential references the member chose for author parameters stay."""
+    found: set[str] = set()
+
+    def collect(value) -> None:
+        if isinstance(value, list):
+            for x in value:
+                collect(x)
+        elif isinstance(value, dict):
+            model = value.get("model")
+            if isinstance(model, dict) and "config_id" in model and model.get("credential_id"):
+                found.add(model["credential_id"])
+            for x in value.values():
+                collect(x)
+
+    def scrub(value):
+        if isinstance(value, list):
+            return [scrub(x) for x in value]
+        if not isinstance(value, dict):
+            return value
+        if value.get("path") == "/model/credential_id" and {"before", "after"} <= set(value):
+            return {**value, "before": None, "after": None, "hidden": True}
+        copy = {k: scrub(v) for k, v in value.items()}
+        model = copy.get("model")
+        if isinstance(model, dict) and "config_id" in model:
+            copy["model"] = {k: v for k, v in model.items() if k != "credential_id"}
+        if isinstance(copy.get("credential_ids"), list):
+            copy["credential_ids"] = [x for x in copy["credential_ids"] if x not in found]
+        return copy
+
+    collect(data)
+    return scrub(data)
 
 
 def pinned_request(request: dict, effective: dict) -> dict:
@@ -599,16 +643,17 @@ class Resolver:
             .first()
         )
         path = "/model_config_id"
-        if row is None:
-            found = "Model configuration" + (f" revision {revision}" if revision else "")
-            res.blockers.append(Blocker("NOT_FOUND", path, f"{found} not found"))
-            return None
+        # Before the row: a purged configuration has lost its revisions too.
         if deleted.state(conn, "model_config", config_id):
             res.blockers.append(
                 Blocker(
                     "DELETED", path, "Model configuration was deleted", error="CONFIG_UNAVAILABLE"
                 )
             )
+            return None
+        if row is None:
+            found = "Model configuration" + (f" revision {revision}" if revision else "")
+            res.blockers.append(Blocker("NOT_FOUND", path, f"{found} not found"))
             return None
         if not row["enabled"]:
             res.blockers.append(
@@ -981,7 +1026,7 @@ class Resolver:
                 )
                 continue
             if "credential_id" in given:
-                problem = credential_problem(conn, given["credential_id"], SECRET_KINDS)
+                problem = credential_problem(conn, given["credential_id"], PARAMETER_KINDS)
                 if problem:
                     res.blockers.append(
                         Blocker(
@@ -1193,7 +1238,8 @@ class Resolver:
             for index, attachment_id in enumerate(attachments):
                 if not enabled.get(attachment_id) or attachment_id in gone:
                     changed.append(f"/attachments/{index}")
+        # Kinds never change; resolution already checked each reference's kind.
         for credential_id in res.credential_ids:
-            if credential_problem(conn, credential_id, SECRET_KINDS):
+            if credential_problem(conn, credential_id, PARAMETER_KINDS + MODEL_KINDS):
                 changed.append(f"/credentials/{credential_id}")
         return changed

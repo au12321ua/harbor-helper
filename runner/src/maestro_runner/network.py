@@ -63,26 +63,62 @@ def tighten(task_dir: Path, platform: dict) -> dict:
     path = task_dir / "task.toml"
     config = TaskConfig.model_validate_toml(path.read_text())
     baseline = config.environment.resolve_baseline()
-    plan = {"environment": baseline.model_dump(mode="json")}
+    plan = {"environment": baseline.model_dump(mode="json"), "steps": {}}
     for role in ("agent", "verifier"):
         section = getattr(config, role)
         author = section.explicit_phase_policy() or baseline
-        effective = stricter(author, platform.get(role))
-        section.network_mode = effective.network_mode
-        section.allowed_hosts = (
-            list(effective.allowed_hosts) if effective.network_mode.value == "allowlist" else None
-        )
-        plan[role] = {
-            "author": author.model_dump(mode="json"),
-            "effective": effective.model_dump(mode="json"),
-        }
+        # A step's own setting replaces the task's in Harbor, so each step is tightened
+        # from what Harbor would have used for it.
+        for step in config.steps or []:
+            own = getattr(step, role)
+            step_author = own.explicit_phase_policy() or author
+            plan["steps"].setdefault(step.name, {})[role] = _apply(
+                own, step_author, platform.get(role)
+            )
+        plan[role] = _apply(section, author, platform.get(role))
     path.write_text(config.model_dump_toml())
     return plan
 
 
+def _apply(section, author, platform: dict | None) -> dict:
+    effective = stricter(author, platform)
+    section.network_mode = effective.network_mode
+    section.allowed_hosts = (
+        list(effective.allowed_hosts) if effective.network_mode.value == "allowlist" else None
+    )
+    return {
+        "author": author.model_dump(mode="json"),
+        "effective": effective.model_dump(mode="json"),
+    }
+
+
+def unrouted_services(task_dir: Path) -> list[str]:
+    """Services of the author's compose file that set their own networks. Harbor routes
+    only services without them through the egress sidecar, so these would stay open."""
+    import yaml
+
+    path = task_dir / "environment" / "docker-compose.yaml"
+    if not path.is_file():
+        return []
+    try:
+        document = yaml.safe_load(path.read_text())
+    except yaml.YAMLError:
+        return ["(unreadable compose file)"]
+    services = document.get("services") if isinstance(document, dict) else None
+    if not isinstance(services, dict):
+        return []
+    return sorted(
+        str(name)
+        for name, config in services.items()
+        if isinstance(config, dict) and ("network_mode" in config or "networks" in config)
+    )
+
+
 def restricted(plan: dict) -> bool:
+    phases = [plan[role] for role in ("agent", "verifier")]
+    phases += [phase for step in plan.get("steps", {}).values() for phase in step.values()]
     return plan["environment"]["network_mode"] != "public" or any(
-        plan[role]["effective"]["network_mode"] != "public" for role in ("agent", "verifier")
+        phase["effective"]["network_mode"] != "public" for phase in phases
     )
 
 

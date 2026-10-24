@@ -20,6 +20,14 @@ class Model(BaseModel):
     )
 
 
+def omit_unset(model: BaseModel, data: dict, *names: str) -> dict:
+    """Leave out these fields when they were never set: their absence carries meaning."""
+    for name in names:
+        if name not in model.model_fields_set:
+            data.pop(name, None)
+    return data
+
+
 class Sparse(Model):
     """Fields that do not apply are left out of the JSON rather than sent as null."""
 
@@ -364,8 +372,9 @@ class ContentEvidence(Sparse):
 
 
 class ParameterIssue(Sparse):
-    code: Literal["CONFLICTING_DEFAULTS", "COMPOSE_DISCOVERY_FAILED"]
-    name: str | None = Field(None, description="The parameter (CONFLICTING_DEFAULTS)")
+    code: Literal["CONFLICTING_DEFAULTS", "COMPOSE_DISCOVERY_FAILED", "RESERVED_NAME"]
+    name: str | None = Field(None, description="The parameter")
+    used_in: str | None = Field(None, description="RESERVED_NAME: where the task uses it")
     file: str | None = Field(None, description="The compose file (COMPOSE_DISCOVERY_FAILED)")
 
 
@@ -833,6 +842,8 @@ class EffectiveDataset(Model):
 
 
 class EffectiveModel(Model):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+
     config_id: str
     revision: int
     provider: str
@@ -840,7 +851,15 @@ class EffectiveModel(Model):
     endpoint: str
     model_id: str
     params: JsonObject = Field(description="Provider request parameters, as configured")
-    credential_id: str | None
+    credential_id: str | None = Field(
+        None,
+        description="The bound team credential; null: none. Left out for everyone but "
+        "administrators' web sessions (U-27)",
+    )
+
+    @model_serializer(mode="wrap")
+    def _binding_only_when_shown(self, handler):
+        return omit_unset(self, handler(self), "credential_id")
 
 
 class EffectiveHarness(Model):
@@ -1180,9 +1199,18 @@ class AdmissionRecord(Model):
 
 
 class ConfigDifference(Model):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+
     path: str = Field(description="JSON pointer into the effective configuration")
     before: JsonValue
     after: JsonValue
+    hidden: bool | None = Field(
+        None, description="true: the values are not shown to you (U-27); otherwise absent"
+    )
+
+    @model_serializer(mode="wrap")
+    def _hidden_only_when_set(self, handler):
+        return omit_unset(self, handler(self), "hidden")
 
 
 class RunSource(Sparse):
@@ -1515,6 +1543,7 @@ class BatchProgress(Model):
     finished: int
     cancelled: int
     interrupted: int
+    deleted_runs: int = Field(description="Members in the recycle bin or purged")
     planned_trials: int
     scored_trials: int
     error_trials: int

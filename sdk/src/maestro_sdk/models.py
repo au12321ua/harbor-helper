@@ -173,6 +173,7 @@ class BatchOperationResult(BaseModel):
     )
     batch_id: str
     cancelled: int
+    deleted_runs: Annotated[int, Field(description="Members in the recycle bin or purged")]
     error_trials: int
     finished: int
     interrupted: int
@@ -187,6 +188,7 @@ class BatchProgress(BaseModel):
         extra="allow",
     )
     cancelled: int
+    deleted_runs: Annotated[int, Field(description="Members in the recycle bin or purged")]
     error_trials: int
     finished: int
     interrupted: int
@@ -837,11 +839,14 @@ class ParameterIssue(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    code: Literal["CONFLICTING_DEFAULTS", "COMPOSE_DISCOVERY_FAILED"]
+    code: Literal["CONFLICTING_DEFAULTS", "COMPOSE_DISCOVERY_FAILED", "RESERVED_NAME"]
     file: Annotated[
         str | None, Field(description="The compose file (COMPOSE_DISCOVERY_FAILED)")
     ] = None
-    name: Annotated[str | None, Field(description="The parameter (CONFLICTING_DEFAULTS)")] = None
+    name: Annotated[str | None, Field(description="The parameter")] = None
+    used_in: Annotated[str | None, Field(description="RESERVED_NAME: where the task uses it")] = (
+        None
+    )
 
 
 class PassRule(BaseModel):
@@ -1554,6 +1559,10 @@ class ConfigDifference(BaseModel):
     )
     after: JsonValue
     before: JsonValue
+    hidden: Annotated[
+        bool | None,
+        Field(description="true: the values are not shown to you (U-27); otherwise absent"),
+    ] = None
     path: Annotated[str, Field(description="JSON pointer into the effective configuration")]
 
 
@@ -1700,7 +1709,12 @@ class EffectiveModel(BaseModel):
         extra="allow",
     )
     config_id: str
-    credential_id: str | None
+    credential_id: Annotated[
+        str | None,
+        Field(
+            description="The bound team credential; null: none. Left out for everyone but administrators' web sessions (U-27)"
+        ),
+    ] = None
     endpoint: str
     model_id: str
     params: Annotated[

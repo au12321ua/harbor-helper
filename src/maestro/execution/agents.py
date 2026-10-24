@@ -71,7 +71,9 @@ def endpoint_problem(endpoint) -> str | None:
     if url.scheme not in {"http", "https"} or not url.hostname:
         return "SCHEME"
     # Credentials or parameters in the URL would be shown to everyone (03 section 2).
-    if url.username or url.password or url.query or url.fragment:
+    if url.username or url.password or url.query or url.fragment or url.params:
+        return "CREDENTIALS_IN_URL"
+    if _SECRET_VALUE.search(url.path):
         return "CREDENTIALS_IN_URL"
     return None
 

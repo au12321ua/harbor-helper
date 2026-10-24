@@ -1309,6 +1309,11 @@
             "title": "Cancelled",
             "type": "integer"
           },
+          "deleted_runs": {
+            "description": "Members in the recycle bin or purged",
+            "title": "Deleted Runs",
+            "type": "integer"
+          },
           "error_trials": {
             "title": "Error Trials",
             "type": "integer"
@@ -1344,6 +1349,7 @@
           "finished",
           "cancelled",
           "interrupted",
+          "deleted_runs",
           "planned_trials",
           "scored_trials",
           "error_trials",
@@ -1486,6 +1492,11 @@
             "title": "Cancelled",
             "type": "integer"
           },
+          "deleted_runs": {
+            "description": "Members in the recycle bin or purged",
+            "title": "Deleted Runs",
+            "type": "integer"
+          },
           "error_trials": {
             "title": "Error Trials",
             "type": "integer"
@@ -1521,6 +1532,7 @@
           "finished",
           "cancelled",
           "interrupted",
+          "deleted_runs",
           "planned_trials",
           "scored_trials",
           "error_trials"
@@ -1823,6 +1835,18 @@
           },
           "before": {
             "$ref": "#/components/schemas/JsonValue"
+          },
+          "hidden": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "true: the values are not shown to you (U-27); otherwise absent",
+            "title": "Hidden"
           },
           "path": {
             "description": "JSON pointer into the effective configuration",
@@ -3439,6 +3463,7 @@
                 "type": "null"
               }
             ],
+            "description": "The bound team credential; null: none. Left out for everyone but administrators' web sessions (U-27)",
             "title": "Credential Id"
           },
           "endpoint": {
@@ -3482,8 +3507,7 @@
           "protocol",
           "endpoint",
           "model_id",
-          "params",
-          "credential_id"
+          "params"
         ],
         "title": "EffectiveModel",
         "type": "object"
@@ -7787,7 +7811,8 @@
           "code": {
             "enum": [
               "CONFLICTING_DEFAULTS",
-              "COMPOSE_DISCOVERY_FAILED"
+              "COMPOSE_DISCOVERY_FAILED",
+              "RESERVED_NAME"
             ],
             "title": "Code",
             "type": "string"
@@ -7813,8 +7838,20 @@
                 "type": "null"
               }
             ],
-            "description": "The parameter (CONFLICTING_DEFAULTS)",
+            "description": "The parameter",
             "title": "Name"
+          },
+          "used_in": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RESERVED_NAME: where the task uses it",
+            "title": "Used In"
           }
         },
         "required": [

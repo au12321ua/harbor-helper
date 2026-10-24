@@ -395,7 +395,10 @@ def test_snapshots_keep_their_model_revision_and_bind_the_credential(service, ve
         snapshot = run["snapshot"]
         assert snapshot["effective"]["model"]["model_id"] == "demo-model"
         assert snapshot["effective"]["model"]["revision"] == 1
-        assert snapshot["provenance"]["credential_ids"] == [model["credential_id"]]
+        # The member sees no binding (U-27); an administrator's session does.
+        assert snapshot["provenance"]["credential_ids"] == []
+        bound = admin.get(f"/api/v1/runs/{accepted['run_id']}").json()["data"]["snapshot"]
+        assert bound["provenance"]["credential_ids"] == [model["credential_id"]]
         assert snapshot["provenance"]["labels"] == {
             "model": "demo",
             "harness": "fake-harness 1.0.0",

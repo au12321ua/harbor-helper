@@ -44,6 +44,10 @@ PROVIDED = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,127}")
 PATH_PART = re.compile(r"[A-Za-z0-9._+@-]{1,255}")
 PATH_MAX = 1024
 DEPTH_MAX = 32
+# A long-name or pax header is read into memory whole; real ones are a few KiB.
+TAR_HEADER_MAX = 64 * 1024
+# Directories and refused entries count too: every entry costs memory while reading.
+ENTRIES_PER_FILE = 2
 
 
 class PackageError(Exception):
@@ -92,13 +96,21 @@ class _Writer:
         self.files: dict[str, bool] = {}  # path -> executable
         self.dirs: set[str] = set()
         self.total = 0
+        self.entries = 0
         self.problems: list[tuple[str, str, str]] = []
+
+    def count(self) -> None:
+        self.entries += 1
+        if self.entries > self.max_files * ENTRIES_PER_FILE:
+            self.problem("", "TOO_MANY_FILES", f"at most {self.max_files} files")
+            raise PackageError("Attachment has too many entries", self.problems)
 
     def problem(self, path: str, code: str, message: str) -> None:
         if len(self.problems) < 50:
             self.problems.append((f"/archive/{path}", code, message))
 
     def directory(self, raw: str) -> None:
+        self.count()
         if raw in {".", "./"}:  # the root itself, as ``tar -C dir .`` writes it
             return
         path = _check_path(raw)
@@ -110,6 +122,7 @@ class _Writer:
             self.dirs.add(path)
 
     def file(self, raw: str, size: int, executable: bool, stream) -> None:
+        self.count()
         path = _check_path(raw)
         if path is None:
             self.problem(raw, "PATH", "only relative names of letters, digits and ._+@-")
@@ -143,20 +156,49 @@ class _Writer:
         os.chmod(target, 0o755 if executable else 0o644)
 
 
+class _BoundedTarInfo(tarfile.TarInfo):
+    """Refuses, before reading them, the headers ``tarfile`` would load into memory whole:
+    oversized long-name and pax headers, and sparse files with their unbounded maps."""
+
+    def _proc_member(self, tarfile_):
+        if self.type in (tarfile.GNUTYPE_SPARSE,):
+            raise tarfile.HeaderError("sparse files are not allowed")
+        if self.type in _EXTENDED_HEADERS and self.size > TAR_HEADER_MAX:
+            raise tarfile.HeaderError(f"an extended header over {TAR_HEADER_MAX} bytes")
+        return super()._proc_member(tarfile_)
+
+    def _proc_gnusparse_10(self, next, pax_headers, tarfile_):
+        raise tarfile.HeaderError("sparse files are not allowed")
+
+
+_EXTENDED_HEADERS = (
+    tarfile.GNUTYPE_LONGNAME,
+    tarfile.GNUTYPE_LONGLINK,
+    tarfile.XHDTYPE,
+    tarfile.XGLTYPE,
+    tarfile.SOLARIS_XHDTYPE,
+)
+
+
 def _unpack_tar(source, writer: _Writer) -> None:
     try:
-        archive = tarfile.open(fileobj=source, mode="r:*")  # noqa: SIM115 - closed below
+        archive = tarfile.open(  # noqa: SIM115 - closed below
+            fileobj=source, mode="r:*", tarinfo=_BoundedTarInfo
+        )
     except (tarfile.TarError, OSError, EOFError) as error:
         raise PackageError(f"Not a tar or zip archive: {error}", []) from None
     with archive:
         try:
             for member in archive:
+                # Read as a stream: the archive keeps no list of what it has passed.
+                archive.members = []
                 if member.isdir():
                     writer.directory(member.name)
                 elif member.isreg():
                     stream = archive.extractfile(member)
                     writer.file(member.name, member.size, bool(member.mode & 0o100), stream)
                 else:
+                    writer.count()
                     writer.problem(
                         member.name, "FILE_TYPE", "links and special files are not allowed"
                     )
@@ -164,7 +206,20 @@ def _unpack_tar(source, writer: _Writer) -> None:
             raise PackageError(f"Damaged archive: {error}", writer.problems) from None
 
 
+def _zip_entries(source) -> int | None:
+    """The entry count the end record declares, read before the central directory is."""
+    try:
+        record = zipfile._EndRecData(source)
+    except OSError:
+        return None
+    return None if record is None else record[zipfile._ECD_ENTRIES_TOTAL]
+
+
 def _unpack_zip(source, writer: _Writer) -> None:
+    declared = _zip_entries(source)
+    if declared is not None and declared > writer.max_files * ENTRIES_PER_FILE:
+        writer.problem("", "TOO_MANY_FILES", f"at most {writer.max_files} files")
+        raise PackageError("Attachment has too many entries", writer.problems)
     try:
         archive = zipfile.ZipFile(source)
     except (zipfile.BadZipFile, OSError) as error:
@@ -176,6 +231,7 @@ def _unpack_zip(source, writer: _Writer) -> None:
                 if info.is_dir():
                     writer.directory(info.filename)
                 elif stat.S_IFMT(mode) and not stat.S_ISREG(mode):  # no type bits: a file
+                    writer.count()
                     writer.problem(
                         info.filename, "FILE_TYPE", "links and special files are not allowed"
                     )
@@ -227,7 +283,7 @@ def _manifest(root: Path) -> dict:
         )
     try:
         manifest = json.loads(path.read_text("utf-8"))
-    except (ValueError, UnicodeDecodeError) as error:
+    except (ValueError, UnicodeDecodeError, RecursionError) as error:
         raise PackageError(f"manifest.json is not JSON: {error}", []) from None
     if not isinstance(manifest, dict):
         raise PackageError("manifest.json must be an object", [("/manifest", "TYPE", "")])
@@ -237,8 +293,8 @@ def _manifest(root: Path) -> dict:
 def _names(value, pattern: re.Pattern) -> bool:
     return (
         isinstance(value, list)
-        and len(set(value)) == len(value)
         and all(isinstance(x, str) and pattern.fullmatch(x) for x in value)
+        and len(set(value)) == len(value)
     )
 
 

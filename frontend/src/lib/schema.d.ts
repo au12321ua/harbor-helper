@@ -2091,6 +2091,11 @@ export interface components {
             batch_id: string;
             /** Cancelled */
             cancelled: number;
+            /**
+             * Deleted Runs
+             * @description Members in the recycle bin or purged
+             */
+            deleted_runs: number;
             /** Error Trials */
             error_trials: number;
             /** Finished */
@@ -2144,6 +2149,11 @@ export interface components {
         BatchProgress: {
             /** Cancelled */
             cancelled: number;
+            /**
+             * Deleted Runs
+             * @description Members in the recycle bin or purged
+             */
+            deleted_runs: number;
             /** Error Trials */
             error_trials: number;
             /** Finished */
@@ -2269,6 +2279,11 @@ export interface components {
         ConfigDifference: {
             after: components["schemas"]["JsonValue"];
             before: components["schemas"]["JsonValue"];
+            /**
+             * Hidden
+             * @description true: the values are not shown to you (U-27); otherwise absent
+             */
+            hidden?: boolean | null;
             /**
              * Path
              * @description JSON pointer into the effective configuration
@@ -2837,8 +2852,11 @@ export interface components {
         EffectiveModel: {
             /** Config Id */
             config_id: string;
-            /** Credential Id */
-            credential_id: string | null;
+            /**
+             * Credential Id
+             * @description The bound team credential; null: none. Left out for everyone but administrators' web sessions (U-27)
+             */
+            credential_id?: string | null;
             /** Endpoint */
             endpoint: string;
             /** Model Id */
@@ -4206,7 +4224,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "CONFLICTING_DEFAULTS" | "COMPOSE_DISCOVERY_FAILED";
+            code: "CONFLICTING_DEFAULTS" | "COMPOSE_DISCOVERY_FAILED" | "RESERVED_NAME";
             /**
              * File
              * @description The compose file (COMPOSE_DISCOVERY_FAILED)
@@ -4214,9 +4232,14 @@ export interface components {
             file?: string | null;
             /**
              * Name
-             * @description The parameter (CONFLICTING_DEFAULTS)
+             * @description The parameter
              */
             name?: string | null;
+            /**
+             * Used In
+             * @description RESERVED_NAME: where the task uses it
+             */
+            used_in?: string | null;
         };
         /** PassRule */
         PassRule: {
