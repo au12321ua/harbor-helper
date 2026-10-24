@@ -53,6 +53,13 @@ _MATERIAL_NAME = re.compile(r"[0-9a-f]{64}")
 _TEMPLATE = re.compile(r"\$\{([^}:]+)(?::-(.*))?\}")
 _SENSITIVE = re.compile(r"(KEY|SECRET|TOKEN(?!S)|PASSWORD|CREDENTIAL|AUTH)", re.IGNORECASE)
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# Names the platform or the executor process relies on. Parameter values become the
+# Runner's environment (Harbor resolves templates from it), so a task declaring one of
+# these, even with only a default, is refused rather than given it.
+RESERVED_PARAMETER = re.compile(
+    r"(PATH|HOME|USER|SHELL|PWD|TMPDIR|TZ|LANG|LC_\w+|LD_\w+|PYTHON\w*|DOCKER_\w+|COMPOSE_\w+"
+    r"|HARBOR_\w+|MAESTRO_\w+|LITELLM_\w+|SSL_CERT_\w+|(?i:https?_proxy|no_proxy|all_proxy))"
+)
 _COMPOSE_FILES = {"docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml"}
 # Variables Harbor's Docker environment fills in itself.
 _INFRA = {
@@ -270,6 +277,9 @@ def _parameters(config: dict, task_dir: Path) -> tuple[list[dict], list[dict]]:
     issues: list[dict] = []
 
     def add(name: str, default: str | None, required: bool, used_in: str) -> None:
+        if RESERVED_PARAMETER.fullmatch(name):
+            issues.append({"code": "RESERVED_NAME", "name": name, "used_in": used_in})
+            return
         entry = found.setdefault(
             name,
             {
@@ -331,6 +341,11 @@ def inspect_task(
     steps = config.get("steps") or []
     if any(isinstance(step, dict) and step.get("environment") for step in steps):
         unsupported.append("step_environments")
+    if any(
+        isinstance(step, dict) and ((step.get("verifier") or {}).get("environment"))
+        for step in steps
+    ):
+        unsupported.append("separate_verifier_environment")
     env_dir = task_dir / "environment"
     image = environment.get("docker_image")
     if image:

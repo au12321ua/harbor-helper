@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import traceback
@@ -108,6 +109,13 @@ def _render_step(step: dict) -> str:
         if content := _text(result.get("content") if isinstance(result, dict) else None).strip():
             lines.append(cut(content))
     return "\n".join(lines) + "\n"
+
+
+# The platform's list of names a task parameter may not take (maestro.execution.materials).
+RESERVED_ENV = re.compile(
+    r"(PATH|HOME|USER|SHELL|PWD|TMPDIR|TZ|LANG|LC_\w+|LD_\w+|PYTHON\w*|DOCKER_\w+|COMPOSE_\w+"
+    r"|HARBOR_\w+|MAESTRO_\w+|LITELLM_\w+|SSL_CERT_\w+|(?i:https?_proxy|no_proxy|all_proxy))"
+)
 
 
 class Rejected(Exception):
@@ -347,7 +355,16 @@ class Execution:
                 prepared += 1
             if platform:
                 plan = network.tighten(path, platform)
-                restricted |= network.restricted(plan)
+                if network.restricted(plan):
+                    restricted = True
+                    unrouted = network.unrouted_services(path)
+                    if unrouted:
+                        # Fail closed: these services would bypass the restriction.
+                        raise Rejected(
+                            "NETWORK_POLICY_UNSUPPORTED",
+                            f"{task['task_key']}: compose services {unrouted} set their own "
+                            "networks, which the platform network policy cannot restrict",
+                        )
                 emit("network_plan", task_key=task["task_key"], plan=plan)
             self.task_by_path[str(path)] = task["task_key"]
             self.unbound[task["task_key"]] = list(task["trial_ids"])
@@ -776,6 +793,10 @@ def check_spec(spec: dict) -> None:
             isinstance(k, str) and k.isidentifier() and isinstance(v, str) for k, v in value.items()
         ):
             raise Rejected("RUNNER_INPUT_INVALID", f"{name} must map names to strings")
+    # Author parameter values join this process's environment: never one it relies on.
+    reserved = sorted(k for k in spec.get("task_env") or {} if RESERVED_ENV.fullmatch(k))
+    if reserved:
+        raise Rejected("RUNNER_INPUT_INVALID", f"task_env holds reserved names: {reserved}")
     attachments = spec.get("attachments") or []
     fields = {"name": str, "version": str, "content_digest": str, "path": str, "bootstrap": bool}
     if not isinstance(attachments, list) or not all(

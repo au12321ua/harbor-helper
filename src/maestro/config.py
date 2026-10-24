@@ -213,6 +213,15 @@ class Settings:
                     "setup_proxy must look like http://host:port (https also accepted)",
                     500,
                 )
+            if parts.username or parts.password:
+                # Harbor passes exec variables as ``docker exec -e``: visible to every
+                # local user in the process list.
+                raise MaestroError(
+                    "CONFIG_INVALID",
+                    "setup_proxy cannot carry a user name or password; use a proxy that "
+                    "admits the host by address",
+                    500,
+                )
         if any(c.isspace() for c in self.setup_no_proxy):
             raise MaestroError(
                 "CONFIG_INVALID", "setup_no_proxy is a comma-separated list without spaces", 500

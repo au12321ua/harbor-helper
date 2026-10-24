@@ -43,7 +43,12 @@ def test_off_by_default_and_checked_when_set(tmp_path):
         "https_proxy": PROXY,
         "no_proxy": "localhost,10.0.0.0/8",
     }
-    for bad in ("socks5://172.17.0.1:7890", "http://172.17.0.1", "172.17.0.1:7890"):
+    for bad in (
+        "socks5://172.17.0.1:7890",
+        "http://172.17.0.1",
+        "172.17.0.1:7890",
+        "http://user:pass@172.17.0.1:7890",
+    ):
         with pytest.raises(MaestroError, match="setup_proxy"):
             settings(tmp_path, setup_proxy=bad).check()
     loopback = settings(tmp_path, setup_proxy="http://127.0.0.1:7890").check()
@@ -75,7 +80,7 @@ def test_image_builds_get_the_proxy_as_build_arguments(tmp_path):
 
 def test_install_scripts_get_the_proxy_and_nothing_else_does(runner_python, materials, tmp_path):
     secret = "http://user:pa55word@172.17.0.1:7890"
-    env = settings(tmp_path, setup_proxy=secret).check().setup_proxy_env()
+    env = settings(tmp_path, setup_proxy=secret).setup_proxy_env()  # check() refuses it now
     store = AttachmentStore(tmp_path / "data")
     executor = make_executor(runner_python, materials, tmp_path, attachments=store, setup_env=env)
     execute(executor, attachment_spec(materials, tmp_path, store), RecordingSink())

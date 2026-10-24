@@ -22,7 +22,7 @@ from maestro.core.digests import digest_json
 from maestro.core.errors import FieldError, MaestroError
 from maestro.db import schema as t
 from maestro.execution.agents import param_problem
-from maestro.execution.materials import DEFAULT_CPUS, DEFAULT_MEMORY_MB
+from maestro.execution.materials import DEFAULT_CPUS, DEFAULT_MEMORY_MB, RESERVED_PARAMETER
 from maestro.services import deleted, policy
 from maestro.services.capacity import never_fits, reservation
 from maestro.services.catalog import (
@@ -36,11 +36,6 @@ from maestro.services.model_configs import MODEL_KINDS
 
 EXECUTION_MODES = ("agent", "oracle")
 PARAMETER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
-# Names the platform or the executor process relies on; a task cannot be given these.
-RESERVED_PARAMETER = re.compile(
-    r"(PATH|HOME|USER|SHELL|PWD|TMPDIR|TZ|LANG|LC_\w+|LD_\w+|PYTHON\w*|DOCKER_\w+|COMPOSE_\w+"
-    r"|HARBOR_\w+|MAESTRO_\w+|LITELLM_\w+|SSL_CERT_\w+|(?i:https?_proxy|no_proxy|all_proxy))"
-)
 PARAMETER_VALUE_MAX = 4096
 SECRET_KINDS = ("generic_secret", "model_api_key")
 

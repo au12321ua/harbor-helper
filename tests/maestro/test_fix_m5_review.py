@@ -5,20 +5,25 @@ import io
 import json
 import resource
 import shutil
+import subprocess
+import sys
 import tarfile
 import uuid
 import zipfile
+from pathlib import Path
 
 import pytest
 from support import invite_member, running, setup_admin, submit, wait_operation
 from test_attachments import manifest, package, publish, tar_package
 from test_batches import batch_body, post_batch
 from test_configuration import error
+from test_datasets import import_and_prepare
 from test_reruns import rerun
 
 from maestro.core.errors import MaestroError
 from maestro.execution.agents import endpoint_problem
 from maestro.execution.attachments import AttachmentStore, PackageError
+from maestro.testing.fakes import FakeDatasetSource
 
 
 class _Low:
@@ -234,3 +239,102 @@ def test_low_disk_refuses_an_upload_before_it_is_stored(service):
         admin = setup_admin(service, client)
         service.disk = _Low()
         assert error(publish(admin, package())) == (503, "STORAGE_LOW")
+
+
+# --- author parameters never reach the Runner's own environment ----------------------------
+
+
+def test_a_task_declaring_a_reserved_name_is_blocked_even_with_only_a_default(service, source):
+    files = {
+        "evil": {
+            **FakeDatasetSource.task_files("demo", "params", "evil"),
+            "task.toml": (
+                "[environment]\ncpus = 1\nmemory_mb = 2048\n"
+                '[verifier.env]\nA = "${LD_PRELOAD:-/tmp/evil.so}"\n'
+                'B = "${PATH:-/tmp/bin:/usr/bin}"\n'
+                'C = "${HTTPS_PROXY:-http://proxy.example:8080}"\n'
+            ),
+        },
+    }
+    source.add("demo", "params", "v1", list(files), files=files)
+    with running(service) as client:
+        admin = setup_admin(service, client)
+        version_id, _ = import_and_prepare(admin, name="params")
+        found = admin.post(
+            "/api/v1/config-resolutions",
+            json={"dataset_version_id": version_id, "execution_mode": "oracle"},
+            expect=201,
+        ).json()["data"]
+        assert found["effective_config"].get("parameters") in ({}, None)
+        assert found["blockers"] or found["excluded_tasks"]
+
+
+def test_the_runner_refuses_reserved_names_in_task_env():
+    """The Runner's own copy of the list agrees with the platform's."""
+    from maestro.execution.materials import RESERVED_PARAMETER
+
+    probe = (
+        "import sys; sys.path.insert(0, sys.argv[1]); from maestro_runner import job; "
+        "print(job.RESERVED_ENV.pattern, file=sys.stderr)"
+    )
+    runner_src = Path(__file__).resolve().parents[2] / "runner" / "src"
+    found = subprocess.run(
+        [sys.executable, "-I", "-c", probe, str(runner_src)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    assert found.stderr.strip() == RESERVED_PARAMETER.pattern
+
+
+# --- network tightening covers every step and refuses services it cannot route ------------
+
+_NETWORK_PROBE = """
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from maestro_runner import network
+from harbor.models.task.config import TaskConfig
+from harbor.models.trial.config import AgentConfig, EnvironmentConfig
+from harbor.models.task.verifier_mode import VerifierEnvironmentMode
+from harbor.trial.network_policy import resolve_trial_network_plan
+task = Path(sys.argv[2])
+network.tighten(task, {"agent": {"mode": "no-network"}, "verifier": {"mode": "no-network"}})
+config = TaskConfig.model_validate_toml((task / "task.toml").read_text())
+modes = []
+for step in [None, *config.steps]:
+    plan = resolve_trial_network_plan(
+        config, AgentConfig(name="oracle"), EnvironmentConfig(), step,
+        verifier_mode=VerifierEnvironmentMode.SHARED,
+    )
+    modes += [plan.agent_phase.network_mode.value, plan.verifier_phase.network_mode.value]
+print(json.dumps({"modes": modes, "unrouted": network.unrouted_services(task)}))
+"""
+
+
+def test_tightening_reaches_steps_and_finds_services_with_their_own_networks(tmp_path):
+    root = Path(__file__).resolve().parents[2] / "runner"
+    python = root / ".venv" / "bin" / "python"
+    if not python.exists():
+        pytest.skip("the Runner environment is not installed (uv sync in runner/)")
+    task = tmp_path / "task"
+    (task / "environment").mkdir(parents=True)
+    (task / "task.toml").write_text(
+        'version = "1.0"\n[environment]\nnetwork_mode = "public"\n'
+        '[[steps]]\nname = "one"\n[steps.agent]\nnetwork_mode = "public"\n'
+        '[steps.verifier]\nnetwork_mode = "public"\n'
+    )
+    (task / "environment" / "docker-compose.yaml").write_text(
+        "services:\n  main:\n    build: .\n    networks: [default]\n"
+    )
+    found = subprocess.run(
+        [str(python), "-I", "-c", _NETWORK_PROBE, str(root / "src"), str(task)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    result = json.loads(found.stdout.strip().splitlines()[-1])
+    assert set(result["modes"]) == {"no-network"}
+    assert result["unrouted"] == ["main"]
