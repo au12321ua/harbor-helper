@@ -41,6 +41,7 @@ sudo ./maestroctl check --uv "$(command -v uv)"
 
 ```bash
 sudo ./maestroctl install --port 8420 --proxy http://<代理地址>:<端口> --uv "$(command -v uv)"
+# 安装时下载 Python 包也要走这个代理，就再加 --download-proxy
 ```
 
 安装器依次检查主机、创建 `maestro` 账户与目录、在 `/opt/maestro/versions/` 下建好程序与 Runner 环境、写配置、生成主密钥、初始化数据库，然后注册并启动 `maestro.service`，等到服务报告就绪才结束。最后打印访问地址和**只显示一次**的初始化令牌：用浏览器打开地址，用令牌创建第一个管理员，之后的模型、凭据、数据集和成员邀请都在网页上完成。
@@ -51,7 +52,8 @@ sudo ./maestroctl install --port 8420 --proxy http://<代理地址>:<端口> --u
 | --- | --- |
 | `--listen-host`、`--port` | 服务监听地址，默认 `127.0.0.1:8420`。对外访问由反向代理（nginx、Caddy 等）提供 HTTPS 和域名 |
 | `--insecure-cookie` | 不经 HTTPS 直接用 HTTP 访问时需要（内网试用），否则浏览器不回传登录 cookie |
-| `--proxy`、`--no-proxy` | 安装时下载依赖用；同时写进 `/etc/maestro/environment`，供服务里的 Docker 客户端（BuildKit 取镜像仓库令牌）和 Hub 下载使用 |
+| `--proxy`、`--no-proxy` | 服务运行时的代理：写进 `/etc/maestro/environment`，供服务里的 Docker 客户端（BuildKit 取镜像仓库令牌）和 Hub 下载使用。之后直接编辑该文件再 `restart` 即可修改 |
+| `--download-proxy [URL]` | 安装、更新时下载 Python 包用的代理；默认直连。只写选项不带地址，表示沿用服务的代理（`--proxy`，更新时读 `/etc/maestro/environment`）；带地址则用该地址 |
 | `--setup-proxy` | 写入配置的 `setup_proxy`：只给镜像构建与附件安装用，必须是**容器能访问到**的地址（例如宿主机的局域网地址，不能是 127.0.0.1） |
 | `--docker-host` | 不用系统 Docker 时指定 Docker 地址；此时安装器不改账户的组 |
 | `--uv` | uv 的路径（sudo 的 PATH 里常常没有）。安装器把它复制到 `/opt/maestro/bin/uv`，以后更新用这份 |
@@ -87,7 +89,8 @@ sudo maestroctl restore /var/backups/maestro/<时间> [--include-files]
 ## 更新
 
 ```bash
-sudo maestroctl update maestro-<新版本>.tar.gz
+sudo maestroctl update maestro-<新版本>.tar.gz                  # 下载 Python 包直连
+sudo maestroctl update maestro-<新版本>.tar.gz --download-proxy # 下载沿用服务的代理
 ```
 
 1. 在当前版本旁边装好新版本，服务继续运行；Harbor 与 Runner 没有变化时直接复用。

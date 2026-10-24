@@ -874,15 +874,37 @@ def make_directories(host: Host) -> None:
         host.own(path, mode)
 
 
-def proxy_env(args) -> dict:
-    if not args.proxy:
+SERVICE_PROXY = "service"
+
+
+def service_proxy(layout: Layout) -> str | None:
+    """The proxy the installed service uses (HTTPS_PROXY in the environment file)."""
+    with contextlib.suppress(OSError):
+        for line in layout.environment.read_text().splitlines():
+            name, _, value = line.partition("=")
+            if name.strip() in ("HTTPS_PROXY", "https_proxy") and value.strip():
+                return value.strip()
+    return None
+
+
+def download_env(args, service: str | None) -> dict:
+    """Downloads go direct unless ``--download-proxy`` asks otherwise: alone it means the
+    service's proxy, with a value that proxy. The service's proxy is not the default
+    because a mirror or index may well be faster without it."""
+    chosen = args.download_proxy
+    if chosen == SERVICE_PROXY:
+        chosen = service
+        if not chosen:
+            raise CtlError("--download-proxy without a value needs a service proxy (--proxy)")
+    if not chosen:
         return {}
-    return {
-        "HTTP_PROXY": args.proxy,
-        "HTTPS_PROXY": args.proxy,
-        "http_proxy": args.proxy,
-        "https_proxy": args.proxy,
-    }
+    if "://" not in chosen:
+        raise CtlError(
+            f"--download-proxy {chosen!r} is not a proxy URL; give one, or put the package "
+            "path before --download-proxy"
+        )
+    say(f"    downloading through {chosen}")
+    return {name: chosen for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")}
 
 
 def cmd_check(layout: Layout, args) -> int:
@@ -906,7 +928,9 @@ def cmd_install(layout: Layout, args) -> int:
     ensure_account(layout, args.docker_host)
     make_directories(host)
     uv = keep_uv(layout, find_uv(layout, args.uv))
-    version = install_version(layout, release, uv, proxy_env(args))
+    version = install_version(
+        layout, release, uv, download_env(args, args.proxy or service_proxy(layout))
+    )
     switch_current(layout, version)
     step("Configuration")
     if layout.config.exists():
@@ -1100,12 +1124,7 @@ def cmd_update(layout: Layout, args) -> int:
         say(f"already at {release.build}")
         return 0
     record = read_record(layout)
-    proxy = {}
-    with contextlib.suppress(OSError):
-        for line in layout.environment.read_text().splitlines():
-            name, _, value = line.partition("=")
-            if name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
-                proxy[name] = value
+    proxy = download_env(args, service_proxy(layout))
     uv = find_uv(layout, args.uv)
     step(f"Installing {release.build} beside {old.name} (the service keeps running)")
     new = install_version(layout, release, keep_uv(layout, uv), proxy)
@@ -1285,15 +1304,27 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--ready-timeout", type=float, default=READY_TIMEOUT, help="seconds")
         return p
 
+    def with_download(p):
+        p.add_argument(
+            "--download-proxy",
+            nargs="?",
+            const=SERVICE_PROXY,
+            metavar="URL",
+            help="proxy for downloading Python packages; without URL the service's --proxy "
+            "(default: download directly)",
+        )
+        return p
+
     check = sub.add_parser("check", help="check this host without changing anything")
     install = with_ready(sub.add_parser("install", help="install and start Maestro"))
     for p in (check, install):
         p.add_argument("--listen-host", default="127.0.0.1")
         p.add_argument("--port", type=int, default=DEFAULT_PORT)
-        p.add_argument("--proxy", help="HTTP(S) proxy for installing and for the service")
+        p.add_argument("--proxy", help="HTTP(S) proxy the service uses (Docker client, Hub)")
         p.add_argument("--uv", help="path of the uv binary")
         p.add_argument("--docker-host", help="Docker endpoint if not the system daemon")
     install.add_argument("--no-proxy", help="hosts that bypass --proxy (comma separated)")
+    with_download(install)
     install.add_argument("--setup-proxy", help="proxy reachable from containers for setup work")
     install.add_argument(
         "--insecure-cookie",
@@ -1313,7 +1344,7 @@ def parser() -> argparse.ArgumentParser:
     restore.add_argument("source")
     restore.add_argument("--include-files", action="store_true")
     restore.add_argument("--allow-missing-key", action="store_true")
-    update = with_ready(sub.add_parser("update", help="update to a release package"))
+    update = with_download(with_ready(sub.add_parser("update", help="update to a release package")))
     update.add_argument("package", nargs="?", help="release .tar.gz or directory")
     update.add_argument("--interrupt-running", action="store_true")
     update.add_argument("--uv")

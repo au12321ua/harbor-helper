@@ -171,3 +171,21 @@ def test_commands_needing_root_say_so(tmp_path, monkeypatch, capsys):
     for command in (["install"], ["update"], ["uninstall"], ["backup"], ["restart"]):
         assert ctl.main(command) == 1
         assert "needs root" in capsys.readouterr().err
+
+
+def test_downloads_go_direct_unless_a_download_proxy_is_asked_for(tmp_path):
+    service = "http://127.0.0.1:7890"
+    assert ctl.download_env(argparse.Namespace(download_proxy=None), service) == {}
+    alone = ctl.download_env(argparse.Namespace(download_proxy=ctl.SERVICE_PROXY), service)
+    assert alone["HTTPS_PROXY"] == alone["http_proxy"] == service
+    other = ctl.download_env(argparse.Namespace(download_proxy="http://10.0.0.9:3128"), service)
+    assert other["HTTPS_PROXY"] == "http://10.0.0.9:3128"
+    with pytest.raises(ctl.CtlError, match="needs a service proxy"):
+        ctl.download_env(argparse.Namespace(download_proxy=ctl.SERVICE_PROXY), None)
+    with pytest.raises(ctl.CtlError, match="package path before"):
+        ctl.download_env(argparse.Namespace(download_proxy="maestro-1.tar.gz"), service)
+    # On update, "the service's proxy" is read back from the environment file.
+    layout = ctl.Layout(tmp_path, test=True)
+    layout.etc.mkdir(parents=True)
+    layout.environment.write_text(ctl.render_environment(_args(proxy=service)))
+    assert ctl.service_proxy(layout) == service
