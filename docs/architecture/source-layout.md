@@ -6,7 +6,8 @@
 
 | 板块 | 位置 | 职责 |
 | --- | --- | --- |
-| 入口 | `cli.py`、`config.py`、`application.py` | `maestro init / db upgrade / serve / openapi`；读取 `config.toml`；组装数据库、边界与服务 |
+| 入口 | `cli.py`、`config.py`、`application.py` | `maestro init / db upgrade / serve / backup / restore / activity / openapi`；读取 `config.toml`；组装数据库、边界与服务 |
+| 备份 | `backup.py` | 同一主机的备份集：SQLite 一致快照、配置副本、可选业务文件与清单；停服恢复（核对清单、结构版本与所需主密钥）；更新前用的“在途工作”查询 |
 | 基础 | `core/` | 不透明 ID、UTC 时间文本、规范 JSON 与 `sha256:` 摘要、统一错误、请求上下文、单实例锁 |
 | 数据库 | `db/schema.py`、`db/engine.py`、`db/migrate.py`、`db/migrations/` | 01 的逻辑表；SQLite WAL / 外键 / busy_timeout；写事务一律 `BEGIN IMMEDIATE` 短事务；Alembic 迁移 |
 | 领域 | `domain/states.py`、`domain/scoring.py`、`domain/limits.py` | 运行 / 试次 / 尝试 / Operation 状态与四个独立维度、聚合规则；评分契约与运行汇总（计数、覆盖率、均值、标准差、通过率、任务均值）；团队策略的内置初值（修订 0）与结构性常量 |
@@ -26,8 +27,9 @@
 | 生成 | `tools/generate_clients.py` | 导出契约并生成 SDK 的 `models.py` 与 `_contract.py`；`--check` 只比较。网页类型在 `frontend/` 用 `npm run gen:api` / `check:api` |
 | Python SDK | `sdk/` | 单独的包 `maestro_sdk`（只依赖 httpx 与 pydantic）：生成的模型，以及手写的认证、幂等提交与重试、翻页、等待、核对摘要的下载（`client.py`）、错误类型（`errors.py`）。用法见 `sdk/README.md` |
 | Agent skill | `skills/maestro-sdk/SKILL.md` | 让 Agent 经 SDK 操作 Maestro 的工作流程与报告规则；提到的 SDK 调用由 `test_sdk.py` 核对 |
+| 安装与发布 | `ops/maestroctl.py`、`tools/build_release.py` | `maestroctl`：只用系统 Python 标准库的安装管理命令（检查、安装、启停、状态、日志、备份恢复、更新与回退、卸载），按 12 的系统级布局；发布包随附一份。`build_release.py` 打出含 wheel、带哈希锁定依赖与 `RELEASE.json` 的压缩包。用法见[部署指南](../guides/deployment.md) |
 | CI 与检查 | `.gitea/workflows/verify.yml`、`tools/check_doc_links.py` | 每次推送运行 lint、契约与 SDK 模型漂移、Markdown 相对链接、不含 Docker / Hub / 模型的 pytest 与网页构建；命令见[开发交接](../HANDOFF.md)的验证入口 |
 
 ## 基线代码
 
-基线的 HTTP 服务、JSON 状态、CLI 与本机启动脚本已在 M2 删除（见 [M2 实施记录](../design/records/m2-foundation.md)）；剩下的旧配置与安全模块、研究客户端 skill 与基线附件说明在 M7 删除。仓库里的 `configs/`、`examples/`、`images/` 仍是基线材料，M8 处理。需要参考时读 `9ff43b5`。
+基线的 HTTP 服务、JSON 状态、CLI 与本机启动脚本已在 M2 删除（见 [M2 实施记录](../design/records/m2-foundation.md)）；剩下的旧配置与安全模块、研究客户端 skill 与基线附件说明在 M7 删除；最后的 `configs/`、`examples/`、`images/` 在 M8 删除，仓库里已没有基线代码。需要参考时读 `9ff43b5`。

@@ -1,18 +1,30 @@
 # Maestro
 
-> 本分支 `feature/rewrite` 正在按[重写目标设计](docs/design/README.md)把 harbor-helper 整体重写为 Maestro，尚不能用于真实实验。正式使用请以 `dev` 或发布版本为准。
+> 本分支 `feature/rewrite` 按[重写目标设计](docs/design/README.md)把 harbor-helper 整体重写为 Maestro，完成后替换 `dev` 上的旧实现；旧实例的数据不迁移。
 
 Maestro 让受邀的可信团队通过网页和 SDK 提交、观察、比较和重跑基于 Harbor 的实验：数据集可选择，实验配置固定，结果全团队共享，提交身份保留。
 
 ## 当前状态
 
-已实现：地基（M2）、Harbor 执行内核（M3）、数据集与准备（M4）、配置与提交（M5：分层配置、模型 Agent 与 Terminus-2 / OpenCode、附件、重跑、实验方案与批次）、结果与产物（M6）、SDK 与网页（M7）。系统级部署与整体替换（M8）尚未完成，见[实施计划](docs/design/13-testing-plan.md)第 2 节。
+已实现：地基（M2）、Harbor 执行内核（M3）、数据集与准备（M4）、配置与提交（M5：分层配置、模型 Agent 与 Terminus-2 / OpenCode、附件、重跑、实验方案与批次）、结果与产物（M6）、SDK 与网页（M7）、系统级安装与维护（M8：`maestroctl` 安装、启停、更新与失败回退、备份恢复、卸载）。路线见[实施计划](docs/design/13-testing-plan.md)第 2 节。
+
+## 部署
+
+在一台带 systemd 和 Docker 的 Linux 主机上，用发布包安装：
+
+```bash
+uv run python tools/build_release.py            # 在仓库里打包：dist/maestro-<版本>-<提交>.tar.gz
+tar xf maestro-<版本>.tar.gz && cd maestro-<版本>
+sudo ./maestroctl install --uv "$(command -v uv)"   # 打印访问地址与一次性初始化令牌
+```
+
+之后用 `sudo maestroctl status / logs / backup / update <新包> / uninstall` 维护。目录布局、代理、HTTPS、更新与恢复的细节见[部署指南](docs/guides/deployment.md)。
 
 Agent 或脚本用 [Python SDK](sdk/README.md)：`pip install ./sdk`，在网页“设置”页创建 PAT 后即可解析配置、提交、等待和下载结果，不需要登录服务器。
 
-## 本机试用
+## 开发试用
 
-需要 Linux、Python 3.12–3.13 和 uv；网页需先在 `frontend/` 执行 `npm ci && npm run build`。使用全新的独立目录，不要指向已有团队 state：
+不安装、直接从源码运行一个实例。需要 Linux、Python 3.12–3.13 和 uv；网页需先在 `frontend/` 执行 `npm ci && npm run build`。使用全新的独立目录，不要指向已有团队 state：
 
 ```bash
 uv sync --locked

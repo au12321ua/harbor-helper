@@ -6,30 +6,36 @@
 
 ## 1. 安装布局与进程
 
-以下路径和命令是建议约定，服务管理工具尚未实现。
+现状（M8，U-29）：由发布包里的管理命令 `maestroctl` 安装和维护，用法见[部署指南](../guides/deployment.md)。实际布局：
 
 ~~~text
-/opt/maestro/versions/<version>/     程序、静态网页与独立 uv 服务环境
-/opt/maestro/current                指向 versions/<version> 的链接
-/opt/maestro/harbor/<harbor-version>/<runner-revision>/  锁定 Harbor 与 Runner 环境
-/etc/maestro/config.toml            部署配置
-/etc/maestro/secrets/              按代次保存的主密钥文件，服务账号可读（见 records/m2-foundation.md）
+/opt/maestro/versions/<build>/      程序（服务 venv，网页在服务包内）、该版本的 maestroctl、RELEASE.json
+/opt/maestro/versions/<build>/runner-env -> ../../harbor/<harbor-version>/<runner-revision>
+/opt/maestro/current                指向 versions/<build> 的链接
+/opt/maestro/harbor/<harbor-version>/<runner-revision>/venv/  锁定 Harbor 与 Runner 环境
+/opt/maestro/bin/uv、python/        安装与更新用的 uv；主机没有合适 Python 时 uv 下载的解释器
+/etc/maestro/config.toml            部署配置（root 所有，maestro 组可读）
+/etc/maestro/environment            服务进程的代理与 DOCKER_HOST
+/etc/maestro/install.json           安装记录（版本、时间）
+/etc/maestro/secrets/              按代次保存的主密钥文件，只有服务账号可读（见 records/m2-foundation.md）
 /var/lib/maestro/app.db             业务数据库，WAL / SHM 同目录
 /var/lib/maestro/artifacts/         原始产物
 /var/lib/maestro/attachments/       已发布附件的原件
 /var/lib/maestro/preparations/      准备原件（镜像归档，U-17；是数据，不是缓存）
 /var/lib/maestro/work/              Runner 工作目录，Harbor 输出归档为产物前的暂存
 /var/lib/maestro/exports/           临时导出包
+/var/lib/maestro/home/              服务账号的家目录（Docker 客户端与 buildx 的状态）
 /var/cache/maestro/tasks/           按上游内容摘要保存的任务材料
+/var/backups/maestro/<时间>/        备份集（含更新前的自动备份）
 /var/lib/maestro/maintenance/       独立维护记录（P1，未实现）
 journald                          服务标准输出 / 错误与结构化日志
 ~~~
 
 服务以专用系统账户运行，由 systemd 管理 API、调度器和进程内 Worker；uv 按各自锁文件安装平台环境和独立 Harbor / Runner 环境，二者不共享依赖。Harbor 版本下再按 Runner 修订细分，避免同版 Harbor 的包装器更新覆盖旧执行环境。
 
-访问 Docker daemon 的权限由安装阶段配置；该能力只用于受控环境接口，不暴露给任务容器。服务日志写 journald，试次日志和会话仍按产物保留；业务审计保存在数据库。cache_dir 单独登记，回收或重建不影响准入及其证明、配置、评分和产物索引；已准入内容由运行自动恢复。
+访问 Docker daemon 的权限由安装阶段配置；该能力只用于受控环境接口，不暴露给任务容器。现状（U-29）：安装器把 `maestro` 加入系统 Docker 套接字所属的组，这个组约等于 root；专用账户使用自己的 rootless Docker 留作以后的备选。服务日志写 journald，试次日志和会话仍按产物保留；业务审计保存在数据库。cache_dir 单独登记，回收或重建不影响准入及其证明、配置、评分和产物索引；已准入内容由运行自动恢复。
 
-独立管理入口负责安装、启停、状态、日志、卸载以及 P1 更新 / 恢复。网页仅通过本地受保护 IPC 请求预定义维护动作，不能提交任意命令、目标路径或服务名。
+独立管理入口负责安装、启停、状态、日志、卸载以及 P1 更新 / 恢复。网页仅通过本地受保护 IPC 请求预定义维护动作，不能提交任意命令、目标路径或服务名。现状：管理入口就是命令行 `maestroctl`（install、check、status、start / stop / restart、logs、backup、restore、update、uninstall）；按 U-29 不做网页发起的维护动作，网页维护页只读。
 
 ## 2. 安装与首次启动
 
@@ -46,6 +52,8 @@ journald                          服务标准输出 / 错误与结构化日志
 安装器不得在未知 Linux 上静默假定依赖齐备。支持的发行版、CPU 架构、Docker / Harbor 版本需经 D-010 接入验证后列成发布清单。安装检查应实际验证 Harbor egress-control sidecar 使用的 nftables 内核能力和动态网络切换；检查失败返回具体缺项和修复动作，禁止默默放宽联网权限。
 
 首次初始化通过受保护的一次性入口创建管理员，完成后失效。普通 restart 仅启动 current 指向的已安装版本，不执行检查更新、下载或升级。
+
+现状（M8）：`maestroctl check` 与 `install` 的第一步检查 systemd、uv 与可用的 Python 3.12～3.13、Docker 守护进程及 compose / buildx 插件、内核 nf_tables、数据磁盘余量与端口，失败项给出修复动作并中止安装；守护进程没有代理时只提醒，不改全机 Docker 配置。nftables 只查内核模块；动态网络切换是否真正生效由真实 Docker 测试核对，服务启动时再经 Runner 探测一次（见第 4 节）。OPS-06 的兼容清单只到发布包的 `RELEASE.json`（版本、提交、数据库结构版本、Harbor 版本、Runner 修订、文件摘要），发行版与架构的支持清单尚未经 D-010 验证。
 
 ## 3. 部署与业务配置
 
@@ -86,7 +94,11 @@ journald                          服务标准输出 / 错误与结构化日志
 
 P0 提供状态与日志入口并执行 [05](05-scheduling-execution.md) 的中断语义。计划排空属于 P1，不能将尚未实现的排空当作 P0 重启保证。
 
+现状（M8）：`maestro.service` 以 `maestro` 账户运行 `/opt/maestro/current/venv/bin/maestro serve`，`Restart=on-failure`，10 分钟内最多 5 次启动（管理员经 `maestroctl` 的启动先清除这个计数），`TimeoutStopSec=120`，`UMask=0077`，`NoNewPrivileges`、`ProtectSystem=full`（只放开主密钥目录）、`ProtectHome`；环境变量来自 `/etc/maestro/environment`。服务启动时、Worker 开始前经 Runner 探测本机能否限制任务网络：不能时模型运行在受理时即被拒绝（阻塞项 `NETWORK_POLICY_UNSUPPORTED`，不扣额度），能力接口的 `features.restricted_network` 报告结果；探测失败按未知处理，Runner 在每个运行开始时的检查仍是最后一道。
+
 ## 5. P1 排空与版本切换
+
+现状（M8，P0 子集）：`maestroctl update <包>` 先在旁边装好新版本（服务照常运行），有执行中的运行或进行中的导入、首次准备时拒绝（`--interrupt-running` 则让它们按重启语义中断），然后停服务、用旧版本做数据库备份、用新版本迁移、原子切换 `current`、启动并等待就绪；迁移、启动或就绪失败时换回旧版本与更新前的数据库并启动旧版本。没有排空、维护记录与断线后可查询的 Operation；保留上一个版本，更早的版本和不再引用的 Runner 环境被删除。下列步骤仍是 P1 设计。
 
 1. 管理员请求明确目标版本，创建维护记录并验证包来源、摘要与兼容清单。
 2. 独立管理入口持久化请求，设置 draining；阻止新受理与新派发。
@@ -102,7 +114,7 @@ current 链接负责程序版本选择，Harbor 环境由发布清单选择，�
 
 ## 6. P1 备份与异机恢复
 
-备份集包括数据库一致性快照、配置、版本清单、业务文件清单；数据库保留准入状态、首次成功证明、准备方式及固定摘要，不能只备份本机缓存索引。原始产物可选择全量或仅元数据，manifest 必须说明遗漏。准备缓存可不备份，但应说明固定内容在所有副本消失后的恢复风险。凭据密文保留在数据库，主密钥由单独受保护流程保存。现状：备份未实现；实例数据都在 data_dir 下，主密钥在其外的 master_key_dir，`config.py` 以此为由拒绝把两者放在一起。
+备份集包括数据库一致性快照、配置、版本清单、业务文件清单；数据库保留准入状态、首次成功证明、准备方式及固定摘要，不能只备份本机缓存索引。原始产物可选择全量或仅元数据，manifest 必须说明遗漏。准备缓存可不备份，但应说明固定内容在所有副本消失后的恢复风险。凭据密文保留在数据库，主密钥由单独受保护流程保存。现状（M8，同一主机）：`maestroctl backup` 调用 `maestro backup`，以 SQLite 备份接口取一致快照（单文件，完整性检查），复制部署配置，按需（`--include-files`）复制附件、准备原件与产物，最后写 `manifest.json`（结构版本、实例、所需主密钥代次与文件名、数据库摘要、各目录文件数与字节数、未包含项）。服务运行时也可备份；不加读 pin，快照之后被回收的文件不在备份里，恢复后由启动对账标记。`restore` 要求服务已停（单实例锁），核对清单与摘要、结构版本可迁移、所需主密钥在场（否则拒绝，除非显式接受凭据失效），替换数据库，按需替换业务文件（原文件改名保留），再迁移。异机恢复、location_id 重建与恢复后暂停排队属于 P1。实例数据都在 data_dir 下，主密钥在其外的 master_key_dir，`config.py` 以此为由拒绝把两者放在一起。
 
 SQLite 使用备份 API 或停服一致性快照，不直接复制活跃主库忽略 WAL。大文件在一致性窗口中通过清单与读 pin 防止被回收，完成后校验摘要。
 
@@ -121,6 +133,8 @@ SQLite 使用备份 API 或停服一致性快照，不直接复制活跃主库�
 普通卸载停止并移除本实例服务、程序和管理入口，默认保留配置、数据、密钥及已有日志。缓存是否保留作为独立选项。彻底删除先列出规范化绝对路径、类别、预计大小与影响，再要求管理员确认；journald 属于主机日志，不能为了卸载本应用清空全机 journal。
 
 所有删除依据实例登记目录和资源标签，不依赖宽泛名称匹配；拒绝根目录、共享父目录或指向边界外的链接。只删除本实例 Docker 资源，不能执行清空全机容器 / 镜像的命令。
+
+现状（M8）：`maestroctl uninstall` 停止并删除服务单元、`/opt/maestro` 与命令链接，保留其余目录与账户；`--remove-cache` 另删缓存。`--purge` 先列出各目录的大小与影响、本实例的 Docker 容器 / 网络 / 镜像数（按 `io.maestro.instance_id` 标签和 `maestro-prep/<实例>` 仓库名）与账户，只有带上 `--confirm <实例编号>` 才删除。删除只针对布局里固定的几个目录，拒绝符号链接和布局之外的路径。
 
 ## 8. 可观测性
 

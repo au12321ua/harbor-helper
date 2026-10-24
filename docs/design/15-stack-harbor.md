@@ -1,6 +1,6 @@
 # 15 技术栈与 Harbor 集成
 
-版本：v0.3 · 日期：2026-10-22 · 状态：本轮设计基线；M1 已在 Linux 上验证原型，M2～M7 已按此实现，系统级安装布局属 M8 尚未实现。实际做法与本文不同处见 [14](14-decisions.md) 各实施记录
+版本：v0.3 · 日期：2026-10-22 · 状态：本轮设计基线；M1 已在 Linux 上验证原型，M2～M8 已按此实现（系统级安装由 `maestroctl` 完成，见 [12](12-operations.md) 第 1 节）。实际做法与本文不同处见 [14](14-decisions.md) 各实施记录
 
 导航：[总览](00-overview.md) · 依赖：[执行](05-scheduling-execution.md)、[评分](06-results-scoring.md)、[网络与权限](09-identity-security.md)、[运维](12-operations.md)
 
@@ -76,7 +76,7 @@ Worker 仍在服务进程内，负责领取、租约、取消、资源和结果�
 journald                     服务日志
 ~~~
 
-现状：上述布局属 M8，尚未实现；Runner 目前在仓库 `runner/` 下，服务按配置项 `runner_python` 启动它（M3）。`compatibility.json` 兼容清单未实现，适配器标识只记 `harbor-0.24.0/<映射摘要>`。
+现状（M8）：`maestroctl` 按此布局安装，实际目录见 [12](12-operations.md) 第 1 节。服务环境是版本目录下的 `venv/`（网页在服务包里，没有单独的 `web/`）；Runner 修订是 Runner wheel 与锁定依赖的摘要，版本目录中的 `runner-env` 链接指向它，配置项 `runner_python` 写作 `/opt/maestro/current/runner-env/venv/bin/python`，切换版本即切换 Runner。开发时 Runner 仍在仓库 `runner/` 下。`compatibility.json` 兼容清单未实现，发布包的 `RELEASE.json` 记录 Harbor 版本、Runner 修订与数据库结构版本，适配器标识只记 `harbor-0.24.0/<映射摘要>`。
 
 平台依赖锁与 Harbor 依赖锁分开。Harbor 版本目录下区分不可变 Runner 修订，runner_id 标识二者的组合；正在执行的尝试继续使用已选择环境，禁止原地升级。已有 Runner 仅在不再被执行或保留策略引用时回收；多个版本共存是可选演进能力，不扩大首期调度范围。
 
