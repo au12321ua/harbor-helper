@@ -476,6 +476,8 @@
 
 验证范围：服务测试 504 项通过、13 项跳过（修复前 489 项），`ruff check`、`ruff format --check` 干净，前端 lint 只有原有的警告，重新构建的产物与已提交的一致。真实 Docker 测试**没有运行**：本机 Docker 已改为 rootless，该守护进程没有配置代理、镜像库为空，`docker pull ubuntu:22.04` 超时。网络收紧的修复只在 Harbor 的策略解析层面验证（用锁定的 Harbor 0.24.0 计算每一步的生效策略），没有在真实容器里验证；rootless 下出口控制 sidecar 的 nftables、`host-gateway` 与资源限制是否照常工作，同样未验证。
 
+**补充（同日，rootless Docker 上的真实测试）：** 配好 rootless 守护进程的代理后，真实 Docker 测试在 rootless Docker 29.9.2（RootlessKit 3.3.0，slirp4netns）上 9 项通过、2 项真实模型冒烟按设计跳过，跑前跑后镜像、容器、网络、卷逐项相同。其中包括 Terminus-2 模型运行的 Agent 与验证阶段断网、Oracle 对照能出网，以及附件在每个试次容器里安装，所以 rootless 下出口控制 sidecar 的 nftables 收紧照常生效。附件用例核对容器挂载的白名单补上了 rootless 的标准挂载：设备节点从宿主机绑定挂载（用户命名空间里不能新建），`/proc/keys` 等由 `/dev/null` 遮蔽。资源限制仍未专门验证。
+
 **需要用户决定，未改：**
 
 - 成员能否在新运行里指定模型配置的旧修订（`model_revision`）。现在可以，管理员换掉的旧地址或参数仍能被新运行使用，只要旧凭据还启用；收紧的做法是只有重跑和修改后运行能沿用来源的修订。
