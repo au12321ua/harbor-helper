@@ -40,8 +40,8 @@ jobs:
           cd runner && uv sync --locked
       - name: Lint
         run: |
-          uv run ruff check src tests runner/src sdk tools
-          uv run ruff format --check src/maestro tests/maestro runner/src sdk/src tools
+          uv run ruff check src tests runner/src tools sdk/src
+          uv run ruff format --check src/maestro tests/maestro runner/src tools sdk/src
       - name: OpenAPI contract and SDK models are current
         run: uv run python tools/generate_clients.py --check
       - name: Markdown links
