@@ -88,7 +88,16 @@ def check_template(template) -> dict:
     if unknown:
         raise _validation([FieldError(f"/template/{k}", "UNKNOWN_FIELD") for k in unknown])
     template = {k: v for k, v in template.items() if v is not None}
-    agent = any(k in template for k in ("model_config_id", "harness_version_id", "attachments"))
+    agent = any(
+        k in template
+        for k in (
+            "model_config_id",
+            "model_revision",
+            "harness_version_id",
+            "harness_params",
+            "attachments",
+        )
+    )
     probe = {
         "dataset_version_id": "-",
         "execution_mode": "agent" if agent else "oracle",
@@ -124,13 +133,15 @@ def check_request(body: dict) -> dict:
     task_ids = selection.get("task_ids") if isinstance(selection, dict) else None
     if mode not in {"all_eligible", "explicit"}:
         errors.append(FieldError("/task_selection/mode", "ENUM"))
-    elif mode == "explicit" and (
+    elif (mode == "explicit" or task_ids is not None) and (
         not isinstance(task_ids, list)
         or not task_ids
         or not all(isinstance(x, str) for x in task_ids)
         or len(set(task_ids)) != len(task_ids)
     ):
         errors.append(FieldError("/task_selection/task_ids", "INVALID"))
+    if mode != "explicit":
+        task_ids = None
     execution_mode = body.get("execution_mode")
     if execution_mode not in EXECUTION_MODES:
         errors.append(FieldError("/execution_mode", "ENUM", "agent or oracle"))
@@ -595,16 +606,17 @@ class Resolver:
             .first()
         )
         path = "/model_config_id"
-        if row is None:
-            found = "Model configuration" + (f" revision {revision}" if revision else "")
-            res.blockers.append(Blocker("NOT_FOUND", path, f"{found} not found"))
-            return None
+        # Before the row: a purged configuration has lost its revisions too.
         if deleted.state(conn, "model_config", config_id):
             res.blockers.append(
                 Blocker(
                     "DELETED", path, "Model configuration was deleted", error="CONFIG_UNAVAILABLE"
                 )
             )
+            return None
+        if row is None:
+            found = "Model configuration" + (f" revision {revision}" if revision else "")
+            res.blockers.append(Blocker("NOT_FOUND", path, f"{found} not found"))
             return None
         if not row["enabled"]:
             res.blockers.append(

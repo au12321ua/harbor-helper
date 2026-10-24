@@ -73,6 +73,7 @@ ACTION_CANCEL = "runs.cancel"
 ACTION_RERUN = "runs.rerun"
 ACTION_BATCH = "runs.submit_batch"
 RERUN_MODES = ("all", "unfinished", "explicit")
+RUN_FIELDS = {"name", "client_request_id", "resolution_id", "source_run_id"}
 __all__ = ["EXECUTION_MODES", "Runs"]
 
 
@@ -93,6 +94,12 @@ def _check_run_fields(body: dict) -> dict:
     source_run_id = body.get("source_run_id")
     if source_run_id is not None and not isinstance(source_run_id, str):
         errors.append(FieldError("/source_run_id", "TYPE"))
+    if resolution_id is not None:
+        # The resolution fixed the configuration; a field beside it would be ignored.
+        errors += [
+            FieldError(f"/{field}", "NOT_ALLOWED", "already fixed by resolution_id")
+            for field in sorted(set(body) - RUN_FIELDS)
+        ]
     if errors:
         raise MaestroError(
             "CONFIG_VALIDATION_FAILED",
@@ -361,14 +368,9 @@ class Runs:
         require_experiment(principal)
         key = idempotency.check_key(idempotency_key)
         run = _check_run_fields(body)
-        if run["resolution_id"]:
-            request = None
-            hashed = run
-        else:
-            with self.db.read() as conn:
-                request = check_request(Plans.apply(conn, body))
-            hashed = {**request, **run}
-        req_hash = idempotency.request_hash(hashed)
+        # The request as sent: a retry finds its answer even after the plan, the team
+        # policy or the source run changed since.
+        req_hash = idempotency.request_hash(body)
         with self.db.read() as conn:
             stored = idempotency.lookup(
                 conn, principal.idempotency_principal, ACTION_SUBMIT, key, req_hash
@@ -379,10 +381,10 @@ class Runs:
             self.disk.refuse_if_low()
         # Resolve outside the write transaction; revisions are re-checked inside.
         with self.db.read() as conn:
-            if request is None:
+            if run["resolution_id"]:
                 res = self._confirmed(conn, principal, run["resolution_id"])
             else:
-                res = self.resolver.resolve(conn, request)
+                res = self.resolver.resolve(conn, check_request(Plans.apply(conn, body)))
                 res.raise_if_blocked()
         source = None
         if run["source_run_id"]:
@@ -402,6 +404,8 @@ class Runs:
                 return stored.status_code, stored.response, True
             self._recheck_principal(conn, principal)
             self._recheck(conn, res)
+            if source:
+                self._source(conn, source["run_id"])
             if principal.channel == Channel.PAT:
                 self._charge_pat(conn, principal.pat_id)
             response = self._insert_run(conn, principal, run, res, source)
@@ -479,6 +483,15 @@ class Runs:
                 422,
                 field_errors=[FieldError("/task_selection/mode", "ENUM", ", ".join(RERUN_MODES))],
             )
+        req_hash = idempotency.request_hash({"source_run_id": run_id, **body})
+        with self.db.read() as conn:
+            stored = idempotency.lookup(
+                conn, principal.idempotency_principal, ACTION_RERUN, key, req_hash
+            )
+        if stored:
+            return stored.status_code, stored.response, True
+        if self.disk:
+            self.disk.refuse_if_low()
         with self.db.read() as conn:
             source = self._source(conn, run_id)
             trials = conn.execute(
@@ -532,13 +545,7 @@ class Runs:
         )
         request = pinned_request(source["request"], source["effective"])
         request["task_selection"] = {"mode": "explicit", "task_ids": sorted(chosen)}
-        req_hash = idempotency.request_hash({"source_run_id": run_id, **request, **run})
         with self.db.read() as conn:
-            stored = idempotency.lookup(
-                conn, principal.idempotency_principal, ACTION_RERUN, key, req_hash
-            )
-            if stored:
-                return stored.status_code, stored.response, True
             res = self.resolver.resolve(conn, request)
         res.raise_if_blocked()
         keys = {x["task_key"] for x in res.tasks}
@@ -615,6 +622,13 @@ class Runs:
             raise MaestroError(
                 "CONFIG_VALIDATION_FAILED", "Invalid batch request", 422, field_errors=errors
             )
+        req_hash = idempotency.request_hash(body)
+        with self.db.read() as conn:
+            stored = idempotency.lookup(
+                conn, principal.idempotency_principal, ACTION_BATCH, key, req_hash
+            )
+        if stored:
+            return stored.status_code, stored.response, True
         with self.db.read() as conn:
             team = policy.current(conn)
         if len(items) > team.batch_max_runs:
@@ -634,19 +648,6 @@ class Runs:
                     with self.db.read() as conn:
                         request = check_request(Plans.apply(conn, item))
             prepared.append((run, request))
-        req_hash = idempotency.request_hash(
-            {
-                "name": name.strip(),
-                "client_request_id": client_request_id,
-                "runs": [{**(request or {}), **run} for run, request in prepared],
-            }
-        )
-        with self.db.read() as conn:
-            stored = idempotency.lookup(
-                conn, principal.idempotency_principal, ACTION_BATCH, key, req_hash
-            )
-        if stored:
-            return stored.status_code, stored.response, True
         if self.disk:
             self.disk.refuse_if_low()
         members = []
@@ -678,9 +679,11 @@ class Runs:
             if stored:
                 return stored.status_code, stored.response, True
             self._recheck_principal(conn, principal)
-            for index, (_, res, _) in enumerate(members):
+            for index, (_, res, source) in enumerate(members):
                 with _prefixed(f"/runs/{index}"):
                     self._recheck(conn, res)
+                    if source:
+                        self._source(conn, source["run_id"])
             if principal.channel == Channel.PAT:
                 self._charge_pat(conn, principal.pat_id, len(members))
             batch_id = new_id("bat")
@@ -1286,10 +1289,12 @@ class Runs:
         members = conn.execute(
             runs_with_owner().where(t.runs.c.batch_id == row["id"]).order_by(t.runs.c.id)
         ).mappings()
+        members = list(members)
+        marks = run_deletions(conn, members)
         runs = []
         for member in members:
             counts, _ = run_counts(conn, member["id"])
-            runs.append(public_run(member, counts, principal))
+            runs.append(public_run(member, counts, principal, None, marks[member["id"]]))
         operation = (
             conn.execute(select(t.operations).where(t.operations.c.id == row["operation_id"]))
             .mappings()
@@ -1347,7 +1352,13 @@ class Runs:
         with self.db.write() as conn:
             row = self._batch_row(conn, batch_id)
             require_manage_owned(principal, row["owner_id"])
-            if not row["stop_requested"]:
+            open_ = conn.execute(
+                select(t.runs.c.id).where(
+                    t.runs.c.batch_id == batch_id,
+                    t.runs.c.state.not_in([x.value for x in RUN_TERMINAL]),
+                )
+            ).first()
+            if open_ and not row["stop_requested"]:
                 reason = (
                     "USER_CANCELLED" if row["owner_id"] == principal.user_id else "ADMIN_CANCELLED"
                 )
@@ -1423,6 +1434,8 @@ def batch_progress(runs: list, planned_trials: int) -> dict:
         "finished": states.count(RunState.FINISHED),
         "cancelled": states.count(RunState.CANCELLED),
         "interrupted": states.count(RunState.INTERRUPTED),
+        # Members in the recycle bin or purged; a purged run no longer counts trials.
+        "deleted_runs": sum(r.get("deletion") is not None for r in runs),
         "planned_trials": planned_trials,
         "scored_trials": sum(r["counts"]["scored"] for r in runs),
         "error_trials": sum(r["counts"]["errors"] for r in runs),

@@ -149,7 +149,21 @@ class Attachments:
                     )
                 ).first()
                 if existing is not None:
+                    if deleted.state(conn, "attachment_version", existing.id):
+                        raise MaestroError(
+                            "ATTACHMENT_DELETED",
+                            "This name and version are in the recycle bin; restore them, or "
+                            "publish a new version",
+                            409,
+                            field_errors=[FieldError("/manifest/version", "DELETED")],
+                            suggested_actions=[
+                                {"type": "restore", "attachment_id": existing.id},
+                                {"type": "publish_new_version"},
+                            ],
+                        )
                     if existing.content_digest == package.content_digest:
+                        # Publishing again repairs a stored copy that went missing.
+                        self.store.publish(package)
                         attachment_id = existing.id
                         created = False
                     else:
