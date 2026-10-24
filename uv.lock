@@ -399,7 +399,7 @@ wheels = [
 
 [[package]]
 name = "maestro"
-version = "0.3.0.dev0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -446,7 +446,7 @@ dev = [
 
 [[package]]
 name = "maestro-sdk"
-version = "0.3.0.dev0"
+version = "0.3.0"
 source = { editable = "sdk" }
 dependencies = [
     { name = "httpx" },
