@@ -94,3 +94,50 @@ def test_owner_cannot_be_forged_through_request_fields(service, version_id):
         admin_id = admin.get("/api/v1/me").json()["data"]["id"]
         response = submit(alice, version_id, owner_id=admin_id)
         assert response.status_code == 422  # unknown fields are rejected, not trusted
+
+
+def admin_routes():
+    """Every administrator route: the /admin tree plus searching the external source (U-20).
+
+    Walks the routers the app includes (``routes.routers``), whose routes carry their
+    router-level dependencies.
+    """
+    from maestro.api import routes
+
+    found = []
+    for router in routes.routers():
+        for route in router.routes:
+            if route.path.startswith(("/api/v1/admin/", "/api/v1/dataset-search")):
+                found += [(method, route) for method in sorted(route.methods - {"HEAD"})]
+    return found
+
+
+def test_every_admin_route_carries_the_route_level_guard():
+    """A new administrator route cannot rely on its service remembering the check."""
+    from maestro.api.deps import admin_session
+
+    routes = admin_routes()
+    assert len(routes) > 40
+    for method, route in routes:
+        guards = [d.call for d in route.dependant.dependencies]
+        assert admin_session in guards, f"{method} {route.path} lacks admin_session"
+
+
+def test_every_admin_route_refuses_members_and_pats(service):
+    with running(service, run_worker=False) as client:
+        admin = setup_admin(service, client)
+        member = invite_member(service, admin, "alice")
+        pats = (create_pat(admin, "experiment"), create_pat(admin, "read"))
+        for method, route in admin_routes():
+            # Placeholder ids and an empty body: the guard runs before either is read.
+            path = route.path.replace("{", "").replace("}", "")
+            response = member.request(method, path, json={})
+            assert (response.status_code, response.json()["error"]["code"]) == (
+                403,
+                "FORBIDDEN",
+            ), f"{method} {route.path}"
+            for pat in pats:
+                response = pat.request(method, path, json={})
+                assert response.json()["error"]["code"] == "ADMIN_SESSION_REQUIRED", (
+                    f"{method} {route.path}"
+                )

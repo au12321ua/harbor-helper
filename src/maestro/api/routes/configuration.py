@@ -6,7 +6,7 @@ session. Resolution is the step before submission that web and SDK share (03).
 
 from fastapi import APIRouter, Depends, Request
 
-from maestro.api.deps import maestro, ok, principal
+from maestro.api.deps import admin_session, maestro, ok, principal
 from maestro.api.models import (
     ConfigRequest,
     ConfigResolution,
@@ -27,6 +27,7 @@ from maestro.api.models import (
 from maestro.services.principal import Principal, require_admin_session
 
 router = APIRouter(prefix="/api/v1", tags=["configuration"])
+ADMIN = [Depends(admin_session)]
 
 
 # --- reading ----------------------------------------------------------------------------
@@ -85,7 +86,10 @@ def get_resolution(resolution_id: str, request: Request, who: Principal = Depend
 
 
 @router.get(
-    "/admin/harness-adapters", response_model=Envelope[list[HarnessAdapter]], tags=["admin"]
+    "/admin/harness-adapters",
+    response_model=Envelope[list[HarnessAdapter]],
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def list_adapters(request: Request, who: Principal = Depends(principal)):
     require_admin_session(who)
@@ -93,14 +97,21 @@ def list_adapters(request: Request, who: Principal = Depends(principal)):
 
 
 @router.post(
-    "/admin/model-configs", response_model=Envelope[ModelConfig], status_code=201, tags=["admin"]
+    "/admin/model-configs",
+    response_model=Envelope[ModelConfig],
+    status_code=201,
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def create_model(body: ModelConfigCreate, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).models.create_model(who, body.model_dump()))
 
 
 @router.put(
-    "/admin/model-configs/{config_id}", response_model=Envelope[ModelConfig], tags=["admin"]
+    "/admin/model-configs/{config_id}",
+    response_model=Envelope[ModelConfig],
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def revise_model(
     config_id: str, body: ModelConfigRevise, request: Request, who: Principal = Depends(principal)
@@ -112,7 +123,10 @@ def revise_model(
 
 
 @router.post(
-    "/admin/model-configs/{config_id}/enabled", response_model=Envelope[ModelConfig], tags=["admin"]
+    "/admin/model-configs/{config_id}/enabled",
+    response_model=Envelope[ModelConfig],
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def model_enabled(
     config_id: str, body: EnabledChange, request: Request, who: Principal = Depends(principal)
@@ -121,21 +135,31 @@ def model_enabled(
 
 
 @router.delete(
-    "/admin/model-configs/{config_id}", response_model=Envelope[RecycleEntry], tags=["admin"]
+    "/admin/model-configs/{config_id}",
+    response_model=Envelope[RecycleEntry],
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def delete_model(config_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).recycle.delete(who, "model_config", config_id))
 
 
 @router.post(
-    "/admin/harness-versions", response_model=Envelope[Harness], status_code=201, tags=["admin"]
+    "/admin/harness-versions",
+    response_model=Envelope[Harness],
+    status_code=201,
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def create_harness(body: HarnessCreate, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).models.create_harness(who, body.model_dump()))
 
 
 @router.post(
-    "/admin/harness-versions/{harness_id}/enabled", response_model=Envelope[Harness], tags=["admin"]
+    "/admin/harness-versions/{harness_id}/enabled",
+    response_model=Envelope[Harness],
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def harness_enabled(
     harness_id: str, body: EnabledChange, request: Request, who: Principal = Depends(principal)
@@ -144,7 +168,10 @@ def harness_enabled(
 
 
 @router.delete(
-    "/admin/harness-versions/{harness_id}", response_model=Envelope[RecycleEntry], tags=["admin"]
+    "/admin/harness-versions/{harness_id}",
+    response_model=Envelope[RecycleEntry],
+    tags=["admin"],
+    dependencies=ADMIN,
 )
 def delete_harness(harness_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).recycle.delete(who, "harness_version", harness_id))
@@ -154,12 +181,15 @@ def delete_harness(harness_id: str, request: Request, who: Principal = Depends(p
     "/admin/team-policy/revisions",
     response_model=Envelope[list[TeamPolicyRevision]],
     tags=["admin"],
+    dependencies=ADMIN,
 )
 def list_policy_revisions(request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).policies.history(who))
 
 
-@router.put("/admin/team-policy", response_model=Envelope[TeamPolicy], tags=["admin"])
+@router.put(
+    "/admin/team-policy", response_model=Envelope[TeamPolicy], tags=["admin"], dependencies=ADMIN
+)
 def update_policy(body: TeamPolicyUpdate, request: Request, who: Principal = Depends(principal)):
     """Change some settings; a new revision takes effect for new work at once."""
     return ok(

@@ -4,7 +4,7 @@ deletion of team objects and the recycle bin."""
 
 from fastapi import APIRouter, Depends, Request
 
-from maestro.api.deps import maestro, ok, principal
+from maestro.api.deps import admin_session, maestro, ok, principal
 from maestro.api.models import (
     AdmissionRevocation,
     AdmissionRevoked,
@@ -35,7 +35,7 @@ from maestro.domain.states import Role, UserStatus
 from maestro.services import audit_queries
 from maestro.services.principal import Principal
 
-router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(admin_session)])
 
 
 @router.get("/members", response_model=Envelope[list[User]])

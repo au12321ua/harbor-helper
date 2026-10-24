@@ -7,7 +7,7 @@ needs an administrator's web session like the rest of ``admin``.
 
 from fastapi import APIRouter, Depends, Request
 
-from maestro.api.deps import maestro, ok, principal
+from maestro.api.deps import admin_session, maestro, ok, principal
 from maestro.api.models import (
     Dataset,
     DatasetSource,
@@ -22,6 +22,7 @@ from maestro.api.models import (
 from maestro.services.principal import Principal
 
 router = APIRouter(prefix="/api/v1", tags=["catalog"])
+ADMIN = [Depends(admin_session)]
 
 
 @router.get("/dataset-sources", response_model=Envelope[list[DatasetSource]])
@@ -29,7 +30,7 @@ def list_sources(request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).datasets.source_list())
 
 
-@router.get("/dataset-search", response_model=Envelope[list[SourceDataset]])
+@router.get("/dataset-search", response_model=Envelope[list[SourceDataset]], dependencies=ADMIN)
 async def search_source(
     request: Request,
     q: str,
@@ -40,7 +41,9 @@ async def search_source(
     return ok(request, await maestro(request).datasets.search(who, source_kind, q, credential_id))
 
 
-@router.get("/dataset-search/versions", response_model=Envelope[list[SourceVersion]])
+@router.get(
+    "/dataset-search/versions", response_model=Envelope[list[SourceVersion]], dependencies=ADMIN
+)
 async def source_versions(
     request: Request,
     namespace: str,
@@ -53,7 +56,9 @@ async def source_versions(
     return ok(request, await service.versions(who, source_kind, namespace, name, credential_id))
 
 
-@router.get("/dataset-search/version", response_model=Envelope[SourceVersionDetail])
+@router.get(
+    "/dataset-search/version", response_model=Envelope[SourceVersionDetail], dependencies=ADMIN
+)
 async def source_version(
     request: Request,
     namespace: str,

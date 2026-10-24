@@ -6,14 +6,14 @@ per-session CSRF header on unsafe methods. PATs never receive admin rights.
 
 import secrets
 
-from fastapi import Request, Response
+from fastapi import Depends, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import TypeAdapter
 
 from maestro.application import Maestro
 from maestro.core.errors import MaestroError
 from maestro.security import tokens
-from maestro.services.principal import Principal
+from maestro.services.principal import Principal, require_admin_session
 
 COOKIE = "maestro_session"
 CSRF_HEADER = "X-CSRF-Token"
@@ -49,6 +49,16 @@ def principal(request: Request) -> Principal:
         if not sent or not tokens.same(sent, tokens.csrf_for(cookie)):
             raise MaestroError("CSRF_FAILED", "Missing or invalid CSRF token", 403)
     return found
+
+
+def admin_session(who: Principal = Depends(principal)) -> Principal:
+    """Route-level guard for every administrator route, so a new one cannot miss the check.
+
+    The services still check for themselves; this makes the boundary visible per route
+    and lets a test walk the routes (test_permissions).
+    """
+    require_admin_session(who)
+    return who
 
 
 def set_session_cookie(response: Response, service: Maestro, token: str) -> None:
