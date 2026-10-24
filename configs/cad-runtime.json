@@ -1,6 +1,0 @@
-{
-  "cadir_commit": "4b9e9f67087237d1f3d5d2734e516e55dc81c9c8",
-  "cadir_version": "2.1.4",
-  "base_image": "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a",
-  "image_name": "harbor-helper/cad-runtime"
-}
