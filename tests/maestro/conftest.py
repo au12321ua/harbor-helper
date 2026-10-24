@@ -20,12 +20,15 @@ def settings(tmp_path):
     data, cache, keys = tmp_path / "data", tmp_path / "cache", tmp_path / "keys"
     for path in (data, cache, keys):
         path.mkdir(mode=0o700)
-    # Watermarks off: tests must not depend on the host's free space (test_disk sets them).
+    # Watermarks off and capacity fixed: tests must not depend on the host's free space,
+    # cores or memory (test_disk and test_capacity set their own).
     return Settings(
         data_dir=data,
         cache_dir=cache,
         master_key_dir=keys,
         cookie_secure=False,
+        execution_cpus=64,
+        execution_memory_mb=1 << 20,
         storage_accept_min_free_gb=0,
         storage_accept_min_free_percent=0,
         storage_dispatch_min_free_gb=0,
