@@ -12,10 +12,10 @@
 ## 代码
 
 - [源码职责](architecture/source-layout.md)：新 `maestro` 包的分工与尚未重写的基线模块。
-- [前端开发](../frontend/README.md)。
-- 公开 API 由服务导出：运行中的服务在 `/api/v1/openapi.json`，离线用 `maestro openapi`。
+- [前端开发](../frontend/README.md)、[Python SDK](../sdk/README.md)。
+- 公开 API 的受控副本是 `openapi/maestro-v1.json`（运行中的服务在 `/api/v1/openapi.json`，离线用 `maestro openapi`）；网页类型与 SDK 模型从它生成。
 
-以下文档描述 `9ff43b5` 基线功能，相应代码已删除或待重写，仅供移植时参考：[团队附件版本](guides/attachments.md)、[研究客户端 skill](guides/research-skill.md)。基线的 Web 服务指南与机器 API 文档已随基线服务在 M2 删除。
+基线的 Web 服务指南、机器 API 文档、研究客户端 skill 与附件说明已删除，需要时查 `9ff43b5`。
 
 ## 开发协作
 

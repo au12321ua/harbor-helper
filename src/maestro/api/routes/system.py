@@ -13,6 +13,12 @@ from maestro.services.runs import EXECUTION_MODES
 router = APIRouter()
 
 
+def contract_digest(app) -> str:
+    """Digest of this service's OpenAPI document; the SDK compares it with its own."""
+    app.openapi()
+    return app.state.contract_digest
+
+
 def readiness(request: Request) -> dict:
     service = maestro(request)
     schema = service.schema_state()
@@ -66,6 +72,7 @@ def capabilities(request: Request):
             "api_version": "v1",
             "service_version": __version__,
             "schema_revision": service.schema_state()["head"],
+            "contract_digest": contract_digest(request.app),
             "features": {
                 "runs": True,
                 "execution": service.executor is not None,

@@ -6,7 +6,9 @@ Maestro 让受邀的可信团队通过网页和 SDK 提交、观察、比较和�
 
 ## 当前状态
 
-已有地基（M2）：数据库与迁移、账户 / 邀请 / 会话 / PAT、凭据与主密钥轮换、受理事务与幂等、Operation 与审计、运行级 Worker 与四个边界的测试替身、公开 OpenAPI 和最简网页；Harbor 执行内核（M3）；结果与产物（M6）：评分汇总与覆盖率、产物到期回收、批量导出、两步删除与回收站；数据集与准备（M4）：Hub 数据源、管理员导入与首次准备、共享缓存恢复。配置解析、模型 Agent 与附件（M5）、SDK（M7）和系统级部署（M8）尚未实现，目前只能用 Oracle 测试模式执行，见[实施计划](docs/design/13-testing-plan.md)第 2 节。
+已实现：地基（M2）、Harbor 执行内核（M3）、数据集与准备（M4）、配置与提交（M5：分层配置、模型 Agent 与 Terminus-2 / OpenCode、附件、重跑、实验方案与批次）、结果与产物（M6）、SDK 与网页（M7）。系统级部署与整体替换（M8）尚未完成，见[实施计划](docs/design/13-testing-plan.md)第 2 节。
+
+Agent 或脚本用 [Python SDK](sdk/README.md)：`pip install ./sdk`，在网页“设置”页创建 PAT 后即可解析配置、提交、等待和下载结果，不需要登录服务器。
 
 ## 本机试用
 
@@ -38,7 +40,7 @@ uv run maestro --config "$root/config.toml" dev-local-dataset oracle tests/maest
 uv run maestro --config "$root/config.toml" serve --port 8420
 ```
 
-`dev-local-dataset` 是开发用的隐藏命令：在服务停止时把本地任务目录当作数据源，走一遍与 Hub 相同的导入和首次准备（真实 Docker 构建并保存原件）。正式使用时，管理员在“数据集”页从 Hub 搜索并添加版本；Hub 访问需要网络，私有数据集需要在管理页添加 `hub_token` 凭据并在添加时选择。目前只有 Oracle 测试模式：执行任务自带的参考解法，不调用模型。运行页能看到每个试次的步骤、耗时和实时日志。
+`dev-local-dataset` 是开发用的隐藏命令：在服务停止时把本地任务目录当作数据源，走一遍与 Hub 相同的导入和首次准备（真实 Docker 构建并保存原件）。正式使用时，管理员在“数据集”页从 Hub 搜索并添加版本；Hub 访问需要网络，私有数据集需要在管理页添加 `hub_token` 凭据并在添加时选择。这里用的是 Oracle 测试模式：执行任务自带的参考解法，不调用模型；模型运行需要管理员先在管理页添加模型凭据、模型配置与 Harness 版本。运行页能看到每个试次的步骤、耗时和实时日志。
 
 `cookie_secure = false` 只用于本机 HTTP；对外部署由反向代理提供 HTTPS，并保持默认的 `true`。
 
@@ -55,9 +57,9 @@ uv run maestro --config "$root/config.toml" serve --port 8420
 | `restore_slots` / `hub_runner_slots` | 2 / 4 | 同时进行的准备或恢复数；同时运行的 Hub 检索与下载进程数 |
 | `runner_heartbeat_sec` / `runner_silence_sec` | 10 / 120 | Runner 的心跳间隔，以及多久没有任何动静就视为失联；归档很大的目录会阻塞心跳，在慢盘上调大归档上限时请同时调大静默时限 |
 
-实际生效的值可在 `/api/v1/capabilities` 的 `limits` 里查到。PAT 期限、单次运行的规模、保留天数等团队策略目前是固定值，随 M5 移入数据库由管理员在网页上调整。
+实际生效的值可在 `/api/v1/capabilities` 的 `limits` 里查到。PAT 期限、单次运行的规模、保留天数等团队策略在数据库里按修订保存，由管理员在网页“管理 → 团队策略”调整。
 
 ## 文档
 
 - [文档导航](docs/README.md)、[开发交接](docs/HANDOFF.md)、[源码职责](docs/architecture/source-layout.md)。
-- 公开 API：服务的 `/api/v1/openapi.json`，或离线 `uv run maestro openapi`。
+- 公开 API：受控副本 `openapi/maestro-v1.json`；运行中的服务在 `/api/v1/openapi.json`，离线 `uv run maestro openapi`。

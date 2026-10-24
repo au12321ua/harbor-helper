@@ -187,21 +187,20 @@ status 为 accepted、running、succeeded、failed、cancelled、interrupted。f
 
 建议轮询初始间隔 1 秒，逐步到 5 秒，遵守 Retry-After 并加抖动；wait 的客户端超时不取消服务端操作。断线后使用 operation_id 或 client_request_id 接续，不依赖 SDK 内存保存唯一身份。
 
-以下为拟议 Python SDK 用法，用于说明接口目标：
+Python SDK 在仓库 `sdk/`（包 `maestro_sdk`，M7 实现，用法见 `sdk/README.md`）：
 
 ~~~python
-client = MaestroClient(base_url=service_url, token=pat)
-caps = client.capabilities.get()
-resolved = client.configurations.resolve(configuration)
-resolved.raise_for_blockers()
-accepted = client.runs.submit(
-    resolution_id=resolved.id,
-    expected_config_digest=resolved.config_digest,
-    idempotency_key=request_key,
+client = MaestroClient(service_url, token=pat)
+client.require("runs", "execution")          # 不支持时抛 UNSUPPORTED_CAPABILITY
+resolved = client.configs.resolve(configuration).raise_for_blockers()
+submitted = client.runs.submit(
+    name="baseline",
+    resolution_id=resolved.resolution_id,     # 生效配置变了返回 409 CONFIG_RESOLUTION_STALE
+    idempotency_key=request_key,              # 省略时自动生成，结果里带回
 )
-operation = client.operations.wait(accepted.operation_id, timeout=3600)
-run = client.runs.get(accepted.run_id)
-client.artifacts.download_available(run.id, destination=local_directory)
+operation = client.operations.wait(submitted.operation_id, timeout=3600)
+run = client.runs.get(submitted.run_id)
+client.runs.download_artifacts(run.id, local_directory)
 ~~~
 
 SDK 类型区分 None、0、未知用量、已清理产物。下载校验摘要、支持断点或安全重试；默认不自动重提运行。兼容不匹配时先报 UNSUPPORTED_CAPABILITY，不能尝试猜测字段。

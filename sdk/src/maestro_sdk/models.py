@@ -144,6 +144,12 @@ class Capabilities(BaseModel):
     actions: dict[str, dict[str, Any]]
     api_version: str
     auth: dict[str, Any]
+    contract_digest: Annotated[
+        str,
+        Field(
+            description="sha256 of the OpenAPI document; clients generated from another one warn"
+        ),
+    ]
     execution: dict[str, Any]
     features: dict[str, bool]
     limits: dict[str, int]
@@ -347,6 +353,16 @@ class ExportRequest(BaseModel):
     include_artifacts: bool
     run_ids: list[str]
     task_keys: list[str] | None
+
+
+class FieldErrorModel(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    limit: int | float | None = None
+    message: str | None = None
+    path: str
 
 
 class FirstPreparation(BaseModel):
@@ -1724,6 +1740,26 @@ class EnvelopeListUser(BaseModel):
         extra="allow",
     )
     data: list[User]
+    meta: Meta
+
+
+class ErrorBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    field_errors: Annotated[list[FieldErrorModel] | None, Field(validate_default=True)] = []
+    message: str
+    retryable: bool | None = False
+    stage: str | None = None
+    suggested_actions: list[dict[str, Any]] | None = []
+
+
+class ErrorResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    error: ErrorBody
     meta: Meta
 
 

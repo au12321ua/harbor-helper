@@ -19,8 +19,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from maestro import __version__
 from maestro.api import routes
 from maestro.api.deps import new_request_id
+from maestro.api.models import ErrorResponse
 from maestro.application import Maestro
 from maestro.core import context
+from maestro.core.digests import digest_json as digest
 from maestro.core.errors import MaestroError
 
 log = logging.getLogger(__name__)
@@ -73,6 +75,10 @@ def public_openapi(app: FastAPI) -> dict:
     schemas = document["components"]["schemas"]
     for name in ("HTTPValidationError", "ValidationError"):
         schemas.pop(name, None)
+    # No route returns the error envelope as its response model; add it and its parts.
+    error_schema = ErrorResponse.model_json_schema(ref_template="#/components/schemas/{model}")
+    schemas.update(error_schema.pop("$defs", {}))
+    schemas["ErrorResponse"] = error_schema
     error = {
         "description": "Structured error",
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
@@ -86,6 +92,7 @@ def public_openapi(app: FastAPI) -> dict:
             operation["responses"].pop("422", None)
             operation["responses"]["default"] = error
     app.openapi_schema = document
+    app.state.contract_digest = digest(document)
     return document
 
 

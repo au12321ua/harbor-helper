@@ -1,6 +1,6 @@
 # 源码职责
 
-重写中的新代码在 `src/maestro/`；`src/harbor_helper/` 只剩尚未重写、留待后续里程碑移植的基线模块。前端源码在 `frontend/`，构建到 `src/maestro/static/`。本页描述当前代码的分工，不约束设计；设计以 [重写目标设计](../design/README.md) 为准。
+重写中的新代码在 `src/maestro/`，Python SDK 在 `sdk/`（单独的包 `maestro_sdk`）。前端源码在 `frontend/`，构建到 `src/maestro/static/`。本页描述当前代码的分工，不约束设计；设计以 [重写目标设计](../design/README.md) 为准。
 
 ## Maestro（新代码）
 
@@ -16,13 +16,16 @@
 | 执行 | `execution/` | 模型协议、Harness 参数与配置中秘密的检查（`agents.py`）；Harbor 执行器（启动 Runner 子进程、解析协议、上传产物）、平台错误策略与 Harbor 0.24.0 异常映射、Runner 进程身份、按标签清理 Docker；Hub 数据源（经 Runner，`hub.py`）；Docker 准备环境（可复现构建或固定拉取、导出原件、载入或重建并核对镜像 ID，`preparation.py`）；附件包的解包检查、内容摘要与按摘要存放（`attachments.py`）；按上游摘要存放并按材料摘要校验的任务材料、任务检查与作者参数发现、准备规格，以及开发用本地任务来源（`materials.py`） |
 | Runner | 仓库根目录 `runner/` | 单独的 uv 项目，锁定 Harbor；一个运行对应一个 Harbor Job，经 stdout 的 JSON 行协议上报步骤、日志和每次尝试的结果；模型 Harness 适配器与附件安装（`agents.py`）、平台网络收紧（`network.py`）；另有 Hub 目录命令（搜索、版本、解析、按 digest 下载并核对，`hub.py`） |
 | 测试替身 | `testing/fakes.py` | 四个边界的假实现，供测试和 `serve --demo-executor` 演示 |
-| HTTP | `api/` | FastAPI 应用、`{data, meta}` 外壳与结构化错误、会话 cookie + CSRF 与 PAT Bearer 认证、路由、公开模型、OpenAPI 导出 |
+| HTTP | `api/` | FastAPI 应用、`{data, meta}` 外壳与结构化错误、会话 cookie + CSRF 与 PAT Bearer 认证、路由（处理函数名即 OpenAPI 的 operationId）、公开模型、OpenAPI 导出 |
 
-## 尚未重写的基线模块
+## 契约与客户端
 
-| 位置 | 内容 | 预计由谁替换 |
+| 板块 | 位置 | 职责 |
 | --- | --- | --- |
-| `harbor_helper/execution/config.py` | 旧团队配置与模型参数校验（秘密检查已移植到 `execution/agents.py`） | M5 第二段 |
-| `harbor_helper/security/`、`persistence/files.py` | 旧凭据、脱敏与文件工具 | 随上述模块一并删除 |
+| 公开契约 | `openapi/maestro-v1.json` | 由服务导出、受版本控制的 OpenAPI；网页类型与 SDK 模型都从它生成，服务在 `/capabilities` 报告它的摘要 |
+| 生成 | `tools/generate_clients.py` | 导出契约并生成 SDK 的 `models.py` 与 `_contract.py`；`--check` 只比较。网页类型在 `frontend/` 用 `npm run gen:api` / `check:api` |
+| Python SDK | `sdk/` | 单独的包 `maestro_sdk`（只依赖 httpx 与 pydantic）：生成的模型，以及手写的认证、幂等提交与重试、翻页、等待、核对摘要的下载（`client.py`）、错误类型（`errors.py`）。用法见 `sdk/README.md` |
 
-基线的 HTTP 服务、JSON 状态、CLI 与本机启动脚本已在 M2 删除（见 [14](../design/14-decisions.md) 的 M2 实施记录）；需要参考时读 `9ff43b5`。
+## 基线代码
+
+基线的 HTTP 服务、JSON 状态、CLI 与本机启动脚本已在 M2 删除（见 [14](../design/14-decisions.md) 的 M2 实施记录）；剩下的旧配置与安全模块、研究客户端 skill 与基线附件说明在 M7 删除。仓库里的 `configs/`、`examples/`、`images/` 仍是基线材料，M8 处理。需要参考时读 `9ff43b5`。

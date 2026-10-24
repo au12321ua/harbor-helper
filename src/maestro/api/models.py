@@ -1142,6 +1142,9 @@ class Capabilities(Model):
     api_version: str
     service_version: str
     schema_revision: str
+    contract_digest: str = Field(
+        description="sha256 of the OpenAPI document; clients generated from another one warn"
+    )
     features: dict[str, bool]
     limits: dict[str, int]
     team_policy_revision: int

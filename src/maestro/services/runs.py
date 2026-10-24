@@ -1106,8 +1106,10 @@ class Runs:
             """Stored times have six fractional digits; compare like with like."""
             if value is None:
                 return None
+            # Whole seconds are RFC 3339 too (2026-10-24T08:00:00Z).
+            whole = value[:-1] + ".0Z" if value.endswith("Z") and "." not in value else value
             try:
-                return clock.to_text(clock.from_text(value))
+                return clock.to_text(clock.from_text(whole))
             except ValueError:
                 raise MaestroError(
                     "INVALID_TIME",

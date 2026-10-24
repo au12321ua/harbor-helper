@@ -918,6 +918,11 @@
             "title": "Auth",
             "type": "object"
           },
+          "contract_digest": {
+            "description": "sha256 of the OpenAPI document; clients generated from another one warn",
+            "title": "Contract Digest",
+            "type": "string"
+          },
           "execution": {
             "additionalProperties": true,
             "title": "Execution",
@@ -954,6 +959,7 @@
           "api_version",
           "service_version",
           "schema_revision",
+          "contract_digest",
           "features",
           "limits",
           "team_policy_revision",
@@ -3112,6 +3118,76 @@
         "title": "Envelope[list[User]]",
         "type": "object"
       },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field_errors": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FieldErrorModel"
+            },
+            "title": "Field Errors",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stage"
+          },
+          "suggested_actions": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Suggested Actions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "required": [
+          "error",
+          "meta"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "Export": {
         "additionalProperties": false,
         "properties": {
@@ -3340,6 +3416,52 @@
           "task_keys"
         ],
         "title": "ExportRequest",
+        "type": "object"
+      },
+      "FieldErrorModel": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limit"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "code"
+        ],
+        "title": "FieldErrorModel",
         "type": "object"
       },
       "FirstPreparation": {
@@ -4313,6 +4435,7 @@
                 "type": "null"
               }
             ],
+            "default": null,
             "title": "Next Cursor"
           },
           "request_id": {
