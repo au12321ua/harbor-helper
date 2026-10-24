@@ -1,0 +1,67 @@
+# Checks for the rewrite (docs/HANDOFF.md, 验证入口): lint, contract drift, Markdown links,
+# the pytest suite without Docker, Hub or model requests, and the web build.
+name: verify
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    # Host runners must never execute an external fork's code.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ vars.HH_RUNNER_LABEL || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Isolate HOME and caches
+        # A host runner may share the machine with real instances: nothing below may read
+        # or write their state, credentials or caches.
+        run: |
+          mkdir -p "$RUNNER_TEMP/home"
+          echo "HOME=$RUNNER_TEMP/home" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=${{ steps.python.outputs.python-path }}" >> "$GITHUB_ENV"
+          echo "UV_PYTHON_DOWNLOADS=never" >> "$GITHUB_ENV"
+          python -m pip install uv==0.13.5
+      - name: Service and Runner environments
+        run: |
+          uv sync --locked --group dev
+          cd runner && uv sync --locked
+      - name: Lint
+        run: |
+          uv run ruff check src tests runner/src sdk tools
+          uv run ruff format --check src/maestro tests/maestro runner/src sdk/src tools
+      - name: OpenAPI contract and SDK models are current
+        run: uv run python tools/generate_clients.py --check
+      - name: Markdown links
+        run: python tools/check_doc_links.py
+      - name: Tests
+        # Only PATH and the isolated HOME pass through, so no inherited credential or
+        # MAESTRO_* switch (Docker, Hub, real model) reaches the suite.
+        run: env -i PATH="$PATH" HOME="$HOME" UV_PYTHON="$UV_PYTHON" UV_PYTHON_DOWNLOADS=never uv run pytest -q
+      - name: Web client
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run check:api
+          npm run build
+      - name: Built pages match their sources
+        run: |
+          changed="$(git status --porcelain -- src/maestro/static)"
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            echo "src/maestro/static is out of date: run 'npm run build' in frontend/ and commit it."
+            exit 1
+          fi
