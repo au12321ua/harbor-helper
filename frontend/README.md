@@ -4,15 +4,24 @@ Vite + React + TypeScript + shadcn/ui (Radix) + Tailwind CSS。生产页面与 `
 
 ```bash
 npm ci
-npm run build   # tsc -b + vite build，输出到 ../src/maestro/static/
+npm run build      # tsc -b + vite build，输出到 ../src/maestro/static/（构建结果随源码提交）
 npm run lint
+npm run gen:api    # 由 ../openapi/maestro-v1.json 生成 src/lib/schema.d.ts
+npm run check:api  # 检查生成的类型与契约一致（CI 也会检查）
 ```
 
-开发时 `npm run dev` 把 `/api` 与 `/health` 转发到 `127.0.0.1:8420`。
+开发时 `npm run dev` 把 `/api` 与 `/health` 转发到 `127.0.0.1:8420`。契约变化后先在仓库根目录运行 `tools/generate_clients.py` 更新 `openapi/maestro-v1.json`，再运行 `gen:api`。请求函数按路径推断参数与返回类型，例如 `api.get("/runs/{run_id}", { path: { run_id } })`。
 
-页面（M2 最简页面）：初始化 / 登录 / 接受邀请与重置密码（`/invite#<token>`）、运行列表与新建运行、运行详情（四个独立状态维度、试次与执行尝试、产物下载、取消）、数据集只读目录、个人设置（改密、PAT）、管理（成员、邀请、凭据、主密钥、审计）。
+页面（路由见 `src/App.tsx`）：
 
-M6 增加：运行列表的评分列（均值旁总是显示已评分覆盖）与多选导出；运行详情的结果汇总、按任务统计、产物到期与状态、导出和删除；导出页（`/exports`）；管理页的回收站（恢复、输入对象 ID 后彻底删除）以及成员、凭据、数据集的删除；个人设置中 PAT 的撤销与删除分开。
+- 未登录：初始化、登录、接受邀请与重置密码（`/invite#<token>`）。
+- `/` 工作台：能否受理、我的近期运行、团队近期结果、待处理事项。
+- `/runs`、`/runs/new`、`/runs/:runId`：运行列表（筛选、评分与覆盖、多选导出）；新建运行（方案、检查配置、批次草稿）；运行详情（摘要与状态卡，执行 / 结果汇总 / 配置快照 / 产物标签，`?tab=`、`?trial=`；取消、重跑、修改后运行、导出、删除）。
+- `/datasets`、`/attachments`、`/plans`、`/batches`、`/batches/:batchId`、`/exports`：数据集目录与导入、附件、实验方案、提交批次、导出。
+- `/settings`：改密、PAT（撤销与删除分开）、SDK 快速上手。
+- `/admin/<分区>`（仅管理员）：成员与邀请、凭据与主密钥、模型、Harness、团队策略、容量、数据集导入、回收站、审计、维护。
+
+约定：
 
 - 会话使用 HttpOnly cookie；CSRF token 只保存在内存，所有非安全请求带 `X-CSRF-Token`。
 - 新建运行每次逻辑提交持有一个 `Idempotency-Key`，结果未知时重试复用同一键。

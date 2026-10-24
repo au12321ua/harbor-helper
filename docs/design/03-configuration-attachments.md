@@ -43,13 +43,15 @@
 生效配置 + 字段来源 + 基准差异 + 阻塞项
 ~~~
 
+实现按字段分层，不是每个字段都走全部四层：次数、并发、总时限为团队默认 → 方案 → 本次；资源与 Agent、验证时限为作者（逐任务）→ 方案 → 本次（对全部任务统一覆盖，D-020）；作者参数与 Harness 参数各自从默认值起。见 [实施记录](records/m5-configuration-submission.md) 的“M5 实施记录（第一阶段）”与“（第四阶段）”。
+
 具体规则：
 
 1. 未提供字段继承前层；显式 null 仅允许出现在 schema 声明 nullable 的字段，不能表示“清除必填”。
 2. 对象按字段合并；数组整体替换，附件列表保留显式顺序；不做隐式数组拼接。
 3. 时间、CPU、内存先转成标准单位再比较。必填字段、枚举和数值边界统一由参数 schema 校验。
-4. 作者资源建议可被缩短超时或减少内存，标记 deviates_from_author_baseline=true；作者明确硬性要求和团队硬上限不得违反。
-5. 作者要求强度不明时不擅自降级，返回待管理员确认的 blocker。
+4. CPU、内存不得低于作者设定，低于即阻塞项 BELOW_AUTHOR_RESOURCES；调高可以，标记 deviates_from_author_baseline=true（U-22）。缩短时限只给警告并标记偏离。团队硬上限不得违反。
+5. 资源不区分作者“建议”与“硬性”，不设管理员确认作者要求强度的入口（U-22）。
 6. 团队默认改变只影响以后解析的新提交；已受理快照不变。
 7. 团队上限收紧不改写已受理快照。出于安全或主机容量无法执行时可阻塞或取消并给出原因，不能暗中降低内存、并发或时间。
 
@@ -89,7 +91,7 @@
 }
 ~~~
 
-实现（M5 第一段）：提交也可以把同样的配置直接写在请求里、当场解析；凭 `resolution_id` 提交时重新解析，生效配置变了即返回 CONFIG_RESOLUTION_STALE；资源与时限的覆盖对运行内全部任务统一生效（D-020）。见 [14](14-decisions.md) 的“M5 实施记录（第一阶段）”。
+实现（M5 第一段）：提交也可以把同样的配置直接写在请求里、当场解析；凭 `resolution_id` 提交时重新解析，生效配置变了即返回 CONFIG_RESOLUTION_STALE；资源与时限的覆盖对运行内全部任务统一生效（D-020）。见 [实施记录](records/m5-configuration-submission.md) 的“M5 实施记录（第一阶段）”。
 
 建议解析记录有效 10 分钟，用于提交前确认，不能预留资源或额度。受理时重新检查版本、准入修订、已知内容阻塞、权限和策略；若生效内容将变化，返回 CONFIG_RESOLUTION_STALE 及差异，要求调用方重新取得解析结果。缓存观测、恢复计划和容量检查是独立输出，不参与 config_digest；回收、恢复成功或历史恢复失败不会使内容解析过期。已准入但冷缓存只生成恢复提示，不能生成 TASK_NOT_ADMITTED；固定内容确认不可得才返回相应 blocker。
 
@@ -112,13 +114,15 @@ config_digest 是完整生效配置摘要，不包含运行身份、准入证明
 
 执行时另写 actual_execution：实际模型响应标识、Worker / Runner / Harbor 版本、镜像 digest、资源设置和附件加载清单。实际值偏离快照时标记 deviation，禁止将其包装成严格复现。
 
-解析器还将固定配置转换为 Harbor 作业，在对应 Runner 环境用导出的 JSON Schema 校验，并运行 --dry-run 检查参数、凭据和来源。此检查不下载任务、不验证镜像就绪，不能替代平台准备与资源检查。公共 API schema 与 Harbor schema 是不同边界，详见 [15](15-stack-harbor.md)。
+现状（缺口）：快照策略记 executor_id，运行记 Runner 启动时报告的 Harbor 与 Runner 版本，执行尝试记 runner_id、Harbor 试次标识、用量与附件安装记录；没有 observed_model 和 deviation 标记。重跑只核对生效配置与原快照一致（RERUN_CONFIG_CHANGED），不比较 executor_id，执行器版本变化时既不拒绝也不标注。
+
+解析器还将固定配置转换为 Harbor 作业，在对应 Runner 环境用导出的 JSON Schema 校验，并运行 --dry-run 检查参数、凭据和来源。此检查不下载任务、不验证镜像就绪，不能替代平台准备与资源检查。公共 API schema 与 Harbor schema 是不同边界，详见 [15](15-stack-harbor.md)。现状：schema 校验与 --dry-run 未实现（见 [实施记录](records/m5-configuration-submission.md)“M5 收尾时尚未完成的事项”）。
 
 ## 6. 附件包协议
 
 以下是平台建议的包结构，需由 Harbor 适配器实现转换，不假设 Harbor 已原生支持。
 
-> M5 第三阶段的实际做法（P0 支持的 manifest 字段、只收普通文件、影响评分的包暂拒绝、安装位置与时限、三处内容核对）见 [14](14-decisions.md)“M5 实施记录（第三阶段）”。
+> M5 第三阶段的实际做法（P0 支持的 manifest 字段、只收普通文件、影响评分的包暂拒绝、安装位置与时限、三处内容核对）见 [实施记录](records/m5-configuration-submission.md)“M5 实施记录（第三阶段）”。
 
 ~~~text
 attachment/
@@ -158,6 +162,8 @@ P0 每个试次各自安装，安装成果不写回共享数据集缓存，也�
 | 环境 / 验证变量 | environment.env、verifier.env | 只注入必要字段，凭据保持引用直到执行 |
 | SDK 与普通工具文件 | 环境文件传输或自定义 Agent 包装器 | 复制到容器；不挂载宿主目录（执行器为本试次输出挂载的日志与产物目录除外，[14](14-decisions.md) U-16），不把任意 SDK 包当作 Harbor 原生字段 |
 | bootstrap.sh | 自定义 Agent 的安装 / setup 路径 | 每试次安装；时机、用户、目录、超时、失败隔离与网络切换需原型验证 |
+
+现状：P0 只实现整包复制与 bootstrap，表中 skills、MCP tools 与 agents[].env 的映射未实现（未接）。附件经 Harbor 文件传输复制到 `/opt/maestro/attachments/<序号>-<名称>`，在 Agent setup 中校验并限时安装；安装阶段沿用作者网络基线，可选部署配置的准备代理。见 [实施记录](records/m5-configuration-submission.md) 的“M5 实施记录（第三阶段）”与“（补充：准备与安装阶段的代理）”。
 
 bootstrap 不能为了下载依赖延迟到 agent.run() 才执行。公共模型能力比较中必须显示包装器与附件摘要；真实原生字段不等于所有 Agent 都支持相同 MCP / skills 组合。字段依据与首周验证项见 [15](15-stack-harbor.md)。
 

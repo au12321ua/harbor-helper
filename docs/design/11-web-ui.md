@@ -23,7 +23,9 @@
 | 管理设置 | 成员、模型、Harness、凭据、默认值、配额、保留策略 | P0 |
 | 维护 | 健康、日志、版本；更新、排空、备份与恢复 | 基础 P0，其余 P1 |
 
-网页采用 React + TypeScript，Vite 构建静态文件，由 FastAPI 服务托管；生产主机无需 Node。业务客户端由公共 OpenAPI 生成，页面不通过模板或私有旁路执行 SDK 无法表达的业务动作。管理员动作保留网页会话限制；视觉规范与组件库待实现阶段选择，尚无前端工程。
+网页采用 React + TypeScript + shadcn/ui（Radix）+ Tailwind，工程在 `frontend/`，Vite 构建到 `src/maestro/static/`，由 FastAPI 服务托管；生产主机无需 Node。请求类型由 `openapi/maestro-v1.json` 生成（`npm run gen:api`，`npm run check:api` 检查无漂移，CI 也会检查），页面不通过模板或私有旁路执行 SDK 无法表达的业务动作。管理员动作保留网页会话限制。
+
+现状（M7，见 [M7 实施记录](records/m7-sdk-web.md)）：上表 P0 页面都已有对应路由，另有初始化、登录与邀请页；实验方案没有修订历史视图；管理设置与维护合为 `/admin/<分区>`；数据集页没有单个版本的地址；维护页只读展示状态，没有更新、排空、备份与恢复动作。
 
 ## 2. 新建运行流程
 

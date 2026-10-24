@@ -13,12 +13,15 @@
 /opt/maestro/current                指向 versions/<version> 的链接
 /opt/maestro/harbor/<harbor-version>/<runner-revision>/  锁定 Harbor 与 Runner 环境
 /etc/maestro/config.toml            部署配置
-/etc/maestro/secrets/              按代次保存的主密钥文件，服务账号可读（14 M2 实施记录）
+/etc/maestro/secrets/              按代次保存的主密钥文件，服务账号可读（见 records/m2-foundation.md）
 /var/lib/maestro/app.db             业务数据库，WAL / SHM 同目录
 /var/lib/maestro/artifacts/         原始产物
-/var/cache/maestro/                任务内容与准备缓存
+/var/lib/maestro/attachments/       已发布附件的原件
+/var/lib/maestro/preparations/      准备原件（镜像归档，U-17；是数据，不是缓存）
+/var/lib/maestro/work/              Runner 工作目录，Harbor 输出归档为产物前的暂存
 /var/lib/maestro/exports/           临时导出包
-/var/lib/maestro/maintenance/       独立维护记录
+/var/cache/maestro/tasks/           按上游内容摘要保存的任务材料
+/var/lib/maestro/maintenance/       独立维护记录（P1，未实现）
 journald                          服务标准输出 / 错误与结构化日志
 ~~~
 
@@ -48,15 +51,18 @@ journald                          服务标准输出 / 错误与结构化日志
 
 | 配置 | 建议默认 / 约束 | 生效方式 |
 | --- | --- | --- |
-| listen_address / port | 内部监听，具体值由安装器提供 | 重启 |
-| data_dir / cache_dir | 分别位于 /var/lib/maestro、/var/cache/maestro，禁止指向程序目录 | 停服迁移后重启 |
+| listen_host / listen_port | 127.0.0.1 / 8420，内部监听，具体值由安装器提供 | 重启 |
+| root_path | 默认空；反向代理把服务挂在子路径时填写。现状：网页写死 `/api/v1` 与根路径路由（`frontend/src/lib/api.ts`），子路径部署目前不能用 | 重启 |
+| cookie_secure | 默认 true：会话 cookie 只经 HTTPS 发送。用纯 HTTP 直接访问（如内网测试）时浏览器不回传 cookie，登录后立即失效，须改为 false 或经 HTTPS 访问 | 重启 |
+| session_hours | 12：网页会话有效期 | 重启，对新会话生效 |
+| data_dir / cache_dir / master_key_dir | 分别位于 /var/lib/maestro、/var/cache/maestro、/etc/maestro/secrets，禁止指向程序目录；master_key_dir 必须在 data_dir 之外（启动时检查） | 停服迁移后重启 |
 | service_log_backend | journald；查询按本实例 unit 过滤 | 随主机日志策略 |
 | database | SQLite WAL，单实例锁 | 重启 |
-| worker_count / capacity | 不超过实机资源，默认槽位约 10 | 先排空再重启 |
+| worker_slots / execution_cpus / execution_memory_mb | 10 / 0 / 0：同时执行的试次数，试次容器可用的 CPU 与内存总量（0 表示整机） | 重启；P1 先排空 |
 | network_policy / approved_model_hosts | Harbor 原生阶段策略，保留作者更严限制 | 后续新环境；需验证覆盖与主机能力 |
 | enabled_adapters / runner_id | 与发布兼容清单一致，精确锁定 Harbor 与协议 | 重启；不原地替换活动环境 |
 | update_source | 管理员指定来源与版本 | 下次显式检查 |
-| storage_thresholds | 见 D-011，实际值可查询 | 实时 |
+| storage_accept_min_free_gb / _percent，storage_dispatch_min_free_gb / _percent | 20 / 15，10 / 8（D-011）；只测 data_dir 所在文件系统，见 [07](07-artifacts-export.md) 第 7 节；当前水位见 `/api/v1/system-status` | 重启 |
 | artifact_max_files / artifact_file_max_mb / artifact_attempt_max_mb | 500 / 64 / 1024：每次执行尝试保留的证据上限，Runner 归档时强制，超限的文件在清单中标为跳过；单文件上限不能大于单次尝试总量 | 重启，对之后开始的运行生效 |
 | export_max_gb | 10：单个导出包上限，受理时按所选文件预检；高于停止派发水位时启动日志提醒 | 重启 |
 | build_timeout_default_sec / build_timeout_max_sec | 600 / 3600：任务没有声明时的构建时限；任务自己声明的时限不超过上限，每次构建都按当前上限截取；默认不能超过上限 | 重启 |
@@ -96,7 +102,7 @@ current 链接负责程序版本选择，Harbor 环境由发布清单选择，�
 
 ## 6. P1 备份与异机恢复
 
-备份集包括数据库一致性快照、配置、版本清单、业务文件清单；数据库保留准入状态、首次成功证明、准备方式及固定摘要，不能只备份本机缓存索引。原始产物可选择全量或仅元数据，manifest 必须说明遗漏。准备缓存可不备份，但应说明固定内容在所有副本消失后的恢复风险。凭据密文保留在数据库，主密钥由单独受保护流程保存。
+备份集包括数据库一致性快照、配置、版本清单、业务文件清单；数据库保留准入状态、首次成功证明、准备方式及固定摘要，不能只备份本机缓存索引。原始产物可选择全量或仅元数据，manifest 必须说明遗漏。准备缓存可不备份，但应说明固定内容在所有副本消失后的恢复风险。凭据密文保留在数据库，主密钥由单独受保护流程保存。现状：备份未实现；实例数据都在 data_dir 下，主密钥在其外的 master_key_dir，`config.py` 以此为由拒绝把两者放在一起。
 
 SQLite 使用备份 API 或停服一致性快照，不直接复制活跃主库忽略 WAL。大文件在一致性窗口中通过清单与读 pin 防止被回收，完成后校验摘要。
 
@@ -118,7 +124,7 @@ SQLite 使用备份 API 或停服一致性快照，不直接复制活跃主库�
 
 ## 8. 可观测性
 
-结构化日志至少携带 request_id、operation_id、run_id、trial_id、attempt_id、worker_id、phase、code；敏感值先脱敏。业务审计不随服务日志轮转。
+结构化日志至少携带 request_id、operation_id、run_id、trial_id、attempt_id、worker_id、phase、code；敏感值先脱敏。业务审计不随服务日志轮转。现状：服务日志是 uvicorn 与 Python logging 的默认文本输出，没有结构化字段与脱敏过滤；request_id 只在响应头 `X-Request-Id`、响应 meta 和审计事件中。试次日志在保存为产物前做基本脱敏。
 
 journald 保存服务日志，按 unit 和实例标识查询；保留时间及空间由宿主 journald 策略管理。应用可建议 14 天，不擅自更改全机策略。任务 stdout、Agent 轨迹和结果文件由 ArtifactStore 管理，不写入 SQLite 大字段。
 

@@ -43,10 +43,10 @@ Harbor Hub 已提供 Hosted Harbor 远程作业，通过网页、CLI 和 API 使
 以下为一致性设计的工作基线，决策状态见 D-001 至 D-019；技术路线来自补充建议，具体版本仍待接入验证：
 
 - 服务端采用 Python / FastAPI / Pydantic 模块化单体；Worker 首期在服务进程内，Harbor 在独立 uv 环境中由 Runner 子进程调用。
-- SQLite WAL、SQLAlchemy 2、Alembic 保存业务数据与持久队列；asyncio 调度，本地文件系统保存产物，Worker 不直接访问数据库。
+- SQLite WAL、SQLAlchemy 2 Core、Alembic 保存业务数据与持久队列，采用同步短事务（见 [M2 实施记录](records/m2-foundation.md)）；asyncio 调度，本地文件系统保存产物，Runner 子进程不访问数据库。
 - FastAPI 输出公共 OpenAPI；React / TypeScript 网页客户端与 Python httpx SDK 使用同一契约。CLI 与 MCP 不属于 P0（U-11）。
-- 每个工作单元对应一个计划试次；基础设施重试使用执行尝试记录，不增加计划试次数。
-- 错误、重试和奖励有效性以锁定版本 Harbor 策略为基线；结果另记录计分口径、覆盖率和样本量。
+- 本阶段工作单元是运行：一个运行由一个 Runner 子进程执行一个 Harbor Job（D-020）。试次与执行尝试仍逐条持久记录；基础设施重试使用执行尝试记录，不增加计划试次数。
+- 错误与重试策略由平台自定，执行器适配器把它映射到锁定的 Harbor 版本（U-15）；结果另记录计分口径、覆盖率和样本量。
 
 网页静态文件由服务端托管，生产不依赖 Node。密码使用 Argon2id，业务凭据采用 AES-GCM；uv 独立发布环境配合 systemd / journald。发布渠道、精确依赖版本与支持的 Linux / Harbor 组合仍待验证，详见 [15 技术栈与 Harbor 集成](15-stack-harbor.md)。
 
@@ -57,7 +57,7 @@ Harbor Hub 已提供 Hosted Harbor 远程作业，通过网页、CLI 和 API 使
 | 数据集 | Hub 搜索、不可变版本、任务目录、管理员首次准入、局部可提交、运行内共享恢复 | 本地或私有数据源需另行确认 |
 | 配置 | 模型、Harness、附件版本、分层解析、来源、内容快照 | 更复杂的附件组合与兼容策略 |
 | 提交 | 方案、单次与批次提交、幂等、PAT 额度、重跑、取消 | 更复杂的实验矩阵生成 |
-| 执行 | FIFO、资源准入、进程内 Worker、状态恢复、环境清理 | 公平调度 P1；多机 Worker 后续 |
+| 执行 | 按受理顺序领取（放不下的大运行不挡住之后放得下的小运行，[05](05-scheduling-execution.md) 第 3 节）、资源准入、进程内 Worker、状态恢复、环境清理 | 公平调度 P1；多机 Worker 后续 |
 | 结果 | 单运行查询、任务结果、基本统计、日志、下载和批量导出 | 集合、比较、分析快照 P1 |
 | 访问 | 网页、PAT SDK、能力发现、统一操作记录 | JSON CLI、MCP 为后续范围（U-11）；事件流与 webhook P2 |
 | 运维 | 安装、启停、状态、日志、保留数据卸载、异常恢复 | 排空更新、备份与恢复 P1 |

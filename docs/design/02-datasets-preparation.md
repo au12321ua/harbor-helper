@@ -35,7 +35,7 @@
 5. 返回导入 Operation，随后按管理员选项创建首次准备操作。导入或首次准备失败的任务不进入可提交范围。标签不能被解析为固定 digest 时拒绝正式导入。
 6. 同一数据集的同一引用和摘要重复导入返回已有版本；引用相同但摘要变化返回 CONTENT_REFERENCE_CHANGED，管理员必须以新内部版本明确记录。
 
-作者参数分为 default、required、hard_constraints 和 description。资源建议值不自动视为不可违反的最低要求，适配器不能确定时标注 constraint_strength=unknown，详见配置模块。
+作者参数分为 default、required、hard_constraints 和 description。作者给出的 CPU 与内存是下限，运行可以调高、不能调低（U-22）；导入时资源仍标 constraint_strength=unknown（M4），解析不再依据它，详见配置模块。
 
 ## 4. 内部适配器契约
 
@@ -48,9 +48,9 @@
 
 适配器分别映射鉴权失败、暂态网络错误、固定内容确实不存在、内容不匹配和清单不支持，保留脱敏上游证据与 request_id。一次超时、429、5xx 或无下载权限不构成“内容已永久消失”的证据。
 
-Harbor 任务映射为 Task.task_key；Harbor trial 是 ExecutionAttempt 的执行证据，再归属平台 Trial；Harbor job 不等同于平台 Run。每个执行尝试仅生成一个任务 / 一个 Agent / 一次试次的 Harbor 作业。
+Harbor 任务映射为 Task.task_key；Harbor trial 是 ExecutionAttempt 的执行证据，再归属平台 Trial；Harbor job 不等同于平台 Run。每个执行尝试仅生成一个任务 / 一个 Agent / 一次试次的 Harbor 作业。本阶段按 D-020，一个运行对应一个 Harbor Job，计划试次与重试在 Job 内展开，每个试次及每次重试仍映射为平台的试次与执行尝试。
 
-需要调用 Harbor Python API 的目录与准备操作在独立 Runner 环境执行；服务端适配器通过 HTTP 或版本化 Runner 协议取得规范化信息，不 import harbor，见 [15](15-stack-harbor.md)。
+需要调用 Harbor Python API 的目录与准备操作在独立 Runner 环境执行；服务端适配器通过 HTTP 或版本化 Runner 协议取得规范化信息，不 import harbor，见 [15](15-stack-harbor.md)。现状（M4）：Hub 的检索、版本、描述与下载由 Runner 的 `hub` 命令完成；准备不经 Harbor，由服务进程直接调用 Docker 构建、拉取、导出与载入镜像，再把指向该镜像的任务副本交给 Harbor，见 [实施记录](records/m4-datasets.md) 的“M4 实施记录”。
 
 ## 5. 三类事实与准入规则
 
@@ -96,7 +96,7 @@ adapter_version: "待接入验证"
 environment_abi_version: "1"
 ~~~
 
-M4 实现的规格不含 dataset_resolved_digest（不同版本中内容相同的任务共用缓存），另含环境定义目录摘要与构建时限，见 [14](14-decisions.md) 的 M4 实施记录。spec_digest 覆盖影响准备内容的规范化字段；有效缓存键为 (spec_digest, location_id)，位置不进入内容摘要。上游 digest、镜像 digest 与本地材料摘要各自保留，不能交换使用。敏感值不进入可公开哈希，使用凭据引用及内部修订标识；仅用于下载授权的凭据轮换不改变内容身份。
+M4 实现的规格不含 dataset_resolved_digest（不同版本中内容相同的任务共用缓存），另含环境定义目录摘要与构建时限，见 [实施记录](records/m4-datasets.md) 的 M4 实施记录。spec_digest 覆盖影响准备内容的规范化字段；有效缓存键为 (spec_digest, location_id)，位置不进入内容摘要。上游 digest、镜像 digest 与本地材料摘要各自保留，不能交换使用。敏感值不进入可公开哈希，使用凭据引用及内部修订标识；仅用于下载授权的凭据轮换不改变内容身份。
 
 复用需同时满足：规格一致、位置可访问、镜像 / 文件确实存在、摘要可验证、环境接口兼容且未回收。ready 记录不是文件存在的保证。可变镜像标签在首次准备时固定成 digest；重建还需满足快照固定的输出标识，不能只因为 Dockerfile 未变就接受不同结果。尚不能固定或重建必要依赖的准备方式必须明确阻塞，不能承诺严格复现。
 
@@ -118,7 +118,7 @@ stateDiagram-v2
 
 1. 受理检查准入修订、必要配置与已知内容阻塞，不要求本机已有 ready 缓存。快照保存准入依据和固定准备规格，缓存观测单独返回。
 2. Worker 在短事务内确认缓存未被回收认领并取得使用 pin，再验证实际内容；验证失败释放 pin 并标记失效。缺失时通过准备协调器，按缓存键原子创建或加入唯一活动恢复 Operation。Operation 有独立租约、generation、service_epoch 和等待者列表，不归属于首个运行。
-3. 同一键同一时刻仅有一个拉取 / 构建，等待试次共享进度、结果或失败。构建资源只预留一次，等待者不重复占构建 CPU / 内存，不为等待预占模型提供商槽位。构建进程和资源按实例 / 恢复 Operation 标记，不能被某个等待运行的取消清理误删。
+3. 同一键同一时刻仅有一个拉取 / 构建，等待试次共享进度、结果或失败。构建资源只预留一次，等待者不重复占构建 CPU / 内存，不为等待预占模型提供商槽位。构建进程和资源按实例 / 恢复 Operation 标记，不能被某个等待运行的取消清理误删。现状（缺口）：运行在领取时已整体预留 CPU、内存与提供商名额，等待恢复期间仍占用；构建不计入主机执行容量，只受同时恢复数 `restore_slots` 限制。见 [实施记录](records/README.md) 的“M4 实施记录”与“M5 收尾时尚未完成的事项”。
 4. 一个等待者取消或到期只移除自己的引用；其余等待者继续。无等待者时可取消恢复并清理；独立恢复阶段有有限超时。新的等待者与取消并发时，通过事务重检租约状态，不能加入正在销毁的 generation。
 5. 验证摘要后原子发布成果。有效租约与 generation 校验通过才更新 ready；从恢复 pin 交接给各试次使用 pin，避免发布与使用之间被回收。迟到或失去租约的结果不能覆盖新缓存。
 6. 每个恢复 Operation 只做一次尝试，不另设内层重试。失败映射到各等待试次当前 ExecutionAttempt，统一走 [06](06-results-scoring.md) 的预算和退避；同轮重试仍合并为一个恢复，加入者不重置退避或已有尝试计数。未来新运行可触发新的受限恢复，不因历史暂态失败永久阻塞。
