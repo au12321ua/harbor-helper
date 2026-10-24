@@ -105,6 +105,8 @@ def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
             maestro.maintenance.start()
             upkeep = asyncio.create_task(maestro.maintenance.run_forever())
             if maestro.worker is not None:
+                # Before anything is accepted for execution: model runs need it.
+                await maestro.executor.probe()
                 report = maestro.worker.start_epoch()
                 if report["interrupted_runs"]:
                     log.warning("interrupted runs after restart: %s", report["interrupted_runs"])

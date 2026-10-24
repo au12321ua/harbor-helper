@@ -76,6 +76,10 @@ def capabilities(request: Request):
             "features": {
                 "runs": True,
                 "execution": service.executor is not None,
+                # Model runs need it; false or unknown before the host has been probed.
+                "restricted_network": bool(
+                    service.executor and service.executor.network_restriction
+                ),
                 "batches": True,
                 "configuration_resolution": True,
                 "model_configs": True,

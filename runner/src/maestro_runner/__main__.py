@@ -57,14 +57,30 @@ def hub_command(spec: dict) -> int:
     return 0
 
 
+def probe_command() -> int:
+    """What the service checks before accepting a model run (M5 exit condition): the same
+    test ``Execution`` applies before restricting a run's network, so acceptance and
+    execution agree. Harbor's kernel check is optimistic when the kernel configuration
+    cannot be read; the restriction itself is verified by the real-Docker tests."""
+    from maestro_runner import network
+
+    try:
+        supported = network.supported()
+    except Exception as error:  # noqa: BLE001 - reported, the service keeps "unknown"
+        emit("result", status="error", kind="unsupported", message=str(error)[:500])
+        return 2
+    emit("result", status="ok", data={"network_restriction": bool(supported)})
+    return 0
+
+
 def main() -> int:
     try:
         spec = json.loads(sys.stdin.read())
-        if (
-            spec.get("protocol_version") == protocol.PROTOCOL_VERSION
-            and spec.get("command") == "hub"
-        ):
-            return hub_command(spec)
+        if spec.get("protocol_version") == protocol.PROTOCOL_VERSION:
+            if spec.get("command") == "hub":
+                return hub_command(spec)
+            if spec.get("command") == "probe":
+                return probe_command()
         protocol.run_id = spec.get("run_id")
         check_spec(spec)
         # Model credentials stay in memory (SECRETS), never in the environment or

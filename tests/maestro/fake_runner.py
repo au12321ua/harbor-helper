@@ -12,6 +12,13 @@ import time
 from pathlib import Path
 
 spec = json.loads(sys.stdin.read())
+if spec.get("command") == "probe":
+    # The wrapper's argument scripts the host: network, no-network, or silent.
+    answer = sys.argv[1] if len(sys.argv) > 1 else "network"
+    if answer != "silent":
+        payload = {"status": "ok", "data": {"network_restriction": answer == "network"}}
+        print(json.dumps({"protocol_version": 1, "type": "result", "payload": payload}))
+    sys.exit(0)
 out = Path(spec["output_dir"])
 mode = spec["tasks"][0]["task_key"]
 # What arrived, for tests that check the request.

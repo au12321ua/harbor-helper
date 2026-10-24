@@ -423,11 +423,13 @@ def pinned_request(request: dict, effective: dict) -> dict:
 
 
 class Resolver:
-    def __init__(self, capacity=None, adapters_of=None, executor_id=None):
+    def __init__(self, capacity=None, adapters_of=None, executor_id=None, network_of=None):
         self.capacity = capacity
         # Callable giving the executor's adapters (name -> protocols); None: no executor.
         self.adapters_of = adapters_of or (lambda: None)
         self.executor_id = executor_id
+        # Callable: can this host restrict task networks? True, False, or None (unknown).
+        self.network_of = network_of or (lambda: None)
 
     def resolve(self, conn: Connection, request: dict) -> Resolution:
         res = Resolution(request=request)
@@ -543,6 +545,18 @@ class Resolver:
         effective["model"] = effective["harness"] = None
         if request["execution_mode"] != "agent":
             return
+        if self.network_of() is False:
+            # Every model run restricts its task network (U-18); refusing here keeps the
+            # quota untouched instead of failing when the Runner starts.
+            res.blockers.append(
+                Blocker(
+                    "NETWORK_POLICY_UNSUPPORTED",
+                    "/execution_mode",
+                    "This host cannot restrict task networks (kernel nftables support), "
+                    "so model runs are refused; Oracle runs still work",
+                    error="CONFIG_INCOMPATIBLE",
+                )
+            )
         model = self._model(conn, request["model_config_id"], request.get("model_revision"), res)
         harness = self._harness(conn, request["harness_version_id"], res)
         if model is None or harness is None:
@@ -1063,6 +1077,15 @@ class Resolver:
             found = blocked[row["task_id"]]
             return found[0]["code"] if found else None
 
+        def why(task_id: str, label: str) -> str:
+            # A refusal names the exact content it waits for (02 section 8, E2E-DS-05):
+            # field errors are all a refused submission carries.
+            digest = next(
+                (b["expected_digest"] for b in blocked[task_id] if b.get("expected_digest")),
+                None,
+            )
+            return f"{label}: content {digest} is not available" if digest else label
+
         if selection["mode"] == "all_eligible":
             chosen = [r for r in candidates if first(r) is None]
             res.excluded.extend(
@@ -1093,7 +1116,7 @@ class Resolver:
                             FieldError("/task_selection/task_ids", "NOT_FOUND", x) for x in missing
                         ]
                         + [
-                            FieldError("/task_selection/task_ids", first(by_id[x]), x)
+                            FieldError("/task_selection/task_ids", first(by_id[x]), why(x, x))
                             for x in stopped
                         ],
                     )
@@ -1108,7 +1131,11 @@ class Resolver:
                     "No submittable task in this version",
                     error="NO_SUBMITTABLE_TASKS",
                     field_errors=[
-                        FieldError("/task_selection", x["blockers"][0]["code"], x["task_key"])
+                        FieldError(
+                            "/task_selection",
+                            x["blockers"][0]["code"],
+                            why(x["task_id"], x["task_key"]),
+                        )
                         for x in res.excluded
                     ],
                 )

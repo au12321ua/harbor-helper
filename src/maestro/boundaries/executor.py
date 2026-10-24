@@ -138,6 +138,13 @@ class Executor(Protocol):
     harness_parameters: dict[str, frozenset[str]]
     """Parameters each adapter accepts; a harness version may only declare these. An
     adapter missing here accepts any (test doubles)."""
+    network_restriction: bool | None
+    """Whether this host can restrict task networks, which every model run needs (U-18):
+    None until probed. When False, model runs are refused at acceptance."""
+
+    async def probe(self) -> None:
+        """Learn host capabilities (``network_restriction``) before the worker starts."""
+        ...
 
     async def execute(
         self, spec: RunSpec, sink: ExecutionSink, cancel: CancelToken

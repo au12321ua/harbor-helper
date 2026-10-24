@@ -179,10 +179,14 @@ class FakeExecutor:
         default_factory=lambda: {"fake-agent": ("anthropic", "openai", "openai-compatible")}
     )
     started: asyncio.Event = field(default_factory=asyncio.Event)
+    network_restriction: bool | None = True
     on_trial: Callable | None = None
     cleaned: list = field(default_factory=list)
     reconciled: list = field(default_factory=list)
     release: bool = True
+
+    async def probe(self) -> None:
+        pass
 
     async def execute(self, spec: RunSpec, sink: ExecutionSink, cancel: CancelToken):
         semaphore = asyncio.Semaphore(spec.concurrency)

@@ -108,6 +108,7 @@ class Maestro:
             host,
             adapters_of=lambda: adapters,
             executor_id=executor.executor_id if executor is not None else None,
+            network_of=lambda: executor.network_restriction if executor is not None else None,
         )
         runs = Runs(db, host, disk, resolver)
         artifacts = Artifacts(db, store)

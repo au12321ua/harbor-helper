@@ -195,10 +195,55 @@ class HarborExecutor:
         self.heartbeat_sec = heartbeat_sec
         self.tail_interval_sec = tail_interval_sec
         self.log_cap_bytes = log_cap_bytes
+        self.network_restriction: bool | None = None
 
     @property
     def runner_id(self) -> str:
         return f"{self.executor_id}/{MAPPING_ID}"
+
+    async def probe(self, timeout: float = 120.0) -> None:
+        """Ask the Runner whether this host can restrict task networks. A probe that fails
+        leaves the answer unknown: model runs are then still accepted, and the Runner's
+        own check at the start of each run stays the last line (it refuses, never
+        relaxes)."""
+        env = {k: v for k, v in os.environ.items() if k in ENV_KEEP}
+        env.setdefault("PATH", os.defpath)
+        request = {"protocol_version": PROTOCOL_VERSION, "command": "probe"}
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                str(self.runner_python),
+                "-I",
+                "-m",
+                "maestro_runner",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env | {"PYTHONDONTWRITEBYTECODE": "1"},
+                start_new_session=True,
+            )
+            try:
+                out, _err = await asyncio.wait_for(
+                    proc.communicate(json.dumps(request).encode()), timeout
+                )
+            except TimeoutError:
+                process.signal_group(proc.pid, signal.SIGKILL)
+                await proc.wait()
+                raise
+        except (OSError, TimeoutError) as error:
+            log.warning("network capability probe failed: %r", error)
+            return
+        for line in out.splitlines():
+            with contextlib.suppress(ValueError):
+                event = json.loads(line)
+                payload = event.get("payload") or {}
+                if event.get("type") == "result" and payload.get("status") == "ok":
+                    self.network_restriction = bool(payload["data"]["network_restriction"])
+        if self.network_restriction is None:
+            log.warning("network capability probe gave no answer (exit %s)", proc.returncode)
+        elif not self.network_restriction:
+            log.warning(
+                "this host cannot restrict task networks (nftables): model runs are refused"
+            )
 
     def _workdir(self, run_id: str) -> Path:
         return self.work_root / run_id.lower()
