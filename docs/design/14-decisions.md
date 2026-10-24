@@ -450,6 +450,34 @@
 
 受理时的网络能力预检（目前在 Runner 启动时拒绝）；Anthropic 与 OpenAI Responses 的真实调用；云元数据、IPv6、DNS / ICMP 外传等网络缺口（M1 已列）；等待恢复缓存期间仍占着提供商并发名额（M4 记录）；Harbor `--dry-run` 校验作业配置（03 第 5 节）；不能出网的主机上为 Terminus-2 提供 tmux；附件以非 root 用户安装与作者基线断网时的安装（未真实运行）；批次的组合展开、按单个试次补跑、方案修订历史；需要执行时联网的任务的开放策略（待用户决定）。
 
+### M7 实施记录（SDK 与网页）
+
+**2026-10-24。** 实现 13 的 M7：由 OpenAPI 生成网页类型与 SDK、能力发现、按 11 整理网页。以下是实现中的选择，均为设计建议层面，未经用户逐条确认。
+
+| 事项 | 原设计 | 实际做法 | 理由 |
+| --- | --- | --- | --- |
+| 受控契约 | 10 第 1、8 节：同一构建产物生成网页与 SDK 类型，CI 检查无漂移 | 服务导出的文档提交为 `openapi/maestro-v1.json`。operationId 取路由处理函数名（重名在生成文档时报错），所有接口的错误都声明为 `ErrorResponse` 外壳（FastAPI 默认描述的 422 `HTTPValidationError` 实际从不发出，已去掉）。`tools/generate_clients.py` 写契约与 SDK 模型，`--check` 只比较；网页在 `frontend/` 用 `npm run gen:api` / `check:api` | 重写分支还没有 CI：Python 一侧的漂移由 `test_sdk.py` 发现，网页一侧要跑 `check:api`（需要 Node） |
+| SDK 的形态 | 10：httpx；生成代码与手写的等待、分页、下载辅助层分开 | 单独的包 `sdk/`（`maestro-sdk`，Python ≥ 3.10，只依赖 httpx 与 pydantic），开发环境以可编辑方式装入。`models.py` 由 datamodel-code-generator 0.86.0 生成 pydantic v2 模型（允许未知字段，枚举为 Literal）；`client.py` 手写，按资源分组：`catalog`、`configs`、`attachments`、`plans`、`runs`、`batches`、`operations`、`artifacts`、`exports`，另有 `capabilities()`、`require()`、`me()`、`system_status()` | 模型给 Agent 属性访问与类型；没有承诺向后兼容，SDK 与服务同版本发布 |
+| 版本发现 | 10 API-06：兼容不匹配时先报 UNSUPPORTED_CAPABILITY | `/capabilities` 新增 `contract_digest`（契约文档的规范 JSON 摘要），SDK 内置生成时的摘要：不同只发 `ContractDriftWarning`；`require(*features)` 在 API 版本不是 v1 或功能关闭时抛 `UnsupportedCapability`；响应解析失败抛带提示的错误 | 开发期间契约经常变，摘要不同不代表不能用；真正用不了的地方会在解析时明确失败 |
+| SDK 的范围 | 10：网页与 SDK 能力一致 | PAT 能用的接口全部有 SDK 方法，测试按契约逐个核对（新增接口不加方法就失败）。不在 SDK 里的：管理接口、网页账号流程（初始化、登录、邀请、本人 PAT 与密码）、外部数据源检索（U-20）、健康检查——它们按设计只给网页会话或部署 | 能力接口已写明 PAT 不能管理 PAT；把这些放进 SDK 只会得到 403 |
+| 提交与重试 | 10 第 5、7 节：幂等键；SDK 不自动重提运行 | `runs.submit`、`runs.rerun`、`batches.submit` 不传键时生成一个，结果与 `TransportError` 都带着它。只有读请求和带键的提交会在连接错误或 502 / 503 / 504 时由 SDK 重试（最多 3 次，同一个键、退避加抖动、遵守 Retry-After）；其他 POST（解析、导出、取消）只发一次，拿不到回答就报“结果未知”。429 不重试。`runs.find(client_request_id)` 用于丢了键之后找回 | 同键重试由服务端保证只受理一次；不带键的创建请求重发可能多建一个对象 |
+| 等待 | 10 第 7 节：初始 1 秒、逐步到 5 秒、抖动；客户端超时不取消 | `operations.wait(timeout=, interval=1, max_interval=5)`，每次 ×1.5，超时抛 `WaitTimeout`（带最后一次看到的 Operation），不取消服务端 | 同设计 |
+| 下载 | 10 第 7 节：校验摘要、安全重试 | 流式写到目标旁的临时文件，与服务给的 `X-Content-Digest` 比对后原子改名，不符时删掉并抛 `ContentMismatch`。`runs.download_artifacts(run_id, 目录)` 只保存 available 的文件，放在 `run/…` 与 `trials/<试次>/<尝试>/…` 下（拒绝绝对路径与 `..`），其余逐个返回状态与原因 | 过期、保存失败、已删除要能和“下载成功”区分 |
+| 代理 | — | 默认 `trust_env=False`：直连，不读代理环境变量；需要时显式打开 | 令牌不经过调用方没有选择的代理；也避免环境里的 SOCKS 变量让 httpx 无法启动 |
+| 附件上传 | 03 第 6 节 | `attachments.publish` 接受目录（在客户端打成 tar.gz，遇到符号链接即拒绝）或 .zip / .tar / .tar.gz 文件，字节与网页相同 | 服务端只接受普通文件与目录 |
+| 时间筛选 | 10：RFC 3339 | 运行列表的 `accepted_after` / `accepted_before` 也接受不带小数秒的时间（如 `2026-10-24T08:00:00Z`）；之前只认带小数秒的写法，SDK 测试发现 | 两种都是 RFC 3339 |
+| 删除的基线 | 13 M7 行 | 研究客户端 skill（`skills/harbor-helper-research`）、它的说明与基线附件说明（`docs/guides/`）、最后的 `src/harbor_helper/` 模块。`configs/`、`examples/`、`images/` 留给 M8 | 基线已无 `commands/` |
+| Agent 用的 skill | 13 M7 行：三个故事各有一条由 agent 经 SDK 走完的场景 | 新的 `skills/maestro-sdk/SKILL.md` 取代旧的研究客户端 skill：连接与令牌保管、六步工作流程（能力 → 输入 → 解析 → 确认费用 → 提交 → 等待与读取）、如实报告结果的规则（有效零分、未评分、未知用量、跳过的证据、Oracle 不与模型比较）、丢失回答后的恢复、后续操作与常见错误码。真实模型运行会花钱，skill 要求先说明计划试次数并取得用户同意。`sdk/README.md` 是完整参考；测试核对两者提到的每个 `client.…()` 调用都真实存在 | 用户问到 SDK 是否配有 skill（2026-10-24） |
+| 网页类型 | 11：业务客户端由公共 OpenAPI 生成 | `openapi-typescript` 7.13.0 生成 `frontend/src/lib/schema.d.ts`（`--default-non-nullable false`，否则带默认值的请求字段变成必填）；`types.ts` 改为引用生成的类型，只有后端写成 `dict[str, Any]` 的字段（解析结果的生效配置与来源、方案模板、批次预览的成员、Harness 参数定义、运行快照内部等）保留手写的窄化类型并注明原因。请求函数 `api.get<T>` 仍是手写泛型，没有按路径推断。模型与 Harness 的 `protocol` 在契约中改为三选一的枚举 | 先让类型来自契约；按路径推断要改动全部页面的调用 |
+| 工作台 | 11 第 1、6 节：工作台；“待处理”是业务记录的查询视图 | `/` 是工作台：系统能否受理、我的近期运行、团队近期结果，以及由现有接口实时算出的待处理（本人运行里中断或出错的试次；清理或产物保存失败的运行，管理员看全团队；管理员另见未全部准入的数据集版本与失败或中断的导入、首次准备），每项链接到源对象，没有“标记已处理” | 11 第 6 节；“停用但仍在使用的对象”现有接口取不到，未做 |
+| 执行页（U-07） | 11 第 3 节、05 EXE-03 | 运行详情上方保留摘要、状态卡、计数与操作栏；下面分“执行 / 结果汇总 / 配置快照 / 产物”标签（`?tab=`）。执行标签左栏列试次（状态图标、任务、第几次重复、耗时、得分，零分、未评分与失败分开），右侧是选中试次的执行尝试与步骤，步骤可展开看日志，进行中的步骤自动展开并跟随最新输出；选中的试次在 `?trial=` 里，刷新不丢 | 用户要求像 GitHub Actions |
+| 管理与维护页 | 11 第 1、5 节 | 管理页改为左侧分栏，每个分区有自己的地址 `/admin/<分区>`：成员与邀请、凭据与主密钥、模型、Harness、团队策略、容量、数据集导入（导入本身仍在数据集页，这里列近期导入与首次准备）、回收站、审计、维护。维护页显示存活、就绪、能否受理、Worker、执行器、主密钥、数据库结构、存储与各版本号（含契约摘要），没有更新或备份按钮 | P0 未实现的维护动作不显示为可用（11 第 5 节） |
+| 设置页 | 11 第 5 节 | PAT 流程不变，另有“SDK 快速上手”卡片：安装、按当前地址填好的示例代码、令牌放环境变量，并指向 skill | 网页与 SDK 能力一致的入口 |
+
+验证范围：服务测试 498 项通过（此前 486 项），`ruff check`、`ruff format --check` 干净（含 `tools/`、`sdk/src`）。新增 `tests/maestro/test_sdk.py` 12 项，经 TestClient 的传输层调用真实应用：故事一（E2E-DS-03）成员的只读与 experiment PAT 经 SDK 读目录、版本、任务的准入与冷缓存、数据源，外部检索与管理接口被拒，只读 PAT 不能提交，experiment PAT 在冷缓存上提交、运行内恢复、无管理员动作；故事二（E2E-RUN-01）管理员预先准备凭据、模型与 Harness 后，Agent 只用 SDK：`require` 能力、读目录与模型、解析（超上限时 `raise_for_blockers` 报错）、提交、同键重放、等待、读试次得分与汇总、下载全部证据并核对摘要、按 `client_request_id` 找回；故事三（E2E-OUT-01）筛选（含跨页游标与不带小数秒的时间）、零分 / 未评分 / 执行失败区分、导出、下载并核对清单、包内没有令牌。另有：客户端等待超时不取消运行；提交的回答在传输中丢失时 SDK 用同一个键重试，只建一个运行、只扣一个额度，而普通 POST 不重发、报结果未知；错误带结构与 request_id、不含令牌；目录与 tar.gz 两种方式发布附件得到同一版本、含符号链接的目录被拒；PAT 可用的每个接口都有 SDK 方法；能力接口的契约摘要与 SDK 内置的一致；屏蔽 `maestro`、`fastapi`、`sqlalchemy`、`harbor` 后 SDK 仍能导入；受控契约与 SDK 模型与当前代码一致；skill 与 SDK 说明里的调用都存在。真实 HTTP：在全新的一次性 state 上以 `--demo-executor` 启动服务，管理员一侧用网页会话接口准备，Agent 一侧用 `python -I` 只调 SDK，三个故事走通（检索被拒 403、模型运行 6 个试次评分、12 个证据文件下载并核对、按任务重跑、两个运行导出 28 个文件无缺失），服务停止后 state 已删除。前端：`npm run check:api` 与契约一致，`tsc`、`npm run build` 通过，`npm run lint` 8 条原有类型的警告（此前 10 条）；Playwright 冒烟 3 项在全新的一次性 state 上通过，新增工作台、执行页（选试次、地址带 `trial=`、展开步骤看到日志、刷新后仍选中）、管理分栏与维护页、设置页 SDK 卡片的检查。环境：CPython 3.13，Node 依赖按锁文件，Linux 6.8；没有运行真实 Docker 与真实模型测试（本里程碑不改执行）。
+
+未覆盖：CI 尚未建立，网页类型的漂移只能手动跑 `check:api` 发现；大量响应字段在后端仍是 `dict[str, Any]`（解析结果、快照内部、Operation 的进度与错误、能力接口的 actions 等），生成的类型对它们没有约束，前端以手写类型补位；带默认值的字段在响应类型里也是可选（请求与响应共用 schema）；前端请求未按路径从生成类型推断；SDK 只能从仓库安装，服务端还不提供安装包下载，也没有发布到包索引；SDK 的 Literal 枚举遇到更新服务新增的取值会解析失败（同版本发布时不会出现）；待处理里的“停用但仍在使用的对象”；数据集页没有指向单个版本的地址，待处理中数据集事项只能链到列表；真实 Agent（而非测试脚本）照 skill 独立走完三个故事尚未演练。
+
 ## 5. 可配置数值建议
 
 除原稿已经明确的值外，下表均为建议初值，所有限制通过 capability 和管理配置返回实际生效值。其中与机器和磁盘有关的项已在 `config.toml`（U-21，见 [12](12-operations.md) 第 3 节），团队策略类已进数据库并带修订（见“M5 实施记录（第一阶段）”）。

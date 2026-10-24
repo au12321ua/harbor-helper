@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -19,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -73,6 +74,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+const TABS = new Set(["execution", "results", "config", "artifacts"]);
 const TRIAL_TERMINAL = new Set(["scored", "execution_error", "not_started", "cancelled", "interrupted"]);
 
 export function RunDetailPage() {
@@ -91,6 +93,14 @@ function RunDetailView({ runId }: { runId: string }) {
   const [cancelling, setCancelling] = useState(false);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.has(params.get("tab") ?? "") ? params.get("tab")! : "execution";
+  const setTab = (value: string) => {
+    const next = new URLSearchParams(params);
+    if (value === "execution") next.delete("tab");
+    else next.set("tab", value);
+    setParams(next, { replace: true });
+  };
   const canDeleteArtifacts = me.role === "admin" && me.auth_channel === "web_session";
 
   const load = useCallback(async () => {
@@ -401,42 +411,46 @@ function RunDetailView({ runId }: { runId: string }) {
         </CardContent>
       </Card>
 
-      <ResultSummary summary={summary} error={summaryError} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">配置快照</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-2 text-sm">
-          <div className="grid gap-1 sm:grid-cols-3">
-            <Info label="config_digest" value={<Digest value={run.snapshot.config_digest} />} />
-            <Info label="snapshot_digest" value={<Digest value={run.snapshot.snapshot_digest} />} />
-            <Info label="comparison_digest" value={<Digest value={run.snapshot.comparison_digest} />} />
-          </div>
-          <JsonBlock summary="生效配置（effective）" value={run.snapshot.effective} />
-          <JsonBlock summary="来源（provenance）" value={run.snapshot.provenance} />
-          <JsonBlock summary="策略（policy）" value={run.snapshot.policy} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">试次</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="execution">执行</TabsTrigger>
+          <TabsTrigger value="results">结果汇总</TabsTrigger>
+          <TabsTrigger value="config">配置快照</TabsTrigger>
+          <TabsTrigger value="artifacts">
+            产物{artifacts ? `（${artifacts.length}）` : ""}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="execution" className="mt-3">
           {!trials && <Loading />}
           {trials && trials.length === 0 && <EmptyNote>没有试次。</EmptyNote>}
           {trials && trials.length > 0 && (
-            <TrialsTable trials={trials} artifacts={artifacts ?? []} live={active} />
+            <ExecutionView trials={trials} artifacts={artifacts ?? []} live={active} />
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">产物</CardTitle>
-        </CardHeader>
-        <CardContent>
+        </TabsContent>
+        <TabsContent value="results" className="mt-3">
+          <ResultSummary summary={summary} error={summaryError} />
+        </TabsContent>
+        <TabsContent value="config" className="mt-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">配置快照</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 text-sm">
+              <div className="grid gap-1 sm:grid-cols-3">
+                <Info label="config_digest" value={<Digest value={run.snapshot.config_digest} />} />
+                <Info label="snapshot_digest" value={<Digest value={run.snapshot.snapshot_digest} />} />
+                <Info
+                  label="comparison_digest"
+                  value={<Digest value={run.snapshot.comparison_digest} />}
+                />
+              </div>
+              <JsonBlock summary="生效配置（effective）" value={run.snapshot.effective} />
+              <JsonBlock summary="来源（provenance）" value={run.snapshot.provenance} />
+              <JsonBlock summary="策略（policy）" value={run.snapshot.policy} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="artifacts" className="mt-3">
           {!artifacts && <Loading />}
           {artifacts && artifacts.length === 0 && <EmptyNote>暂无产物。</EmptyNote>}
           {artifacts && artifacts.length > 0 && (
@@ -446,8 +460,8 @@ function RunDetailView({ runId }: { runId: string }) {
               onDelete={canDeleteArtifacts ? removeArtifact : undefined}
             />
           )}
-        </CardContent>
-      </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -638,7 +652,40 @@ function ScoreCell({ trial }: { trial: Trial }) {
   );
 }
 
-function TrialsTable({
+const TRIAL_ACTIVE = new Set(["preparing", "executing", "verifying"]);
+
+function trialIcon(state: string) {
+  switch (state) {
+    case "scored":
+      return <CircleCheck className="size-4 shrink-0 text-emerald-600" />;
+    case "execution_error":
+    case "interrupted":
+      return <CircleX className="size-4 shrink-0 text-red-600" />;
+    case "cancelled":
+    case "not_started":
+      return <CircleSlash className="size-4 shrink-0 text-amber-600" />;
+    case "queued":
+      return <CircleDashed className="size-4 shrink-0 text-muted-foreground" />;
+    default:
+      return <Loader2 className="size-4 shrink-0 animate-spin text-sky-600" />;
+  }
+}
+
+/** From the first attempt's start to the last attempt's end (or now, while running). */
+function trialDuration(trial: Trial): string {
+  const first = trial.attempts[0];
+  if (!first) return "";
+  const last = trial.attempts[trial.attempts.length - 1];
+  if (!last.ended_at) return "进行中";
+  return fmtDuration(new Date(last.ended_at).getTime() - new Date(first.started_at).getTime());
+}
+
+/**
+ * The GitHub Actions-like execution page (U-07): trials on the left like jobs, the selected
+ * trial's attempts and steps on the right, each step expandable to its live log. The
+ * selected trial is in the URL (?trial=) so a refresh or a shared link keeps it.
+ */
+function ExecutionView({
   trials,
   artifacts,
   live,
@@ -647,87 +694,82 @@ function TrialsTable({
   artifacts: Artifact[];
   live: boolean;
 }) {
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const toggle = (id: string) => {
-    const next = new Set(open);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setOpen(next);
+  const [params, setParams] = useSearchParams();
+  const chosen = trials.find((t) => t.id === params.get("trial"));
+  const selected = chosen ?? trials.find((t) => TRIAL_ACTIVE.has(t.state)) ?? trials[0];
+  const select = (id: string) => {
+    const next = new URLSearchParams(params);
+    next.set("trial", id);
+    setParams(next, { replace: true });
   };
+  const own = artifacts.filter((a) => a.trial_id === selected.id);
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-8" />
-            <TableHead>任务</TableHead>
-            <TableHead>重复</TableHead>
-            <TableHead>状态</TableHead>
-            <TableHead>得分</TableHead>
-            <TableHead>尝试次数</TableHead>
-            <TableHead>原因</TableHead>
-            <TableHead>产物 / 清理</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {trials.map((trial) => {
-            const expanded = open.has(trial.id);
-            return [
-              <TableRow
-                key={trial.id}
-                className="cursor-pointer"
-                onClick={() => toggle(trial.id)}
-                data-testid="trial-row"
-              >
-                <TableCell>
-                  {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                </TableCell>
-                <TableCell className="font-mono text-xs">{trial.task_key}</TableCell>
-                <TableCell className="tabular-nums">{trial.repetition_index}</TableCell>
-                <TableCell>
-                  <StatusPill value={label(TRIAL_STATE, trial.state)} />
-                  {trial.phase && !TRIAL_TERMINAL.has(trial.state) && (
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      {STEP_LABEL[trial.phase] ?? trial.phase}
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <ScoreCell trial={trial} />
-                </TableCell>
-                <TableCell className="tabular-nums">{trial.attempts.length}</TableCell>
-                <TableCell className="text-xs">
-                  {trial.reason_code ?? trial.result?.failure_cause ?? "—"}
-                </TableCell>
-                <TableCell className="text-xs">
-                  <ArtifactCounts counts={trial.artifact_counts} state={trial.artifact_state} /> /{" "}
-                  {label(CLEANUP_STATE, trial.cleanup_state)[0]}
-                </TableCell>
-              </TableRow>,
-              expanded && (
-                <TableRow key={`${trial.id}-detail`} className="bg-muted/30 hover:bg-muted/30">
-                  <TableCell />
-                  <TableCell colSpan={7}>
-                    <AttemptSteps
-                      trial={trial}
-                      artifacts={artifacts.filter((a) => a.trial_id === trial.id)}
-                      live={live}
-                    />
-                    {trial.result && (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        验证：{trial.result.verifier_status ?? "—"} · 原始分{" "}
-                        {trial.result.raw_score ?? "无"} · reward_valid{" "}
-                        {String(trial.result.reward_valid)} · 策略 {trial.result.policy_version}
-                      </div>
-                    )}
-                    <TrialArtifacts artifacts={artifacts.filter((a) => a.trial_id === trial.id)} />
-                  </TableCell>
-                </TableRow>
-              ),
-            ];
-          })}
-        </TableBody>
-      </Table>
+    <div className="grid items-start gap-4 md:grid-cols-[minmax(14rem,20rem)_1fr]">
+      <nav aria-label="试次" className="grid gap-0.5 rounded-md border p-1">
+        {trials.map((trial) => (
+          <button
+            key={trial.id}
+            type="button"
+            data-testid="trial-row"
+            aria-current={trial.id === selected.id ? "true" : undefined}
+            onClick={() => select(trial.id)}
+            className={cn(
+              "grid gap-0.5 rounded px-2 py-1.5 text-left text-sm hover:bg-muted",
+              trial.id === selected.id && "bg-muted",
+            )}
+          >
+            <span className="flex items-center gap-2">
+              {trialIcon(trial.state)}
+              <span className="truncate font-mono text-xs">{trial.task_key}</span>
+              <span className="text-xs text-muted-foreground">#{trial.repetition_index}</span>
+              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                {trialDuration(trial)}
+              </span>
+            </span>
+            <span className="pl-6 text-xs" data-testid="trial-score">
+              <ScoreCell trial={trial} />
+            </span>
+          </button>
+        ))}
+      </nav>
+      <Card data-testid="trial-panel">
+        <CardHeader className="gap-1">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            {trialIcon(selected.state)}
+            <span className="font-mono">{selected.task_key}</span>
+            <span className="text-sm font-normal text-muted-foreground">
+              第 {selected.repetition_index} 次重复
+            </span>
+            <StatusPill value={label(TRIAL_STATE, selected.state)} />
+            {selected.phase && !TRIAL_TERMINAL.has(selected.state) && (
+              <span className="text-xs font-normal text-muted-foreground">
+                {STEP_LABEL[selected.phase] ?? selected.phase}
+              </span>
+            )}
+          </CardTitle>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              得分：<ScoreCell trial={selected} />
+            </span>
+            <span>
+              产物：
+              <ArtifactCounts counts={selected.artifact_counts} state={selected.artifact_state} />
+            </span>
+            <span>清理：{label(CLEANUP_STATE, selected.cleanup_state)[0]}</span>
+            {selected.result && (
+              <span>
+                验证 {selected.result.verifier_status ?? "—"} · 原始分{" "}
+                {selected.result.raw_score ?? "无"} · reward_valid{" "}
+                {String(selected.result.reward_valid)} · 策略 {selected.result.policy_version}
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-2">
+          <AttemptSteps key={selected.id} trial={selected} artifacts={own} live={live} />
+          <TrialArtifacts artifacts={own} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -824,7 +866,8 @@ function StepList({
   artifacts: Artifact[];
   live: boolean;
 }) {
-  const [open, setOpen] = useState<string | null>(null);
+  // undefined: follow the running step (its log opens by itself); null: all closed by the user.
+  const [open, setOpen] = useState<string | null | undefined>(undefined);
   const steps = attempt.steps;
   if (steps.length === 0) return null;
   return (
@@ -845,7 +888,7 @@ function StepList({
             )
           : [];
         const key = `${step.step}-${index}`;
-        const expanded = open === key;
+        const expanded = open === undefined ? running && logs.length > 0 && live : open === key;
         return (
           <li key={key}>
             <button
@@ -855,6 +898,7 @@ function StepList({
                 logs.length > 0 && "hover:bg-muted",
               )}
               disabled={logs.length === 0}
+              aria-expanded={logs.length > 0 ? expanded : undefined}
               onClick={() => setOpen(expanded ? null : key)}
             >
               {running ? (
@@ -911,6 +955,10 @@ function LogView({ artifact, live }: { artifact: Artifact; live: boolean }) {
   }, [artifact.id, artifact.size_bytes]);
   const lines = text?.split("\n") ?? [];
   const shown = lines.length > LOG_TAIL_LINES ? lines.slice(-LOG_TAIL_LINES) : lines;
+  const pre = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (live && pre.current) pre.current.scrollTop = pre.current.scrollHeight;
+  }, [live, text]);
   return (
     <div className="my-1 ml-5">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -921,7 +969,11 @@ function LogView({ artifact, live }: { artifact: Artifact; live: boolean }) {
       </div>
       {failed && <div className="text-xs text-red-700">日志读取失败</div>}
       {text !== undefined && (
-        <pre className="max-h-72 overflow-auto rounded bg-zinc-950 p-2 font-mono text-xs leading-relaxed text-zinc-100">
+        <pre
+          ref={pre}
+          data-testid="step-log"
+          className="max-h-96 overflow-auto rounded bg-zinc-950 p-2 font-mono text-xs leading-relaxed text-zinc-100"
+        >
           {shown.join("\n") || "（空）"}
         </pre>
       )}

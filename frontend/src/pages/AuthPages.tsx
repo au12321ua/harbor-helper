@@ -219,7 +219,7 @@ export function InvitePage({ onSignedIn }: { onSignedIn: SignedIn }) {
           : { token, password: form.password };
       const res = await api.post<SessionInfo>("invitations/accept", body);
       onSignedIn(res.data);
-      navigate("/runs", { replace: true });
+      navigate("/", { replace: true });
     } catch (err) {
       setError(err);
     } finally {

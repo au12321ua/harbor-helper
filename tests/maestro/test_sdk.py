@@ -8,6 +8,7 @@ service, and the generated files match the API.
 """
 
 import json
+import re
 import subprocess
 import sys
 import tarfile
@@ -430,3 +431,16 @@ def test_generated_contract_and_sdk_models_are_current():
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_skill_and_the_guide_only_name_real_sdk_calls():
+    """skills/maestro-sdk/SKILL.md and sdk/README.md teach agents; a renamed method fails here."""
+    client = MaestroClient("http://127.0.0.1:9")
+    for doc in (ROOT / "skills" / "maestro-sdk" / "SKILL.md", ROOT / "sdk" / "README.md"):
+        calls = set(re.findall(r"client\.([a-z_]+(?:\.[a-z_]+)?)\(", doc.read_text()))
+        assert calls, doc
+        for dotted in calls:
+            target = client
+            for part in dotted.split("."):
+                assert hasattr(target, part), f"{doc.name}: client.{dotted}"
+                target = getattr(target, part)

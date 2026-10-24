@@ -18,10 +18,11 @@
 - 独立审查与修复（2026-10-23，在 `302b2ff` 上审查，修复在 `fix/review-findings`）：修了 Runner 实时日志可经符号链接读宿主机文件、凭据停用后无法解密并卡死主密钥轮换、准备流程的崩溃与占用泄漏、被删或停用管理员发出的邀请仍可兑换、清除失败仍报已清除、评分指标不起作用等；Hub 检索改为仅管理员（U-20）。选择、验证范围和留给后续的问题见决策记录的“独立审查与修复记录”。
 - 与机器和磁盘有关的数值上限进入 `config.toml`（U-21，同一分支）：归档与导出大小、构建、拉取与保存时限、同时恢复数、Hub 并发、Runner 心跳与静默时限，启动时校验，生效值见 `/capabilities`。见决策记录的“部署上限进入 config.toml”。
 - M5 分四段进行。第一段配置地基已实现（2026-10-23，`feature/m5-config`）：团队策略按修订进数据库、模型配置（三种协议）与 Harness 版本、配置解析接口（字段来源、阻塞项、`config_digest`）、凭 `resolution_id` 提交、作者参数取值，以及对应的管理页和新建运行页。第二段模型 Agent 执行已实现（同日、同一分支）：Harness 先做 Terminus-2（U-25），凭据执行时解密、只在 Runner 内存里，模型运行的 Agent 与验证阶段由平台收紧为断网，Agent 轨迹实时可读，真实模型冒烟已通过。第三段附件已实现（同日、同一分支）：成员或 experiment PAT 上传固定内容的附件包，配置解析按顺序固定附件并检查兼容与冲突，每个试次在自己的容器里于 Agent setup 中复制、逐文件比对并运行 `bootstrap.sh`（有时限和日志，失败只影响本试次，归为附件失败而非零分），以及附件页和新建运行页的附件选择。第四段已实现（同日、同一分支）：按原快照重跑（全部、未得分的任务或指定任务）与修改后运行（记录差异）、实验方案（按修订保存的部分配置，作为解析中的一层）、提交批次（全有或全无、按运行数扣 PAT 额度、整批取消），以及方案页、批次页和运行详情页的对应操作。M5 四段已全部完成，按 U-24 合入 `feature/rewrite`；之后补了可配置的准备代理与 OpenCode 适配（Harness 现有 Terminus-2 与 OpenCode）。本机默认的本地服务是 8432 端口的独立实例（配置在主仓 ignored `.local/maestro-local/`），用户自己的端到端测试也走它，开发与测试不要使用它的 state。选择与未覆盖范围见决策记录的“M5 实施记录（第一阶段）”至“（第四阶段）”。
+- M7 SDK 与网页已实现（2026-10-24，`feature/m7-sdk-web`）：受控的公开契约 `openapi/maestro-v1.json`（操作名稳定、错误都声明为结构化外壳），网页类型与 Python SDK 模型都从它生成，漂移由测试与 `npm run check:api` 发现；Python SDK（`sdk/`，包 `maestro_sdk`）覆盖 PAT 能做的全部操作，三个故事各有一条只经 SDK 走完的测试，并在真实 HTTP 上用演示执行器走过一遍；能力接口报告契约摘要；给 Agent 的 skill 在 `skills/maestro-sdk/`。网页按 11 整理：工作台与待处理、类似 GitHub Actions 的执行页、管理页分栏与维护页、设置页的 SDK 上手说明。删除了旧的研究客户端 skill、基线附件说明与最后的 `harbor_helper` 模块。选择与未覆盖范围见决策记录的“M7 实施记录”。
 
 ## 代码状态
 
-- 新代码在 `src/maestro/`，Runner 在 `runner/`（单独的 uv 项目和锁文件），测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。`src/harbor_helper/` 只剩 M5 要参考的旧团队配置与安全模块；服务环境已不安装 Harbor，这些文件不能再导入，也不进入发布包，参考完即删。
+- 新代码在 `src/maestro/`，Runner 在 `runner/`（单独的 uv 项目和锁文件），Python SDK 在 `sdk/`（单独的包，开发环境以可编辑方式安装），测试在 `tests/maestro/`；分工见[源码职责](architecture/source-layout.md)。基线的 `harbor_helper` 包已全部删除。
 - 重写过程中允许无法部署。按模块替换，新模块就绪后直接删除对应的基线代码和测试，不保留新旧并行、转发层或兼容分支。
 - 不承诺向后兼容，不迁移旧 state，新实现从空实例初始化。对外 HTTP、SDK、CLI 契约随重写修改。
 - 可移植的基线与 `dev` 代码见[实施计划](design/13-testing-plan.md)第 2.3 节。移植时先读原代码，按新设计重写接口。
@@ -30,7 +31,8 @@
 
 需要 Linux、Python 3.12–3.13 和 uv；实际执行另需 Docker/Compose、可用作者依赖与 Hub 权限。依赖由 `pyproject.toml`、`uv.lock`、`frontend/package-lock.json` 记录。
 
-- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests runner/src`；新代码另跑 `uv run ruff format --check src/maestro tests/maestro runner/src`。
+- Python：`uv sync --locked --group dev`、`uv run pytest -q`、`uv run ruff check src tests runner/src tools sdk/src`；新代码另跑 `uv run ruff format --check src/maestro tests/maestro runner/src tools sdk/src`。
+- 契约：改了 API（路由、公开模型）后运行 `uv run python tools/generate_clients.py` 重写 `openapi/maestro-v1.json` 与 SDK 模型，再在 `frontend/` 执行 `npm run gen:api` 重写网页类型；三者都要提交。`tests/maestro/test_sdk.py` 会核对前两者，`npm run check:api` 核对网页类型。新增给 PAT 用的接口时，同时给 SDK 加方法并登记到 `test_sdk.py` 的 `SDK_METHODS`。
 - Runner：在 `runner/` 执行 `uv sync --locked`。真实 Docker 测试需显式开启：`MAESTRO_DOCKER_TESTS=1 uv run pytest -q tests/maestro/test_harbor_docker.py`。它只用本地 Oracle 任务和已有的 `ubuntu:22.04`，需要 buildx，不调用模型和 Hub；执行资源都带每个测试独立的实例标签，准备好的镜像在每个实例自己的 `maestro-prep/<实例>` 仓库名下，结束时都核对清空。Terminus-2 的用例需要本地镜像 `maestro-test/ubuntu-tmux:22.04`（`FROM ubuntu:22.04` 加 `apt-get install tmux`，没有时跳过），模型是测试进程里的假服务，不花钱；它还要求容器能访问 example.com，用来对照 Oracle 运行能出网、模型运行出不了网。另有两项故意失败的用例核对错误分类：一个 `RUN` 步骤失败的 Dockerfile，和一个指定了不存在镜像的任务（后者会请求注册表，守护进程连不上时跳过）。运行前后建议对 `docker images`、`ps -a`、`network ls`、`volume ls` 各留快照对比。真实模型冒烟默认跳过，会产生费用，需显式开启：`MAESTRO_DOCKER_TESTS=1 MAESTRO_MODEL_TESTS=1 MAESTRO_MODEL_ENDPOINT=<OpenAI 兼容地址> MAESTRO_MODEL_ID=<模型> MAESTRO_MODEL_KEY_FILE=<key 文件> uv run pytest -q -s tests/maestro/test_harbor_docker.py -k real_model`，一个试次、最多 5 轮。真实 Hub 测试另需 `MAESTRO_HUB_TESTS=1 uv run pytest -q tests/maestro/test_hub_live.py`：匿名读取公开的 `harbor/hello-world`，导入测试会真实构建（基础镜像可能被拉取）；Runner 继承代理变量，但不支持 SOCKS 代理变量（`ALL_PROXY`）。
 - 数据库：`schema.py` 与最新迁移须一致（`tests/maestro/test_migrations.py` 检查）。首个发布前没有已部署的 schema，`0001` 可以随 `schema.py` 重新生成；发布后只追加迁移。并行分支都改了 `schema.py` 时，合并后在合并结果上重新生成 `0001`。
 - 实例：`maestro --config <config.toml> init / db upgrade / serve / openapi`；示例配置与试用步骤见根目录 README。

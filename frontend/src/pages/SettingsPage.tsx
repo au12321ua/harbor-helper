@@ -29,7 +29,7 @@ export function SettingsPage() {
   const { me } = useSession();
   return (
     <div className="grid gap-4">
-      <PageTitle title="个人设置" />
+      <PageTitle title="设置" />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">我的账户</CardTitle>
@@ -63,7 +63,50 @@ export function SettingsPage() {
       </Card>
       <PasswordCard />
       <PatCard />
+      <SdkCard />
     </div>
+  );
+}
+
+/** How an agent or script uses this service with a PAT (10 section 7). */
+function SdkCard() {
+  const example = `from maestro_sdk import MaestroClient
+
+client = MaestroClient(base_url="${window.location.origin}", token=os.environ["MAESTRO_TOKEN"])
+caps = client.capabilities()
+accepted = client.runs.submit(
+    name="基线",
+    dataset_version_id="dsv_…",
+    execution_mode="agent",
+    model_config_id="mdl_…",
+    harness_version_id="hrn_…",
+)
+operation = client.operations.wait(accepted.operation_id, timeout=3600)`;
+  return (
+    <Card data-testid="sdk-card">
+      <CardHeader>
+        <CardTitle className="text-base">SDK 快速上手</CardTitle>
+        <CardDescription>
+          用上面创建的 PAT 通过 Python SDK 提交和观察实验，网页能做的实验操作 SDK 都能做。服务端暂不提供
+          安装包下载，先从仓库安装；令牌放在环境变量里，不要写进代码。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2 text-sm">
+        <pre className="overflow-auto rounded bg-muted p-2 font-mono text-xs">
+          pip install &lt;maestro 仓库&gt;/sdk
+        </pre>
+        <pre className="overflow-auto rounded bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-100">
+          {"import os\n" + example}
+        </pre>
+        <div className="text-xs text-muted-foreground">
+          只读 PAT 可以查询、解析配置和下载；提交与重跑需要 experiment PAT。客户端等待超时不会取消服务端的运行。
+        </div>
+        <div className="text-xs text-muted-foreground">
+          让 Agent 代为操作时，加载仓库里的 skill <code>skills/maestro-sdk/SKILL.md</code>
+          ，并通过环境变量 MAESTRO_URL 与 MAESTRO_TOKEN_FILE 提供地址和令牌。
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -649,7 +649,7 @@ class ModelConfigRevise(ModelConfigFields):
 class ModelRevision(Model):
     revision: int
     provider: str
-    protocol: str
+    protocol: Protocol
     endpoint: str
     model_id: str
     params: dict[str, Any]
@@ -665,7 +665,7 @@ class ModelConfig(Model):
     enabled: bool
     revision: int
     provider: str
-    protocol: str
+    protocol: Protocol
     endpoint: str
     model_id: str
     params: dict[str, Any]
@@ -694,7 +694,7 @@ class Harness(Model):
     version: str
     agent: str
     description: str
-    protocols: list[str]
+    protocols: list[Protocol]
     parameter_schema: dict[str, Any]
     content_digest: str
     enabled: bool
@@ -704,7 +704,7 @@ class Harness(Model):
 
 class HarnessAdapter(Model):
     agent: str
-    protocols: list[str]
+    protocols: list[Protocol]
     parameters: list[str] | None = Field(
         None, description="Parameters a harness version may declare; null means any"
     )

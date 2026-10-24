@@ -406,7 +406,7 @@ function AddDataset({ onImported }: { onImported: (versionId?: string) => Promis
                 {versions.map((v) => (
                   <TableRow key={v.ref}>
                     <TableCell>{v.ref}</TableCell>
-                    <TableCell className="text-xs">{v.tags.join(", ") || "—"}</TableCell>
+                    <TableCell className="text-xs">{(v.tags ?? []).join(", ") || "—"}</TableCell>
                     <TableCell className="font-mono text-xs" title={v.resolved_digest}>
                       {shortId(v.resolved_digest, 19)}
                     </TableCell>

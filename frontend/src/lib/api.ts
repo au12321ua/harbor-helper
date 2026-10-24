@@ -1,6 +1,6 @@
 // Thin client for the Maestro /api/v1 contract: envelope unwrapping, CSRF header
 // for cookie sessions, and typed errors. The CSRF token lives in memory only.
-import type { ErrorBody, Meta } from "./types";
+import type { ApiErrorBody, Meta } from "./types";
 
 export const API = "/api/v1";
 
@@ -17,12 +17,12 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
 
 export class ApiError extends Error {
   status: number;
-  body: ErrorBody;
+  body: ApiErrorBody;
   requestId?: string;
   /** True when the outcome is unknown (network failure, 5xx) and a retry may be needed. */
   indeterminate: boolean;
 
-  constructor(status: number, body: ErrorBody, requestId?: string, indeterminate = false) {
+  constructor(status: number, body: ApiErrorBody, requestId?: string, indeterminate = false) {
     super(body.message);
     this.status = status;
     this.body = body;
@@ -113,7 +113,7 @@ export async function request<T>(
   if (!response.ok) {
     const body =
       payload && typeof payload === "object" && "error" in payload
-        ? (payload as { error: ErrorBody }).error
+        ? (payload as { error: ApiErrorBody }).error
         : {
             code: `HTTP_${response.status}`,
             message: response.statusText || "请求失败",

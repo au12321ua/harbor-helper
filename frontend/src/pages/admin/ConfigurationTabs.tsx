@@ -96,7 +96,7 @@ export function ModelsTab() {
         ? {
             name: model.name,
             provider: model.provider,
-            protocol: model.protocol,
+            protocol: model.protocol as ModelProtocol,
             endpoint: model.endpoint,
             model_id: model.model_id,
             params: JSON.stringify(model.params, null, 2),
@@ -367,7 +367,8 @@ export function HarnessesTab() {
   const [busy, setBusy] = useState(false);
   const agent = form.agent || adapters.data?.[0]?.agent || "";
   const adapter = adapters.data?.find((a) => a.agent === agent);
-  const supported = adapter?.protocols ?? [];
+  // The contract types protocols as plain strings; the adapters list only these three.
+  const supported = (adapter?.protocols ?? []) as ModelProtocol[];
 
   const create = async (e: FormEvent) => {
     e.preventDefault();

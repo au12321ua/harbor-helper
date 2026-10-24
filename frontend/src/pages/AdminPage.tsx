@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Link, NavLink, Navigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   EmptyNote,
   ErrorAlert,
@@ -44,6 +44,7 @@ import type {
   Invitation,
   IssuedInvitation,
   MasterKeyStatus,
+  Operation,
   RecycleEntry,
   Role,
   User,
@@ -53,54 +54,64 @@ function inviteLink(token: string) {
   return `${window.location.origin}/invite#${encodeURIComponent(token)}`;
 }
 
+const SECTIONS: { id: string; label: string; render: () => ReactNode }[] = [
+  {
+    id: "members",
+    label: "成员与邀请",
+    render: () => (
+      <>
+        <MembersTab />
+        <InvitationsTab />
+      </>
+    ),
+  },
+  {
+    id: "credentials",
+    label: "凭据与主密钥",
+    render: () => (
+      <>
+        <CredentialsTab />
+        <MasterKeyTab />
+      </>
+    ),
+  },
+  { id: "models", label: "模型", render: () => <ModelsTab /> },
+  { id: "harnesses", label: "Harness", render: () => <HarnessesTab /> },
+  { id: "policy", label: "团队策略", render: () => <PolicyTab /> },
+  { id: "capacity", label: "容量", render: () => <CapacityTab /> },
+  { id: "datasets", label: "数据集导入", render: () => <DatasetImportsTab /> },
+  { id: "recycle-bin", label: "回收站", render: () => <RecycleBinTab /> },
+  { id: "audit", label: "审计", render: () => <AuditTab /> },
+  { id: "maintenance", label: "维护", render: () => <MaintenanceTab /> },
+];
+
+/** Administration with a left sub-navigation; each section has its own URL (/admin/<id>). */
 export function AdminPage() {
+  const { section } = useParams();
+  const current = SECTIONS.find((s) => s.id === section);
+  if (!current) return <Navigate to="/admin/members" replace />;
   return (
     <div>
-      <PageTitle title="管理" />
-      <Tabs defaultValue="members">
-        <TabsList>
-          <TabsTrigger value="members">成员</TabsTrigger>
-          <TabsTrigger value="invitations">邀请</TabsTrigger>
-          <TabsTrigger value="credentials">凭据</TabsTrigger>
-          <TabsTrigger value="models">模型</TabsTrigger>
-          <TabsTrigger value="harnesses">Harness</TabsTrigger>
-          <TabsTrigger value="policy">团队策略</TabsTrigger>
-          <TabsTrigger value="capacity">容量</TabsTrigger>
-          <TabsTrigger value="master-key">主密钥</TabsTrigger>
-          <TabsTrigger value="recycle-bin">回收站</TabsTrigger>
-          <TabsTrigger value="audit">审计</TabsTrigger>
-        </TabsList>
-        <TabsContent value="members">
-          <MembersTab />
-        </TabsContent>
-        <TabsContent value="invitations">
-          <InvitationsTab />
-        </TabsContent>
-        <TabsContent value="credentials">
-          <CredentialsTab />
-        </TabsContent>
-        <TabsContent value="models">
-          <ModelsTab />
-        </TabsContent>
-        <TabsContent value="harnesses">
-          <HarnessesTab />
-        </TabsContent>
-        <TabsContent value="policy">
-          <PolicyTab />
-        </TabsContent>
-        <TabsContent value="capacity">
-          <CapacityTab />
-        </TabsContent>
-        <TabsContent value="master-key">
-          <MasterKeyTab />
-        </TabsContent>
-        <TabsContent value="recycle-bin">
-          <RecycleBinTab />
-        </TabsContent>
-        <TabsContent value="audit">
-          <AuditTab />
-        </TabsContent>
-      </Tabs>
+      <PageTitle title={`管理 · ${current.label}`} />
+      <div className="grid items-start gap-6 md:grid-cols-[11rem_1fr]">
+        <nav aria-label="管理" className="grid gap-0.5 md:sticky md:top-16">
+          {SECTIONS.map((s) => (
+            <NavLink
+              key={s.id}
+              to={`/admin/${s.id}`}
+              className={({ isActive }) =>
+                cn(
+                  "rounded-md px-3 py-1.5 text-sm",
+                  isActive ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted/60",
+                )
+              }
+            >
+              {s.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="grid min-w-0 gap-8">{current.render()}</div>
+      </div>
     </div>
   );
 }
@@ -1099,5 +1110,204 @@ function RecycleBinTab() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const OPERATION_STATUS_TONE: Record<string, "good" | "bad" | "warn" | "info"> = {
+  succeeded: "good",
+  failed: "bad",
+  interrupted: "bad",
+  cancelled: "warn",
+  accepted: "info",
+  running: "info",
+};
+
+/** Import and first preparation happen on the datasets page; here: what ran and how it ended. */
+function DatasetImportsTab() {
+  const ops = useLoad(async () => {
+    const [imports, firsts] = await Promise.all([
+      api.get<Operation[]>("operations", { kind: "dataset_import", limit: 50 }),
+      api.get<Operation[]>("operations", { kind: "preparation_first", limit: 50 }),
+    ]);
+    return [...imports.data, ...firsts.data].sort((a, b) =>
+      b.created_at.localeCompare(a.created_at),
+    );
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">数据集导入与首次准备</CardTitle>
+        <CardDescription>
+          从数据源检索、添加版本和重试首次准备都在
+          <Link className="mx-1 text-primary underline" to="/datasets">
+            数据集
+          </Link>
+          页进行（只有管理员网页会话可以）。下面是最近的导入与首次准备操作。
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ErrorAlert error={ops.error} />
+        {!ops.data && !ops.error && <Loading />}
+        {ops.data && ops.data.length === 0 && <EmptyNote>还没有导入过数据集。</EmptyNote>}
+        {ops.data && ops.data.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>操作</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>阶段</TableHead>
+                <TableHead>错误</TableHead>
+                <TableHead>时间</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ops.data.map((op) => (
+                <TableRow key={op.id}>
+                  <TableCell className="text-xs">
+                    {op.kind === "dataset_import" ? "导入" : "首次准备"}{" "}
+                    <code className="text-muted-foreground">{shortId(op.id)}</code>
+                  </TableCell>
+                  <TableCell>
+                    <Pill tone={OPERATION_STATUS_TONE[op.status] ?? "neutral"}>{op.status}</Pill>
+                  </TableCell>
+                  <TableCell className="text-xs">{op.phase ?? "—"}</TableCell>
+                  <TableCell className="max-w-80 text-xs break-all">
+                    {op.error ? `${String(op.error.code ?? "")} ${String(op.error.message ?? "")}` : "—"}
+                  </TableCell>
+                  <TableCell className="text-xs">{fmtTime(op.finished_at ?? op.created_at)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+async function healthProbe(path: string): Promise<Health | { error: string }> {
+  try {
+    const res = await fetch(path, { credentials: "same-origin" });
+    return res.ok ? ((await res.json()) as Health) : { error: `HTTP ${res.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 11 section 5: process alive, accepting runs and a specific run being blocked are separate.
+ * P0 has no update, drain, backup or restore here; those are not shown as buttons.
+ */
+function MaintenanceTab() {
+  const { capabilities } = useSession();
+  const data = useLoad(async () => {
+    const [live, ready, status] = await Promise.all([
+      healthProbe("/health/live"),
+      healthProbe("/health/ready"),
+      api.get<Health>("system-status"),
+    ]);
+    return { live, ready, status: status.data };
+  });
+  const detail = (data.data?.status.detail ?? {}) as {
+    storage?: { level: string; free_bytes: number; total_bytes: number };
+    schema?: { current?: string | null; head?: string; compatible?: boolean };
+    master_key_available?: boolean;
+    executor?: string | null;
+    worker_running?: boolean;
+  };
+  const execution = (capabilities?.execution ?? {}) as { policy_version?: string };
+  const probe = (value: Health | { error: string } | undefined) =>
+    !value ? "—" : "error" in value ? <Pill tone="bad">{value.error}</Pill> : <code>{value.status}</code>;
+  return (
+    <div className="grid gap-4">
+      <Card data-testid="maintenance">
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle className="text-base">健康与可受理</CardTitle>
+          <Button size="sm" variant="outline" onClick={() => void data.reload()}>
+            刷新
+          </Button>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
+          <ErrorAlert error={data.error} />
+          <Field label="进程存活（/health/live）" value={probe(data.data?.live)} />
+          <Field label="就绪（/health/ready）" value={probe(data.data?.ready)} />
+          <Field
+            label="受理新运行"
+            value={
+              data.data?.status.accepting_runs ? (
+                <Pill tone="good">可受理</Pill>
+              ) : (
+                <Pill tone="warn">暂不受理</Pill>
+              )
+            }
+          />
+          <Field
+            label="执行进程"
+            value={detail.worker_running ? <Pill tone="good">运行中</Pill> : <Pill tone="bad">未运行</Pill>}
+          />
+          <Field label="执行器" value={detail.executor ?? "未配置"} />
+          <Field
+            label="主密钥"
+            value={detail.master_key_available ? <Pill tone="good">可用</Pill> : <Pill tone="bad">不可用</Pill>}
+          />
+          <Field
+            label="数据库结构"
+            value={
+              detail.schema ? (
+                <span>
+                  <code>{detail.schema.current ?? "—"}</code>（最新 <code>{detail.schema.head}</code>）
+                  {detail.schema.compatible === false && <Pill tone="bad">不兼容</Pill>}
+                </span>
+              ) : (
+                "—"
+              )
+            }
+          />
+          <div className="self-end">
+            <StorageBadge />
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">版本</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
+          <Field label="服务版本" value={<code>{capabilities?.service_version ?? "—"}</code>} />
+          <Field label="API 版本" value={<code>{capabilities?.api_version ?? "—"}</code>} />
+          <Field label="结构修订" value={<code>{capabilities?.schema_revision ?? "—"}</code>} />
+          <Field label="错误策略版本" value={<code>{execution.policy_version ?? "—"}</code>} />
+          <Field
+            label="契约摘要（OpenAPI）"
+            value={<code className="break-all text-xs">{capabilities?.contract_digest ?? "—"}</code>}
+          />
+          <Field label="团队策略修订" value={capabilities?.team_policy_revision ?? "—"} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="pt-6 text-sm text-muted-foreground">
+          更新、排空、备份与恢复不在网页中提供（P0 未实现），由部署脚本处理；完整的服务状态见
+          <JsonDetails value={data.data?.status.detail} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="break-all">{value}</div>
+    </div>
+  );
+}
+
+function JsonDetails({ value }: { value: unknown }) {
+  return (
+    <details className="mt-1">
+      <summary className="cursor-pointer text-xs">system-status 详情</summary>
+      <pre className="mt-1 overflow-auto text-xs">{JSON.stringify(value ?? null, null, 2)}</pre>
+    </details>
   );
 }

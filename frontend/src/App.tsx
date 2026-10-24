@@ -19,6 +19,7 @@ import { BatchListPage, BatchPage } from "@/pages/BatchPage";
 import { ExportsPage } from "@/pages/ExportsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AdminPage } from "@/pages/AdminPage";
+import { WorkbenchPage } from "@/pages/WorkbenchPage";
 
 type Boot =
   | { phase: "loading" }
@@ -171,7 +172,7 @@ function SignedIn({
     <SessionContext.Provider value={session}>
       <Shell>
         <Routes>
-          <Route path="/" element={<Navigate to="/runs" replace />} />
+          <Route path="/" element={<WorkbenchPage />} />
           <Route path="/runs" element={<RunListPage />} />
           <Route path="/runs/new" element={<NewRunPage />} />
           <Route path="/runs/:runId" element={<RunDetailPage />} />
@@ -183,8 +184,8 @@ function SignedIn({
           <Route path="/exports" element={<ExportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route
-            path="/admin"
-            element={me.role === "admin" ? <AdminPage /> : <Navigate to="/runs" replace />}
+            path="/admin/:section?"
+            element={me.role === "admin" ? <AdminPage /> : <Navigate to="/" replace />}
           />
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -215,20 +216,22 @@ function Shell({ children }: { children: React.ReactNode }) {
   }, [pollHealth]);
   useInterval(() => void pollHealth(), 30000, true);
   const links = [
-    { to: "/runs", label: "运行" },
+    { to: "/", label: "工作台", end: true },
+    { to: "/runs", label: "运行", end: true },
+    { to: "/runs/new", label: "新建运行", end: true },
     { to: "/batches", label: "批次" },
-    { to: "/plans", label: "方案" },
     { to: "/datasets", label: "数据集" },
+    { to: "/plans", label: "方案" },
     { to: "/attachments", label: "附件" },
     { to: "/exports", label: "导出" },
-    { to: "/settings", label: "个人设置" },
+    { to: "/settings", label: "设置" },
     ...(me.role === "admin" ? [{ to: "/admin", label: "管理" }] : []),
   ];
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 border-b bg-sidebar text-sidebar-foreground">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2">
-          <NavLink to="/runs" className="text-lg font-semibold tracking-wide text-sidebar-primary">
+          <NavLink to="/" className="text-lg font-semibold tracking-wide text-sidebar-primary">
             Maestro
           </NavLink>
           <nav className="flex flex-wrap gap-1">
@@ -236,6 +239,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               <NavLink
                 key={link.to}
                 to={link.to}
+                end={link.end}
                 className={({ isActive }) =>
                   cn(
                     "rounded-md px-3 py-1.5 text-sm",

@@ -242,7 +242,7 @@ export function NewRunPage() {
           sensitive: (known?.sensitive ?? false) || p.sensitive,
           required:
             (known?.required ?? false) ||
-            task.required_parameters.includes(p.name),
+            (task.required_parameters ?? []).includes(p.name),
           default: known?.default ?? p.default,
         });
       }
@@ -335,7 +335,7 @@ export function NewRunPage() {
       );
     if (req.attachments) setChosenAttachments(req.attachments);
     if (req.task_selection) {
-      setMode(req.task_selection.mode);
+      setMode(req.task_selection.mode ?? "all_eligible");
       setSelected(new Set(req.task_selection.task_ids ?? []));
     }
     const text = (v: number | null | undefined) => (v == null ? "" : String(v));
@@ -1002,9 +1002,9 @@ export function NewRunPage() {
                           )}
                           <TableCell className="font-mono text-xs">
                             {task.task_key}
-                            {task.required_parameters.length > 0 && (
+                            {(task.required_parameters ?? []).length > 0 && (
                               <div className="text-[11px] text-muted-foreground">
-                                需要参数：{task.required_parameters.join("、")}
+                                需要参数：{(task.required_parameters ?? []).join("、")}
                               </div>
                             )}
                           </TableCell>

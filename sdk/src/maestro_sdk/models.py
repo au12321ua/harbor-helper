@@ -388,7 +388,7 @@ class Harness(BaseModel):
     id: str
     name: str
     parameter_schema: dict[str, Any]
-    protocols: list[str]
+    protocols: list[Literal["openai-compatible", "openai", "anthropic"]]
     version: str
 
 
@@ -401,7 +401,7 @@ class HarnessAdapter(BaseModel):
         list[str] | None,
         Field(description="Parameters a harness version may declare; null means any"),
     ] = None
-    protocols: list[str]
+    protocols: list[Literal["openai-compatible", "openai", "anthropic"]]
 
 
 class HarnessCreate(BaseModel):
@@ -639,7 +639,7 @@ class ModelRevision(BaseModel):
     endpoint: str
     model_id: str
     params: dict[str, Any]
-    protocol: str
+    protocol: Literal["openai-compatible", "openai", "anthropic"]
     provider: str
     revision: int
 
@@ -1802,7 +1802,7 @@ class ModelConfig(BaseModel):
     model_id: str
     name: str
     params: dict[str, Any]
-    protocol: str
+    protocol: Literal["openai-compatible", "openai", "anthropic"]
     provider: str
     revision: int
     revisions: list[ModelRevision] | None = None

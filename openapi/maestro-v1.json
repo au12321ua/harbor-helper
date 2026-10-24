@@ -3536,6 +3536,11 @@
           },
           "protocols": {
             "items": {
+              "enum": [
+                "openai-compatible",
+                "openai",
+                "anthropic"
+              ],
               "type": "string"
             },
             "title": "Protocols",
@@ -3585,6 +3590,11 @@
           },
           "protocols": {
             "items": {
+              "enum": [
+                "openai-compatible",
+                "openai",
+                "anthropic"
+              ],
               "type": "string"
             },
             "title": "Protocols",
@@ -4537,6 +4547,11 @@
             "type": "object"
           },
           "protocol": {
+            "enum": [
+              "openai-compatible",
+              "openai",
+              "anthropic"
+            ],
             "title": "Protocol",
             "type": "string"
           },
@@ -4748,6 +4763,11 @@
             "type": "object"
           },
           "protocol": {
+            "enum": [
+              "openai-compatible",
+              "openai",
+              "anthropic"
+            ],
             "title": "Protocol",
             "type": "string"
           },

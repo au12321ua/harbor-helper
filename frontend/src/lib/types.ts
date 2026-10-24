@@ -1,347 +1,86 @@
-// Mirrors src/maestro/api/models.py (the OpenAPI contract). Keep field names identical.
+// Web types for the /api/v1 contract. Every type with a backend schema is an alias of the
+// generated `schema.d.ts` (`npm run gen:api`, from ../openapi/maestro-v1.json), so a changed
+// API that was not regenerated fails `npm run check:api` and the type check.
+// Narrowings below cover only fields the backend declares as free-form JSON (dict[str, Any]).
+import type { components } from "./schema";
 
-export type Role = "admin" | "member";
-export type Scope = "read" | "experiment";
+type S = components["schemas"];
 
-export interface FieldErrorModel {
-  path: string;
-  code: string;
-  message?: string | null;
-  limit?: number | null;
-}
+export type Role = S["User"]["role"];
+export type Scope = S["Pat"]["scope"];
 
-export interface ErrorBody {
-  code: string;
-  message: string;
-  stage?: string | null;
-  field_errors: FieldErrorModel[];
-  retryable: boolean;
-  suggested_actions: Record<string, unknown>[];
-}
+export type FieldErrorModel = S["FieldErrorModel"];
+export type ErrorBody = S["ErrorBody"];
+/** An error as the client hands it to pages: the server always sends field_errors. */
+export type ApiErrorBody = ErrorBody & { field_errors: FieldErrorModel[] };
+export type Meta = S["Meta"];
 
-export interface Meta {
-  request_id: string;
-  next_cursor?: string | null;
-}
+export type User = S["User"];
+export type Me = S["Me"];
+export type SessionInfo = S["SessionInfo"];
+export type SetupStatus = S["SetupStatus"];
 
-export interface User {
-  id: string;
-  username: string;
-  display_name: string;
-  role: Role;
-  status: "active" | "disabled";
-  revision: number;
-  created_at: string;
-  disabled_at: string | null;
-}
+export type Invitation = S["Invitation"];
+export type InvitationKind = Invitation["kind"];
+export type IssuedInvitation = S["IssuedInvitation"];
+export type InvitationInfo = S["InvitationInfo"];
 
-export interface Me extends User {
-  auth_channel: "web_session" | "pat";
-  pat_id: string | null;
-  pat_scope: Scope | null;
-}
+export type Pat = S["Pat"];
+export type IssuedPat = S["IssuedPat"];
 
-export interface SessionInfo {
-  user: Me;
-  csrf_token: string | null;
-}
+export type Credential = S["Credential"];
+export type CredentialKind = Credential["kind"];
+export type CredentialName = S["CredentialName"];
+export type MasterKeyStatus = S["MasterKeyStatus"];
 
-export type InvitationKind = "invitation" | "password_reset";
+export type DatasetVersion = S["DatasetVersion"];
+export type Dataset = S["Dataset"];
+export type DeletionState = S["DeletionState"];
 
-export interface Invitation {
-  id: string;
-  role: Role;
-  note: string;
-  kind: InvitationKind;
-  target_user_id: string | null;
-  state: "pending" | "used" | "revoked" | "expired";
-  created_by: string;
-  created_at: string;
-  expires_at: string;
-  used_at: string | null;
-  used_by: string | null;
-}
-
-export interface IssuedInvitation extends Invitation {
-  token: string;
-}
-
-export interface InvitationInfo {
-  kind: InvitationKind;
-  role: Role;
-  username: string | null;
-  expires_at: string;
-}
-
-export interface Pat {
-  id: string;
-  name: string;
-  scope: Scope;
-  token_prefix: string;
-  state: "active" | "revoked" | "expired";
-  expires_at: string;
-  run_limit: number;
-  accepted_runs: number;
-  remaining_runs: number;
-  created_at: string;
-  last_used_at: string | null;
-  revoked_at: string | null;
-  revision: number;
-}
-
-export interface IssuedPat extends Pat {
-  token: string;
-}
-
-export type CredentialKind = "model_api_key" | "hub_token" | "generic_secret";
-
-export interface Credential {
-  id: string;
-  name: string;
-  kind: CredentialKind;
-  provider: string;
-  description: string;
-  enabled: boolean;
-  revision: number;
-  key_version: number;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MasterKeyStatus {
-  initialized: boolean;
-  available: boolean;
-  generation: number | null;
-  rotated_at: string | null;
-  reencrypted_credentials?: number | null;
-}
-
-export interface DatasetVersion {
-  id: string;
-  dataset_id: string;
-  upstream_ref: string;
-  ref_kind: string;
-  resolved_digest: string;
-  materialization_digest: string | null;
-  status: string;
-  description: string;
-  created_at: string;
-  created_by: string | null;
-  operation_id: string | null;
-  task_count: number;
-  admitted_task_count: number;
-  submittable_task_count: number;
-  cache_ready_task_count: number;
-}
-
-export interface DatasetVersionDetail extends DatasetVersion {
-  namespace: string;
-  name: string;
-  first_preparation_operation_id: string | null;
-  deletion: DeletionState | null;
+// Backend: scoring_contract is dict[str, Any]; these are the keys the catalog sends.
+export type DatasetVersionDetail = Omit<S["DatasetVersionDetail"], "scoring_contract"> & {
   scoring_contract: {
     source: "dataset_version" | "platform_default";
     name: string;
     direction: "higher_is_better" | "lower_is_better";
     passed: { rule: string; threshold: number } | null;
   };
-}
+};
 
-export interface Dataset {
-  id: string;
-  source_kind: string;
-  namespace: string;
-  name: string;
-  description: string;
-  credential_id: string | null;
-  versions: DatasetVersion[];
-}
+export type Availability = S["TaskContent"]["availability"];
+export type CacheState = S["LocalPreparation"]["cache_state"];
+export type LocalPreparation = S["LocalPreparation"];
+export type AuthorParameter = S["AuthorParameter"];
+export type TaskBlocker = S["TaskBlocker"];
+export type Task = S["Task"];
 
-export type Availability = "unknown" | "available" | "unavailable";
-export type CacheState = "absent" | "restoring" | "ready" | "stale";
+export type Operation = S["Operation"];
+export type Preparation = S["Preparation"];
 
-export interface LocalPreparation {
-  id: string | null;
-  location_id: string;
-  cache_state: CacheState;
-  last_restore_error: Record<string, unknown> | null;
-  operation_id: string | null;
-  prepared_at: string | null;
-  last_used_at: string | null;
-}
+export type SourceDataset = S["SourceDataset"];
+export type SourceVersion = S["SourceVersion"];
+export type SourceVersionDetail = S["SourceVersionDetail"];
 
-export interface AuthorParameter {
-  name: string;
-  default: string | null;
-  required: boolean;
-  sensitive: boolean;
-  description: string;
-  hard_constraints: Record<string, unknown>;
-  used_in: string[];
-}
-
-export interface TaskBlocker {
-  code: string;
-  admission_state?: string | null;
-  first_preparation_error?: Record<string, unknown> | null;
-  resource_kind?: string | null;
-  expected_digest?: string | null;
-  evidence?: Record<string, unknown> | null;
-  parameters?: string[] | null;
-  issues?: Record<string, unknown>[] | null;
-}
-
-export interface Task {
-  id: string;
-  dataset_version_id: string;
-  task_key: string;
-  admission: { id: string; state: string; revision: number; approved_at: string | null } | null;
-  content: {
-    digest: string;
-    material_digest: string | null;
-    availability: Availability;
-    checked_at: string | null;
-    resources: {
-      resource_kind: string;
-      digest: string;
-      availability: Availability;
-      checked_at: string | null;
-    }[];
-  };
-  local_preparation: LocalPreparation;
-  spec_digest: string | null;
-  resources: Record<string, unknown>;
-  timeouts: Record<string, unknown>;
-  parameters: AuthorParameter[];
-  required_parameters: string[];
-  instruction: string;
-  can_submit: boolean;
-  blockers: TaskBlocker[];
-  warnings: { code: string; action: string }[];
-  required_preparation: { action: string; spec_digest: string }[];
-}
-
-export interface Operation {
-  id: string;
-  kind: string;
-  resource: { type: string; id: string } | null;
-  owner_id: string | null;
-  status: "accepted" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
-  phase: string | null;
-  progress: Record<string, unknown>;
-  error: Record<string, unknown> | null;
-  result: Record<string, unknown> | null;
-  allowed_actions: string[];
-  links: Record<string, string>;
-  revision: number;
-  created_at: string;
-  updated_at: string;
-  finished_at: string | null;
-}
-
-export interface SourceDataset {
-  namespace: string;
-  name: string;
-  visibility?: string | null;
-}
-
-export interface SourceVersion {
-  ref: string;
-  revision?: number | null;
-  tags: string[];
-  resolved_digest: string;
-  published_at?: string | null;
-  yanked: boolean;
-}
-
-export interface SourceVersionDetail {
-  namespace: string;
-  name: string;
-  upstream_ref: string;
-  ref_kind: string;
-  resolved_digest: string;
-  description: string;
-  tasks: { task_key: string; content_digest: string }[];
-  existing_version_id: string | null;
-}
-
-export type ExecutionMode = "agent" | "oracle";
+export type ExecutionMode = NonNullable<S["ConfigRequest"]["execution_mode"]>;
 export type ParameterValue = string | { credential_id: string };
 
 /** A run configuration request (03): unset fields are inherited from the layer below. */
-export interface ConfigRequest {
-  /** An experiment plan: fields set here win, the plan fills in the rest. */
-  plan_id?: string | null;
-  plan_revision?: number | null;
-  dataset_version_id: string;
-  execution_mode: ExecutionMode;
-  task_selection: { mode: "all_eligible" | "explicit"; task_ids?: string[] | null };
-  model_config_id?: string | null;
-  /** Pins an earlier model revision (a rerun's or an imported run's). */
-  model_revision?: number | null;
-  harness_version_id?: string | null;
-  harness_params?: Record<string, unknown>;
-  /** Attachment version ids in load order (model runs only). */
-  attachments?: string[];
-  repetitions?: number | null;
-  concurrency?: number | null;
-  run_deadline_hours?: number | null;
-  resources?: { cpus?: number | null; memory_mb?: number | null };
-  timeouts?: { agent_sec?: number | null; verifier_sec?: number | null; bootstrap_sec?: number | null };
-  parameters?: Record<string, ParameterValue>;
-}
+export type ConfigRequest = S["ConfigRequest"];
+export type RunCreate = S["RunCreate"];
+export type RunRerun = S["RunRerun"];
 
-export interface RunCreate {
-  name: string;
-  resolution_id?: string;
-  client_request_id?: string | null;
-  /** Makes this a modified run of that run; the differences are recorded. */
-  source_run_id?: string | null;
-}
+// Backend: template is dict[str, Any] (a partial ConfigRequest, checked field by field).
+export type Plan = Omit<S["Plan"], "template"> & { template: Partial<ConfigRequest> };
 
-/** A saved, partial configuration request (04 section 1). */
-export interface Plan {
-  id: string;
-  name: string;
-  description: string;
-  owner_id: string;
-  owner_username: string | null;
-  revision: number;
-  template: Partial<ConfigRequest>;
-  copied_from: string | null;
-  created_at: string;
-  updated_at: string;
-  archived_at: string | null;
-  allowed_actions: string[];
-}
+export type Batch = S["Batch"];
+export type BatchProgress = Batch["progress"];
+export type BatchAccepted = S["BatchAccepted"];
+export type BatchCreate = S["BatchCreate"];
 
-export interface BatchProgress {
-  runs: number;
-  terminal_runs: number;
-  finished: number;
-  cancelled: number;
-  interrupted: number;
-  planned_trials: number;
-  scored_trials: number;
-  error_trials: number;
-}
+export type ConfigBlocker = S["ConfigBlocker"];
 
-export interface Batch {
-  id: string;
-  name: string;
-  owner_id: string;
-  owner_username: string | null;
-  stop_requested: boolean;
-  created_at: string;
-  status: string;
-  operation_id: string;
-  progress: BatchProgress;
-  runs: Run[];
-  allowed_actions: string[];
-}
-
-export interface BatchPreview {
+// Backend: each run row of the preview is dict[str, Any].
+export type BatchPreview = Omit<S["BatchPreview"], "runs" | "pat_quota"> & {
   runs: {
     index: number;
     config_digest: string | null;
@@ -349,26 +88,8 @@ export interface BatchPreview {
     labels?: Record<string, string>;
     blockers?: ConfigBlocker[];
   }[];
-  planned_trials: number;
   pat_quota: { needed: number; left: number } | null;
-  duplicate_configs: string[];
-  blockers: Record<string, unknown>[];
-  can_submit: boolean;
-}
-
-export interface BatchAccepted {
-  batch_id: string;
-  operation_id: string;
-  planned_trials: number;
-  runs: RunAccepted[];
-}
-
-export interface ConfigBlocker {
-  code: string;
-  path: string;
-  message: string;
-  [extra: string]: unknown;
-}
+};
 
 export interface FieldSource {
   layer: "author" | "team" | "plan" | "override" | "harness";
@@ -376,113 +97,7 @@ export interface FieldSource {
   revision?: number;
 }
 
-export interface ConfigResolution {
-  resolution_id: string;
-  created_at: string;
-  expires_at: string;
-  request: ConfigRequest;
-  effective_config: Record<string, unknown> & {
-    tasks?: { task_key: string; cpus: number; memory_mb: number; agent_timeout_sec: number | null }[];
-    repetitions?: number;
-    concurrency?: number;
-    run_deadline_hours?: number;
-    parameters?: Record<string, { value?: string; credential_id?: string }>;
-    attachments?: EffectiveAttachment[];
-    bootstrap_timeout_sec?: number | null;
-  } | null;
-  field_sources: Record<string, FieldSource>;
-  baseline_differences: { path: string; value: number; tasks_lower: number; tasks_higher: number }[];
-  excluded_tasks: { task_id: string; task_key: string; blockers: TaskBlocker[] }[];
-  required_preparation: { task_key: string; action: string; spec_digest: string }[];
-  cache_observations: { task_key: string; cache_state: string; action: string | null }[];
-  warnings: { code: string; path: string; message: string }[];
-  blockers: ConfigBlocker[];
-  config_digest: string | null;
-  reference_revisions: Record<string, unknown>;
-  labels: Record<string, string>;
-  planned_trials: number;
-}
-
-/** A usable team credential as everyone sees it: the name, never the value. */
-export interface CredentialName {
-  id: string;
-  name: string;
-  kind: string;
-  provider: string;
-  description: string;
-}
-
-export type ModelProtocol = "openai-compatible" | "openai" | "anthropic";
-
-export interface ModelConfig {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-  revision: number;
-  provider: string;
-  protocol: ModelProtocol;
-  endpoint: string;
-  model_id: string;
-  params: Record<string, unknown>;
-  credential_bound: boolean;
-  credential_problem: string | null;
-  credential_id?: string | null;
-  credential_name?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface HarnessParameterSpec {
-  type: "string" | "integer" | "number" | "boolean";
-  description?: string;
-  default?: unknown;
-  enum?: unknown[];
-  minimum?: number;
-  maximum?: number;
-}
-
-export interface Harness {
-  id: string;
-  name: string;
-  version: string;
-  agent: string;
-  description: string;
-  protocols: ModelProtocol[];
-  parameter_schema: { parameters: Record<string, HarnessParameterSpec> };
-  content_digest: string;
-  enabled: boolean;
-  created_at: string;
-}
-
-export interface AttachmentFile {
-  path: string;
-  size: number;
-  sha256: string;
-  executable: boolean;
-}
-
-/** A published attachment package (03 section 6); its content never changes. */
-export interface Attachment {
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  owner_id: string;
-  owner_username: string | null;
-  content_digest: string;
-  effects: string[];
-  compatible_harnesses: string[];
-  provides: { tools: string[]; env: string[] };
-  has_bootstrap: boolean;
-  file_count: number;
-  size_bytes: number;
-  enabled: boolean;
-  created_at: string;
-  files?: AttachmentFile[] | null;
-}
-
-/** An attachment as a run configuration fixes it. */
+/** An attachment as a run configuration fixes it (inside the dict-typed effective config). */
 export interface EffectiveAttachment {
   version_id: string;
   name: string;
@@ -493,342 +108,112 @@ export interface EffectiveAttachment {
   has_bootstrap: boolean;
 }
 
-export interface HarnessAdapter {
-  agent: string;
-  protocols: ModelProtocol[];
-  /** Parameters a harness version may declare; null means any. */
-  parameters: string[] | null;
-}
-
-export interface PolicySetting {
-  name: string;
-  group: "runs" | "access" | "retention";
-  description: string;
-  built_in: number;
-  min: number;
-  max: number;
-}
-
-export interface TeamPolicy {
-  revision: number;
-  values: Record<string, number>;
-  settings: PolicySetting[];
-}
-
-export interface RunAccepted {
-  run_id: string;
-  operation_id: string;
-  state: string;
-  config_digest: string;
-  snapshot_digest: string;
-  planned_trials: number;
-  excluded_tasks: { task_id: string; task_key: string; blockers: TaskBlocker[] }[];
-  cache_observations: { task_key: string; cache_state: string; action: string | null }[];
-  links: Record<string, string>;
-}
-
-export interface DeletionState {
-  state: "recycled" | "purged";
-  deleted_at: string;
-  purged_at: string | null;
-}
-
-export interface RunScoring {
-  metric_id: string;
-  planned_trials: number;
-  scored_trials: number;
-  excluded_error_trials: number;
-  unfinished_trials: number;
-  passed_trials: number | null;
-  mean: number | null;
-  stddev: number | null;
-  pass_rate: number | null;
-  scored_coverage: number | null;
-  bench_score: number | null;
-}
-
-export interface ScoringContract {
-  contract_version: number;
-  source: "platform_default" | "dataset_version";
-  metric_id: string;
-  name: string;
-  unit: string | null;
-  direction: "higher_is_better" | "lower_is_better";
-  passed: { rule?: string; threshold?: number; [key: string]: unknown } | null;
-  task_aggregation: string;
-  bench_aggregation: string;
-  count_as_failure: string[];
-}
-
-export interface TaskSummary {
-  task_key: string;
-  planned_trials: number;
-  scored_trials: number;
-  mean: number | null;
-  stddev: number | null;
-  passed_trials: number | null;
-  partial: boolean;
-  excluded_trials: number;
-  failure_causes: string[];
-}
-
-export interface RunSummary {
-  run_id: string;
-  contract: ScoringContract;
-  planned_trials: number;
-  scored_trials: number;
-  count_as_failure_trials: number;
-  excluded_error_trials: number;
-  unfinished_trials: number;
-  active_trials: number;
-  queued_trials: number;
-  passed_trials: number | null;
-  mean: number | null;
-  stddev: number | null;
-  pass_rate: number | null;
-  scored_coverage: number | null;
-  evaluation_coverage: number | null;
-  bench_task_coverage: number | null;
-  bench_score: number | null;
-  bench_scored_tasks: number;
-  task_count: number;
-  result_completeness: "none" | "partial" | "complete";
-  excluded_by_cause: Record<string, number>;
-  attempts: number;
-  retried_trials: number;
-  retry_count: number;
-  usage: { known_trials: number; unknown_trials: number; known_totals: Record<string, number> };
-  tasks: TaskSummary[];
-}
-
-export interface RunCounts {
-  planned: number;
-  terminal: number;
-  scored: number;
-  errors: number;
-  not_started: number;
-  cancelled: number;
-  interrupted: number;
-  active: number;
-  queued: number;
-}
-
-export type RunStateName =
-  | "queued"
-  | "preparing"
-  | "running"
-  | "finalizing"
-  | "finished"
-  | "cancelled"
-  | "interrupted";
-
-export interface Run {
-  id: string;
-  name: string;
-  owner_id: string;
-  owner: { username: string; display_name: string; deleted: boolean };
-  pat_id: string | null;
-  relation: "initial" | "rerun" | "modified";
-  source_run_id: string | null;
-  plan_id?: string | null;
-  plan_revision?: number | null;
-  batch_id?: string | null;
-  dataset_version_id: string;
-  operation_id: string;
-  client_request_id: string | null;
-  state: RunStateName;
-  result_completeness: "none" | "partial" | "complete";
-  artifact_state: "pending" | "saving" | "complete" | "partial" | "failed" | "expired";
-  cleanup_state: "pending" | "running" | "complete" | "failed" | "not_required";
-  stop_requested: boolean;
-  stop_reason: string | null;
-  /** Why a queued run waits: CAPACITY_SLOTS, CAPACITY_CPU, CAPACITY_MEMORY, PROVIDER_LIMIT. */
-  queue_reason: string | null;
-  /** Last sign of life from the run's Runner process. */
-  heartbeat_at: string | null;
-  counts: RunCounts;
-  /** Headline statistics; null before any summary exists. */
-  scoring: RunScoring | null;
-  deletion: DeletionState | null;
-  dataset_version_deletion: DeletionState | null;
-  accepted_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  deadline_at: string;
-  allowed_actions: string[];
-  links: Record<string, string>;
-}
-
-export interface RunSnapshot {
-  schema_version: number;
-  effective: Record<string, unknown>;
-  provenance: Record<string, unknown>;
-  policy: Record<string, unknown>;
-  config_digest: string;
-  snapshot_digest: string;
-  comparison_digest: string;
-}
-
-export interface RunDetail extends Run {
-  snapshot: RunSnapshot;
-}
-
-export interface TrialResult {
-  raw_score: number | null;
-  reward_valid: boolean;
-  score: number | null;
-  failure_cause: string | null;
-  exception_type: string | null;
-  verifier_status: string | null;
-  policy_version: string;
-  attempt_id: string;
-}
-
-export interface AttemptStep {
-  /** starting, environment, agent, collecting or verifying */
-  step: string;
-  at: string;
-}
-
-export interface Attempt {
-  id: string;
-  attempt_index: number;
-  state: string;
-  phase: string | null;
-  /** Step start times; a step ends when the next one starts or the attempt ends. */
-  steps: AttemptStep[];
-  executor_ref: Record<string, unknown> | null;
-  started_at: string;
-  ended_at: string | null;
-  error: Record<string, unknown> | null;
-}
-
-export interface Trial {
-  id: string;
+export interface ExcludedTask {
   task_id: string;
   task_key: string;
-  repetition_index: number;
-  state:
-    | "queued"
-    | "preparing"
-    | "executing"
-    | "verifying"
-    | "scored"
-    | "execution_error"
-    | "not_started"
-    | "cancelled"
-    | "interrupted";
-  phase: string | null;
-  reason_code: string | null;
-  artifact_state: string;
-  artifact_counts: { available: number; failed: number; expired: number };
-  cleanup_state: string;
-  result: TrialResult | null;
-  attempts: Attempt[];
+  blockers: TaskBlocker[];
 }
 
-export interface Artifact {
-  id: string;
-  run_id: string;
-  trial_id: string | null;
-  attempt_id: string | null;
-  kind: string;
-  relative_path: string;
-  digest: string | null;
-  size_bytes: number | null;
-  status: "pending" | "available" | "failed" | "deleting" | "expired" | "unavailable" | "deleted";
-  /** e.g. RETENTION_EXPIRED, STORAGE_CONTENT_MISSING, DELETED. */
-  status_reason: string | null;
-  created_at: string;
-  /** Null until the trial ends; then trial end + retention. */
-  expires_at: string | null;
+export interface CacheObservation {
+  task_key: string;
+  cache_state: string;
+  action: string | null;
 }
 
-export interface ExportRequest {
-  run_ids: string[];
-  include_artifacts: boolean;
-  artifact_kinds: string[] | null;
-  task_keys: string[] | null;
+// Backend: effective_config, field_sources, the lists and request are dict[str, Any].
+export type ConfigResolution = Omit<
+  S["ConfigResolution"],
+  | "request"
+  | "effective_config"
+  | "field_sources"
+  | "baseline_differences"
+  | "excluded_tasks"
+  | "required_preparation"
+  | "cache_observations"
+  | "warnings"
+> & {
+  request: ConfigRequest;
+  effective_config:
+    | (Record<string, unknown> & {
+        tasks?: {
+          task_key: string;
+          cpus: number;
+          memory_mb: number;
+          agent_timeout_sec: number | null;
+        }[];
+        repetitions?: number;
+        concurrency?: number;
+        run_deadline_hours?: number;
+        parameters?: Record<string, { value?: string; credential_id?: string }>;
+        attachments?: EffectiveAttachment[];
+        bootstrap_timeout_sec?: number | null;
+      })
+    | null;
+  field_sources: Record<string, FieldSource>;
+  baseline_differences: { path: string; value: number; tasks_lower: number; tasks_higher: number }[];
+  excluded_tasks: ExcludedTask[];
+  required_preparation: { task_key: string; action: string; spec_digest: string }[];
+  cache_observations: CacheObservation[];
+  warnings: { code: string; path: string; message: string }[];
+};
+
+export type ModelProtocol = "openai-compatible" | "openai" | "anthropic";
+export type ModelConfig = S["ModelConfig"];
+
+export interface HarnessParameterSpec {
+  type: "string" | "integer" | "number" | "boolean";
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+  minimum?: number;
+  maximum?: number;
 }
 
-export interface Export {
-  id: string;
-  owner_id: string;
-  operation_id: string;
-  state: "queued" | "building" | "ready" | "failed" | "expired";
-  request: ExportRequest;
-  size_bytes: number | null;
-  digest: string | null;
-  /** runs, files, missing, warnings, artifact_bytes … */
-  summary: Record<string, unknown> | null;
-  error: Record<string, unknown> | null;
-  created_at: string;
-  finished_at: string | null;
-  expires_at: string | null;
-  links: Record<string, string>;
-}
+// Backend: parameter_schema is dict[str, Any] ({"parameters": {name: spec}}).
+export type Harness = Omit<S["Harness"], "parameter_schema"> & {
+  parameter_schema: { parameters: Record<string, HarnessParameterSpec> };
+};
+export type HarnessAdapter = S["HarnessAdapter"];
 
-export type RecycleObjectType =
-  | "run"
-  | "artifact"
-  | "dataset"
-  | "dataset_version"
-  | "credential"
-  | "user"
-  | "pat"
-  | "model_config"
-  | "harness_version";
+export type AttachmentFile = S["AttachmentFile"];
+/** A published attachment package (03 section 6); its content never changes. */
+export type Attachment = S["Attachment"];
 
-export interface RecycleEntry {
-  id: string;
-  object_type: RecycleObjectType;
-  object_id: string;
-  label: string;
-  owner_id: string | null;
-  owner_username: string | null;
-  state: "recycled" | "purged" | "restored";
-  deleted_by: string;
-  deleted_by_username: string | null;
-  deleted_at: string;
-  purged_by: string | null;
-  purged_at: string | null;
-  detail: Record<string, unknown>;
-}
+export type PolicySetting = S["PolicySetting"];
+export type TeamPolicy = S["TeamPolicy"];
 
-export interface AuditEvent {
-  id: string;
-  actor_user_id: string | null;
-  pat_id: string | null;
-  auth_channel: string | null;
-  action: string;
-  object_type: string | null;
-  object_id: string | null;
-  outcome: string;
-  detail: Record<string, unknown> | null;
-  request_id: string | null;
-  created_at: string;
-}
+// Backend: excluded_tasks and cache_observations are lists of dict[str, Any].
+export type RunAccepted = Omit<S["RunAccepted"], "excluded_tasks" | "cache_observations"> & {
+  excluded_tasks: ExcludedTask[];
+  cache_observations: CacheObservation[];
+};
 
-export interface Capabilities {
-  api_version: string;
-  service_version: string;
-  schema_revision: string;
-  features: Record<string, boolean>;
-  limits: Record<string, number>;
-  team_policy_revision: number;
-  auth: Record<string, unknown>;
-  actions: Record<string, Record<string, unknown>>;
-  execution: Record<string, unknown>;
-}
+export type RunScoring = S["RunScoring"];
+// Backend: passed is dict[str, Any].
+export type ScoringContract = S["ScoringContract"] & {
+  passed: { rule?: string; threshold?: number; [key: string]: unknown } | null;
+};
+export type TaskSummary = S["TaskSummary"];
+export type RunSummary = Omit<S["RunSummary"], "contract"> & { contract: ScoringContract };
+export type RunCounts = S["RunCounts"];
+export type Run = S["Run"];
+export type RunStateName = Run["state"];
+export type RunSnapshot = S["RunSnapshot"];
+export type RunDetail = S["RunDetail"];
 
-export interface CapacityOverview {
-  host: { slots: number; cpus: number; memory_mb: number };
-  in_use: { slots: number; cpus: number; memory_mb: number };
-  providers: { provider: string; max_concurrent_trials: number | null; in_use: number }[];
-}
+export type TrialResult = S["TrialResult"];
+export type AttemptStep = S["AttemptStep"];
+export type Attempt = S["Attempt"];
+export type Trial = S["Trial"];
+export type Artifact = S["Artifact"];
 
-export interface Health {
-  status: string;
-  accepting_runs?: boolean | null;
-  detail: Record<string, unknown>;
-}
+export type ExportRequest = S["ExportRequest"];
+export type Export = S["Export"];
+
+export type RecycleEntry = S["RecycleEntry"];
+export type RecycleObjectType = RecycleEntry["object_type"];
+export type AuditEvent = S["AuditEvent"];
+
+export type Capabilities = S["Capabilities"];
+export type CapacityOverview = S["CapacityOverview"];
+export type Health = S["Health"];

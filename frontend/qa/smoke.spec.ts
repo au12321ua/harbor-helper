@@ -3,10 +3,18 @@
 //   maestro --config <tmp>/config.toml serve --port 8431 --demo-executor
 //   MAESTRO_SETUP_TOKEN=<token> npm run test:ui
 // Never point this at a real team state: it creates an admin, runs, PATs and invitations.
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const token = process.env.MAESTRO_SETUP_TOKEN;
 const password = "smoke-password-123";
+const shots = process.env.MAESTRO_SHOTS ?? "/tmp";
+
+/** A link in the top navigation (pages also have their own links with the same names). */
+const nav = (page: Page, name: string) =>
+  page.locator("header").getByRole("link", { name, exact: true });
+/** A link in the administration sub-navigation. */
+const adminNav = (page: Page, name: string) =>
+  page.getByRole("navigation", { name: "管理" }).getByRole("link", { name, exact: true });
 
 
 
@@ -18,11 +26,11 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await page.getByLabel("管理员用户名").fill("admin");
   await page.getByLabel("密码").fill(password);
   await page.getByRole("button", { name: "创建管理员并登录" }).click();
-  await expect(page.getByRole("heading", { name: "运行" })).toBeVisible();
-  await expect(page.getByText("可受理运行")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
+  await expect(page.getByText("可受理运行").first()).toBeVisible();
 
   // Datasets: add a version from the (fake) source; first preparation admits its tasks.
-  await page.getByRole("link", { name: "数据集" }).click();
+  await nav(page, "数据集").click();
   await page.getByRole("button", { name: "从数据源添加版本" }).click();
   await page.getByLabel("作者 / 名称").fill("demo");
   await page.getByRole("button", { name: "搜索" }).click();
@@ -32,17 +40,16 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await expect(page.getByText("add-01")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("缓存就绪").first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("已准入 3 · 可提交 3")).toBeVisible({ timeout: 30_000 });
-  await page.screenshot({ path: `${process.env.MAESTRO_SHOTS ?? "/tmp"}/datasets.png`, fullPage: true });
+  await page.screenshot({ path: `${shots}/datasets.png`, fullPage: true });
   // Evicting a cache keeps the task submittable; the next run restores it.
   await page.getByRole("row", { name: /add-01/ }).getByRole("button", { name: "回收缓存" }).click();
   await expect(page.getByText("运行时恢复")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "add-01" }).click();
   await expect(page.getByText("作者参数")).toBeVisible();
-  await page.screenshot({ path: `${process.env.MAESTRO_SHOTS ?? "/tmp"}/datasets-cold.png`, fullPage: true });
+  await page.screenshot({ path: `${shots}/datasets-cold.png`, fullPage: true });
 
   // New run, explicit task selection.
-  await page.getByRole("link", { name: "运行", exact: true }).click();
-  await page.getByRole("link", { name: "新建运行" }).click();
+  await nav(page, "新建运行").click();
   await page.getByLabel("运行名称").fill("smoke run");
   await page.getByLabel("手动选择").check();
   await page.getByLabel("选择 add-01").check();
@@ -58,24 +65,45 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   for (const title of ["生命周期", "评分覆盖", "产物保存", "环境清理"]) {
     await expect(page.getByText(title, { exact: true })).toBeVisible();
   }
-  await expect(page.getByTestId("trial-row")).toHaveCount(2);
-  await page.getByTestId("trial-row").first().click();
-  await expect(page.getByText("第 1 次尝试").first()).toBeVisible();
-  await page.screenshot({ path: "/tmp/maestro-web-ui-results/run-detail.png", fullPage: true });
+  // The execution page (U-07): trials on the left, the selected trial's steps on the right;
+  // a step opens its log. The selected trial is kept in the URL.
+  const trials = page.getByTestId("trial-row");
+  await expect(trials).toHaveCount(2);
+  await trials.nth(1).click();
+  await expect(trials.nth(1)).toHaveAttribute("aria-current", "true");
+  await expect(page).toHaveURL(/[?&]trial=/);
+  const panel = page.getByTestId("trial-panel");
+  await expect(panel.getByText("第 1 次尝试")).toBeVisible();
+  await panel.getByRole("button", { name: /Agent/ }).first().click();
+  await expect(panel.getByTestId("step-log").first()).toBeVisible();
+  await page.screenshot({ path: `${shots}/run-execution.png`, fullPage: true });
+  const selectedUrl = page.url();
+  await page.reload();
+  await expect(page.getByTestId("trial-row").nth(1)).toHaveAttribute("aria-current", "true");
+  expect(page.url()).toBe(selectedUrl);
 
-  // Deep link reload.
+  // Deep link reload; the configuration snapshot is its own tab.
   await page.goto(runUrl);
-  await expect(page.getByText("配置快照")).toBeVisible();
+  await page.getByRole("tab", { name: "配置快照" }).click();
+  await expect(page.getByText("生效配置（effective）")).toBeVisible();
 
   // M6 results: summary card, per-task rows, artifact retention.
+  await page.getByRole("tab", { name: "结果汇总" }).click();
   const summary = page.getByTestId("result-summary");
   await expect(summary).toBeVisible();
   await expect(summary.getByText("平台默认")).toBeVisible();
   await expect(page.getByTestId("task-summary-row")).toHaveCount(2);
-  await page.screenshot({ path: "/tmp/maestro-web-ui-results/run-summary.png", fullPage: true });
+  await page.screenshot({ path: `${shots}/run-summary.png`, fullPage: true });
+
+  // The workbench: my recent runs with their score coverage, pending items, system status.
+  await nav(page, "工作台").click();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /smoke run/ }).first()).toBeVisible();
+  await expect(page.getByTestId("pending")).toBeVisible();
+  await page.screenshot({ path: `${shots}/workbench.png`, fullPage: true });
 
   // Run list score column: a mean always comes with its coverage.
-  await page.getByRole("link", { name: "运行", exact: true }).click();
+  await nav(page, "运行").click();
   await expect(page.getByTestId("score-coverage").first()).toContainText("已评分 ");
 
   // Export the run, wait for the archive, download it.
@@ -86,32 +114,43 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "下载" }).click();
   expect((await download).suggestedFilename()).toMatch(/\.zip$/);
-  await page.screenshot({ path: "/tmp/maestro-web-ui-results/exports.png", fullPage: true });
+  await page.screenshot({ path: `${shots}/exports.png`, fullPage: true });
 
 
-  // PAT shown once.
-  await page.getByRole("link", { name: "个人设置" }).click();
+  // PAT shown once; the SDK card tells how to use it.
+  await nav(page, "设置").click();
+  await expect(page.getByTestId("sdk-card")).toContainText("MaestroClient");
   await page.getByLabel("名称").fill("smoke pat");
   await page.getByRole("button", { name: "创建令牌" }).click();
   await expect(page.getByText("只显示一次")).toBeVisible();
   await expect(page.getByTestId("one-time-secret")).toBeVisible();
   await page.getByRole("button", { name: "我已保存，关闭" }).click();
   await expect(page.getByText("smoke pat")).toBeVisible();
+  await page.getByTestId("sdk-card").screenshot({ path: `${shots}/settings-sdk.png` });
 
-  // Admin pages.
-  await page.getByRole("link", { name: "管理" }).click();
+  // Admin pages: a sub-navigation, one URL per section.
+  await nav(page, "管理").click();
+  await expect(page).toHaveURL(/\/admin\/members$/);
   await expect(page.getByRole("cell", { name: "admin", exact: true }).first()).toBeVisible();
-  await page.getByRole("tab", { name: "凭据" }).click();
+  await adminNav(page, "凭据与主密钥").click();
   await page.getByLabel("名称").fill("smoke-key");
   await page.getByLabel("提供商").fill("fake");
   await page.getByLabel("值（只写）").fill("not-a-real-secret");
   await page.getByRole("button", { name: "添加凭据" }).click();
   await expect(page.getByRole("cell", { name: "smoke-key" })).toBeVisible();
-  await page.getByRole("tab", { name: "主密钥" }).click();
   await expect(page.getByText("代（generation）")).toBeVisible();
-  await page.getByRole("tab", { name: "审计" }).click();
+  await adminNav(page, "维护").click();
+  await expect(page.getByTestId("maintenance")).toContainText("进程存活");
+  await expect(page.getByTestId("maintenance").getByText("alive")).toBeVisible();
+  await page.screenshot({ path: `${shots}/admin-maintenance.png`, fullPage: true });
+  await adminNav(page, "数据集导入").click();
+  await expect(page.getByText("首次准备").first()).toBeVisible();
+  await adminNav(page, "审计").click();
   await expect(page.getByText("run.cancel").or(page.getByText("credential.create")).first()).toBeVisible();
-  await page.getByRole("tab", { name: "邀请" }).click();
+  await adminNav(page, "成员与邀请").click();
+  await expect(page.getByRole("heading", { name: "管理 · 成员与邀请" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成邀请链接" })).toBeVisible();
+  await page.screenshot({ path: `${shots}/admin-members.png`, fullPage: true });
   await page.getByRole("button", { name: "生成邀请链接" }).click();
   const link = (await page.getByTestId("one-time-secret").textContent())!;
   expect(link).toContain("/invite#");
@@ -124,9 +163,9 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await member.getByLabel("用户名").fill("alice");
   await member.getByLabel("密码").fill(password);
   await member.getByRole("button", { name: "创建账户并登录" }).click();
-  await expect(member.getByRole("heading", { name: "运行" })).toBeVisible();
+  await expect(member.getByRole("heading", { name: "工作台" })).toBeVisible();
   await expect(member.getByRole("link", { name: "管理" })).toHaveCount(0);
-  await expect(member.getByText("smoke run")).toBeVisible();
+  await expect(member.getByText("smoke run").first()).toBeVisible();
   await member.getByRole("button", { name: "退出" }).click();
   await expect(member.getByRole("heading", { name: "登录" })).toBeVisible();
   await other.close();
@@ -135,7 +174,7 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   // deleted again and purged (the prompt asks for the object id).
   const runId = runUrl.split("/").pop()!;
   page.on("dialog", (dialog) => void dialog.accept(dialog.type() === "prompt" ? runId : undefined));
-  await page.getByRole("link", { name: "个人设置" }).click();
+  await nav(page, "设置").click();
   const patRow = page.getByRole("row").filter({ hasText: "smoke pat" });
   await patRow.getByRole("button", { name: "撤销" }).click();
   await expect(patRow.getByText("已撤销")).toBeVisible();
@@ -144,8 +183,7 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await page.goto(runUrl);
   await page.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.getByText("该运行已删除，在回收站中")).toBeVisible();
-  await page.getByRole("link", { name: "管理" }).click();
-  await page.getByRole("tab", { name: "回收站" }).click();
+  await page.goto("/admin/recycle-bin");
   const runEntry = page.getByTestId("recycle-row").filter({ hasText: "smoke run" });
   await runEntry.getByRole("button", { name: "恢复" }).click();
   await expect(runEntry).toHaveCount(0);
@@ -153,13 +191,12 @@ test("setup, run, PAT, admin and invitation flow", async ({ page, browser }) => 
   await expect(page.getByText("该运行已删除，在回收站中")).toHaveCount(0);
   await page.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.getByText("该运行已删除，在回收站中")).toBeVisible();
-  await page.getByRole("link", { name: "管理" }).click();
-  await page.getByRole("tab", { name: "回收站" }).click();
+  await page.goto("/admin/recycle-bin");
   await runEntry.getByRole("button", { name: "彻底删除" }).click();
   await expect(runEntry).toHaveCount(0);
   await page.getByRole("button", { name: "删除回执" }).click();
   await expect(runEntry).toBeVisible();
-  await page.screenshot({ path: "/tmp/maestro-web-ui-results/recycle-receipts.png", fullPage: true });
+  await page.screenshot({ path: `${shots}/recycle-receipts.png`, fullPage: true });
 });
 
 // Score rendering rules with intercepted API responses (no backend state touched):
@@ -195,7 +232,6 @@ test("score and dimension rendering", async ({ page }) => {
     result, attempts: [{ id: `att_${key}`, attempt_index: 1, state: "failed", phase: "executing",
       steps: [], executor_ref: null,
       started_at: "2026-10-22T00:00:00Z", ended_at: "2026-10-22T00:00:01Z",
-      steps: [], executor_ref: null,
       error: { code: "AGENT_TIMEOUT", message: "agent timed out" } }],
   });
   const result = (score: number | null, cause: string | null) => ({
@@ -230,13 +266,14 @@ test("score and dimension rendering", async ({ page }) => {
   await page.goto("/runs/run_x");
   await expect(page.getByText("当前无法受理新运行")).toBeVisible();
   await expect(page.getByRole("link", { name: "管理" })).toHaveCount(0);
+  const scores = page.getByTestId("trial-score");
+  await expect(scores.nth(0)).toHaveText("0有效零分");
+  await expect(scores.nth(1)).toContainText("执行失败");
+  await expect(scores.nth(1)).toContainText("AGENT_TIMEOUT");
+  await expect(scores.nth(2)).toContainText("执行失败");
+  await expect(scores.nth(2)).toContainText("SETUP_FAILED");
+  await expect(scores.nth(3)).toContainText("缺评分");
   const rows = page.getByTestId("trial-row");
-  await expect(rows.nth(0).getByRole("cell").nth(4)).toHaveText("0有效零分");
-  await expect(rows.nth(1).getByRole("cell").nth(4)).toContainText("执行失败");
-  await expect(rows.nth(1).getByRole("cell").nth(4)).toContainText("AGENT_TIMEOUT");
-  await expect(rows.nth(2).getByRole("cell").nth(4)).toContainText("执行失败");
-  await expect(rows.nth(2).getByRole("cell").nth(4)).toContainText("SETUP_FAILED");
-  await expect(rows.nth(3).getByRole("cell").nth(4)).toContainText("缺评分");
   await expect(page.getByText("（已删除）")).toBeVisible();
   await expect(page.getByText("所用数据集版本已删除，在回收站中")).toBeVisible();
   await expect(page.getByRole("button", { name: "删除", exact: true })).toHaveCount(0);
@@ -256,9 +293,9 @@ test("rerun, plan and batch", async ({ page }) => {
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill(password);
   await page.getByRole("button", { name: "登录" }).click();
-  await expect(page.getByRole("heading", { name: "运行" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
 
-  await page.getByRole("link", { name: "新建运行" }).click();
+  await nav(page, "新建运行").click();
   await page.getByLabel("运行名称").fill("m5 source");
   await page.getByLabel(/^Oracle/).check();
   await page.getByLabel("把当前表单另存为方案").fill("smoke plan");
@@ -283,7 +320,7 @@ test("rerun, plan and batch", async ({ page }) => {
   await expect(page.getByLabel("运行名称")).toHaveValue("m5 source（修改）");
 
   // A plan, then two runs from it in one batch.
-  await page.getByRole("link", { name: "方案", exact: true }).click();
+  await nav(page, "方案").click();
   await expect(page.getByText("smoke plan")).toBeVisible();
   await page.getByRole("link", { name: "用它新建运行" }).click();
   await expect(page.getByLabel("选用方案")).not.toHaveValue("");
@@ -299,5 +336,5 @@ test("rerun, plan and batch", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "批次：smoke batch" })).toBeVisible();
   await expect(page.getByRole("link", { name: "batch one" })).toBeVisible();
   await expect(page.getByText("2 个运行：已结束 2")).toBeVisible({ timeout: 60_000 });
-  await page.screenshot({ path: `${process.env.MAESTRO_SHOTS ?? "/tmp"}/batch.png`, fullPage: true });
+  await page.screenshot({ path: `${shots}/batch.png`, fullPage: true });
 });

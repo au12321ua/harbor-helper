@@ -25,6 +25,7 @@
 | 公开契约 | `openapi/maestro-v1.json` | 由服务导出、受版本控制的 OpenAPI；网页类型与 SDK 模型都从它生成，服务在 `/capabilities` 报告它的摘要 |
 | 生成 | `tools/generate_clients.py` | 导出契约并生成 SDK 的 `models.py` 与 `_contract.py`；`--check` 只比较。网页类型在 `frontend/` 用 `npm run gen:api` / `check:api` |
 | Python SDK | `sdk/` | 单独的包 `maestro_sdk`（只依赖 httpx 与 pydantic）：生成的模型，以及手写的认证、幂等提交与重试、翻页、等待、核对摘要的下载（`client.py`）、错误类型（`errors.py`）。用法见 `sdk/README.md` |
+| Agent skill | `skills/maestro-sdk/SKILL.md` | 让 Agent 经 SDK 操作 Maestro 的工作流程与报告规则；提到的 SDK 调用由 `test_sdk.py` 核对 |
 
 ## 基线代码
 

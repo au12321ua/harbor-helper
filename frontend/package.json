@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "gen:api": "openapi-typescript ../openapi/maestro-v1.json --default-non-nullable false -o src/lib/schema.d.ts",
+    "check:api": "node scripts/check-api.mjs"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.16",
@@ -33,9 +35,15 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "openapi-typescript": "7.13.0",
     "oxlint": "^1.81.0",
     "prettier": "^3.9.9",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
+  },
+  "overrides": {
+    "openapi-typescript": {
+      "typescript": "$typescript"
+    }
   }
 }
