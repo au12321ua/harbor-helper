@@ -26,7 +26,8 @@
 | 生成 | `tools/generate_clients.py` | 导出契约并生成 SDK 的 `models.py` 与 `_contract.py`；`--check` 只比较。网页类型在 `frontend/` 用 `npm run gen:api` / `check:api` |
 | Python SDK | `sdk/` | 单独的包 `maestro_sdk`（只依赖 httpx 与 pydantic）：生成的模型，以及手写的认证、幂等提交与重试、翻页、等待、核对摘要的下载（`client.py`）、错误类型（`errors.py`）。用法见 `sdk/README.md` |
 | Agent skill | `skills/maestro-sdk/SKILL.md` | 让 Agent 经 SDK 操作 Maestro 的工作流程与报告规则；提到的 SDK 调用由 `test_sdk.py` 核对 |
+| CI 与检查 | `.gitea/workflows/verify.yml`、`tools/check_doc_links.py` | 每次推送运行 lint、契约与 SDK 模型漂移、Markdown 相对链接、不含 Docker / Hub / 模型的 pytest 与网页构建；命令见[开发交接](../HANDOFF.md)的验证入口 |
 
 ## 基线代码
 
-基线的 HTTP 服务、JSON 状态、CLI 与本机启动脚本已在 M2 删除（见 [14](../design/14-decisions.md) 的 M2 实施记录）；剩下的旧配置与安全模块、研究客户端 skill 与基线附件说明在 M7 删除。仓库里的 `configs/`、`examples/`、`images/` 仍是基线材料，M8 处理。需要参考时读 `9ff43b5`。
+基线的 HTTP 服务、JSON 状态、CLI 与本机启动脚本已在 M2 删除（见 [M2 实施记录](../design/records/m2-foundation.md)）；剩下的旧配置与安全模块、研究客户端 skill 与基线附件说明在 M7 删除。仓库里的 `configs/`、`examples/`、`images/` 仍是基线材料，M8 处理。需要参考时读 `9ff43b5`。

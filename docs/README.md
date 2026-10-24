@@ -1,6 +1,6 @@
 # 文档导航
 
-本分支（`feature/rewrite`）正在把项目按目标设计重写为 Maestro，入口是[重写目标设计](design/README.md)。文档描述设计、契约和可复用的操作，不记录进度。
+本分支（`feature/rewrite`）正在把项目按目标设计重写为 Maestro，入口是[重写目标设计](design/README.md)。文档描述设计、契约和可复用的操作；进度只在[开发交接](HANDOFF.md)中维护。
 
 ## 重写设计
 
@@ -8,6 +8,7 @@
 - [需求整理与审查](design/requirements-review.md)：需求基线（审计稿）。
 - [测试验收与实施计划](design/13-testing-plan.md)：重写路线、里程碑与验收场景。
 - [决策记录与需求追踪](design/14-decisions.md)：用户决定、待确认冲突、设计建议与待验证项。
+- [实施记录](design/records/README.md)：各里程碑实施时的原设计与实际做法、验证范围和未覆盖项，按记录时点保留。
 
 ## 代码
 
