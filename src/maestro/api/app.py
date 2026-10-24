@@ -11,7 +11,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.routing import APIRoute
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from maestro import __version__
@@ -52,6 +54,41 @@ def error_response(error: MaestroError, request_id: str) -> JSONResponse:
     )
 
 
+def operation_id(route: APIRoute) -> str:
+    # Handler names are the operation names the web client and the SDK see; keep them unique.
+    return route.name
+
+
+def public_openapi(app: FastAPI) -> dict:
+    """The generated document, corrected where FastAPI's defaults differ from the wire.
+
+    Every error, request-validation failures included, is the ErrorResponse envelope;
+    FastAPI would describe a 422 HTTPValidationError body that is never sent.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+    document = get_openapi(
+        title=app.title, version=app.version, routes=app.routes, servers=app.servers
+    )
+    schemas = document["components"]["schemas"]
+    for name in ("HTTPValidationError", "ValidationError"):
+        schemas.pop(name, None)
+    error = {
+        "description": "Structured error",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+    }
+    seen: set[str] = set()
+    for path in document["paths"].values():
+        for operation in path.values():
+            if operation["operationId"] in seen:
+                raise RuntimeError(f"duplicate operationId {operation['operationId']}")
+            seen.add(operation["operationId"])
+            operation["responses"].pop("422", None)
+            operation["responses"]["default"] = error
+    app.openapi_schema = document
+    return document
+
+
 def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -90,6 +127,7 @@ def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
         docs_url="/api/docs",
         redoc_url=None,
         openapi_url="/api/v1/openapi.json",
+        generate_unique_id_function=operation_id,
     )
     app.state.maestro = maestro
 
@@ -151,6 +189,7 @@ def create_app(maestro: Maestro, *, run_worker: bool = True) -> FastAPI:
 
     for router in routes.routers():
         app.include_router(router)
+    app.openapi = lambda: public_openapi(app)
 
     @app.get("/{path:path}", include_in_schema=False)
     async def web(path: str):

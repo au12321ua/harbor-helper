@@ -38,12 +38,12 @@ def readiness(request: Request) -> dict:
 
 
 @router.get("/health/live", response_model=Health, tags=["system"])
-def live():
+def health_live():
     return {"status": "alive"}
 
 
 @router.get("/health/ready", response_model=Health, tags=["system"])
-def ready(request: Request):
+def health_ready(request: Request):
     state = readiness(request)
     # No sensitive details here; the authenticated system-status carries them.
     return {"status": state["status"], "accepting_runs": state["accepting_runs"]}

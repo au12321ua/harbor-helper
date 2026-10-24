@@ -38,12 +38,12 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
 @router.get("/members", response_model=Envelope[list[User]])
-def members(request: Request, who: Principal = Depends(principal)):
+def list_members(request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).accounts.list_members(who))
 
 
 @router.post("/members/{user_id}/disable", response_model=Envelope[User])
-def disable(
+def disable_member(
     user_id: str, body: StatusChange, request: Request, who: Principal = Depends(principal)
 ):
     service = maestro(request).accounts
@@ -53,7 +53,9 @@ def disable(
 
 
 @router.post("/members/{user_id}/enable", response_model=Envelope[User])
-def enable(user_id: str, body: StatusChange, request: Request, who: Principal = Depends(principal)):
+def enable_member(
+    user_id: str, body: StatusChange, request: Request, who: Principal = Depends(principal)
+):
     service = maestro(request).accounts
     return ok(request, service.set_status(who, user_id, UserStatus.ACTIVE, body.expected_revision))
 
@@ -72,12 +74,14 @@ def password_reset(user_id: str, request: Request, who: Principal = Depends(prin
 
 
 @router.get("/invitations", response_model=Envelope[list[Invitation]])
-def invitations(request: Request, who: Principal = Depends(principal)):
+def list_invitations(request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).accounts.list_invitations(who))
 
 
 @router.post("/invitations", response_model=Envelope[IssuedInvitation], status_code=201)
-def invite(body: InvitationCreate, request: Request, who: Principal = Depends(principal)):
+def create_invitation(
+    body: InvitationCreate, request: Request, who: Principal = Depends(principal)
+):
     service = maestro(request).accounts
     return ok(request, service.create_invitation(who, Role(body.role), body.note, body.valid_hours))
 
@@ -88,7 +92,7 @@ def revoke_invitation(invitation_id: str, request: Request, who: Principal = Dep
 
 
 @router.get("/credentials", response_model=Envelope[list[Credential]])
-def credentials(request: Request, who: Principal = Depends(principal)):
+def list_credentials(request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).credentials.list(who))
 
 
@@ -130,17 +134,19 @@ def enable_credential(
 
 
 @router.get("/master-key", response_model=Envelope[MasterKeyStatus])
-def master_key(request: Request, who: Principal = Depends(principal)):
+def get_master_key(request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).credentials.master_status(who))
 
 
 @router.post("/master-key/rotations", response_model=Envelope[MasterKeyStatus])
-def rotate(body: MasterKeyRotation, request: Request, who: Principal = Depends(principal)):
+def rotate_master_key(
+    body: MasterKeyRotation, request: Request, who: Principal = Depends(principal)
+):
     return ok(request, maestro(request).credentials.rotate_master(who, body.expected_generation))
 
 
 @router.get("/audit-events", response_model=Envelope[list[AuditEvent]])
-def audit_events(
+def list_audit_events(
     request: Request,
     object_type: str | None = None,
     object_id: str | None = None,
@@ -160,7 +166,7 @@ def audit_events(
 
 
 @router.get("/capacity", response_model=Envelope[CapacityOverview])
-def capacity(request: Request, who: Principal = Depends(principal)):
+def get_capacity(request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).capacity.overview(who))
 
 
@@ -197,12 +203,12 @@ def delete_dataset_version(version_id: str, request: Request, who: Principal = D
 
 
 @router.delete("/pats/{pat_id}", response_model=Envelope[RecycleEntry])
-def delete_pat(pat_id: str, request: Request, who: Principal = Depends(principal)):
+def admin_delete_pat(pat_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).recycle.delete(who, "pat", pat_id))
 
 
 @router.get("/recycle-bin", response_model=Envelope[list[RecycleEntry]])
-def recycle_bin(
+def list_recycle_bin(
     request: Request,
     state: str = "recycled",
     object_type: ObjectType | None = None,
@@ -216,12 +222,14 @@ def recycle_bin(
 
 
 @router.post("/recycle-bin/{entry_id}/restore", response_model=Envelope[RecycleEntry])
-def restore(entry_id: str, request: Request, who: Principal = Depends(principal)):
+def restore_entry(entry_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).recycle.restore(who, entry_id))
 
 
 @router.post("/recycle-bin/{entry_id}/purge", response_model=Envelope[RecycleEntry])
-def purge(entry_id: str, body: PurgeRequest, request: Request, who: Principal = Depends(principal)):
+def purge_entry(
+    entry_id: str, body: PurgeRequest, request: Request, who: Principal = Depends(principal)
+):
     """Irreversible: removes content and files; the entry stays as the receipt."""
     service = maestro(request)
     return ok(request, service.recycle.purge(who, entry_id, body.confirm_object_id))
@@ -252,7 +260,7 @@ def first_preparation(
 @router.post(
     "/preparations/{preparation_id}/evict", response_model=Envelope[Operation], status_code=202
 )
-def evict(preparation_id: str, request: Request, who: Principal = Depends(principal)):
+def evict_preparation(preparation_id: str, request: Request, who: Principal = Depends(principal)):
     """Remove the local image; admission and the recoverable original stay."""
     return ok(request, maestro(request).datasets.request_eviction(who, preparation_id))
 

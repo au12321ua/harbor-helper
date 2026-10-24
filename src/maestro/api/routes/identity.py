@@ -47,7 +47,7 @@ def setup_status(request: Request):
 
 
 @router.post("/setup", response_model=Envelope[SessionInfo], status_code=201, tags=["setup"])
-def setup(body: SetupRequest, request: Request, response: Response):
+def complete_setup(body: SetupRequest, request: Request, response: Response):
     service = maestro(request)
     user, token = service.accounts.initialize_admin(
         body.setup_token, body.username, body.display_name, body.password, client_source(request)
@@ -99,7 +99,7 @@ def accept_invitation(body: InvitationAccept, request: Request, response: Respon
 
 
 @router.get("/me", response_model=Envelope[Me], tags=["me"])
-def me(request: Request, who: Principal = Depends(principal)):
+def get_me(request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).accounts.me(who))
 
 

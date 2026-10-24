@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/v1", tags=["runs"])
 
 
 @router.post("/run-batches/preview", response_model=Envelope[BatchPreview])
-def preview(body: BatchCreate, request: Request, who: Principal = Depends(principal)):
+def preview_batch(body: BatchCreate, request: Request, who: Principal = Depends(principal)):
     """Resolve every member without accepting or charging anything."""
     return ok(
         request, maestro(request).runs.preview_batch(who, body.model_dump(exclude_unset=True))
@@ -20,7 +20,7 @@ def preview(body: BatchCreate, request: Request, who: Principal = Depends(princi
 
 
 @router.post("/run-batches", response_model=Envelope[BatchAccepted], status_code=202)
-def submit(
+def submit_batch(
     body: BatchCreate,
     request: Request,
     idempotency_key: str = Header(alias="Idempotency-Key"),
@@ -42,7 +42,7 @@ def submit(
 
 
 @router.get("/run-batches", response_model=Envelope[list[Batch]])
-def batches(
+def list_batches(
     request: Request,
     owner_id: str | None = None,
     cursor: str | None = None,
@@ -54,12 +54,12 @@ def batches(
 
 
 @router.get("/run-batches/{batch_id}", response_model=Envelope[Batch])
-def batch(batch_id: str, request: Request, who: Principal = Depends(principal)):
+def get_batch(batch_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).runs.get_batch(who, batch_id))
 
 
 @router.post("/run-batches/{batch_id}/cancel", response_model=Envelope[Batch])
-def cancel(batch_id: str, request: Request, who: Principal = Depends(principal)):
+def cancel_batch(batch_id: str, request: Request, who: Principal = Depends(principal)):
     """Stops every member that has not ended; scored trials keep their results."""
     service = maestro(request)
     result = service.runs.cancel_batch(who, batch_id)

@@ -1,0 +1,114 @@
+"""Export the public OpenAPI document and regenerate the Python SDK models from it.
+
+    uv run python tools/generate_clients.py          # write openapi/maestro-v1.json and SDK models
+    uv run python tools/generate_clients.py --check  # fail if either is out of date
+
+The web client's types are generated from the same file in ``frontend/``
+(``npm run gen:api`` / ``npm run check:api``). Generated files are committed: a changed
+API that was not regenerated is a test failure, not a silent drift (13 F-20).
+"""
+
+import argparse
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+CONTRACT = ROOT / "openapi" / "maestro-v1.json"
+SDK_MODELS = ROOT / "sdk" / "src" / "maestro_sdk" / "models.py"
+HEADER = '''"""Generated from openapi/maestro-v1.json by tools/generate_clients.py. Do not edit.
+
+Every model allows fields it does not know, so a newer service adds fields without
+breaking an older SDK.
+"""
+'''
+
+
+def contract_text() -> str:
+    from maestro.api.openapi import document
+
+    return json.dumps(document(), indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+def without_titles(value):
+    """Pydantic puts a ``title`` on every property; the generator would copy them all."""
+    if isinstance(value, dict):
+        return {
+            k: without_titles(v)
+            for k, v in value.items()
+            if not (k == "title" and isinstance(v, str) and "properties" not in value)
+        }
+    if isinstance(value, list):
+        return [without_titles(v) for v in value]
+    return value
+
+
+def models_text(contract: str) -> str:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "openapi.json"
+        output = Path(tmp) / "models.py"
+        source.write_text(json.dumps(without_titles(json.loads(contract))))
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "datamodel_code_generator",
+                "--input",
+                str(source),
+                "--input-file-type",
+                "openapi",
+                "--output",
+                str(output),
+                "--output-model-type",
+                "pydantic_v2.BaseModel",
+                "--target-python-version",
+                "3.10",
+                "--use-annotated",
+                "--use-standard-collections",
+                "--use-union-operator",
+                "--field-constraints",
+                "--extra-fields",
+                "allow",
+                "--enum-field-as-literal",
+                "all",
+                "--use-schema-description",
+                "--disable-timestamp",
+                "--formatters",
+                "builtin",
+                "--custom-file-header",
+                HEADER,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [sys.executable, "-m", "ruff", "format", "--quiet", "--line-length", "100", output],
+            check=True,
+        )
+        return output.read_text()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--check", action="store_true", help="compare instead of writing")
+    args = parser.parse_args()
+    contract = contract_text()
+    expected = {CONTRACT: contract, SDK_MODELS: models_text(contract)}
+    stale = [p for p, text in expected.items() if not p.is_file() or p.read_text() != text]
+    if args.check:
+        for path in stale:
+            print(f"out of date: {path.relative_to(ROOT)}", file=sys.stderr)
+        if stale:
+            print("run: uv run python tools/generate_clients.py", file=sys.stderr)
+        return 1 if stale else 0
+    for path in stale:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(expected[path])
+        print(f"wrote {path.relative_to(ROOT)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

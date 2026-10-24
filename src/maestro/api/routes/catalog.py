@@ -25,12 +25,12 @@ router = APIRouter(prefix="/api/v1", tags=["catalog"])
 
 
 @router.get("/dataset-sources", response_model=Envelope[list[DatasetSource]])
-def sources(request: Request, _: Principal = Depends(principal)):
+def list_sources(request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).datasets.source_list())
 
 
 @router.get("/dataset-search", response_model=Envelope[list[SourceDataset]])
-async def search(
+async def search_source(
     request: Request,
     q: str,
     source_kind: str = "hub",
@@ -70,7 +70,7 @@ async def source_version(
 
 
 @router.get("/datasets", response_model=Envelope[list[Dataset]])
-def datasets(
+def list_datasets(
     request: Request,
     cursor: str | None = None,
     limit: int | None = None,
@@ -81,15 +81,15 @@ def datasets(
 
 
 @router.get("/dataset-versions/{version_id}", response_model=Envelope[DatasetVersionDetail])
-def version(version_id: str, request: Request, _: Principal = Depends(principal)):
+def get_dataset_version(version_id: str, request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).catalog.get_version(version_id))
 
 
 @router.get("/dataset-versions/{version_id}/tasks", response_model=Envelope[list[Task]])
-def tasks(version_id: str, request: Request, _: Principal = Depends(principal)):
+def list_tasks(version_id: str, request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).catalog.list_tasks(version_id))
 
 
 @router.get("/preparations/{preparation_id}", response_model=Envelope[Preparation])
-def preparation(preparation_id: str, request: Request, _: Principal = Depends(principal)):
+def get_preparation(preparation_id: str, request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).catalog.get_preparation(preparation_id))

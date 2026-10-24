@@ -22,7 +22,7 @@ ARCHIVE_TYPES = ("application/gzip", "application/x-tar", "application/zip")
 
 
 @router.get("/attachments", response_model=Envelope[list[Attachment]])
-def attachments(
+def list_attachments(
     request: Request,
     name: str | None = None,
     include_disabled: bool = True,
@@ -32,7 +32,7 @@ def attachments(
 
 
 @router.get("/attachments/{attachment_id}", response_model=Envelope[Attachment])
-def attachment(attachment_id: str, request: Request, who: Principal = Depends(principal)):
+def get_attachment(attachment_id: str, request: Request, who: Principal = Depends(principal)):
     """With the file list."""
     return ok(request, maestro(request).attachments.get(who, attachment_id))
 
@@ -52,7 +52,7 @@ def attachment(attachment_id: str, request: Request, who: Principal = Depends(pr
         }
     },
 )
-async def publish(request: Request, who: Principal = Depends(principal)):
+async def publish_attachment(request: Request, who: Principal = Depends(principal)):
     limit = limits.ATTACHMENT_UPLOAD_MAX_BYTES
     too_large = MaestroError("ATTACHMENT_TOO_LARGE", f"Packages are at most {limit} bytes", 413)
     declared = request.headers.get("content-length")

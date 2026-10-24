@@ -52,7 +52,7 @@ def attachment(name: str) -> str:
 
 
 @router.post("/runs", response_model=Envelope[RunAccepted], status_code=202, tags=["runs"])
-def submit(
+def submit_run(
     body: RunCreate,
     request: Request,
     idempotency_key: str = Header(alias="Idempotency-Key"),
@@ -119,7 +119,7 @@ def get_run(run_id: str, request: Request, who: Principal = Depends(principal)):
 
 
 @router.get("/runs/{run_id}/summary", response_model=Envelope[RunSummary], tags=["runs"])
-def summary(run_id: str, request: Request, _: Principal = Depends(principal)):
+def run_summary(run_id: str, request: Request, _: Principal = Depends(principal)):
     """Counts, coverage and statistics; web pages and exports use the same computation."""
     return ok(request, maestro(request).runs.summary(run_id))
 
@@ -131,7 +131,7 @@ def delete_run(run_id: str, request: Request, who: Principal = Depends(principal
 
 
 @router.get("/runs/{run_id}/trials", response_model=Envelope[list[Trial]], tags=["runs"])
-def trials(run_id: str, request: Request, _: Principal = Depends(principal)):
+def run_trials(run_id: str, request: Request, _: Principal = Depends(principal)):
     return ok(request, maestro(request).runs.trials(run_id))
 
 
@@ -165,7 +165,7 @@ def run_request(run_id: str, request: Request, who: Principal = Depends(principa
 
 
 @router.post("/runs/{run_id}/cancel", response_model=Envelope[Run], tags=["runs"])
-def cancel(run_id: str, request: Request, who: Principal = Depends(principal)):
+def cancel_run(run_id: str, request: Request, who: Principal = Depends(principal)):
     service = maestro(request)
     result = service.runs.cancel(who, run_id)
     if service.worker:
@@ -174,7 +174,7 @@ def cancel(run_id: str, request: Request, who: Principal = Depends(principal)):
 
 
 @router.get("/runs/{run_id}/artifacts", response_model=Envelope[list[Artifact]], tags=["artifacts"])
-def artifacts(
+def run_artifacts(
     run_id: str, request: Request, trial_id: str | None = None, _: Principal = Depends(principal)
 ):
     return ok(request, maestro(request).artifacts.for_run(run_id, trial_id))
@@ -185,7 +185,7 @@ def artifacts(
     tags=["artifacts"],
     responses={200: {"content": {"application/octet-stream": {}}}},
 )
-def download(
+def download_artifact(
     artifact_id: str,
     request: Request,
     offset: int = 0,
@@ -268,12 +268,12 @@ def download_export(export_id: str, request: Request, who: Principal = Depends(p
 
 
 @router.get("/operations/{operation_id}", response_model=Envelope[Operation], tags=["operations"])
-def operation(operation_id: str, request: Request, who: Principal = Depends(principal)):
+def get_operation(operation_id: str, request: Request, who: Principal = Depends(principal)):
     return ok(request, maestro(request).operations.get(operation_id, who))
 
 
 @router.get("/operations", response_model=Envelope[list[Operation]], tags=["operations"])
-def operations(
+def list_operations(
     request: Request,
     kind: str | None = None,
     owner_id: str | None = None,
